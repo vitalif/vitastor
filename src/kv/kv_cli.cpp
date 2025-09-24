@@ -309,8 +309,13 @@ struct kv_cli_list_t
 
     void flush()
     {
-        ::write(1, buf.data(), buf.size());
-        buf.resize(0);
+        size_t done = 0;
+        while (done < buf.size())
+        {
+            ssize_t res = ::write(1, buf.data()+done, buf.size()-done);
+            if (res > 0)
+                done += res;
+        }
     }
 };
 
