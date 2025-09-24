@@ -25,7 +25,10 @@ nfstime3 nfstime_from_str(const std::string & s)
             t.nseconds /= 10;
     }
     else
+    {
         t.seconds = stoull_full(s, 10);
+        t.nseconds = 0;
+    }
     return t;
 }
 
@@ -213,6 +216,51 @@ void nfs_kv_procs(nfs_client_t *self)
     }
 }
 
+void kv_fs_state_t::init_root_inode()
+{
+    kv_read_inode(proxy, KV_ROOT_INODE, [this](int res, const std::string & value, json11::Json attrs)
+    {
+        if (res == -ENOENT)
+        {
+            json11::Json root_inode = json11::Json::object{
+                { "type", "dir" },
+                { "mode", 0755 },
+                { "nlink", 2 },
+                { "uid", 0 },
+                { "gid", 0 },
+                { "size", 4096 },
+                { "mtime", nfstime_now_str() },
+                { "atime", nfstime_now_str() },
+                { "ctime", nfstime_now_str() },
+            };
+            
+            write_inode(KV_ROOT_INODE, root_inode, false, [](int res)
+            {
+                if (res == 0)
+                {
+                    if (fprintf(stderr, "Root inode created successfully\n") < 0) {}
+                }
+                else if (res == -EAGAIN)
+                {
+                    // Another process created the root inode concurrently - this is OK
+                    if (fprintf(stderr, "Root inode already exists (created by another process)\n") < 0) {}
+                }
+                else
+                {
+                    fprintf(stderr, "Failed to create root inode: %s (code %d)\n", strerror(-res), res);
+                }
+            }, [](int res, const std::string & value)
+            {
+                return res == -ENOENT;
+            });
+        }
+        else if (res != 0)
+        {
+            fprintf(stderr, "Error checking root inode: %s (code %d)\n", strerror(-res), res);
+        }
+    });
+}
+
 void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
 {
     this->proxy = proxy;
@@ -337,6 +385,8 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     }
     zero_block.resize(pool_block_size < 1048576 ? 1048576 : pool_block_size);
     scrap_block.resize(pool_block_size < 1048576 ? 1048576 : pool_block_size);
+
+    init_root_inode();
     touch_timer_id = proxy->epmgr->tfd->set_timer(touch_interval, true, [this](int){ touch_inodes(); });
 }
 

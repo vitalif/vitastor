@@ -38,6 +38,7 @@ static void nfs_kv_continue_read(nfs_kv_read_state *st, int state)
     else if (state == 2) goto resume_2;
     else if (state == 3) goto resume_3;
     else if (state == 4) goto resume_4;
+    else if (state == 5) goto resume_5;
     else
     {
         fprintf(stderr, "BUG: invalid state in nfs_kv_continue_read()");
@@ -183,6 +184,39 @@ resume_4:
             return;
         }
     }
+
+    if (st->ientry.is_null())
+    {
+        kv_read_inode(st->self->parent, st->ino, [st](int res, const std::string & value, json11::Json attrs)
+        {
+            st->res = res;
+            st->ientry = attrs;
+            nfs_kv_continue_read(st, 5);
+        }, st->allow_cache);
+        return;
+resume_5:
+        if (st->res < 0 || kv_map_type(st->ientry["type"].string_value()) != NF3REG)
+        {
+            auto cb = std::move(st->cb);
+            cb(st->res < 0 ? st->res : -EINVAL);
+            return;
+        }
+    }
+
+    if (st->offset >= st->ientry["size"].uint64_value())
+    {
+        st->size = 0;
+        st->eof = 1;
+        auto cb = std::move(st->cb);
+        cb(0);
+        return;
+    }
+
+    if (st->offset + st->size > st->ientry["size"].uint64_value())
+    {
+        st->eof = 1;
+        st->size = st->ientry["size"].uint64_value() - st->offset;
+    }
     st->aligned_offset = align_down(st->offset);
     st->aligned_size = align_up(st->offset+st->size) - st->aligned_offset;
     assert(!st->aligned_buf);
@@ -197,6 +231,20 @@ resume_4:
     st->op->callback = [st](cluster_op_t *op)
     {
         st->res = op->retval;
+        if (op->retval >= 0 && op->retval < (int64_t)st->aligned_size)
+        {
+            st->eof = 1;
+
+            uint64_t actual_read = op->retval;
+            if (actual_read <= st->offset - st->aligned_offset)
+            {
+                st->size = 0;
+            }
+            else
+            {
+                st->size = actual_read - (st->offset - st->aligned_offset);
+            }
+        }
         delete op;
         nfs_kv_continue_read(st, 3);
     };

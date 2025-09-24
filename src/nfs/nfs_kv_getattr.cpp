@@ -22,12 +22,6 @@ void kv_read_inode(nfs_proxy_t *proxy, uint64_t ino,
     auto key = kv_inode_key(ino);
     proxy->db->get(key, [=](int res, const std::string & value)
     {
-        if (ino == KV_ROOT_INODE && res == -ENOENT)
-        {
-            // Allow root inode to not exist
-            cb(0, "", json11::Json(json11::Json::object{ { "type", "dir" } }));
-            return;
-        }
         if (res < 0)
         {
             if (res != -ENOENT)
