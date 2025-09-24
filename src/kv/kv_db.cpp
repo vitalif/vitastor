@@ -630,7 +630,10 @@ uint64_t kv_db_t::alloc_block()
     {
         // Allow to reconfigure <max_allocate_blocks> online
         if (allocating_blocks.size() > max_allocate_blocks)
+        {
             allocating_blocks.erase(allocating_blocks.begin()+allocating_block_pos, allocating_blocks.begin()+allocating_block_pos+1);
+            allocating_block_pos = allocating_block_pos % allocating_blocks.size();
+        }
         else
             allocating_blocks[allocating_block_pos].offset = UINT64_MAX;
     }
