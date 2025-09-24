@@ -100,12 +100,14 @@ List images (only matching `<glob>` pattern(s) if passed).
 Options:
 
 ```
+--exact         Do not match glob patterns as names, select only exact name matches.
 -p|--pool POOL  Filter images by pool ID or name
 -l|--long       Also report allocated size and I/O statistics
 --del           Also include delete operation statistics
 --sort FIELD    Sort by specified field (name, size, used_size, <read|write|delete>_<iops|bps|lat|queue>)
 -r|--reverse    Sort in descending order
 -n|--count N    Only list first N items
+--tree          Show image snapshot/clone tree
 ```
 
 Example output:

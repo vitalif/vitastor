@@ -37,6 +37,7 @@ static const char* help_text =
     "  --sort FIELD    Sort by specified field (name, size, used_size, <read|write|delete>_<iops|bps|lat|queue>)\n"
     "  -r|--reverse    Sort in descending order\n"
     "  -n|--count N    Only list first N items\n"
+    "  --tree          Show image snapshot/clone tree\n"
     "\n"
     "vitastor-cli create -s|--size <size> [-p|--pool <id|name>] [--parent <parent_name>[@<snapshot>]] <name>\n"
     "  Create an image. You may use K/M/G/T suffixes for <size>. If --parent is specified,\n"
@@ -287,7 +288,7 @@ static json11::Json::object parse_args(int narg, const char *args[])
                 !strcmp(opt, "down-ok") || !strcmp(opt, "down_ok") ||
                 !strcmp(opt, "dry-run") || !strcmp(opt, "dry_run") ||
                 !strcmp(opt, "help") || !strcmp(opt, "all") ||
-                !strcmp(opt, "exact") || !strcmp(opt, "matching") ||
+                !strcmp(opt, "exact") || !strcmp(opt, "matching") || !strcmp(opt, "tree") ||
                 !strcmp(opt, "writers-stopped") || !strcmp(opt, "writers_stopped"))
             {
                 cfg[opt] = "1";

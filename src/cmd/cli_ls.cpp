@@ -19,6 +19,7 @@ struct image_lister_t
     std::set<std::string> only_names;
     bool reverse = false;
     bool exact = false;
+    bool tree = false;
     int max_count = 0;
     bool show_stats = false, show_delete = false;
 
@@ -77,6 +78,7 @@ struct image_lister_t
                     ? p_it->second.name : "";
                 item["parent_pool_id"] = (uint64_t)INODE_POOL(ic.second.parent_id);
                 item["parent_inode_num"] = INODE_NO_POOL(ic.second.parent_id);
+                item["parent_inode_id"] = ic.second.parent_id;
             }
             stats[ic.second.num] = item;
         }
@@ -245,6 +247,33 @@ resume_1:
         return list;
     }
 
+    json11::Json::array to_tree(const json11::Json::array & array)
+    {
+        std::map<uint64_t, json11::Json::array> children;
+        for (const auto & item: array)
+        {
+            uint64_t parent_id = item["parent_inode_id"].uint64_value();
+            children[parent_id].push_back(item);
+        }
+        json11::Json::array tree;
+        std::function<void(uint64_t, const std::string &)> add_children = [&](uint64_t parent_id, const std::string & prefix)
+        {
+            if (children.find(parent_id) != children.end())
+            {
+                for (size_t i = 0; i < children[parent_id].size(); i++)
+                {
+                    bool is_last = (i == children[parent_id].size()-1);
+                    json11::Json::object new_item = children[parent_id][i].object_items();
+                    new_item["name"] = prefix + (parent_id == 0 ? "" : (is_last ? "└─ " : "├─ ")) + new_item["name"].string_value();
+                    tree.push_back(new_item);
+                    add_children(new_item["inode_id"].uint64_value(), prefix + (parent_id == 0 ? "" : (is_last ? "   " : "│  ")));
+                }
+            }
+        };
+        add_children(0, "");
+        return tree;
+    }
+
     void loop()
     {
         if (state == 1)
@@ -375,7 +404,7 @@ resume_1:
             kv.second["ro"] = kv.second["deleted"].bool_value() ? "DEL" :
                 (kv.second["readonly"].bool_value() ? "RO" : "-");
         }
-        result.text = print_table(to_list(), cols, parent->color);
+        result.text = print_table(tree ? to_tree(to_list()) : to_list(), cols, parent->color);
         state = 100;
     }
 };
@@ -542,6 +571,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_ls(json11::Json cfg)
     auto lister = new image_lister_t();
     lister->parent = this;
     lister->exact = cfg["exact"].bool_value();
+    lister->tree = cfg["tree"].bool_value();
     lister->list_pool_id = cfg["pool"].uint64_value();
     lister->list_pool_name = lister->list_pool_id ? "" : cfg["pool"].as_string();
     lister->show_stats = cfg["long"].bool_value();
