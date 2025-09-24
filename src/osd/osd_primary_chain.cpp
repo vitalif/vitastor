@@ -341,7 +341,7 @@ std::vector<osd_chain_read_t> osd_t::collect_chained_read_requests(osd_op_t *cur
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     std::vector<osd_chain_read_t> chain_reads;
-    int stripe_count = (op_data->pg->scheme == POOL_SCHEME_REPLICATED ? 1 : op_data->pg->pg_size);
+    int stripe_count = (!op_data->pg || op_data->pg->scheme == POOL_SCHEME_REPLICATED ? 1 : op_data->pg->pg_size);
     memset(op_data->stripes[0].bmp_buf, 0, stripe_count * clean_entry_bitmap_size);
     uint8_t *global_bitmap = (uint8_t*)op_data->stripes[0].bmp_buf;
     // We always use at most 1 read request per layer
@@ -349,7 +349,7 @@ std::vector<osd_chain_read_t> osd_t::collect_chained_read_requests(osd_op_t *cur
     {
         uint8_t *part_bitmap = ((uint8_t*)op_data->snapshot_bitmaps) + chain_pos*stripe_count*clean_entry_bitmap_size;
         int start = !cur_op->req.rw.len ? 0 : (cur_op->req.rw.offset - op_data->oid.stripe)/bs_bitmap_granularity;
-        int end = !cur_op->req.rw.len ? op_data->pg->pg_data_size*clean_entry_bitmap_size*8 : start + cur_op->req.rw.len/bs_bitmap_granularity;
+        int end = !cur_op->req.rw.len ? (op_data->pg ? op_data->pg->pg_data_size : 1) * clean_entry_bitmap_size*8 : start + cur_op->req.rw.len/bs_bitmap_granularity;
         // Skip unneeded part in the beginning
         while (start < end && (
             ((global_bitmap[start>>3] >> (start&7)) & 1) ||
