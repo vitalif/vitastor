@@ -26,6 +26,7 @@
 
 #include "blockstore.h"
 #include "epoll_manager.h"
+#include "malloc_or_die.h"
 #include "json11/json11.hpp"
 #include "fio_headers.h"
 
@@ -37,6 +38,8 @@ struct bs_data
     /* The list of completed io_u structs. */
     std::vector<io_u*> completed;
     int op_n = 0, inflight = 0;
+    bool ec = false;
+    bool imm = true;
     bool last_sync = false;
     bool trace = false;
 };
@@ -45,6 +48,7 @@ struct bs_options
 {
     int __pad;
     char *json_config = NULL;
+    int ec = 0;
     int trace = 0;
 };
 
@@ -55,6 +59,16 @@ static struct fio_option options[] = {
         .type   = FIO_OPT_STR_STORE,
         .off1   = offsetof(struct bs_options, json_config),
         .help   = "JSON config for Blockstore",
+        .category = FIO_OPT_C_ENGINE,
+        .group  = FIO_OPT_G_FILENAME,
+    },
+    {
+        .name   = "ec",
+        .lname  = "Use EC write method",
+        .type   = FIO_OPT_BOOL,
+        .off1   = offsetof(struct bs_options, ec),
+        .help   = "Use EC write method",
+        .def    = "0",
         .category = FIO_OPT_C_ENGINE,
         .group  = FIO_OPT_G_FILENAME,
     },
@@ -88,6 +102,7 @@ static int bs_setup(struct thread_data *td)
         return 1;
     }
     td->io_ops_data = bsd;
+    bsd->ec = o->ec;
 
     if (!td->files_index)
     {
@@ -148,6 +163,8 @@ static int bs_init(struct thread_data *td)
     bsd->ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     bsd->epmgr = new epoll_manager_t(bsd->ringloop);
     bsd->bs = new blockstore_t(config, bsd->ringloop, bsd->epmgr->tfd);
+    bsd->imm = config.find("immediate_commit") == config.end() ||
+        config["immediate_commit"] == "all";
     while (1)
     {
         bsd->ringloop->loop();
@@ -203,7 +220,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         };
         break;
     case DDIR_WRITE:
-        op->opcode = BS_OP_WRITE_STABLE;
+        op->opcode = bsd->ec ? BS_OP_WRITE : BS_OP_WRITE_STABLE;
         op->buf = io->xfer_buf;
         op->oid = {
             .inode = 1,
@@ -212,16 +229,57 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->version = 0; // assign automatically
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
-        op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
+        if (bsd->ec)
         {
-            io->error = op->retval < 0 ? -op->retval : 0;
-            bs_data *bsd = (bs_data*)io->engine_data;
-            bsd->inflight--;
-            bsd->completed.push_back(io);
-            if (bsd->trace)
-                printf("--- OP_WRITE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
-            delete op;
-        };
+            op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
+            {
+                bs_data *bsd = (bs_data*)io->engine_data;
+                if (bsd->trace)
+                    printf("--- OP_WRITE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
+                if (op->retval < 0)
+                {
+                    io->error = op->retval < 0 ? -op->retval : 0;
+                    bsd->inflight--;
+                    bsd->completed.push_back(io);
+                    delete op;
+                }
+                else
+                {
+                    auto stab_op = new blockstore_op_t;
+                    stab_op->opcode = BS_OP_STABLE;
+                    stab_op->buf = malloc_or_die(sizeof(obj_ver_id));
+                    obj_ver_id *ver = (obj_ver_id *)stab_op->buf;
+                    ver[0].oid = op->oid;
+                    ver[0].version = op->version;
+                    stab_op->len = 1;
+                    stab_op->callback = [io, n](blockstore_op_t *op)
+                    {
+                        bs_data *bsd = (bs_data*)io->engine_data;
+                        if (bsd->trace)
+                            printf("--- OP_STABLE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
+                        io->error = op->retval < 0 ? -op->retval : 0;
+                        bsd->inflight--;
+                        bsd->completed.push_back(io);
+                        delete op;
+                    };
+                    bsd->bs->enqueue_op(stab_op);
+                    delete op;
+                }
+            };
+        }
+        else
+        {
+            op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
+            {
+                bs_data *bsd = (bs_data*)io->engine_data;
+                if (bsd->trace)
+                    printf("--- OP_WRITE_STABLE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
+                io->error = op->retval < 0 ? -op->retval : 0;
+                bsd->inflight--;
+                bsd->completed.push_back(io);
+                delete op;
+            };
+        }
         bsd->last_sync = false;
         break;
     case DDIR_SYNC:
