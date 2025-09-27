@@ -178,7 +178,7 @@ void blockstore_impl_t::prepare_journal_sector_write(int cur_sector, blockstore_
         // Caller must ensure availability of an SQE
         assert(sqe != NULL);
         ring_data_t *data = ((ring_data_t*)sqe->user_data);
-        journal.sector_info[cur_sector].written = true;
+        // <written> flag will be set at the moment of actual submission
         journal.sector_info[cur_sector].submit_id = ++journal.submit_id;
         assert(journal.submit_id != 0); // check overflow
         journal.submitting_sectors.push_back(cur_sector);
