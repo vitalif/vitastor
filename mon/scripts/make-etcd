@@ -52,7 +52,7 @@ async function run()
         process.exit(1);
     }
     const etcds = (config.etcd_address instanceof Array ? config.etcd_address : (''+config.etcd_address).split(/,/))
-        .map(s => (''+s).replace(/^https?:\/\/\[?|\]?(:\d+)?(\/.*)?$/g, '').toLowerCase());
+        .map(s => (''+s).replace(/^https?:\/\/|(:\d+)?(\/.*)?$/g, '').replace(/^\[(.*)\]$/, '$1').toLowerCase());
     const num = select_local_etcd(etcds);
     if (num < 0)
     {
