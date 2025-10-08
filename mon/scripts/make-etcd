@@ -59,8 +59,9 @@ async function run()
         console.log('No matching IPs in etcd_address from '+config_path);
         process.exit(0);
     }
+    const etcd_url = 'http://' + (etcds[num].indexOf(':') >= 0 ? '['+etcds[num]+']' : etcds[num]);
     const etcd_name = 'etcd'+etcds[num].replace(/[^0-9a-z_]/ig, '_');
-    const etcd_cluster = etcds.map(e => `etcd${e.replace(/[^0-9a-z_]/ig, '_')}=http://${e}:2380`).join(',');
+    const etcd_cluster = etcds.map(e => `etcd${e.replace(/[^0-9a-z_]/ig, '_')}=${etcd_url}:2380`).join(',');
     if (in_docker)
     {
         let etcd_conf = fs.readFileSync("/etc/vitastor/etcd.conf", { encoding: 'utf-8' });
@@ -83,8 +84,8 @@ Wants=network-online.target local-fs.target time-sync.target
 Restart=always
 Environment=GOGC=50
 ExecStart=etcd --name ${etcd_name} --data-dir /var/lib/etcd/vitastor \\
-    --snapshot-count 10000 --advertise-client-urls http://${etcds[num]}:2379 --listen-client-urls http://${etcds[num]}:2379 \\
-    --initial-advertise-peer-urls http://${etcds[num]}:2380 --listen-peer-urls http://${etcds[num]}:2380 \\
+    --snapshot-count 10000 --advertise-client-urls ${etcd_url}:2379 --listen-client-urls ${etcd_url}:2379 \\
+    --initial-advertise-peer-urls ${etcd_url}:2380 --listen-peer-urls ${etcd_url}:2380 \\
     --initial-cluster-token vitastor-etcd-1 --initial-cluster ${etcd_cluster} \\
     --initial-cluster-state new --max-txn-ops=100000 --max-request-bytes=104857600 \\
     --auto-compaction-retention=10 --auto-compaction-mode=revision
