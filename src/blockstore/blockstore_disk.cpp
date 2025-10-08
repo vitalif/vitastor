@@ -48,7 +48,6 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     disk_alignment = parse_size(config["disk_alignment"]);
     journal_block_size = parse_size(config["journal_block_size"]);
     meta_block_size = parse_size(config["meta_block_size"]);
-    meta_block_target_free_space = parse_size(config["meta_block_target_free_space"]);
     bitmap_granularity = parse_size(config["bitmap_granularity"]);
     meta_format = stoull_full(config["meta_format"]);
     atomic_write_size = (config.find("atomic_write_size") != config.end()
@@ -153,14 +152,6 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     else if (meta_block_size > MAX_DATA_BLOCK_SIZE)
     {
         throw std::runtime_error("meta_block_size must not exceed "+std::to_string(MAX_DATA_BLOCK_SIZE));
-    }
-    if (!meta_block_target_free_space)
-    {
-        meta_block_target_free_space = 800;
-    }
-    if (meta_block_target_free_space >= meta_block_size)
-    {
-        throw std::runtime_error("meta_block_target_free_space must not exceed "+std::to_string(meta_block_size));
     }
     if (data_offset % disk_alignment)
     {
@@ -275,8 +266,7 @@ void blockstore_disk_t::calc_lengths()
         ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
     if (meta_format == BLOCKSTORE_META_FORMAT_HEAP)
     {
-        uint32_t entries_per_block = ((meta_block_size-meta_block_target_free_space) /
-            (sizeof(heap_object_t) + sizeof(heap_write_t) + clean_dyn_size));
+        uint32_t entries_per_block = meta_block_size / (sizeof(heap_big_write_t) + clean_dyn_size);
         min_meta_len = (block_count+entries_per_block-1) / entries_per_block * meta_block_size;
     }
     else if (meta_format == BLOCKSTORE_META_FORMAT_V1)

@@ -36,8 +36,6 @@ struct blockstore_disk_t
     uint32_t meta_block_size = 4096;
     // Atomic write size of the data block device
     uint32_t atomic_write_size = 4096;
-    // Target free space in metadata blocks
-    uint32_t meta_block_target_free_space = 800;
     // Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple of disk_alignment
     uint32_t bitmap_granularity = 4096;
     // Data checksum type, BLOCKSTORE_CSUM_NONE or BLOCKSTORE_CSUM_CRC32C

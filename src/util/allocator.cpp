@@ -223,3 +223,12 @@ bool bitmap_check(void *bitmap, uint64_t start, uint64_t len, uint64_t bitmap_gr
     }
     return r;
 }
+
+void mem_or(void *res, const void *r2, size_t len)
+{
+    for (size_t i = 0; i < len; i++)
+    {
+        // Hope the compiler vectorizes this
+        ((uint8_t*)res)[i] = ((uint8_t*)res)[i] | ((uint8_t*)r2)[i];
+    }
+}

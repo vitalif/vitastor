@@ -1,4 +1,4 @@
-// Metadata storage version 3 ("heap")
+// Metadata storage version 3 ("lsm heap")
 // Copyright (c) Vitaliy Filippov, 2025+
 // License: VNPL-1.1 (see README.md for details)
 
@@ -16,115 +16,145 @@
 #define BS_HEAP_FREE_MVCC 1
 #define BS_HEAP_FREE_MAIN 2
 #define FREE_SPACE_BIT 0x8000
+#define GARBAGE_BIT ((uint64_t)1 << 63)
+#define META_ALLOC_LEVELS 8
 
 #define HEAP_INFLIGHT_DONE 1
 #define HEAP_INFLIGHT_COMPACTABLE 2
+#define HEAP_INFLIGHT_COMPACTED 4
+#define HEAP_INFLIGHT_GC 8
 
-#define MIN_ALLOC (sizeof(heap_object_t)+sizeof(heap_tombstone_t))
-
-static constexpr uint32_t heap_entry_type_pos = 4;
-
-heap_write_t *heap_write_t::next()
+uint64_t blockstore_heap_t::entry_pos(uint32_t block_num, uint32_t offset)
 {
-    return (next_pos ? (heap_write_t*)((uint8_t*)this + next_pos) : NULL);
+    return (uint64_t)block_num*dsk->meta_block_size + offset + 1;
 }
 
-uint32_t heap_write_t::get_size(blockstore_heap_t *heap)
+heap_entry_t *blockstore_heap_t::entry_from_pos(uint64_t entry_pos, bool allow_unallocated)
 {
-    if (type() == BS_HEAP_BIG_WRITE)
-    {
-        return sizeof(heap_big_write_t) + heap->dsk->clean_entry_bitmap_size*2 + get_csum_size(heap);
-    }
-    if (type() == BS_HEAP_TOMBSTONE)
-    {
-        return sizeof(heap_tombstone_t);
-    }
-    return sizeof(heap_small_write_t) + heap->dsk->clean_entry_bitmap_size + get_csum_size(heap);
+    entry_pos = entry_pos & ~GARBAGE_BIT;
+    if (!entry_pos)
+        return NULL;
+    uint32_t block_num = entry_pos / dsk->meta_block_size;
+    auto & inf = block_info[block_num];
+    if (!inf.data && allow_unallocated)
+        return NULL;
+    assert(inf.data != NULL);
+    return (heap_entry_t*)(inf.data + (entry_pos % dsk->meta_block_size) - 1);
 }
 
-uint32_t heap_write_t::get_csum_size(blockstore_heap_t *heap)
+heap_entry_t *blockstore_heap_t::prev(heap_entry_t *wr)
 {
-    if (!heap->dsk->csum_block_size)
+    // prev_pos = either <block_num * block_size + offset + 1> or <GARBAGE_BIT>
+    if (!(wr->prev_pos & ~GARBAGE_BIT))
     {
-        return (type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE ? 4 : 0);
+        return NULL;
     }
-    if (type() == BS_HEAP_TOMBSTONE)
+    return entry_from_pos(wr->prev_pos);
+}
+
+uint32_t blockstore_heap_t::get_simple_entry_size()
+{
+    return sizeof(heap_entry_t);
+}
+
+uint32_t blockstore_heap_t::get_big_entry_size()
+{
+    // We always store full checksums for "big" entries to prevent ENOSPC on compaction
+    // when (big_write+small_write) are smaller than (compacted big_write)
+    // However, we only use part of it related to offset..offset+len
+    return sizeof(heap_big_write_t) + dsk->clean_entry_bitmap_size*2 +
+        (!dsk->data_csum_type ? 0 : dsk->data_block_size/dsk->csum_block_size * (dsk->data_csum_type & 0xFF));
+}
+
+uint32_t blockstore_heap_t::get_small_entry_size(uint32_t offset, uint32_t len)
+{
+    return sizeof(heap_small_write_t) + dsk->clean_entry_bitmap_size +
+        (!dsk->data_csum_type ? 4 : (dsk->data_csum_type & 0xFF) *
+            ((offset+len+dsk->csum_block_size-1)/dsk->csum_block_size - offset/dsk->csum_block_size));
+}
+
+uint32_t blockstore_heap_t::get_csum_size(heap_entry_t *wr)
+{
+    if (wr->type() == BS_HEAP_SMALL_WRITE)
+    {
+        return get_csum_size(wr->type(), wr->small().offset, wr->small().len);
+    }
+    return get_csum_size(wr->type());
+}
+
+uint32_t blockstore_heap_t::get_csum_size(uint32_t entry_type, uint32_t offset, uint32_t len)
+{
+    if (!dsk->data_csum_type)
     {
         return 0;
     }
+    if ((entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ||
+        (entry_type & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE)
+    {
+        return ((dsk->data_csum_type & 0xFF) *
+            ((offset+len+dsk->csum_block_size-1)/dsk->csum_block_size - offset/dsk->csum_block_size));
+    }
+    else if ((entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+    {
+        return (dsk->data_block_size/dsk->csum_block_size * (dsk->data_csum_type & 0xFF));
+    }
+    return 0;
+}
+
+uint32_t heap_entry_t::get_size(blockstore_heap_t *heap)
+{
     if (type() == BS_HEAP_BIG_WRITE)
     {
-        // We always store full checksums for "big" entries to prevent ENOSPC on compaction
-        // when (big_write+small_write) are smaller than (compacted big_write)
-        // However, we only use part of it related to offset..offset+len
-        return heap->dsk->data_block_size/heap->dsk->csum_block_size * (heap->dsk->data_csum_type & 0xFF);
+        return heap->get_big_entry_size();
     }
-    return ((small().offset+small().len+heap->dsk->csum_block_size-1)/heap->dsk->csum_block_size - small().offset/heap->dsk->csum_block_size)
-        * (heap->dsk->data_csum_type & 0xFF);
-}
-
-bool heap_write_t::needs_recheck(blockstore_heap_t *heap)
-{
-    if (type() != BS_HEAP_SMALL_WRITE && type() != BS_HEAP_INTENT_WRITE)
+    if (type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE)
     {
-        return false;
+        return heap->get_small_entry_size(small().offset, small().len);
     }
-    return small().len > 0 && lsn > heap->compacted_lsn;
+    return heap->get_simple_entry_size();
 }
 
-bool heap_write_t::needs_compact(blockstore_heap_t *heap)
+bool heap_entry_t::is_overwrite()
 {
-    if (entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE))
-    {
-        return true;
-    }
-    else if (entry_type == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) && heap->dsk->csum_block_size > heap->dsk->bitmap_granularity)
-    {
-        return ((small().offset % heap->dsk->csum_block_size) || (small().len % heap->dsk->csum_block_size));
-    }
-    return false;
+    return (entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) || entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE));
 }
 
-bool heap_write_t::is_compacted(uint64_t compacted_lsn)
+bool heap_entry_t::is_compactable()
 {
-    return lsn <= compacted_lsn && (entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) || entry_type == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE));
+    return !is_overwrite() && (entry_type & BS_HEAP_STABLE) ||
+        entry_type == BS_HEAP_COMMIT || entry_type == BS_HEAP_ROLLBACK;
 }
 
-bool heap_write_t::can_be_collapsed(blockstore_heap_t *heap)
+bool heap_entry_t::is_garbage()
 {
-    if (type() == BS_HEAP_BIG_WRITE || type() == BS_HEAP_TOMBSTONE)
-    {
-        return false;
-    }
-    if (!heap->dsk->csum_block_size || heap->dsk->csum_block_size == heap->dsk->bitmap_granularity)
-    {
-        return true;
-    }
-    return !(small().offset % heap->dsk->csum_block_size) && !(small().len % heap->dsk->csum_block_size);
+    return (prev_pos & GARBAGE_BIT);
 }
 
-bool heap_write_t::is_allowed_before_compacted(uint64_t compacted_lsn, bool is_last_entry)
+bool heap_entry_t::is_before(heap_entry_t *other)
 {
-    return lsn <= compacted_lsn && (is_last_entry
-        ? (entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE))
-        : (entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) || entry_type == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE)));
+    return lsn < other->lsn || lsn == other->lsn && !is_overwrite() && other->is_overwrite();
 }
 
-uint8_t *heap_write_t::get_ext_bitmap(blockstore_heap_t *heap)
+void heap_entry_t::set_garbage()
 {
-    if (type() == BS_HEAP_TOMBSTONE)
+    prev_pos |= GARBAGE_BIT;
+}
+
+uint8_t *heap_entry_t::get_ext_bitmap(blockstore_heap_t *heap)
+{
+    if (type() == BS_HEAP_DELETE)
         return NULL;
     return ((uint8_t*)this + (type() == BS_HEAP_BIG_WRITE ? sizeof(heap_big_write_t) : sizeof(heap_small_write_t)));
 }
 
-uint8_t *heap_write_t::get_int_bitmap(blockstore_heap_t *heap)
+uint8_t *heap_entry_t::get_int_bitmap(blockstore_heap_t *heap)
 {
     if (type() != BS_HEAP_BIG_WRITE)
         return NULL;
     return ((uint8_t*)this + (type() == BS_HEAP_BIG_WRITE ? sizeof(heap_big_write_t) : sizeof(heap_small_write_t)) + heap->dsk->clean_entry_bitmap_size);
 }
 
-uint8_t *heap_write_t::get_checksums(blockstore_heap_t *heap)
+uint8_t *heap_entry_t::get_checksums(blockstore_heap_t *heap)
 {
     if (!heap->dsk->csum_block_size)
         return NULL;
@@ -135,7 +165,7 @@ uint8_t *heap_write_t::get_checksums(blockstore_heap_t *heap)
     return ((uint8_t*)this + sizeof(heap_big_write_t) + 2*heap->dsk->clean_entry_bitmap_size);
 }
 
-uint32_t *heap_write_t::get_checksum(blockstore_heap_t *heap)
+uint32_t *heap_entry_t::get_checksum(blockstore_heap_t *heap)
 {
     if (heap->dsk->csum_block_size ||
         type() != BS_HEAP_SMALL_WRITE && type() != BS_HEAP_INTENT_WRITE ||
@@ -146,32 +176,29 @@ uint32_t *heap_write_t::get_checksum(blockstore_heap_t *heap)
     return (uint32_t*)((uint8_t*)this + sizeof(heap_small_write_t) + heap->dsk->clean_entry_bitmap_size);
 }
 
-uint64_t heap_write_t::big_location(blockstore_heap_t *heap)
+uint64_t heap_entry_t::big_location(blockstore_heap_t *heap)
 {
     return ((uint64_t)big().block_num) * heap->dsk->data_block_size;
 }
 
-void heap_write_t::set_big_location(blockstore_heap_t *heap, uint64_t location)
+void heap_entry_t::set_big_location(blockstore_heap_t *heap, uint64_t location)
 {
     assert(!(location % heap->dsk->data_block_size));
     big().block_num = location / heap->dsk->data_block_size;
 }
 
-heap_write_t *heap_object_t::get_writes()
+uint32_t heap_entry_t::calc_crc32c()
 {
-    return (heap_write_t*)((uint8_t*)this + write_pos);
-}
-
-uint32_t heap_object_t::calc_crc32c()
-{
-    uint32_t old_crc32c = crc32c;
+    auto old_crc32c = crc32c;
+    auto old_prev_pos = prev_pos;
+    auto old_prev_count = prev_count;
     crc32c = 0;
-    uint32_t res = ::crc32c(0, (uint8_t*)this, sizeof(heap_object_t));
-    for (heap_write_t *wr = get_writes(); wr; wr = wr->next())
-    {
-        res = ::crc32c(res, (uint8_t*)wr, wr->size);
-    }
+    prev_pos = 0;
+    prev_count = 0;
+    uint32_t res = ::crc32c(0, (uint8_t*)this, size);
     crc32c = old_crc32c;
+    prev_pos = old_prev_pos;
+    prev_count = old_prev_count;
     return res;
 }
 
@@ -193,20 +220,15 @@ blockstore_heap_t::blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_are
     buffer_area(buffer_area),
     log_level(log_level),
     meta_block_count(dsk->meta_area_size/dsk->meta_block_size-1), // first block is the superblock
-    target_block_free_space(dsk->meta_block_target_free_space),
-    max_write_entry_size(sizeof(heap_small_write_t) + 2*dsk->clean_entry_bitmap_size +
-        (dsk->csum_block_size ? dsk->data_block_size/dsk->csum_block_size*(dsk->data_csum_type & 0xFF) : 4 /*sizeof crc32c*/))
+    big_entry_size(get_big_entry_size())
 {
-    assert(target_block_free_space < dsk->meta_block_size);
     assert(dsk->meta_block_size < 32768);
     assert(dsk->meta_area_size > 0);
     assert(dsk->journal_len > 0);
-    meta_alloc = new multilist_index_t(meta_block_count, 1 + dsk->meta_block_size/MIN_ALLOC, 0);
+    meta_alloc = new multilist_index_t(meta_block_count, META_ALLOC_LEVELS+1, 0);
     block_info.resize(meta_block_count);
     assert(dsk->block_count <= 0xFFFF0000);
     data_alloc = new allocator_t(dsk->block_count);
-    if (!target_block_free_space)
-        target_block_free_space = 800;
     buffer_alloc = new multilist_alloc_t(dsk->journal_len / dsk->bitmap_granularity, dsk->data_block_size / dsk->bitmap_granularity - 1);
 }
 
@@ -220,377 +242,155 @@ blockstore_heap_t::~blockstore_heap_t()
         }
     }
     block_info.clear();
-    for (auto & mvcc: object_mvcc)
-    {
-        if (mvcc.second.entry_copy)
-        {
-            free(mvcc.second.entry_copy);
-        }
-    }
     object_mvcc.clear();
     delete meta_alloc;
     delete data_alloc;
     delete buffer_alloc;
 }
 
-// set initially compacted lsn - should be done before loading
-void blockstore_heap_t::set_compacted_lsn(uint64_t compacted_lsn)
-{
-    assert(!next_lsn || next_lsn >= compacted_lsn);
-    this->compacted_lsn = compacted_lsn;
-}
-
-uint64_t blockstore_heap_t::get_compacted_lsn()
-{
-    return compacted_lsn;
-}
-
-struct verify_offset_t
-{
-    uint32_t start;
-    bool handled;
-};
-
-static uint32_t free_writes(heap_write_t *wr, heap_write_t *to)
-{
-    uint32_t freed = 0;
-    while (wr && wr != to)
-    {
-        auto next_wr = wr->next();
-        uint16_t size = wr->size;
-        memset((uint8_t*)wr, 0, size);
-        *((uint16_t*)wr) = FREE_SPACE_BIT | size;
-        freed += size;
-        wr = next_wr;
-    }
-    return freed;
-}
-
-// EASY PEASY LEMON SQUEEZIE
-void blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uint8_t *buf,
-    std::function<void(heap_object_t*)> handle_object, std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block)
+int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uint8_t *buf,
+    std::function<void(heap_entry_t*)> handle_write, std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block)
 {
     for (uint64_t buf_offset = 0; buf_offset < disk_size; buf_offset += dsk->meta_block_size)
     {
         uint32_t block_num = (disk_offset + buf_offset) / dsk->meta_block_size;
         assert(block_num < block_info.size());
         uint32_t block_offset = 0;
-        std::map<uint32_t, verify_offset_t> offsets_seen;
         while (block_offset <= dsk->meta_block_size-2)
         {
-            heap_write_t *skip_erase_wr = NULL, *skip_erase_to = NULL;
             uint8_t *data = buf + buf_offset + block_offset;
-            uint16_t & region_marker = *((uint16_t*)data);
-            if (!region_marker)
+            heap_entry_t *wr = (heap_entry_t*)data;
+            if (!wr->size)
             {
                 // Block or the rest of block is apparently empty
+                // FIXME: Prevent all-zero blocks
                 if (block_offset > 0)
                 {
-                    region_marker = FREE_SPACE_BIT | (dsk->meta_block_size - block_offset);
+                    wr->size = FREE_SPACE_BIT | (dsk->meta_block_size - block_offset);
                 }
                 break;
             }
-            if (region_marker & FREE_SPACE_BIT)
+            if ((wr->size & ~FREE_SPACE_BIT) > dsk->meta_block_size-block_offset)
+            {
+                fprintf(stderr, "Error: entry is too large in metadata block %u at %u (%u > max %u bytes). Metadata is corrupted, aborting\n",
+                    block_num, block_offset, (wr->size & ~FREE_SPACE_BIT), dsk->meta_block_size-block_offset);
+                return EDOM;
+            }
+            if (wr->size & FREE_SPACE_BIT)
             {
                 // Free space
-                block_offset += (region_marker & ~FREE_SPACE_BIT);
+                block_offset += (wr->size & ~FREE_SPACE_BIT);
                 continue;
             }
-            if (region_marker > dsk->meta_block_size-block_offset)
+            if ((wr->entry_type & BS_HEAP_TYPE) < BS_HEAP_BIG_WRITE ||
+                (wr->entry_type & BS_HEAP_TYPE) > BS_HEAP_ROLLBACK ||
+                (wr->entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)))
             {
-                fprintf(stderr, "Warning: Entry is too large in metadata block %u at %u (%u > max %u bytes), skipping the rest of block\n",
-                    block_num, block_offset, region_marker, dsk->meta_block_size-block_offset);
-                if (abort_on_corruption)
-                    abort();
-                if (block_offset > 0)
-                {
-                    memset(data, 0, dsk->meta_block_size-block_offset);
-                    region_marker = FREE_SPACE_BIT | (dsk->meta_block_size-block_offset);
-                }
-                break;
+                fprintf(stderr, "Error: entry has unknown type %u in metadata block %u at %u. Metadata is corrupted, aborting\n",
+                    wr->entry_type, block_num, block_offset);
+                return EDOM;
             }
-            const uint8_t entry_type = data[heap_entry_type_pos];
-            if (entry_type != BS_HEAP_OBJECT)
+            if (wr->size != wr->get_size(this))
             {
-                // Write entry (probably) (or garbage)
-                if ((entry_type & BS_HEAP_TYPE) < BS_HEAP_OBJECT ||
-                    (entry_type & BS_HEAP_TYPE) > BS_HEAP_INTENT_WRITE ||
-                    (entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)))
-                {
-                    fprintf(stderr, "Warning: Entry of unknown type %u in metadata block %u at %u, skipping\n",
-                        entry_type, block_num, block_offset);
-                }
-                auto offset_it = offsets_seen.find(block_offset+region_marker);
-                if (offset_it == offsets_seen.end())
-                {
-                    offsets_seen[block_offset+region_marker] = (verify_offset_t){ .start = block_offset, .handled = false };
-                }
-                block_offset += region_marker;
-                continue;
+                fprintf(stderr, "Error: entry %jx:%jx v%ju has invalid size in metadata block %u at %u (%u != expected %u bytes). Metadata is corrupted, aborting\n",
+                    wr->inode, wr->stripe, wr->version, block_num, block_offset, wr->size, wr->get_size(this));
+                return EDOM;
             }
-            if (region_marker != sizeof(heap_object_t))
+            // Verify crc
+            uint32_t expected_crc32c = wr->calc_crc32c();
+            if (wr->crc32c != expected_crc32c)
             {
-                fprintf(stderr, "Warning: Object entry has invalid size in metadata block %u at %u (%u != %ju bytes), skipping\n",
-                    block_num, block_offset, region_marker, sizeof(heap_object_t));
-skip_corrupted:
-                if (abort_on_corruption)
-                    abort();
-skip_object:
-                offsets_seen[block_offset+region_marker].handled = false;
-                for (auto wr = skip_erase_wr; wr && wr != skip_erase_to; wr = wr->next())
-                {
-                    uint32_t wr_pos = ((uint8_t*)wr - buf - buf_offset);
-                    offsets_seen[wr_pos+wr->size].handled = false;
-                }
-skip_unseen:
-                if (block_offset > 0 && region_marker > 0)
-                {
-                    if (region_marker >= 2)
-                        memset(data+2, 0, region_marker-2);
-                    region_marker |= FREE_SPACE_BIT;
-                }
-                block_offset += (region_marker & ~FREE_SPACE_BIT);
-                continue;
+                fprintf(stderr, "Error: entry %jx:%jx v%ju in metadata block %u at %u is corrupt (crc32c mismatch: expected %08x, got %08x). Metadata is corrupted, aborting\n",
+                    wr->inode, wr->stripe, wr->version,
+                    block_num, block_offset, expected_crc32c, wr->crc32c);
+                return EDOM;
             }
-            heap_object_t *obj = (heap_object_t *)data;
-            {
-                auto offset_it = offsets_seen.upper_bound(block_offset);
-                if (offset_it != offsets_seen.end() && offset_it->second.start < block_offset+region_marker && offset_it->second.handled)
-                {
-                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u intersects with a write entry, skipping\n",
-                        obj->inode, obj->stripe, block_num, block_offset);
-                    if (abort_on_corruption)
-                        abort();
-                    goto skip_unseen;
-                }
-                offsets_seen[block_offset+region_marker] = (verify_offset_t){ .start = block_offset, .handled = true };
-            }
-            if (!obj->write_pos)
-            {
-                fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u does not contain writes, skipping\n",
-                    obj->inode, obj->stripe, block_num, block_offset);
-                if (abort_on_corruption)
-                    abort();
-                goto skip_unseen;
-            }
-            // Verify write chain
-            if (obj->write_pos < -(int16_t)block_offset || obj->write_pos > (int16_t)(dsk->meta_block_size-block_offset-sizeof(heap_small_write_t)))
-            {
-                fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u write offset (%d) exceeds block boundaries, skipping object\n",
-                    obj->inode, obj->stripe, block_num, block_offset, obj->write_pos);
-                goto skip_corrupted;
-            }
-            if (obj->write_pos < 0 && obj->write_pos > -sizeof(heap_small_write_t) ||
-                obj->write_pos > 0 && obj->write_pos < sizeof(heap_object_t))
-            {
-                fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u write offset (%d) intersects the object itself, skipping object\n",
-                    obj->inode, obj->stripe, block_num, block_offset, obj->write_pos);
-                goto skip_corrupted;
-            }
-            uint32_t wr_i = 0;
-            skip_erase_wr = obj->get_writes();
-            for (auto wr = obj->get_writes(); wr; wr = wr->next(), wr_i++)
-            {
-                uint32_t wr_pos = ((uint8_t*)wr - buf - buf_offset);
-                if ((wr->entry_type & BS_HEAP_TYPE) < BS_HEAP_SMALL_WRITE ||
-                    (wr->entry_type & BS_HEAP_TYPE) > BS_HEAP_INTENT_WRITE ||
-                    (wr->entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)))
-                {
-                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u list entry #%u at %u type %u is invalid, skipping object\n",
-                        obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, entry_type);
-                    goto skip_corrupted;
-                }
-                if (wr->size != wr->get_size(this))
-                {
-                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u list entry #%u at %u size is invalid: %u instead of %u, skipping object\n",
-                        obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, wr->size, wr->get_size(this));
-                    goto skip_corrupted;
-                }
-                auto offset_it = offsets_seen.upper_bound(wr_pos);
-                if (offset_it != offsets_seen.end() && offset_it->second.start < wr_pos+wr->size && offset_it->second.handled)
-                {
-                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u list entry #%u (%u..%u) intersects with other entries (%u..%u) or is double-claimed, skipping object\n",
-                        obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, wr_pos+wr->size, offset_it->second.start, offset_it->first);
-                    goto skip_corrupted;
-                }
-                if (wr->next_pos < -(int16_t)wr_pos || wr->next_pos > (int16_t)(dsk->meta_block_size - wr_pos))
-                {
-                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u list entry #%u at %u next item offset (%d) exceeds block boundaries, skipping object\n",
-                        obj->inode, obj->stripe, block_num, block_offset, wr_i, wr_pos, wr->next_pos);
-                    goto skip_corrupted;
-                }
-                offsets_seen[wr_pos+wr->size] = (verify_offset_t){ .start = wr_pos, .handled = true };
-                skip_erase_to = wr->next();
-            }
-            // Check for duplicates
-            auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
-            uint32_t dup_block;
-            heap_object_t *dup_obj = read_entry(oid, &dup_block);
-            if (dup_obj != NULL)
-            {
-                uint64_t lsn = 0;
-                for (auto wr = obj->get_writes(); wr; wr = wr->next())
-                {
-                    lsn = lsn < wr->lsn ? wr->lsn : lsn;
-                }
-                uint64_t dup_lsn = 0;
-                for (auto wr = dup_obj->get_writes(); wr; wr = wr->next())
-                {
-                    dup_lsn = dup_lsn < wr->lsn ? wr->lsn : dup_lsn;
-                }
-                if (dup_lsn >= lsn)
-                {
-                    // Object is duplicated on disk
-                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u is an older duplicate (lsn %lu <= %lu), skipping\n",
-                        obj->inode, obj->stripe, block_num, block_offset, dup_lsn, lsn);
-                    goto skip_object;
-                }
-                else
-                {
-                    fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u is a newer duplicate (lsn %lu < %lu), overriding\n",
-                        obj->inode, obj->stripe, block_num, block_offset, dup_lsn, lsn);
-                    init_erase(dup_block, dup_obj);
-                }
-            }
-            // Verify checksums
-            uint32_t expected_crc32c = obj->calc_crc32c();
-            if (obj->crc32c != expected_crc32c)
-            {
-                fprintf(stderr, "Warning: Object %jx:%jx in metadata block %u at %u is corrupt (crc32c mismatch: expected %08x, got %08x), skipping\n",
-                    obj->inode, obj->stripe, block_num, block_offset, expected_crc32c, obj->crc32c);
-                goto skip_corrupted;
-            }
-            bool to_recheck = false, to_compact = true;
-            heap_write_t *remove_wr = NULL;
-            uint32_t remove_i = 0;
-            wr_i = 0;
-            for (auto wr = obj->get_writes(); wr; wr = wr->next(), wr_i++)
-            {
-                if (wr->is_compacted(this->compacted_lsn))
-                {
-                    to_compact = true;
-                    continue;
-                }
-                if (wr->type() == BS_HEAP_SMALL_WRITE &&
-                    !is_buffer_area_free(wr->small().location, wr->small().len))
-                {
-                    fprintf(stderr, "Error: write %jx:%jx v%lu (l%lu) buffered data overlaps with other writes, skipping object\n",
-                        obj->inode, obj->stripe, wr->version, wr->lsn);
-                    if (abort_on_overlap)
-                        abort();
-                    goto skip_object;
-                }
-                if (wr->type() == BS_HEAP_BIG_WRITE && is_data_used(wr->big_location(this)))
-                {
-                    fprintf(stderr, "Error: write %jx:%jx v%lu (l%lu) data overlaps with other writes, skipping object\n",
-                        obj->inode, obj->stripe, wr->version, wr->lsn);
-                    if (abort_on_overlap)
-                        abort();
-                    goto skip_object;
-                }
-                if (wr->needs_recheck(this))
-                {
-                    if (!buffer_area || wr->type() == BS_HEAP_INTENT_WRITE)
-                    {
-                        to_recheck = true;
-                    }
-                    // recheck small write data immediately
-                    else if (!calc_checksums(wr, buffer_area + wr->small().location, false))
-                    {
-                        // entry is invalid (not fully written before OSD crash) - remove it and all newer (previous) entries too
-                        if (wr->type() == BS_HEAP_INTENT_WRITE &&
-                            wr->next() && wr->next()->type() == BS_HEAP_BIG_WRITE &&
-                            wr->next()->version == wr->version)
-                        {
-                            // BIG_WRITE+INTENT_WRITE pair
-                            wr = wr->next();
-                            wr_i++;
-                        }
-                        remove_wr = wr;
-                        remove_i = wr_i;
-                    }
-                }
-            }
-            if (remove_wr)
-            {
-                if (!remove_wr->next_pos)
-                {
-                    // Skip the whole object
-                    fprintf(stderr, "Notice: the whole object %jx:%jx only has unfinished writes, rolling back\n",
-                        obj->inode, obj->stripe);
-                    goto skip_object;
-                }
-                if (log_level > 3)
-                {
-                    fprintf(stderr, "Notice: %u unfinished writes to %jx:%jx v%jx since lsn %ju, rolling back\n",
-                        remove_i+1, obj->inode, obj->stripe, obj->get_writes()->version, remove_wr->lsn);
-                }
-                auto next_wr = remove_wr->next();
-                free_writes(obj->get_writes(), next_wr);
-                obj->write_pos = next_wr ? (uint8_t*)next_wr - (uint8_t*)obj : NULL;
-                obj->crc32c = obj->calc_crc32c();
-            }
-            if (to_compact)
-            {
-                compact_object_to(obj, compacted_lsn, NULL, false);
-            }
-            if (to_recheck)
-            {
-                recheck_queue.push_back(oid);
-            }
-            handle_object(obj);
-            block_offset += obj->size;
-        }
-        for (auto & op: offsets_seen)
-        {
-            if (!op.second.handled)
-            {
-                uint16_t & region_marker = *(uint16_t*)(buf + buf_offset + op.second.start);
-                region_marker |= FREE_SPACE_BIT;
-            }
+            handle_write(wr);
+            block_offset += wr->size;
         }
         handle_block(block_num, block_offset, buf+buf_offset);
     }
+    return 0;
 }
 
-uint64_t blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf)
+int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf, uint64_t &entries_loaded)
 {
-    uint64_t entries_loaded = 0;
+    entries_loaded = 0;
     uint32_t used_space = 0;
-    read_blocks(disk_offset, size, buf, [&](heap_object_t *obj)
+    uint32_t garbage_space = 0;
+    return read_blocks(disk_offset, size, buf, [&](heap_entry_t *wr)
     {
-        // Allocate space
-        used_space += obj->size;
-        uint32_t wr_i = 0;
-        for (auto wr = obj->get_writes(); wr; wr = wr->next(), wr_i++)
+        if (wr->lsn > next_lsn)
         {
-            used_space += wr->size;
-            if (wr->type() == BS_HEAP_SMALL_WRITE)
+            next_lsn = wr->lsn;
+        }
+        entries_loaded++;
+        auto & inode_idx = block_index[get_pg_id(wr->inode, wr->stripe)][wr->inode];
+        auto obj_it = inode_idx.find(wr->stripe);
+        const uint64_t wr_pos = (uint8_t*)wr - buf + disk_offset + 1;
+        if (obj_it == inode_idx.end())
+        {
+            inode_idx[wr->stripe] = wr_pos;
+        }
+        else
+        {
+            auto & idx = inode_idx[wr->stripe];
+            auto prev_wr = (idx - idx % dsk->meta_block_size) == disk_offset
+                ? (heap_entry_t*)(buf + (idx % dsk->meta_block_size) - 1)
+                : entry_from_pos(idx, true);
+            if (!prev_wr || prev_wr->is_before(wr))
             {
-                use_buffer_area(obj->inode, wr->small().location, wr->small().len);
+                if (wr->is_overwrite())
+                {
+                    // Mark all previous entries as garbage
+                    while (prev_wr)
+                    {
+                        auto prev_prev = entry_from_pos(prev_wr->prev_pos, true);
+                        if (!prev_prev)
+                            break;
+                        prev_wr->prev_pos = 0;
+                        prev_wr->set_garbage();
+                        prev_wr = prev_prev;
+                    }
+                    wr->prev_pos = 0;
+                }
+                else
+                {
+                    wr->prev_pos = idx;
+                }
+                // Insert <wr> on top
+                idx = wr_pos;
             }
-            else if (wr->type() == BS_HEAP_BIG_WRITE)
+            else
             {
-                // Mark data block as used
-                use_data(obj->inode, wr->big_location(this));
-            }
-            if (wr->lsn > this->compacted_lsn)
-            {
-                tmp_compact_queue.push_back((tmp_compact_item_t){
-                    .oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe },
-                    .lsn = wr->lsn,
-                    .compact = wr->needs_compact(this),
-                });
-            }
-            if (wr->lsn > next_lsn)
-            {
-                next_lsn = wr->lsn;
+                while (true)
+                {
+                    auto prev_prev = entry_from_pos(prev_wr->prev_pos, true);
+                    if (!prev_prev || prev_prev->is_before(wr))
+                    {
+                        break;
+                    }
+                    prev_wr = prev_prev;
+                }
+                if (prev_wr->is_overwrite())
+                {
+                    // Mark <wr> as garbage
+                    wr->prev_pos = 0;
+                    wr->set_garbage();
+                }
+                else
+                {
+                    // Insert <wr> before <prev_wr>
+                    wr->prev_pos = prev_wr->prev_pos;
+                    prev_wr->prev_pos = wr_pos;
+                }
             }
         }
-        // maps anyway store std::pair<ui64, ui32>'s of 16 bytes size
-        // so we can store block_offset in it too
-        block_index[get_pg_id(obj->inode, obj->stripe)][obj->inode][obj->stripe] = (uint8_t*)obj - buf + disk_offset;
-        entries_loaded += wr_i;
+        used_space += wr->size;
+        if (wr->is_garbage())
+        {
+            garbage_space += wr->size;
+        }
     }, [&](uint32_t block_num, uint32_t last_offset, uint8_t *buf)
     {
         uint8_t *copy = NULL;
@@ -601,54 +401,219 @@ uint64_t blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uin
             memcpy(copy, buf, last_offset);
             memset(copy+last_offset, 0, dsk->meta_block_size-last_offset);
             if (last_offset <= dsk->meta_block_size-2)
+            {
                 *(uint16_t*)(copy+last_offset) = FREE_SPACE_BIT | (dsk->meta_block_size-last_offset);
+            }
         }
         block_info[block_num] = {
-            .used_space = 0,
             .data = copy,
         };
-        if (used_space > 0)
+        modify_alloc(block_num, [&](heap_block_info_t & inf)
         {
-            add_used_space(block_num, used_space);
-        }
+            inf.used_space = used_space;
+            inf.garbage_space = garbage_space;
+        });
         used_space = 0;
+        garbage_space = 0;
     });
-    return entries_loaded;
+}
+
+void blockstore_heap_t::fill_recheck_queue()
+{
+    for (auto & pgp: block_index)
+    {
+        for (auto & ip: pgp.second)
+        {
+            for (auto & op: ip.second)
+            {
+                auto wr = entry_from_pos(op.second);
+                bool prev_intent = false;
+                while (wr)
+                {
+                    if ((wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE && !prev_intent) && wr->small().len > 0)
+                    {
+                        recheck_queue.push_back(wr);
+                    }
+                    prev_intent = wr->type() == BS_HEAP_INTENT_WRITE;
+                    wr = prev(wr);
+                }
+            }
+        }
+    }
+}
+
+void blockstore_heap_t::mark_used_blocks()
+{
+    for (auto & pgp: block_index)
+    {
+        for (auto & ip: pgp.second)
+        {
+            for (auto & op: ip.second)
+            {
+                bool added = false;
+                auto wr = entry_from_pos(op.second);
+                while (wr)
+                {
+                    if (wr->type() == BS_HEAP_SMALL_WRITE)
+                    {
+                        use_buffer_area(wr->inode, wr->small().location, wr->small().len);
+                    }
+                    else if (wr->type() == BS_HEAP_BIG_WRITE)
+                    {
+                        use_data(wr->inode, wr->big_location(this));
+                    }
+                    if (wr->is_compactable() && !added)
+                    {
+                        compact_queue.push_back((object_id){ .inode = wr->inode, .stripe = wr->stripe });
+                        added = true;
+                    }
+                    wr = prev(wr);
+                }
+            }
+        }
+    }
+}
+
+void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
+{
+    if (cwr->size & FREE_SPACE_BIT)
+    {
+        // Already freed
+        return;
+    }
+    if (!calc_checksums(cwr, buf, false))
+    {
+        // write entry is invalid, erase it and all newer entries
+        auto & inode_idx = block_index[get_pg_id(cwr->inode, cwr->stripe)][cwr->inode];
+        auto wr_pos = inode_idx[cwr->stripe];
+        auto wr = entry_from_pos(wr_pos);
+        int rolled_back = 0;
+        auto free_entry = [&]()
+        {
+            uint32_t block_num = wr_pos / dsk->meta_block_size;
+            auto prev_pos = wr->prev_pos;
+            auto wr_size = wr->size;
+            memset(wr, 0, wr_size);
+            wr->size = wr_size | FREE_SPACE_BIT;
+            modify_alloc(block_num, [&](heap_block_info_t & inf)
+            {
+                inf.used_space -= wr_size;
+            });
+            recheck_modified_blocks.insert(block_num);
+            wr_pos = prev_pos;
+            wr = !wr_pos ? NULL : entry_from_pos(wr_pos);
+            rolled_back++;
+        };
+        while (wr && wr != cwr)
+        {
+            free_entry();
+        }
+        assert(wr == cwr);
+        if (wr->prev_pos)
+        {
+            fprintf(stderr, "Notice: %u unfinished writes to %jx:%jx v%jx since lsn %ju, rolling back\n",
+                rolled_back+1, wr->inode, wr->stripe, prev(wr)->version, prev(wr)->lsn);
+            inode_idx[wr->stripe] = wr->prev_pos;
+        }
+        else
+        {
+            fprintf(stderr, "Notice: the whole object %jx:%jx only has unfinished writes, rolling back\n",
+                wr->inode, wr->stripe);
+            inode_idx.erase(wr->stripe);
+        }
+        free_entry();
+    }
+}
+
+bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> read_buffer, int queue_depth)
+{
+    if (in_recheck)
+    {
+        // Recheck already entered
+        return false;
+    }
+    if (!recheck_queue_filled)
+    {
+        fill_recheck_queue();
+    }
+    if (read_buffer)
+    {
+        recheck_cb = read_buffer;
+        recheck_queue_depth = queue_depth;
+    }
+    in_recheck = true;
+    while (recheck_queue.size() > 0 && recheck_in_progress < recheck_queue_depth)
+    {
+        heap_entry_t *wr = recheck_queue.front();
+        recheck_queue.pop_front();
+        if (wr->size & FREE_SPACE_BIT)
+        {
+            // Already freed
+            continue;
+        }
+        bool is_intent = wr->type() == BS_HEAP_INTENT_WRITE;
+        uint64_t loc = wr->small().location;
+        if (is_intent)
+        {
+            auto prev_wr = prev(wr);
+            assert(prev_wr && (prev_wr->entry_type == (BS_HEAP_BIG_WRITE | (wr->entry_type & BS_HEAP_STABLE)) || prev_wr->entry_type == wr->entry_type));
+            loc = wr->small().offset + prev_wr->big_location(this);
+        }
+        if (log_level > 5)
+        {
+            fprintf(stderr, "Notice: rechecking %u bytes at %ju in %s area (lsn %lu)\n",
+                wr->small().len, loc, is_intent ? "data" : "buffer", wr->lsn);
+        }
+        if (!is_intent && buffer_area)
+        {
+            recheck_buffer(wr, buffer_area+loc);
+        }
+        else
+        {
+            recheck_in_progress++;
+            uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, wr->small().len);
+            recheck_cb(is_intent, loc, wr->small().len, buf, [this, wr, buf]()
+            {
+                recheck_buffer(wr, buf);
+                free(buf);
+                recheck_in_progress--;
+                recheck_small_writes(NULL, 0);
+            });
+        }
+    }
+    in_recheck = false;
+    if (!recheck_queue.size() && !recheck_in_progress)
+    {
+        auto cb = std::move(recheck_cb);
+        recheck_queue_depth = 0;
+        if (cb)
+        {
+            cb(false, 0, 0, NULL, NULL);
+        }
+        return true;
+    }
+    return false;
 }
 
 void blockstore_heap_t::finish_load()
 {
-    completed_lsn = first_inflight_lsn = next_lsn+1;
-    if (!tmp_compact_queue.size())
+    if (!marked_used_blocks)
     {
-        return;
+        // We can't mark data/buffers as used before loading and rechecking the whole store, so mark them here
+        mark_used_blocks();
+        marked_used_blocks = true;
     }
-    std::sort(tmp_compact_queue.begin(), tmp_compact_queue.end(), [this](const tmp_compact_item_t & a, const tmp_compact_item_t & b)
+    completed_lsn = next_lsn;
+    first_inflight_lsn = next_lsn+1;
+    std::sort(compact_queue.begin(), compact_queue.end(), [this](const object_id & a, const object_id & b)
     {
-        return a.lsn < b.lsn;
+        auto ao = read_entry(a);
+        auto bo = read_entry(b);
+        return ao->lsn < bo->lsn;
     });
-    first_inflight_lsn = tmp_compact_queue[0].lsn;
-    if (compacted_lsn < tmp_compact_queue[0].lsn-1)
-    {
-        compacted_lsn = tmp_compact_queue[0].lsn-1;
-    }
-    for (auto & e: tmp_compact_queue)
-    {
-        push_inflight_lsn(e.oid, e.lsn, HEAP_INFLIGHT_DONE | (e.compact ? HEAP_INFLIGHT_COMPACTABLE : 0));
-    }
-    if (compacted_lsn+1-first_inflight_lsn < inflight_lsn.size())
-    {
-        auto it = inflight_lsn.begin() + (compacted_lsn+1-first_inflight_lsn);
-        while (it != inflight_lsn.end() && !(it->flags & HEAP_INFLIGHT_COMPACTABLE))
-        {
-            compacted_lsn++;
-            it++;
-        }
-    }
-    tmp_compact_queue.clear();
 }
 
-bool blockstore_heap_t::calc_checksums(heap_write_t *wr, uint8_t *data, bool set, uint32_t offset, uint32_t len)
+bool blockstore_heap_t::calc_checksums(heap_entry_t *wr, uint8_t *data, bool set, uint32_t offset, uint32_t len)
 {
     if (!dsk->csum_block_size)
     {
@@ -764,109 +729,6 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *bit
     return res;
 }
 
-bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> read_buffer, int queue_depth)
-{
-    if (in_recheck)
-    {
-        // Recheck already entered
-        return false;
-    }
-    if (read_buffer)
-    {
-        recheck_cb = read_buffer;
-        recheck_queue_depth = queue_depth;
-    }
-    in_recheck = true;
-    while (recheck_queue.size() > 0 && recheck_in_progress < recheck_queue_depth)
-    {
-        object_id oid = recheck_queue.front();
-        recheck_queue.pop_front();
-        heap_object_t *obj = read_entry(oid, NULL);
-        assert(obj);
-        for (auto wr = obj->get_writes(); wr; wr = wr->next())
-        {
-            if (wr->needs_recheck(this))
-            {
-                bool is_intent = wr->type() == BS_HEAP_INTENT_WRITE;
-                uint64_t loc = wr->small().location;
-                if (is_intent)
-                {
-                    auto next_wr = wr->next();
-                    assert(next_wr && next_wr->entry_type == (BS_HEAP_BIG_WRITE | (wr->entry_type & BS_HEAP_STABLE)));
-                    loc = wr->small().offset + next_wr->big_location(this);
-                }
-                recheck_in_progress++;
-                uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, wr->small().len);
-                if (log_level > 5)
-                {
-                    fprintf(stderr, "Notice: rechecking %u bytes at %ju in %s area (lsn %lu)\n",
-                        wr->small().len, loc, is_intent ? "data" : "buffer", wr->lsn);
-                }
-                recheck_cb(is_intent, loc, wr->small().len, buf, [this, oid, lsn = wr->lsn, buf]()
-                {
-                    uint32_t block_num = 0;
-                    heap_object_t *obj = read_entry(oid, &block_num);
-                    if (obj)
-                    {
-                        heap_write_t *wr;
-                        int wr_i = 0;
-                        for (wr = obj->get_writes(); wr && wr->lsn != lsn; wr = wr->next())
-                        {
-                            wr_i++;
-                        }
-                        if (wr && !calc_checksums(wr, buf, false))
-                        {
-                            if (wr->type() == BS_HEAP_INTENT_WRITE &&
-                                wr->next() && wr->next()->type() == BS_HEAP_BIG_WRITE &&
-                                wr->next()->version == wr->version)
-                            {
-                                // BIG_WRITE+INTENT_WRITE pair
-                                wr = wr->next();
-                                wr_i++;
-                            }
-                            // Erase all writes to the object from this one to the newest
-                            if (!wr->next_pos)
-                            {
-                                fprintf(stderr, "Notice: the whole object %jx:%jx only has unfinished writes, rolling back\n",
-                                    obj->inode, obj->stripe);
-                                init_erase(block_num, obj);
-                            }
-                            else
-                            {
-                                if (log_level > 3)
-                                {
-                                    fprintf(stderr, "Notice: %u unfinished writes to %jx:%jx v%jx since lsn %ju, rolling back\n",
-                                        wr_i+1, obj->inode, obj->stripe, wr->version, wr->lsn);
-                                }
-                                auto next_wr = wr->next();
-                                uint32_t freed = free_writes(obj->get_writes(), next_wr);
-                                obj->write_pos = next_wr ? (uint8_t*)next_wr - (uint8_t*)obj : NULL;
-                                obj->crc32c = obj->calc_crc32c();
-                                add_used_space(block_num, -freed);
-                            }
-                        }
-                    }
-                    free(buf);
-                    recheck_in_progress--;
-                    recheck_small_writes(NULL, 0);
-                });
-            }
-        }
-    }
-    in_recheck = false;
-    if (!recheck_queue.size() && !recheck_in_progress)
-    {
-        auto cb = std::move(recheck_cb);
-        recheck_queue_depth = 0;
-        if (cb)
-        {
-            cb(false, 0, 0, NULL, NULL);
-        }
-        return true;
-    }
-    return false;
-}
-
 void blockstore_heap_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size)
 {
     auto & pool_settings = pool_shard_settings[pool];
@@ -907,77 +769,42 @@ void blockstore_heap_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_s
     };
 }
 
-heap_object_t *blockstore_heap_t::lock_and_read_entry(object_id oid, uint64_t & copy_id)
+heap_entry_t *blockstore_heap_t::lock_and_read_entry(object_id oid)
 {
-    auto obj = read_entry(oid, NULL);
+    auto obj = read_entry(oid);
     if (!obj)
     {
         return NULL;
     }
-    heap_mvcc_copy_id_t mvcc_id = { .oid = { .inode = oid.inode, .stripe = oid.stripe }, .copy_id = 1 };
-    auto mvcc_it = object_mvcc.find(mvcc_id);
-    if (mvcc_it != object_mvcc.end())
-    {
-        while (true)
-        {
-            mvcc_id.copy_id++;
-            auto next_it = object_mvcc.find(mvcc_id);
-            if (next_it == object_mvcc.end())
-            {
-                mvcc_id.copy_id--;
-                break;
-            }
-            mvcc_it = next_it;
-        }
-        if (mvcc_it->second.entry_copy)
-        {
-            // Already modified, need to create another copy
-            mvcc_id.copy_id++;
-            object_mvcc[mvcc_id] = (heap_object_mvcc_t){ .readers = 1 };
-        }
-        else
-        {
-            mvcc_it->second.readers++;
-        }
-    }
-    else
-    {
-        object_mvcc[mvcc_id] = (heap_object_mvcc_t){ .readers = 1 };
-    }
-    copy_id = mvcc_id.copy_id;
+    auto & mvcc = object_mvcc[oid];
+    mvcc.readers++;
     return obj;
 }
 
-heap_object_t *blockstore_heap_t::read_locked_entry(object_id oid, uint64_t copy_id)
+heap_entry_t *blockstore_heap_t::read_locked_entry(object_id oid, uint64_t lsn)
 {
-    auto mvcc_it = object_mvcc.find((heap_mvcc_copy_id_t){ .oid = oid, .copy_id = copy_id });
-    if (mvcc_it == object_mvcc.end())
+    auto obj = read_entry(oid);
+    assert(obj);
+    for (auto wr = obj; wr; wr = prev(wr))
     {
-        return NULL;
+        if (wr->is_overwrite())
+        {
+            if (lsn == wr->lsn)
+            {
+                return obj;
+            }
+            else
+            {
+                obj = prev(wr);
+            }
+        }
     }
-    if (mvcc_it->second.entry_copy)
-    {
-        return mvcc_it->second.entry_copy;
-    }
-    return read_entry(oid, NULL);
+    return NULL;
 }
 
-void blockstore_heap_t::free_mvcc(heap_mvcc_map_t::iterator mvcc_it)
+bool blockstore_heap_t::unlock_entry(object_id oid)
 {
-    if (mvcc_it->second.entry_copy)
-    {
-        // Free refcounted data & buffer blocks
-        heap_object_t *obj = (heap_object_t*)mvcc_it->second.entry_copy;
-        free_object_space(obj->inode, obj->get_writes(), NULL, BS_HEAP_FREE_MVCC);
-        free(mvcc_it->second.entry_copy);
-    }
-    object_mvcc.erase(mvcc_it);
-}
-
-bool blockstore_heap_t::unlock_entry(object_id oid, uint64_t copy_id)
-{
-    auto mvcc_id = (heap_mvcc_copy_id_t){ .oid = oid, .copy_id = copy_id };
-    auto mvcc_it = object_mvcc.find(mvcc_id);
+    auto mvcc_it = object_mvcc.find(oid);
     if (mvcc_it == object_mvcc.end())
     {
         return false;
@@ -985,42 +812,14 @@ bool blockstore_heap_t::unlock_entry(object_id oid, uint64_t copy_id)
     mvcc_it->second.readers--;
     if (!mvcc_it->second.readers)
     {
-        mvcc_id.copy_id++;
-        if (object_mvcc.find(mvcc_id) != object_mvcc.end())
-        {
-            // Next entry isn't freed yet
-            return true;
-        }
-        mvcc_id.copy_id--;
-        // Free this entry
-        free_mvcc(mvcc_it);
-        // Free all previous entries with 0 refcount
-        while (mvcc_id.copy_id > 1)
-        {
-            mvcc_id.copy_id--;
-            mvcc_it = object_mvcc.find(mvcc_id);
-            assert(mvcc_it != object_mvcc.end());
-            if (mvcc_it->second.readers)
-            {
-                mvcc_id.copy_id++;
-                break;
-            }
-            free_mvcc(mvcc_it);
-        }
-        if (mvcc_id.copy_id == 1)
-        {
-            // Free data references from the newest object version when the last MVCC is freed
-            heap_object_t *new_obj = read_entry(oid, NULL);
-            if (new_obj)
-            {
-                free_object_space(new_obj->inode, new_obj->get_writes(), NULL, BS_HEAP_FREE_MAIN);
-            }
-        }
+        auto garbage_lsn = mvcc_it->second.garbage_lsn;
+        object_mvcc.erase(mvcc_it);
+        mark_garbage_up_to(oid, garbage_lsn);
     }
     return true;
 }
 
-heap_object_t *blockstore_heap_t::read_entry(object_id oid, uint32_t *block_num_ptr, bool for_update)
+heap_entry_t *blockstore_heap_t::read_entry(object_id oid)
 {
     auto pool_pg_id = get_pg_id(oid.inode, oid.stripe);
     auto & pg_index = block_index[pool_pg_id];
@@ -1034,126 +833,16 @@ heap_object_t *blockstore_heap_t::read_entry(object_id oid, uint32_t *block_num_
     {
         return NULL;
     }
-    uint64_t block_pos = stripe_it->second;
-    uint32_t block_num = block_pos / dsk->meta_block_size;
-    assert(block_info[block_num].data != NULL);
-    heap_object_t *obj = (heap_object_t*)(block_info[block_num].data + (block_pos % dsk->meta_block_size));
+    heap_entry_t *obj = entry_from_pos(stripe_it->second);
     assert(obj->inode == oid.inode && obj->stripe == oid.stripe);
-    if (block_num_ptr)
-    {
-        *block_num_ptr = block_num;
-    }
-    if (for_update)
-    {
-        mvcc_save_copy(obj);
-    }
     return obj;
 }
 
-void blockstore_heap_t::get_compact_range(heap_object_t *obj, uint64_t max_lsn, heap_write_t **begin_wr, heap_write_t **end_wr)
+struct heap_defrag_remap_t
 {
-    *begin_wr = NULL;
-    *end_wr = NULL;
-    for (auto wr = obj->get_writes(); wr; wr = wr->next())
-    {
-        if (wr->is_compacted(max_lsn))
-        {
-            if (!*begin_wr)
-                *begin_wr = wr;
-            *end_wr = wr;
-        }
-        else if (*begin_wr)
-        {
-            bool is_last = !wr->next();
-            if (is_last)
-            {
-                *end_wr = wr;
-            }
-            // all subsequent small write entries must also be compacted
-            assert(wr->is_allowed_before_compacted(UINT64_MAX, is_last));
-        }
-    }
-}
-
-uint32_t blockstore_heap_t::compact_object_to(heap_object_t *obj, uint64_t compact_lsn, uint8_t *new_csums, bool do_free)
-{
-    const int cap = dsk->meta_block_size/sizeof(heap_write_t);
-    heap_write_t *compacted_wrs[cap];
-    int compacted_wr_count = 0;
-    bool skip_csums = false;
-    heap_write_t *big_wr = NULL, *pre_wr = NULL;
-    for (auto wr = obj->get_writes(); wr; wr = wr->next())
-    {
-        if (wr->is_compacted(compact_lsn))
-        {
-            compacted_wrs[compacted_wr_count++] = wr;
-        }
-        if (compacted_wr_count)
-        {
-            bool is_last = !wr->next();
-            // all subsequent small write entries must also be compacted
-            assert(compacted_wr_count == 1 || wr->is_allowed_before_compacted(compact_lsn, is_last));
-            if (wr->type() == BS_HEAP_BIG_WRITE)
-            {
-                big_wr = wr;
-            }
-            else if (!new_csums && !wr->can_be_collapsed(this))
-            {
-                skip_csums = true;
-            }
-        }
-        else
-        {
-            pre_wr = wr;
-        }
-    }
-    if (compacted_wr_count == 0)
-    {
-        return 0;
-    }
-    if (do_free)
-    {
-        free_object_space(obj->inode, compacted_wrs[0], big_wr);
-    }
-    // Collapse compacted_wrs[] into big_wr
-    big_wr->lsn = compacted_wrs[0]->lsn;
-    big_wr->version = compacted_wrs[0]->version;
-    memcpy(big_wr->get_ext_bitmap(this), compacted_wrs[0]->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
-    uint8_t *int_bmp = big_wr->get_int_bitmap(this);
-    uint8_t *csums = big_wr->get_checksums(this);
-    const uint32_t csum_size = (dsk->data_csum_type & 0xFF);
-    for (int i = compacted_wr_count-1; i >= 0; i--)
-    {
-        auto cur_wr = compacted_wrs[i];
-        assert(cur_wr->type() == BS_HEAP_SMALL_WRITE || cur_wr->type() == BS_HEAP_INTENT_WRITE);
-        bitmap_set(int_bmp, cur_wr->small().offset, cur_wr->small().len, dsk->bitmap_granularity);
-        // copy checksums
-        if (csums && !skip_csums && !new_csums)
-        {
-            assert(i == compacted_wr_count-1 ||
-                (cur_wr->small().offset % dsk->csum_block_size) == 0 &&
-                (cur_wr->small().len % dsk->csum_block_size) == 0);
-            memcpy(csums + cur_wr->small().offset/dsk->csum_block_size*csum_size,
-                cur_wr->get_checksums(this), cur_wr->small().len/dsk->csum_block_size*csum_size);
-        }
-    }
-    if (csums && new_csums)
-    {
-        memcpy(csums, new_csums, big_wr->get_csum_size(this));
-    }
-    // Remove collapsed writes
-    uint32_t freed = free_writes(compacted_wrs[0], big_wr);
-    if (pre_wr)
-    {
-        pre_wr->next_pos = (uint8_t*)big_wr - (uint8_t*)pre_wr;
-    }
-    else
-    {
-        obj->write_pos = (uint8_t*)big_wr - (uint8_t*)obj;
-    }
-    obj->crc32c = obj->calc_crc32c();
-    return freed;
-}
+    object_id oid;
+    uint64_t new_pos;
+};
 
 void blockstore_heap_t::defragment_block(uint32_t block_num)
 {
@@ -1161,42 +850,47 @@ void blockstore_heap_t::defragment_block(uint32_t block_num)
     assert(inf.data);
     uint8_t *new_data = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk->meta_block_size);
     const uint8_t *end = inf.data+dsk->meta_block_size;
-    const uint8_t *new_end = new_data+dsk->meta_block_size;
     uint8_t *old = inf.data;
     uint8_t *cur = new_data;
+    uint32_t removed_garbage = 0;
+    robin_hood::unordered_flat_map<uint64_t, heap_defrag_remap_t> remap;
     while (old <= end-2)
     {
-        uint16_t region_marker = *((uint16_t*)old);
-        if (region_marker & FREE_SPACE_BIT)
+        heap_entry_t *obj = (heap_entry_t *)old;
+        if (obj->size & FREE_SPACE_BIT) // FIXME & FREE_SPACE_BIT may be changed to entry_type == FREE_SPACE (?)
         {
             // free space
-            old += (region_marker & ~FREE_SPACE_BIT);
-            continue;
-        }
-        if (old[heap_entry_type_pos] != BS_HEAP_OBJECT)
-        {
-            // heap_write_t, skip
-            old += region_marker;
+            old += (obj->size & ~FREE_SPACE_BIT);
             continue;
         }
         // object header
-        heap_object_t *obj = (heap_object_t *)old;
-        assert(obj->size == sizeof(heap_object_t));
-        heap_object_t *new_obj = (heap_object_t *)cur;
-        memcpy(cur, obj, sizeof(heap_object_t));
-        new_obj->write_pos = sizeof(heap_object_t);
-        cur += sizeof(heap_object_t);
-        for (auto wr = obj->get_writes(); wr; wr = wr->next())
+        heap_entry_t *new_obj = (heap_entry_t *)cur;
+        object_id oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
+        if (obj->is_garbage())
         {
-            assert(cur <= new_end-wr->size);
-            memcpy(cur, wr, wr->size);
-            auto new_wr = (heap_write_t*)cur;
-            new_wr->next_pos = new_wr->next_pos ? new_wr->size : 0;
-            cur += wr->size;
+            // old entry invalidated by a newer one, mark it as freeable on block write
+            // assign a 'virtual' LSN to track GC completion
+            assert(!inf.mod_lsn_to || inf.mod_lsn_to == next_lsn);
+            uint64_t gc_lsn = ++next_lsn;
+            inf.mod_lsn = inf.mod_lsn ? inf.mod_lsn : gc_lsn;
+            inf.mod_lsn_to = gc_lsn;
+            push_inflight_lsn(oid, gc_lsn, 0, HEAP_INFLIGHT_GC);
+            removed_garbage += obj->size;
+            old += obj->size;
+            continue;
         }
-        new_obj->crc32c = new_obj->calc_crc32c();
-        block_index[get_pg_id(obj->inode, obj->stripe)][obj->inode][obj->stripe] = (uint64_t)block_num*dsk->meta_block_size + ((uint8_t*)new_obj - new_data);
-        old += region_marker;
+        else
+        {
+            // live entry, we need to change linked list pointer(s) to it
+            // but the change should be applied carefully, after copying all entries,
+            // because they may reference each other
+            uint64_t old_pos = entry_pos(block_num, old - inf.data);
+            uint64_t new_pos = entry_pos(block_num, ((uint8_t*)new_obj - new_data));
+            remap[old_pos] = (heap_defrag_remap_t){ .oid = oid, new_pos = new_pos };
+        }
+        memcpy(cur, obj, obj->size);
+        cur += obj->size;
+        old += obj->size;
     }
     if (cur != new_data+dsk->meta_block_size)
     {
@@ -1204,36 +898,51 @@ void blockstore_heap_t::defragment_block(uint32_t block_num)
         *((uint16_t*)cur) = FREE_SPACE_BIT | (dsk->meta_block_size-(cur-new_data));
         memset(cur+2, 0, dsk->meta_block_size-(cur-new_data)-2);
     }
+    for (auto rp_it = remap.begin(); rp_it != remap.end(); rp_it++)
+    {
+        auto oid = rp_it->second.oid;
+        if (!rp_it->second.new_pos)
+        {
+            // Remap each object only once
+            continue;
+        }
+        auto & idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe];
+        auto new_it = remap.find(idx);
+        heap_entry_t *wr = NULL;
+        if (new_it != remap.end())
+        {
+            idx = new_it->second.new_pos;
+            wr = (heap_entry_t*)(new_data + (new_it->second.new_pos % dsk->meta_block_size) - 1); // like entry_from_pos
+            new_it->second.new_pos = 0;
+        }
+        else
+            wr = entry_from_pos(idx);
+        while (wr)
+        {
+            assert(!(wr->prev_pos & GARBAGE_BIT));
+            if (!wr->prev_pos)
+                break;
+            new_it = remap.find(wr->prev_pos);
+            if (new_it != remap.end())
+            {
+                wr->prev_pos = new_it->second.new_pos;
+                wr = (heap_entry_t*)(new_data + (new_it->second.new_pos % dsk->meta_block_size) - 1); // like entry_from_pos
+                new_it->second.new_pos = 0;
+            }
+            else
+                wr = entry_from_pos(wr->prev_pos);
+        }
+    }
     free(inf.data);
-    inf.data = new_data;
-    inf.free_pos = cur-new_data;
-    assert(inf.used_space == (cur-new_data));
-}
-
-int blockstore_heap_t::get_block_for_new_object(uint32_t & out_block_num, uint32_t size)
-{
-    if (!size)
-        size = sizeof(heap_object_t)+get_max_write_entry_size();
-    uint32_t maxfull = dsk->meta_block_size/MIN_ALLOC - (size+MIN_ALLOC-1)/MIN_ALLOC;
-    uint32_t nearfull = dsk->meta_block_size/MIN_ALLOC - target_block_free_space/MIN_ALLOC;
-    if (nearfull > maxfull)
-        nearfull = maxfull;
-    for (int i = 1; i < nearfull; i++)
+    modify_alloc(block_num, [&](heap_block_info_t & inf)
     {
-        out_block_num = meta_alloc->find(i);
-        if (out_block_num != UINT32_MAX)
-            return 0;
-    }
-    out_block_num = meta_alloc->find(0);
-    if (out_block_num != UINT32_MAX)
-        return 0;
-    for (int i = nearfull; i <= maxfull; i++)
-    {
-        out_block_num = meta_alloc->find(i);
-        if (out_block_num != UINT32_MAX)
-            return 0;
-    }
-    return ENOSPC;
+        assert(removed_garbage == inf.garbage_space);
+        inf.used_space -= inf.garbage_space;
+        inf.data = new_data;
+        inf.free_pos = cur-new_data;
+        inf.garbage_space = 0;
+        assert(inf.used_space == (cur-new_data));
+    });
 }
 
 uint32_t blockstore_heap_t::find_block_run(heap_block_info_t & inf, uint32_t space)
@@ -1282,31 +991,7 @@ uint32_t blockstore_heap_t::find_block_run(heap_block_info_t & inf, uint32_t spa
     return UINT32_MAX;
 }
 
-uint32_t blockstore_heap_t::block_has_compactable(uint8_t *data)
-{
-    uint32_t sum = 0;
-    uint8_t *end = data + dsk->meta_block_size;
-    while (data < end)
-    {
-        uint16_t region_marker = *((uint16_t*)data);
-        assert(region_marker);
-        if (!(region_marker & FREE_SPACE_BIT) &&
-            data[heap_entry_type_pos] != BS_HEAP_OBJECT)
-        {
-            heap_write_t *wr = (heap_write_t*)data;
-            if (wr->entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) ||
-                wr->entry_type == (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE))
-            {
-                // May be freed in the future
-                sum += wr->size;
-            }
-        }
-        data += (region_marker & ~FREE_SPACE_BIT);
-    }
-    return sum;
-}
-
-uint32_t blockstore_heap_t::find_block_space(uint32_t block_num, uint32_t space)
+uint32_t blockstore_heap_t::find_block_space(uint32_t block_num, uint32_t space, bool & defragmented)
 {
     auto & inf = block_info.at(block_num);
     uint32_t free_pos = inf.free_pos;
@@ -1324,6 +1009,7 @@ uint32_t blockstore_heap_t::find_block_space(uint32_t block_num, uint32_t space)
             return res;
         }
     }
+    defragmented = true;
     defragment_block(block_num);
     return find_block_run(inf, space);
 }
@@ -1338,717 +1024,751 @@ void blockstore_heap_t::allocate_block(heap_block_info_t & inf)
     }
 }
 
-int blockstore_heap_t::allocate_new_object(object_id oid, uint32_t full_object_size, uint32_t *modified_block, heap_object_t **new_obj)
+int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, uint32_t *offset, bool allow_last_free, bool & defragmented)
 {
-    uint32_t block_num = 0;
-    // Allocate block (always leave at least <max_write_entry_size> free_space in the block)
-    int res = get_block_for_new_object(block_num, full_object_size+max_write_entry_size);
-    if (res != 0)
+    if (last_allocated_block != UINT32_MAX)
     {
-        return res;
-    }
-    auto & inf = block_info.at(block_num);
-    allocate_block(inf);
-    if (modified_block)
-    {
-        *modified_block = block_num;
-    }
-    const uint32_t offset = find_block_space(block_num, full_object_size);
-    if (offset == UINT32_MAX)
-    {
-        return ENOSPC;
-    }
-    add_used_space(block_num, full_object_size);
-    block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe] = (uint64_t)block_num*dsk->meta_block_size + offset;
-    *new_obj = (heap_object_t *)(inf.data + offset);
-    return 0;
-}
-
-int blockstore_heap_t::add_object(object_id oid, heap_write_t *wr, uint32_t *modified_block)
-{
-    // By now, initial small_writes are not allowed
-    if (wr->type() != BS_HEAP_BIG_WRITE &&
-        wr->type() != BS_HEAP_TOMBSTONE)
-    {
-        return EINVAL;
-    }
-    const uint32_t wr_size = wr->get_size(this);
-    heap_object_t *new_obj = NULL;
-    int res = allocate_new_object(oid, sizeof(heap_object_t)+wr_size, modified_block, &new_obj);
-    if (res != 0)
-    {
-        return res;
-    }
-    // Fill the object entry
-    new_obj->size = sizeof(heap_object_t);
-    new_obj->write_pos = sizeof(heap_object_t);
-    new_obj->entry_type = BS_HEAP_OBJECT;
-    new_obj->inode = oid.inode;
-    new_obj->stripe = oid.stripe;
-    heap_write_t *new_wr = new_obj->get_writes();
-    memcpy(new_wr, wr, wr_size);
-    new_wr->next_pos = 0;
-    new_wr->size = wr_size;
-    new_wr->lsn = ++next_lsn;
-    wr->lsn = new_wr->lsn;
-    push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
-    new_obj->crc32c = new_obj->calc_crc32c();
-    return 0;
-}
-
-int blockstore_heap_t::copy_object(heap_object_t *obj, uint32_t *modified_block)
-{
-    // Allocate block (always leave at least <max_write_entry_size> free_space in the block)
-    auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
-    assert(!read_entry(oid, NULL));
-    uint32_t full_object_size = obj->size;
-    for (auto wr = obj->get_writes(); wr; wr = wr->next())
-    {
-        full_object_size += wr->size;
-    }
-    heap_object_t *new_obj = NULL;
-    int res = allocate_new_object(oid, full_object_size, modified_block, &new_obj);
-    if (res != 0)
-    {
-        return res;
-    }
-    copy_full_object((uint8_t*)new_obj, obj);
-    new_obj->crc32c = new_obj->calc_crc32c();
-    return 0;
-}
-
-bool blockstore_heap_t::mvcc_check_tracking(object_id oid)
-{
-    auto mvcc_it = object_mvcc.find((heap_mvcc_copy_id_t){ .oid = oid, .copy_id = 1 });
-    if (mvcc_it == object_mvcc.end())
-    {
-        // no copies
-        return false;
-    }
-    return mvcc_it->second.entry_copy;
-}
-
-void blockstore_heap_t::copy_full_object(uint8_t *dst, heap_object_t *obj)
-{
-    memcpy(dst, obj, sizeof(heap_object_t));
-    ((heap_object_t*)dst)->write_pos = obj->size;
-    dst += obj->size;
-    for (auto wr = obj->get_writes(); wr; wr = wr->next())
-    {
-        memcpy(dst, wr, wr->size);
-        if (wr->next_pos)
-            ((heap_write_t*)dst)->next_pos = wr->size;
-        dst += wr->size;
-    }
-}
-
-// returns tracking_active, i.e. true if there exists at least one copied MVCC version of the object
-// it's used for reference tracking because tracking_active=false means that there is 1 implicit reference
-// for heap_writes of the current version of the object and true means that there isn't
-bool blockstore_heap_t::mvcc_save_copy(heap_object_t *obj)
-{
-    auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
-    auto mvcc_id = (heap_mvcc_copy_id_t){ .oid = oid, .copy_id = 1 };
-    auto mvcc_it = object_mvcc.find(mvcc_id);
-    if (mvcc_it == object_mvcc.end())
-    {
-        // no copies
-        return false;
-    }
-    while (true)
-    {
-        mvcc_id.copy_id++;
-        auto next_it = object_mvcc.find(mvcc_id);
-        if (next_it == object_mvcc.end())
+        // First try to write into the same block as the previous time
+        auto & inf = block_info.at(last_allocated_block);
+        auto free_space = dsk->meta_block_size - inf.used_space + inf.garbage_space;
+        if (inf.is_writing || free_space < entry_size /* FIXME edge cases with +2? */ ||
+            // Do not allow to make the last non-nearfull block nearfull
+            !allow_last_free && meta_nearfull_blocks >= meta_block_count-1 &&
+            free_space >= big_entry_size && free_space < big_entry_size+entry_size)
         {
-            mvcc_id.copy_id--;
-            break;
+            last_allocated_block = UINT32_MAX;
         }
-        mvcc_it = next_it;
     }
-    if (mvcc_it->second.entry_copy)
+    if (last_allocated_block == UINT32_MAX)
     {
-        // active current copy :-)
-        return true;
-    }
-    assert(obj->size == sizeof(heap_object_t));
-    uint32_t total_size = obj->size;
-    for (auto wr = obj->get_writes(); wr; wr = wr->next())
-    {
-        total_size += wr->size;
-    }
-    heap_object_t *obj_copy = (heap_object_t*)malloc_or_die(total_size);
-    copy_full_object((uint8_t*)obj_copy, obj);
-    mvcc_it->second.entry_copy = obj_copy;
-    uint32_t add_ref = 1;
-    bool for_obj = false;
-    // save_copy is performed when the object is modified, so object_mvcc may only
-    // contain 1 version with entry_copy == NULL
-    if (mvcc_id.copy_id == 1)
-    {
-        // Init refcounts for the copy and for the object itself, when it's the first MVCC entry
-        add_ref = 2;
-        for_obj = true;
-    }
-    for (auto wr = obj->get_writes(); wr; wr = wr->next())
-    {
-        if (wr->type() == BS_HEAP_BIG_WRITE)
+        int i = 1;
+        for (; last_allocated_block == UINT32_MAX && i < META_ALLOC_LEVELS/2; i++)
         {
-            mvcc_data_refs[wr->big_location(this)] += add_ref;
-            if (wr->entry_type & BS_HEAP_STABLE)
+            // First try to write into used blocks with at least 1/2 free space
+            last_allocated_block = meta_alloc->find(i);
+        }
+        if (last_allocated_block == UINT32_MAX)
+        {
+            // Then into empty blocks
+            last_allocated_block = meta_alloc->find(0);
+        }
+        if (last_allocated_block == UINT32_MAX)
+        {
+            for (; last_allocated_block == UINT32_MAX && i < META_ALLOC_LEVELS-1; i++)
             {
-                if (!for_obj)
+                // Then into all other used blocks except nearfull
+                // Such blocks are still guaranteed to have at least <big_entry_size> free space
+                last_allocated_block = meta_alloc->find(i);
+            }
+            if (last_allocated_block != UINT32_MAX && i == META_ALLOC_LEVELS-1 && !allow_last_free && meta_nearfull_blocks >= meta_block_count-1)
+            {
+                // Do not allow to make the last non-nearfull block nearfull
+                auto & inf = block_info.at(last_allocated_block);
+                auto free_space = dsk->meta_block_size - inf.used_space + inf.garbage_space;
+                if (free_space >= big_entry_size && free_space < big_entry_size+entry_size)
                 {
-                    break;
+                    last_allocated_block = UINT32_MAX;
                 }
-                add_ref = 1;
             }
         }
-        else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->small().len > 0)
+        if (last_allocated_block == UINT32_MAX && meta_nearfull.size() > 0)
         {
-            mvcc_buffer_refs[wr->small().location] += add_ref;
+            // Then into nearfull blocks
+            auto most_free = *std::prev(meta_nearfull.end());
+            if ((most_free >> 32) >= entry_size)
+            {
+                last_allocated_block = (uint32_t)most_free;
+            }
         }
-    }
-    // copied :-)
-    return true;
-}
-
-void blockstore_heap_t::mark_overwritten(uint64_t over_lsn, uint64_t inode, heap_write_t *wr, heap_write_t *end_wr, bool tracking_active)
-{
-    while (wr && wr != end_wr)
-    {
-        if (wr->needs_compact(this))
+        if (last_allocated_block == UINT32_MAX)
         {
-            mark_lsn_compacted(wr->lsn, true);
-        }
-        if (wr->type() == BS_HEAP_BIG_WRITE)
-        {
-            overwrite_ref_queue.push_back((heap_refqi_t){ .lsn = over_lsn, .inode = inode, .location = wr->big_location(this), .len = 0, .is_data = true });
-            mvcc_data_refs[wr->big_location(this)] += !tracking_active;
-        }
-        else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->small().len > 0)
-        {
-            overwrite_ref_queue.push_back((heap_refqi_t){ .lsn = over_lsn, .inode = inode, .location = wr->small().location, .len = wr->small().len, .is_data = false });
-            mvcc_buffer_refs[wr->small().location] += !tracking_active;
-        }
-        wr = wr->next();
-    }
-}
-
-int blockstore_heap_t::update_object(uint32_t block_num, heap_object_t *obj, heap_write_t *wr, uint32_t *modified_block, uint32_t *moved_from_block)
-{
-    const auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
-    // First some validation
-    bool is_overwrite = (wr->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) || wr->entry_type == (BS_HEAP_TOMBSTONE|BS_HEAP_STABLE));
-    auto first_wr = obj->get_writes();
-    if (first_wr->type() == BS_HEAP_TOMBSTONE && !is_overwrite)
-    {
-        // Small overwrites are only allowed over live objects
-        return EINVAL;
-    }
-    if (!(first_wr->entry_type & BS_HEAP_STABLE) && (wr->entry_type & BS_HEAP_STABLE))
-    {
-        // Stable overwrites are not allowed over unstable
-        return EINVAL;
-    }
-    if (wr->entry_type == BS_HEAP_INTENT_WRITE && (first_wr->entry_type & BS_HEAP_STABLE))
-    {
-        // Unstable intent writes over stable are not allowed
-        return EINVAL;
-    }
-    if (wr->type() == BS_HEAP_INTENT_WRITE &&
-        first_wr->type() == BS_HEAP_INTENT_WRITE &&
-        !first_wr->can_be_collapsed(this))
-    {
-        // Intent writes are not allowed over noncollapsible intent writes
-        return EINVAL;
-    }
-    if (wr->version < first_wr->version)
-    {
-        // Overwrites with a smaller version are forbidden
-        return EINVAL;
-    }
-    // Then a free space check
-    const uint32_t wr_size = wr->get_size(this);
-    auto *inf = &block_info.at(block_num);
-    assert(inf->data);
-    if (inf->used_space+wr_size > dsk->meta_block_size-2)
-    {
-        // Something in the block has to be compacted
-        if (block_has_compactable(inf->data) >= inf->used_space+wr_size-(dsk->meta_block_size-2))
-        {
-            return EAGAIN;
-        }
-        // Otherwise, move the object
-        uint32_t full_size = obj->size;
-        for (auto wr = obj->get_writes(); wr; wr = wr->next())
-        {
-            full_size += wr->size;
-        }
-        uint32_t new_block = 0;
-        int res = get_block_for_new_object(new_block, full_size+wr_size);
-        if (res == ENOSPC)
-        {
+            // Then fail :)
             return ENOSPC;
         }
-        inf = &block_info.at(new_block);
-        if (inf->used_space+full_size+wr_size > dsk->meta_block_size-2)
+        auto & inf = block_info.at(last_allocated_block);
+        allocate_block(inf);
+    }
+    if (!allow_last_free && meta_nearfull_blocks >= meta_block_count-1)
+    {
+        // Do not allow to make the last non-nearfull block nearfull
+        auto & inf = block_info.at(last_allocated_block);
+        if (dsk->meta_block_size-(inf.used_space-inf.garbage_space) >= big_entry_size &&
+            dsk->meta_block_size-(inf.used_space-inf.garbage_space+entry_size) < big_entry_size)
         {
+            last_allocated_block = UINT32_MAX;
             return ENOSPC;
         }
-        allocate_block(*inf);
-        if (moved_from_block)
-        {
-            *moved_from_block = block_num;
-        }
-        uint32_t new_offset = find_block_space(new_block, full_size);
-        assert(new_offset != UINT32_MAX);
-        copy_full_object(inf->data + new_offset, obj);
-        erase_object(block_num, obj, 0, false);
-        block_num = new_block;
-        obj = (heap_object_t*)(inf->data + new_offset);
-        block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe] = (uint64_t)new_block*dsk->meta_block_size + new_offset;
-        add_used_space(new_block, full_size);
+    }
+    // Write into the same block
+    *block_num = last_allocated_block;
+    *offset = find_block_space(last_allocated_block, entry_size, defragmented);
+    assert(*offset != UINT32_MAX);
+    modify_alloc(last_allocated_block, [&](heap_block_info_t & inf)
+    {
+        inf.used_space += entry_size;
+    });
+    return 0;
+}
+
+int blockstore_heap_t::add_entry(uint32_t wr_size, heap_entry_t *old_head, uint32_t *modified_block,
+    bool allow_last_free, std::function<void(heap_entry_t *wr)> fill_entry)
+{
+    uint32_t block_num, offset;
+    bool defragmented = false;
+    int res = allocate_entry(wr_size, &block_num, &offset, allow_last_free, defragmented);
+    if (res != 0)
+    {
+        return res;
     }
     if (modified_block)
     {
         *modified_block = block_num;
     }
-    // Save a copy of the object - only when overwriting
-    bool tracking_active = is_overwrite ? mvcc_save_copy(obj) : mvcc_check_tracking(oid);
-    if (tracking_active)
-    {
-        // MVCC reference tracking is in action for the object, increase the refcount
-        if (wr->type() == BS_HEAP_BIG_WRITE)
-        {
-            mvcc_data_refs[wr->big_location(this)]++;
-        }
-        else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->small().len > 0)
-        {
-            mvcc_buffer_refs[wr->small().location]++;
-        }
-    }
-    const uint8_t *old_data = inf->data;
-    const uint32_t offset = find_block_space(block_num, wr_size);
-    if (old_data != inf->data)
-    {
-        obj = read_entry(oid, NULL);
-        first_wr = obj->get_writes();
-    }
-    assert(offset != UINT32_MAX);
-    memcpy(inf->data + offset, wr, wr_size);
-    heap_write_t *new_wr = (heap_write_t*)(inf->data + offset);
-    new_wr->size = wr_size;
+    auto & inf = block_info.at(block_num);
+    assert(!inf.mod_lsn_to || inf.mod_lsn_to == next_lsn);
+    heap_entry_t *new_wr = (heap_entry_t *)(inf.data + offset);
     new_wr->lsn = ++next_lsn;
-    int32_t used_delta = wr_size;
-    if (is_overwrite)
+    fill_entry(new_wr);
+    inf.mod_lsn = inf.mod_lsn ? inf.mod_lsn : next_lsn;
+    inf.mod_lsn_to = next_lsn;
+    // Remember the object as dirty and remove older entries when this block is written and fsynced
+    auto oid = (object_id){ .inode = new_wr->inode, .stripe = new_wr->stripe };
+    push_inflight_lsn(oid, next_lsn, new_wr->lsn,
+        (new_wr->is_overwrite() ? HEAP_INFLIGHT_COMPACTED : 0) |
+        (new_wr->is_compactable() ? HEAP_INFLIGHT_COMPACTABLE : 0));
+    const uint64_t new_pos = entry_pos(block_num, offset);
+    if (old_head && defragmented)
     {
-        mark_overwritten(new_wr->lsn, obj->inode, first_wr, NULL, tracking_active);
-        // Free old write entries
-        used_delta -= free_writes(first_wr, NULL);
-        new_wr->next_pos = 0;
+        old_head = read_entry(oid);
     }
-    else if (first_wr->type() == BS_HEAP_INTENT_WRITE &&
-        first_wr->can_be_collapsed(this))
+    if (old_head && !old_head->is_before(new_wr))
     {
-        auto second_wr = first_wr->next();
-        assert(second_wr->type() == BS_HEAP_BIG_WRITE);
-        auto first_offset = first_wr->small().offset;
-        auto first_len = first_wr->small().len;
-        second_wr->version = first_wr->version;
-        bitmap_set(second_wr->get_int_bitmap(this), first_offset, first_len, dsk->bitmap_granularity);
-        if (dsk->csum_block_size)
+        // BIG_WRITE may be inserted into the middle of the sequence during compaction
+        // and it overrides SMALL_WRITEs and COMMITs with the same LSN
+        // However, all entries of other types (say DELETE) override previous ones
+        auto next_wr = old_head;
+        while (true)
         {
-            const uint32_t csum_size = (dsk->data_csum_type & 0xFF);
-            memcpy(second_wr->get_checksums(this) + first_offset/dsk->csum_block_size*csum_size,
-                first_wr->get_checksums(this), first_len/dsk->csum_block_size*csum_size);
+            next_wr->prev_count++;
+            auto nn = prev(next_wr);
+            if (!nn || nn->is_before(new_wr))
+                break;
+            next_wr = nn;
         }
-        used_delta -= free_writes(first_wr, second_wr);
-        new_wr->next_pos = (uint8_t*)second_wr - (uint8_t*)new_wr;
+        auto prev_wr = prev(next_wr);
+        // <prev_wr> may be an identical big_write entry when we "punch holes" in the bitmap
+        assert(prev_wr->type() != BS_HEAP_DELETE &&
+            (prev_wr->type() != BS_HEAP_BIG_WRITE || prev_wr->version == new_wr->version));
+        // Insert <new_wr> between <next_wr> and <prev_wr>
+        new_wr->prev_pos = next_wr->prev_pos;
+        new_wr->prev_count = prev_wr->prev_count + 1;
+        next_wr->prev_pos = new_pos;
     }
     else
     {
-        new_wr->next_pos = ((uint8_t*)obj + obj->write_pos) - (uint8_t*)new_wr;
+        auto & idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe];
+        new_wr->prev_pos = idx;
+        new_wr->prev_count = (old_head ? old_head->prev_count+1 : 0);
+        if (old_head)
+            new_wr->prev_count = old_head->prev_count+1;
+        else
+        {
+            auto del_it = deref_deletes.find(oid);
+            if (del_it != deref_deletes.end())
+            {
+                // An inflight garbage-collected delete entry is still potentially on disk, reflect it
+                new_wr->prev_count = 1;
+                deref_deletes.erase(del_it);
+            }
+        }
+        idx = new_pos;
     }
-    wr->lsn = new_wr->lsn;
-    push_inflight_lsn(oid, new_wr->lsn, new_wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
-    obj->write_pos = offset - ((uint8_t*)obj - inf->data);
-    obj->crc32c = obj->calc_crc32c();
-    // Change block free space
-    add_used_space(block_num, used_delta);
+    new_wr->size = wr_size;
+    new_wr->crc32c = new_wr->calc_crc32c();
     return 0;
 }
 
-int blockstore_heap_t::post_write(object_id oid, heap_write_t *wr, uint32_t *modified_block, uint32_t *moved_from_block)
+// 1st step: post a write
+
+int blockstore_heap_t::add_small_write(object_id oid, heap_entry_t *old_head, uint16_t type, uint64_t version,
+    uint32_t offset, uint32_t len, uint64_t location, uint8_t *bitmap, uint8_t *data, uint32_t *modified_block)
 {
-    uint32_t block_num = 0;
-    heap_object_t *obj = read_entry(oid, &block_num);
-    if (!obj)
+    if (!old_head || old_head->type() == BS_HEAP_DELETE || old_head->version > version ||
+        type != (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) && type != BS_HEAP_SMALL_WRITE && type != (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) ||
+        (type & BS_HEAP_STABLE) && !(old_head->entry_type & BS_HEAP_STABLE))
     {
-        return add_object(oid, wr, modified_block);
+        return EINVAL;
     }
-    return update_object(block_num, obj, wr, modified_block, moved_from_block);
+    uint32_t wr_size = get_small_entry_size(offset, len);
+    return add_entry(wr_size, old_head, modified_block, false, [&](heap_entry_t *wr)
+    {
+        wr->entry_type = type;
+        wr->inode = oid.inode;
+        wr->stripe = oid.stripe;
+        wr->version = version;
+        wr->small().offset = offset;
+        wr->small().len = len;
+        wr->small().location = location;
+        if (bitmap)
+            memcpy(wr->get_ext_bitmap(this), bitmap, dsk->clean_entry_bitmap_size);
+        else if (old_head)
+        {
+            old_head = read_entry(oid);
+            memcpy(wr->get_ext_bitmap(this), old_head->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
+        }
+        else
+            memset(wr->get_ext_bitmap(this), 0, dsk->clean_entry_bitmap_size);
+        calc_checksums(wr, (uint8_t*)data, true);
+    });
 }
 
-int blockstore_heap_t::post_write(uint32_t & block_num, object_id oid, heap_object_t *obj, heap_write_t *wr, uint32_t *moved_from_block)
+int blockstore_heap_t::add_big_write(object_id oid, heap_entry_t *old_head, bool stable, uint64_t version,
+    uint32_t offset, uint32_t len, uint64_t location, uint8_t *bitmap, uint8_t *data, uint32_t *modified_block)
 {
-    if (!obj)
+    if (stable && old_head && !(old_head->entry_type & BS_HEAP_STABLE))
     {
-        return add_object(oid, wr, &block_num);
+        return EINVAL;
     }
-    return update_object(block_num, obj, wr, &block_num, moved_from_block);
+    uint32_t wr_size = get_big_entry_size();
+    return add_entry(wr_size, old_head, modified_block, false, [&](heap_entry_t *wr)
+    {
+        wr->entry_type = BS_HEAP_BIG_WRITE | (stable ? BS_HEAP_STABLE : 0);
+        wr->inode = oid.inode;
+        wr->stripe = oid.stripe;
+        wr->version = version;
+        wr->set_big_location(this, location);
+        if (bitmap)
+            memcpy(wr->get_ext_bitmap(this), bitmap, dsk->clean_entry_bitmap_size);
+        else
+            memset(wr->get_ext_bitmap(this), 0, dsk->clean_entry_bitmap_size);
+        memset(wr->get_int_bitmap(this), 0, dsk->clean_entry_bitmap_size);
+        bitmap_set(wr->get_int_bitmap(this), offset, len, dsk->bitmap_granularity);
+        if (dsk->data_csum_type)
+            calc_checksums(wr, (uint8_t*)data, true, offset, len);
+    });
 }
 
-int blockstore_heap_t::post_stabilize(object_id oid, uint64_t version, uint32_t *modified_block, uint64_t *new_lsn, uint64_t *new_to_lsn)
+int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t to_lsn, uint32_t *modified_block, uint8_t *new_csums)
 {
-    uint32_t block_num = 0;
-    heap_object_t *obj = read_entry(oid, &block_num);
-    if (!obj)
+    // Slightly tricky - we don't want to compact an object if it's overwritten or deleted during compaction
     {
-        // No such object
+        heap_entry_t *old_wr = obj;
+        while (old_wr && !old_wr->is_overwrite())
+        {
+            old_wr = prev(old_wr);
+        }
+        if (!old_wr)
+        {
+            // Check if we have to remove the object at all
+            bool has_entry = false;
+            iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *old_wr, bool stable)
+            {
+                has_entry = true;
+                return false;
+            });
+            if (!has_entry)
+            {
+                uint64_t compact_lsn = obj->lsn;
+                return add_entry(get_simple_entry_size(), obj, modified_block, false, [&](heap_entry_t *wr)
+                {
+                    wr->entry_type = BS_HEAP_DELETE|BS_HEAP_STABLE;
+                    wr->inode = obj->inode;
+                    wr->stripe = obj->stripe;
+                    wr->version = 0;
+                    wr->lsn = compact_lsn;
+                });
+            }
+        }
+        else if (old_wr->lsn > to_lsn)
+        {
+            return ENOENT;
+        }
+    }
+    auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
+    uint32_t wr_size = get_big_entry_size();
+    return add_entry(wr_size, obj, modified_block, true, [&](heap_entry_t *new_wr)
+    {
+        // obj and old_wr are invalid, re-read them - the block could have been compacted
+        obj = read_entry(oid);
+        while (obj && obj->lsn > to_lsn)
+        {
+            // skip new entries
+            obj = prev(obj);
+        }
+        assert(obj);
+        new_wr->entry_type = BS_HEAP_BIG_WRITE | BS_HEAP_STABLE;
+        new_wr->inode = obj->inode;
+        new_wr->stripe = obj->stripe;
+        memset(new_wr->get_int_bitmap(this), 0, dsk->clean_entry_bitmap_size);
+        bool need_copy = false, bitmap_copied = false;
+        std::vector<heap_entry_t*> cswr;
+        // Determine the latest compacted entry
+        uint64_t compact_lsn = obj->lsn, compact_version = obj->version;
+        iterate_with_stable(obj, to_lsn, [&](heap_entry_t *old_wr, bool stable)
+        {
+            if (!stable)
+            {
+                // This entry is still uncommitted, so it's not compacted and makes a gap
+                compact_lsn = old_wr->lsn-1;
+                compact_version = prev(old_wr)->version;
+            }
+            return !old_wr->is_overwrite();
+        });
+        new_wr->version = compact_version;
+        new_wr->lsn = compact_lsn;
+        bool found = false;
+        iterate_with_stable(obj, compact_lsn, [&](heap_entry_t *old_wr, bool stable)
+        {
+            if (!stable)
+                return true;
+            if (old_wr->type() == BS_HEAP_SMALL_WRITE || old_wr->type() == BS_HEAP_INTENT_WRITE)
+            {
+                if (!bitmap_copied)
+                {
+                    memcpy(new_wr->get_ext_bitmap(this), old_wr->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
+                    bitmap_copied = true;
+                }
+                bitmap_set(new_wr->get_int_bitmap(this), old_wr->small().offset, old_wr->small().len, dsk->bitmap_granularity);
+                if (dsk->data_csum_type && old_wr->small().len > 0)
+                {
+                    if (dsk->csum_block_size == dsk->bitmap_granularity)
+                        cswr.push_back(old_wr);
+                    else
+                        need_copy = true;
+                }
+            }
+            else if (old_wr->type() == BS_HEAP_BIG_WRITE)
+            {
+                found = true;
+                new_wr->big().block_num = old_wr->big().block_num;
+                mem_or(new_wr->get_int_bitmap(this), old_wr->get_int_bitmap(this), dsk->clean_entry_bitmap_size);
+                if (need_copy)
+                    memcpy(new_wr->get_checksums(this), new_csums, dsk->data_block_size/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
+                else if (dsk->data_csum_type)
+                {
+                    // Copy checksums in the reverse order
+                    memcpy(new_wr->get_checksums(this), old_wr->get_checksums(this), dsk->data_block_size/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
+                    for (size_t i = cswr.size(); i > 0; i--)
+                    {
+                        heap_entry_t *old_wr = cswr[i-1];
+                        memcpy(new_wr->get_checksums(this) + old_wr->small().offset/dsk->csum_block_size*(dsk->data_csum_type & 0xFF),
+                            old_wr->get_checksums(this), old_wr->small().len/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
+                    }
+                }
+                return false;
+            }
+            return true;
+        });
+        assert(found);
+    });
+}
+
+// A bit of a hack: overwrite the bitmap in an existing entry
+int blockstore_heap_t::add_punch_holes(heap_entry_t *obj, uint64_t to_lsn, uint64_t version, uint8_t *new_bitmap, uint8_t *new_csums, uint32_t *modified_block)
+{
+    assert(dsk->data_csum_type && dsk->csum_block_size > dsk->bitmap_granularity);
+    assert(new_csums);
+    // Abort if the object is overwritten or deleted during compaction
+    heap_entry_t *wr = obj;
+    while (wr && wr->lsn != to_lsn && !wr->is_overwrite())
+    {
+        wr = prev(wr);
+    }
+    if (!wr || wr->lsn > to_lsn)
+    {
         return ENOENT;
     }
+    auto & idx = block_index[get_pg_id(obj->inode, obj->stripe)][obj->inode][obj->stripe];
+    uint32_t block_num = idx / dsk->meta_block_size;
     auto & inf = block_info.at(block_num);
-    assert(inf.data);
-    heap_write_t *unstable_wr = NULL;
-    heap_write_t *unstable_big_wr = NULL;
-    heap_write_t *wr = obj->get_writes();
-    if (wr->version < version)
+    if (inf.is_writing)
     {
-        // No such version
-        return ENOENT;
+        return EAGAIN;
     }
-    uint64_t stab_count = 0;
-    for (; wr; wr = wr->next())
+    *modified_block = block_num;
+    memcpy(wr->get_int_bitmap(this), new_bitmap, dsk->clean_entry_bitmap_size);
+    memcpy(wr->get_checksums(this), new_csums, dsk->data_block_size/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
+    return 0;
+}
+
+int blockstore_heap_t::add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type)
+{
+    uint32_t wr_size = get_simple_entry_size();
+    return add_entry(wr_size, obj, modified_block, false, [&](heap_entry_t *wr)
     {
-        if ((wr->entry_type & BS_HEAP_STABLE))
+        wr->entry_type = entry_type;
+        wr->inode = obj->inode;
+        wr->stripe = obj->stripe;
+        wr->version = version;
+    });
+}
+
+int blockstore_heap_t::add_commit(heap_entry_t *obj, uint64_t version, uint32_t *modified_block)
+{
+    heap_entry_t *wr = obj;
+    bool found = false, uncommitted = false;
+    uint64_t commit_version = 0;
+    while (wr)
+    {
+        if (wr->type() == BS_HEAP_ROLLBACK)
+        {
+            auto rollback_version = wr->version;
+            wr = prev(wr);
+            while (wr->version > rollback_version)
+            {
+                assert(!(wr->entry_type & BS_HEAP_STABLE));
+                wr = prev(wr);
+            }
+            continue;
+        }
+        if (wr->type() == BS_HEAP_COMMIT)
+        {
+            commit_version = wr->version;
+            wr = prev(wr);
+            continue;
+        }
+        if (wr->version == version)
+        {
+            found = true;
+            if (!(wr->entry_type & BS_HEAP_STABLE) && wr->version > commit_version)
+            {
+                uncommitted = true;
+            }
+            break;
+        }
+        if (wr->is_overwrite())
         {
             break;
         }
-        else if (wr->version <= version)
+        wr = prev(wr);
+    }
+    if (!found)
+    {
+        return ENOENT;
+    }
+    if (!uncommitted)
+    {
+        return EBUSY;
+    }
+    return add_simple(obj, version, modified_block, BS_HEAP_COMMIT);
+}
+
+int blockstore_heap_t::add_rollback(heap_entry_t *obj, uint64_t version, uint32_t *modified_block)
+{
+    heap_entry_t *wr = obj;
+    bool found_uncommitted = false;
+    uint64_t commit_version = 0;
+    while (wr && !wr->is_overwrite())
+    {
+        if (wr->type() == BS_HEAP_ROLLBACK)
         {
-            stab_count++;
-            unstable_wr = wr;
-            if (!unstable_big_wr &&
-                (wr->type() == BS_HEAP_BIG_WRITE ||
-                wr->type() == BS_HEAP_TOMBSTONE))
+            auto rollback_version = wr->version;
+            wr = prev(wr);
+            while (wr->version > rollback_version)
             {
-                unstable_big_wr = wr;
+                assert(!(wr->entry_type & BS_HEAP_STABLE));
+                wr = prev(wr);
+            }
+            continue;
+        }
+        if (wr->type() == BS_HEAP_COMMIT)
+        {
+            commit_version = wr->version;
+            wr = prev(wr);
+            continue;
+        }
+        bool stable = (wr->entry_type & BS_HEAP_STABLE) || wr->version <= commit_version;
+        if (stable)
+        {
+            if (wr->version > version)
+            {
+                return EBUSY;
+            }
+            else if (wr->version == version)
+            {
                 break;
             }
+            else if (wr->version < version)
+            {
+                return ENOENT;
+            }
         }
+        else if (wr->version > version)
+        {
+            found_uncommitted = true;
+        }
+        wr = prev(wr);
     }
-    if (!unstable_wr)
+    if (!found_uncommitted)
     {
-        // Version is already stable
         return 0;
     }
-    if (modified_block)
+    return add_simple(obj, version, modified_block, BS_HEAP_ROLLBACK);
+}
+
+int blockstore_heap_t::add_delete(heap_entry_t *obj, uint32_t *modified_block)
+{
+    assert(obj);
+    return add_simple(obj, 0, modified_block, BS_HEAP_DELETE|BS_HEAP_STABLE);
+}
+
+// 2nd step: mark the block as being written (to prevent further in-memory updates to it),
+// then mark it as written, then mark LSN as fsynced, then compact objects
+
+uint32_t blockstore_heap_t::meta_alloc_pos(const heap_block_info_t & inf)
+{
+    if (inf.is_writing || inf.used_space-inf.garbage_space > dsk->meta_block_size-sizeof(heap_entry_t))
     {
-        *modified_block = block_num;
+        // 100% full - no entry can be written into this block at all
+        return META_ALLOC_LEVELS;
     }
-    // Save a copy of the object
-    if (unstable_big_wr && unstable_big_wr->next())
+    if (inf.used_space-inf.garbage_space > dsk->meta_block_size-big_entry_size)
     {
-        // Remove previous stable entry series
-        bool tracking_active = mvcc_save_copy(obj);
-        mark_overwritten(next_lsn+1, obj->inode, unstable_big_wr->next(), NULL, tracking_active);
-        add_used_space(block_num, -free_writes(unstable_big_wr->next(), NULL));
-        unstable_big_wr->next_pos = 0;
+        // nearfull - big_entries won't fit into this block so it can't be used for compaction
+        return META_ALLOC_LEVELS-1;
     }
-    // Set the stability flag and assign new LSNs
-    if (new_lsn)
+    // normal block
+    return (inf.used_space-inf.garbage_space) / ((dsk->meta_block_size-big_entry_size) / (META_ALLOC_LEVELS-1));
+}
+
+void blockstore_heap_t::modify_alloc(uint32_t block_num, std::function<void(heap_block_info_t &)> change_cb)
+{
+    auto & inf = block_info.at(block_num);
+    uint32_t old_pos = meta_alloc_pos(inf);
+    uint32_t old_used = inf.used_space-inf.garbage_space;
+    change_cb(inf);
+    uint32_t new_pos = meta_alloc_pos(inf);
+    uint32_t new_used = inf.used_space-inf.garbage_space;
+    meta_alloc->change(block_num, old_pos, new_pos);
+    meta_used_space -= old_used;
+    meta_used_space += new_used;
+    if ((old_pos < META_ALLOC_LEVELS-1) != (new_pos < META_ALLOC_LEVELS-1))
     {
-        *new_lsn = next_lsn+1;
+        meta_nearfull_blocks += (new_pos >= META_ALLOC_LEVELS-1 ? 1 : -1);
     }
-    if (new_to_lsn)
+    if (old_pos == META_ALLOC_LEVELS-1 || new_pos == META_ALLOC_LEVELS-1)
     {
-        *new_to_lsn = next_lsn+stab_count;
+        // block is nearfull -> free space between minimum and maximum entry size
+        if (old_pos == META_ALLOC_LEVELS-1)
+            meta_nearfull.erase(block_num | (((uint64_t)(dsk->meta_block_size-old_used)) << 32));
+        if (new_pos == META_ALLOC_LEVELS-1)
+            meta_nearfull.insert(block_num | (((uint64_t)(dsk->meta_block_size-new_used)) << 32));
     }
-    next_lsn += stab_count;
-    uint64_t last_lsn = next_lsn;
-    for (wr = obj->get_writes(); wr; wr = wr->next())
+}
+
+void blockstore_heap_t::start_block_write(uint32_t block_num)
+{
+    modify_alloc(block_num, [&](heap_block_info_t & inf)
     {
-        if (!(wr->entry_type & BS_HEAP_STABLE) && wr->version <= version)
+        assert(!inf.is_writing);
+        inf.is_writing = true;
+    });
+}
+
+void blockstore_heap_t::complete_block_write(uint32_t block_num)
+{
+    uint64_t mod_lsn = 0, mod_lsn_to = 0;
+    modify_alloc(block_num, [&](heap_block_info_t & inf)
+    {
+        assert(inf.is_writing);
+        inf.is_writing = false;
+        mod_lsn = inf.mod_lsn;
+        mod_lsn_to = inf.mod_lsn_to;
+        inf.mod_lsn = 0;
+        inf.mod_lsn_to = 0;
+    });
+    if (mod_lsn)
+    {
+        for (uint64_t lsn = mod_lsn; lsn <= mod_lsn_to; lsn++)
+            mark_lsn_completed(lsn);
+    }
+}
+
+void blockstore_heap_t::mark_garbage_up_to(object_id oid, uint64_t lsn)
+{
+    auto mvcc_it = object_mvcc.find(oid);
+    if (mvcc_it != object_mvcc.end())
+    {
+        // Postpone until all readers complete
+        mvcc_it->second.garbage_lsn = mvcc_it->second.garbage_lsn < lsn ? lsn : mvcc_it->second.garbage_lsn;
+        return;
+    }
+    heap_entry_t *wr = read_entry(oid);
+    while (wr && wr->lsn != lsn)
+    {
+        wr = prev(wr);
+    }
+    if (wr)
+    {
+        assert((wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_DELETE) && (wr->entry_type & BS_HEAP_STABLE));
+        uint32_t used_big = (wr->type() == BS_HEAP_BIG_WRITE ? wr->big().block_num : UINT32_MAX);
+        while (true)
         {
-            wr->entry_type |= BS_HEAP_STABLE;
-            wr->lsn = last_lsn--;
-            push_inflight_lsn(oid, wr->lsn, wr->needs_compact(this) ? HEAP_INFLIGHT_COMPACTABLE : 0);
+            auto prev_wr = prev(wr);
+            if (!prev_wr)
+            {
+                break;
+            }
+            mark_garbage(wr->prev_pos / dsk->meta_block_size, prev_wr, used_big);
+            wr->prev_pos = (wr->prev_pos & GARBAGE_BIT);
+            wr = prev_wr;
         }
     }
-    assert(last_lsn == next_lsn-stab_count);
-    obj->crc32c = obj->calc_crc32c();
-    return 0;
 }
 
-int blockstore_heap_t::post_rollback(object_id oid, uint64_t version, uint64_t *new_lsn, uint32_t *modified_block)
+void blockstore_heap_t::mark_garbage(uint32_t block_num, heap_entry_t *prev_wr, uint32_t used_big)
 {
-    uint32_t block_num = 0;
-    heap_object_t *obj = read_entry(oid, &block_num);
-    if (!obj)
+    prev_wr->set_garbage();
+    // And this is the moment when we can free the data reference
+    if (prev_wr->type() == BS_HEAP_SMALL_WRITE && prev_wr->small().len > 0)
     {
-        // No such object
-        return ENOENT;
+        free_buffer_area(prev_wr->inode, prev_wr->small().location, prev_wr->small().len);
     }
-    auto & inf = block_info.at(block_num);
-    assert(inf.data);
-    heap_write_t *wr = obj->get_writes();
-    if (wr->version < version)
+    else if (prev_wr->type() == BS_HEAP_BIG_WRITE && prev_wr->big().block_num != used_big)
     {
-        // No such version
-        return ENOENT;
+        free_data(prev_wr->inode, prev_wr->big_location(this));
     }
-    if (wr->version == version && (wr->entry_type & BS_HEAP_STABLE))
+    if (prev_wr->is_compactable())
     {
-        // Already rolled back
-        return 0;
+        to_compact_count--;
     }
-    for (; wr && wr->version > version; wr = wr->next())
+    modify_alloc(block_num, [&](heap_block_info_t & inf)
     {
-        if (wr->entry_type & BS_HEAP_STABLE)
-        {
-            // Already committed, can't rollback
-            return EBUSY;
-        }
-    }
-    if (modified_block)
-    {
-        *modified_block = block_num;
-    }
-    bool tracking_active = mvcc_save_copy(obj);
-    ++next_lsn;
-    if (new_lsn)
-    {
-        *new_lsn = next_lsn;
-    }
-    push_inflight_lsn(oid, next_lsn, 0);
-    if (!wr)
-    {
-        erase_object(block_num, obj, next_lsn, tracking_active);
-    }
-    else
-    {
-        // Erase head versions
-        heap_write_t *first_wr = obj->get_writes();
-        mark_overwritten(next_lsn, obj->inode, first_wr, wr, tracking_active);
-        add_used_space(block_num, -free_writes(first_wr, wr));
-        obj->write_pos = ((uint8_t*)wr - (uint8_t*)obj);
-        obj->crc32c = obj->calc_crc32c();
-    }
-    return 0;
-}
-
-int blockstore_heap_t::post_delete(object_id oid, uint64_t *new_lsn, uint32_t *modified_block)
-{
-    uint32_t block_num = 0;
-    heap_object_t *obj = read_entry(oid, &block_num);
-    if (!obj)
-    {
-        // No such object
-        return ENOENT;
-    }
-    if (modified_block)
-    {
-        *modified_block = block_num;
-    }
-    return post_delete(block_num, obj, new_lsn);
-}
-
-int blockstore_heap_t::post_delete(uint32_t block_num, heap_object_t *obj, uint64_t *new_lsn)
-{
-    bool tracking_active = mvcc_save_copy(obj);
-    auto & inf = block_info.at(block_num);
-    assert(inf.data);
-    ++next_lsn;
-    if (new_lsn)
-    {
-        *new_lsn = next_lsn;
-    }
-    push_inflight_lsn((object_id){ .inode = obj->inode, .stripe = obj->stripe }, next_lsn, 0);
-    erase_object(block_num, obj, next_lsn, tracking_active);
-    return 0;
+        inf.garbage_space += prev_wr->size;
+    });
 }
 
 int blockstore_heap_t::get_next_compact(object_id & oid)
 {
-    if (next_compact_lsn < first_inflight_lsn)
+    if (!compact_queue.size())
     {
-        next_compact_lsn = first_inflight_lsn;
-    }
-    while (next_compact_lsn-first_inflight_lsn < inflight_lsn.size())
-    {
-        if (next_compact_lsn > (dsk->disable_meta_fsync && dsk->disable_journal_fsync ? completed_lsn : fsynced_lsn))
-        {
-            return ENOENT;
-        }
-        auto & item = inflight_lsn[next_compact_lsn-first_inflight_lsn];
-        if (!(item.flags & HEAP_INFLIGHT_COMPACTABLE))
-        {
-            next_compact_lsn++;
-            continue;
-        }
-        if (!(item.flags & HEAP_INFLIGHT_DONE))
-        {
-            break;
-        }
-        next_compact_lsn++;
-        oid = item.oid;
-        return 0;
-    }
-    return ENOENT;
-}
-
-int blockstore_heap_t::compact_object(object_id oid, uint64_t compact_lsn, uint8_t *new_csums)
-{
-    uint32_t block_num = 0;
-    heap_object_t *obj = read_entry(oid, &block_num);
-    if (!obj)
-    {
-        // No such object
         return ENOENT;
     }
-    mvcc_save_copy(obj);
-    int res = EAGAIN;
-    uint32_t freed = compact_object_to(obj, compact_lsn, new_csums, true);
-    if (freed)
-    {
-        add_used_space(block_num, -freed);
-        res = 0;
-    }
-    return res;
+    oid = compact_queue.front();
+    compact_queue.pop_front();
+    return 0;
 }
 
-void blockstore_heap_t::deref_data(uint64_t inode, uint64_t location, bool free_at_0)
+void blockstore_heap_t::iterate_with_stable(heap_entry_t *obj, uint64_t max_lsn, std::function<bool(heap_entry_t*, bool)> cb)
 {
-    auto ref_it = mvcc_data_refs.find(location);
-    if (ref_it != mvcc_data_refs.end())
+    auto old_wr = obj;
+    while (old_wr && old_wr->lsn > max_lsn)
     {
-        assert(ref_it->second > 0);
-        ref_it->second--;
-        if (!ref_it->second)
+        // skip new entries
+        old_wr = prev(old_wr);
+    }
+    uint64_t commit_version = 0, rollback_version = UINT64_MAX;
+    for (; old_wr; old_wr = prev(old_wr))
+    {
+        if (old_wr->type() == BS_HEAP_ROLLBACK)
         {
-            mvcc_data_refs.erase(ref_it);
-            ref_it = mvcc_data_refs.end();
+            rollback_version = old_wr->version;
         }
-    }
-    if (ref_it == mvcc_data_refs.end() && free_at_0)
-    {
-        assert(data_alloc->get(location / dsk->data_block_size));
-        data_alloc->set(location / dsk->data_block_size, false);
-        auto & space = inode_space_stats[inode];
-        assert(space >= dsk->data_block_size);
-        space -= dsk->data_block_size;
-        data_used_space -= dsk->data_block_size;
-        if (!space)
-            inode_space_stats.erase(inode);
-    }
-}
-
-void blockstore_heap_t::deref_buffer(uint64_t inode, uint64_t location, uint32_t len, bool free_at_0)
-{
-    assert(len > 0);
-    auto ref_it = mvcc_buffer_refs.find(location);
-    if (ref_it != mvcc_buffer_refs.end())
-    {
-        assert(ref_it->second > 0);
-        ref_it->second--;
-        if (!ref_it->second)
+        else if (old_wr->type() == BS_HEAP_COMMIT)
         {
-            mvcc_buffer_refs.erase(ref_it);
-            ref_it = mvcc_buffer_refs.end();
+            commit_version = old_wr->version;
         }
-    }
-    if (ref_it == mvcc_buffer_refs.end() && free_at_0)
-    {
-        free_buffer_area(inode, location, len);
-    }
-}
-
-void blockstore_heap_t::deref_overwrites(uint64_t lsn)
-{
-    while (overwrite_ref_queue.size() > 0)
-    {
-        // Dereference item
-        auto & el = overwrite_ref_queue.front();
-        if (el.lsn > lsn)
-            break;
-        if (el.is_data)
-            deref_data(el.inode, el.location, true);
         else
-            deref_buffer(el.inode, el.location, el.len, true);
-        overwrite_ref_queue.pop_front();
-    }
-}
-
-void blockstore_heap_t::free_object_space(inode_t inode, heap_write_t *from, heap_write_t *to, int mode)
-{
-    for (heap_write_t *wr = from; wr && wr != to; wr = wr->next())
-    {
-        if (wr->type() == BS_HEAP_BIG_WRITE)
         {
-            deref_data(inode, wr->big_location(this), mode != BS_HEAP_FREE_MAIN);
-            if (mode == BS_HEAP_FREE_MVCC && (wr->entry_type & BS_HEAP_STABLE))
+            // 1) 1 2 3 ROLLBACK(2) COMMIT(3) -> impossible
+            // 2) 1 2 3 4 ROLLBACK(3) COMMIT(2) -> OK
+            // 3) 1 2 3 ROLLBACK(2) 3 COMMIT(3) -> first 3 shouldn't be treated as stable
+            // 4) 1 2 3 COMMIT(3) ROLLBACK(2) -> impossible
+            //    I.e. a rollback always has version >= previous commit
+            // 5) 1 2 3 4 5 ROLLBACK(4) 5 ROLLBACK(3)
+            if (old_wr->version > rollback_version)
             {
-                // Stop at the last visible version
+                continue;
+            }
+            auto cont = cb(old_wr, (old_wr->entry_type & BS_HEAP_STABLE) || (old_wr->version <= commit_version));
+            if (!cont)
+            {
                 break;
             }
         }
-        else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->small().len > 0)
+    }
+}
+
+heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t fsynced_lsn, bool under_pressure, std::function<void(heap_entry_t*)> small_wr_cb)
+{
+    heap_compact_t res = {};
+    uint64_t commit_version = 0, rollback_version = UINT64_MAX;
+    bool has_small = false;
+    for (heap_entry_t *wr = obj; wr; wr = prev(wr))
+    {
+        // 1) 1 2 3 ROLLBACK(2) COMMIT(3) -> impossible
+        // 2) 1 2 3 4 ROLLBACK(3) COMMIT(2) -> OK
+        // 3) 1 2 3 ROLLBACK(2) 3 COMMIT(3) -> first 3 shouldn't be treated as stable
+        // 4) 1 2 3 COMMIT(3) ROLLBACK(2) -> impossible
+        //    I.e. a rollback always has version >= previous commit
+        // 5) 1 2 3 4 5 ROLLBACK(4) 5 ROLLBACK(3)
+        if (wr->type() == BS_HEAP_ROLLBACK)
         {
-            deref_buffer(inode, wr->small().location, wr->small().len, mode != BS_HEAP_FREE_MAIN);
+            if (wr->lsn <= fsynced_lsn && !res.compact_lsn)
+            {
+                res.compact_lsn = wr->lsn;
+                res.compact_version = wr->version;
+            }
+            rollback_version = wr->version;
+            continue;
+        }
+        if (wr->type() == BS_HEAP_COMMIT)
+        {
+            if (wr->lsn <= fsynced_lsn && !res.compact_lsn)
+            {
+                res.compact_lsn = wr->lsn;
+                res.compact_version = wr->version;
+            }
+            commit_version = wr->version;
+            continue;
+        }
+        bool rolled_back = (wr->version > rollback_version);
+        bool stable = !rolled_back && ((wr->entry_type & BS_HEAP_STABLE) || (wr->version <= commit_version));
+        if (!stable || wr->lsn > fsynced_lsn)
+        {
+            // Skip unstable or non-fsynced writes
+            if (!under_pressure && (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_DELETE))
+            {
+                // We may postpone compaction if we have an unstable overwrite when not under pressure
+                res.compact_lsn = 0;
+                res.compact_version = 0;
+                return res;
+            }
+            continue;
+        }
+        if (wr->type() == BS_HEAP_BIG_WRITE)
+        {
+            // Stable big_write is here
+            res.clean_loc = wr->big_location(this);
+            res.clean_version = wr->version;
+            res.clean_lsn = wr->lsn;
+            return res;
+        }
+        if (wr->type() == BS_HEAP_DELETE)
+        {
+            // Object is deleted
+            assert(!has_small);
+            if (wr->entry_type & BS_HEAP_STABLE)
+            {
+                // Already have the stable bit, no need to generate a compaction entry
+                res.compact_lsn = 0;
+                res.compact_version = 0;
+            }
+            return res;
+        }
+        // We finally have something compactable
+        if (!res.compact_lsn)
+        {
+            res.compact_lsn = wr->lsn;
+            res.compact_version = wr->version;
+        }
+        if (wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE)
+        {
+            has_small = true;
+            small_wr_cb(wr);
         }
     }
-}
-
-void blockstore_heap_t::erase_block_index(inode_t inode, uint64_t stripe)
-{
-    auto & pg_index = block_index[get_pg_id(inode, stripe)];
-    auto & inode_index = pg_index[inode];
-    inode_index.erase(stripe);
-    if (!inode_index.size())
-    {
-        pg_index.erase(inode);
-    }
-}
-
-void blockstore_heap_t::init_erase(uint32_t block_num, heap_object_t *obj)
-{
-    for (auto wr = obj->get_writes(); wr; wr = wr->next())
-    {
-        if (wr->needs_compact(this))
-            mark_lsn_compacted(wr->lsn, true);
-    }
-    free_object_space(obj->inode, obj->get_writes(), NULL);
-    erase_object(block_num, obj, 0, false);
-}
-
-void blockstore_heap_t::erase_object(uint32_t block_num, heap_object_t *obj, uint64_t lsn, bool tracking_active)
-{
-    // Erase object
-    if (lsn > 0)
-        mark_overwritten(lsn, obj->inode, obj->get_writes(), NULL, tracking_active);
-    erase_block_index(obj->inode, obj->stripe);
-    auto freed = free_writes(obj->get_writes(), NULL);
-    auto obj_size = obj->size;
-    memset((uint8_t*)obj, 0, obj_size);
-    *((uint16_t*)obj) = FREE_SPACE_BIT | obj_size;
-    add_used_space(block_num, -obj_size-freed);
-}
-
-void blockstore_heap_t::add_used_space(uint32_t block_num, int32_t used_delta)
-{
-    auto & inf = block_info.at(block_num);
-    meta_used_space += used_delta;
-    auto thresh = (dsk->meta_block_size-target_block_free_space) - (dsk->meta_block_size-target_block_free_space)%MIN_ALLOC;
-    auto old_used_space = inf.used_space;
-    inf.used_space += used_delta;
-    meta_alloc->change(block_num,
-        dsk->meta_block_size/MIN_ALLOC - (dsk->meta_block_size-old_used_space)/MIN_ALLOC,
-        dsk->meta_block_size/MIN_ALLOC - (dsk->meta_block_size-inf.used_space)/MIN_ALLOC);
-    if (old_used_space > thresh && inf.used_space <= thresh)
-        meta_alloc_count--;
-    if (old_used_space <= thresh && inf.used_space > thresh)
-        meta_alloc_count++;
+    return res;
 }
 
 int blockstore_heap_t::list_objects(uint32_t pg_num, object_id min_oid, object_id max_oid,
@@ -2085,15 +1805,13 @@ int blockstore_heap_t::list_objects(uint32_t pg_num, object_id min_oid, object_i
             {
                 continue;
             }
-            const uint64_t block_pos = stripe_pair.second;
-            const uint32_t block_num = block_pos / dsk->meta_block_size;
-            heap_object_t *obj = (heap_object_t*)(block_info[block_num].data + (block_pos % dsk->meta_block_size));
+            heap_entry_t *obj = entry_from_pos(stripe_pair.second);
             assert(obj->inode == oid.inode && obj->stripe == oid.stripe);
             uint64_t stable_version = 0;
-            auto first_wr = obj->get_writes();
-            for (auto wr = first_wr; wr; wr = wr->next())
+            auto first_wr = obj;
+            for (auto wr = first_wr; wr; wr = prev(wr))
             {
-                if (wr->entry_type & BS_HEAP_STABLE)
+                if ((wr->entry_type & BS_HEAP_STABLE) || wr->type() == BS_HEAP_COMMIT || wr->type() == BS_HEAP_ROLLBACK)
                 {
                     stable_version = wr->version;
                     break;
@@ -2216,7 +1934,7 @@ uint8_t *blockstore_heap_t::get_meta_block(uint32_t block_num)
 uint32_t blockstore_heap_t::get_meta_block_used_space(uint32_t block_num)
 {
     auto & inf = block_info.at(block_num);
-    return inf.used_space;
+    return inf.used_space - inf.garbage_space;
 }
 
 uint64_t blockstore_heap_t::get_data_used_space()
@@ -2241,12 +1959,12 @@ uint64_t blockstore_heap_t::get_meta_used_space()
 
 uint32_t blockstore_heap_t::get_meta_nearfull_blocks()
 {
-    return meta_alloc_count;
+    return meta_nearfull_blocks;
 }
 
 uint32_t blockstore_heap_t::get_compact_queue_size()
 {
-    return inflight_lsn.size() - (next_compact_lsn < first_inflight_lsn ? 0 : next_compact_lsn-first_inflight_lsn);
+    return compact_queue.size();
 }
 
 uint32_t blockstore_heap_t::get_to_compact_count()
@@ -2259,22 +1977,7 @@ uint32_t blockstore_heap_t::get_inflight_queue_size()
     return inflight_lsn.size();
 }
 
-uint32_t blockstore_heap_t::get_max_write_entry_size()
-{
-    return max_write_entry_size;
-}
-
-void blockstore_heap_t::set_abort_on_corruption(bool fail)
-{
-    abort_on_corruption = fail;
-}
-
-void blockstore_heap_t::set_abort_on_overlap(bool fail)
-{
-    abort_on_overlap = fail;
-}
-
-void blockstore_heap_t::push_inflight_lsn(object_id oid, uint64_t lsn, uint64_t flags)
+void blockstore_heap_t::push_inflight_lsn(object_id oid, uint64_t lsn, uint64_t compact_lsn, uint64_t flags)
 {
     uint64_t next_inf = first_inflight_lsn + inflight_lsn.size();
     if (flags & HEAP_INFLIGHT_COMPACTABLE)
@@ -2283,7 +1986,7 @@ void blockstore_heap_t::push_inflight_lsn(object_id oid, uint64_t lsn, uint64_t 
     }
     if (lsn == next_inf)
     {
-        inflight_lsn.push_back((heap_inflight_lsn_t){ .oid = oid, .flags = flags });
+        inflight_lsn.push_back((heap_inflight_lsn_t){ .oid = oid, .flags = flags, .compact_lsn = compact_lsn });
     }
     else
     {
@@ -2291,7 +1994,7 @@ void blockstore_heap_t::push_inflight_lsn(object_id oid, uint64_t lsn, uint64_t 
         {
             inflight_lsn.resize(lsn-first_inflight_lsn+1, (heap_inflight_lsn_t){ .flags = HEAP_INFLIGHT_DONE });
         }
-        inflight_lsn[lsn-first_inflight_lsn] = (heap_inflight_lsn_t){ .oid = oid, .flags = flags };
+        inflight_lsn[lsn-first_inflight_lsn] = (heap_inflight_lsn_t){ .oid = oid, .flags = flags, .compact_lsn = compact_lsn };
     }
 }
 
@@ -2301,30 +2004,24 @@ void blockstore_heap_t::mark_lsn_completed(uint64_t lsn)
     auto it = inflight_lsn.begin() + (lsn-first_inflight_lsn);
     assert(!(it->flags & HEAP_INFLIGHT_DONE));
     it->flags |= HEAP_INFLIGHT_DONE;
-    if (lsn == compacted_lsn+1 && !(it->flags & HEAP_INFLIGHT_COMPACTABLE))
+    if (lsn == completed_lsn+1)
     {
-        assert(compacted_lsn+1 >= first_inflight_lsn);
-        while (it != inflight_lsn.end() && (it->flags == HEAP_INFLIGHT_DONE))
+        if (dsk->disable_meta_fsync && dsk->disable_journal_fsync)
         {
-            it++;
-            compacted_lsn++;
+            // Apply effects immediately if metadata doesn't need fsyncing
+            while (inflight_lsn.size() && (inflight_lsn[0].flags & HEAP_INFLIGHT_DONE))
+            {
+                completed_lsn++;
+                apply_inflight();
+            }
         }
-    }
-    if (lsn > completed_lsn)
-    {
-        assert(completed_lsn+1 >= first_inflight_lsn);
-        if (completed_lsn+1-first_inflight_lsn < inflight_lsn.size())
+        else
         {
-            auto old_completed_lsn = completed_lsn;
             auto it = inflight_lsn.begin() + (completed_lsn+1-first_inflight_lsn);
             while (it != inflight_lsn.end() && (it->flags & HEAP_INFLIGHT_DONE))
             {
                 completed_lsn++;
                 it++;
-            }
-            if (old_completed_lsn != completed_lsn && dsk->disable_meta_fsync && dsk->disable_journal_fsync)
-            {
-                deref_overwrites(completed_lsn);
             }
         }
     }
@@ -2332,56 +2029,59 @@ void blockstore_heap_t::mark_lsn_completed(uint64_t lsn)
 
 void blockstore_heap_t::mark_lsn_fsynced(uint64_t lsn)
 {
+    assert(!dsk->disable_meta_fsync || !dsk->disable_journal_fsync);
     if (lsn > fsynced_lsn)
     {
         assert(lsn <= completed_lsn);
+        while (lsn >= first_inflight_lsn)
+        {
+            apply_inflight();
+        }
         fsynced_lsn = lsn;
-        deref_overwrites(lsn);
     }
 }
 
-void blockstore_heap_t::mark_lsn_compacted(uint64_t lsn, bool allow_undone)
+void blockstore_heap_t::apply_inflight()
 {
-    assert(lsn >= first_inflight_lsn && lsn < first_inflight_lsn+inflight_lsn.size());
-    auto & item = inflight_lsn[lsn - first_inflight_lsn];
-    assert((item.flags & HEAP_INFLIGHT_DONE) || allow_undone);
-    if (!(item.flags & HEAP_INFLIGHT_COMPACTABLE))
-        return;
-    item.flags -= HEAP_INFLIGHT_COMPACTABLE;
-    to_compact_count--;
-    if (lsn == compacted_lsn+1)
+    auto & inflight = inflight_lsn.front();
+    if (inflight.flags & HEAP_INFLIGHT_COMPACTED)
     {
-        assert(completed_lsn+1 >= first_inflight_lsn);
-        while (compacted_lsn+1-first_inflight_lsn < inflight_lsn.size() &&
-            (inflight_lsn[compacted_lsn+1-first_inflight_lsn].flags == HEAP_INFLIGHT_DONE))
+        // Mark previous entries as garbage, sequentially
+        mark_garbage_up_to(inflight.oid, inflight.compact_lsn);
+    }
+    else if (inflight.flags & HEAP_INFLIGHT_COMPACTABLE)
+    {
+        // Add to the compaction queue
+        compact_queue.push_back(inflight.oid);
+    }
+    else if (inflight.flags & HEAP_INFLIGHT_GC)
+    {
+        // Remove 1 prev_count from the object refcount in the DB or in deref_deletes
+        auto & oid = inflight.oid;
+        auto & inode_idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode];
+        auto idx_it = inode_idx.find(oid.stripe);
+        if (idx_it == inode_idx.end())
         {
-            compacted_lsn++;
+            // delete is dereferenced
+            int del = deref_deletes.erase(oid);
+            assert(del > 0);
+        }
+        else
+        {
+            heap_entry_t *newer_obj = entry_from_pos(idx_it->second);
+            newer_obj->prev_count--;
+            if (newer_obj->prev_count == 0 && newer_obj->entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
+            {
+                // free BS_HEAP_DELETEs when their prev_count becomes 0
+                // but remember that they have a 'temporary' dereferenced prev_count of 1
+                mark_garbage(idx_it->second / dsk->meta_block_size, newer_obj, UINT32_MAX);
+                deref_deletes.insert(oid);
+                inode_idx.erase(idx_it);
+            }
         }
     }
-}
-
-void blockstore_heap_t::mark_object_compacted(heap_object_t *obj, uint64_t max_lsn)
-{
-    for (auto wr = obj->get_writes(); wr; wr = wr->next())
-    {
-        if (wr->is_compacted(max_lsn))
-        {
-            mark_lsn_compacted(wr->lsn);
-        }
-    }
-}
-
-void blockstore_heap_t::mark_lsn_trimmed(uint64_t lsn)
-{
-    assert(lsn >= first_inflight_lsn && lsn < first_inflight_lsn+inflight_lsn.size());
-    while (first_inflight_lsn <= lsn && inflight_lsn.size() > 0)
-    {
-        assert(inflight_lsn[0].flags == HEAP_INFLIGHT_DONE);
-        // In the future maybe we could skip unflushable LSNs here
-        compact_object(inflight_lsn[0].oid, lsn, NULL);
-        inflight_lsn.pop_front();
-        first_inflight_lsn++;
-    }
+    inflight_lsn.pop_front();
+    first_inflight_lsn++;
 }
 
 uint64_t blockstore_heap_t::get_completed_lsn()

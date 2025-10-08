@@ -27,5 +27,6 @@ public:
 void bitmap_set(void *bitmap, uint64_t start, uint64_t len, uint64_t bitmap_granularity);
 void bitmap_clear(void *bitmap, uint64_t start, uint64_t len, uint64_t bitmap_granularity);
 bool bitmap_check(void *bitmap, uint64_t start, uint64_t len, uint64_t bitmap_granularity);
+void mem_or(void *res, const void *r2, size_t len);
 
 #pragma GCC visibility pop
