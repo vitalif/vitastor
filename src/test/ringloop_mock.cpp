@@ -171,6 +171,7 @@ disk_mock_t::disk_mock_t(size_t size, bool buffered)
     this->size = size;
     this->data = (uint8_t*)malloc_or_die(size);
     this->buffered = buffered;
+    memset(this->data, 0, size);
 }
 
 disk_mock_t::~disk_mock_t()
@@ -238,16 +239,18 @@ void disk_mock_t::clear(size_t offset, size_t len)
 
 void disk_mock_t::discard_buffers(bool all, uint32_t seed)
 {
-    if (trace)
-        printf("disk: discard buffers all=%d seed=%u\n", all, seed);
     if (all)
     {
+        if (trace)
+            printf("disk: discard all buffers (%zu)\n", buffers.size());
         for (auto & b: buffers)
             free(b.second.iov_base);
         buffers.clear();
     }
     else
     {
+        if (trace)
+            printf("disk: discard random buffers seed=%u\n", seed);
         std::mt19937 rnd(seed);
         for (auto it = buffers.begin(); it != buffers.end(); )
         {

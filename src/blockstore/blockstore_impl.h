@@ -53,8 +53,8 @@ struct blockstore_op_private_t
     int pending_ops;
     int op_state;
 
-    // Read, write, sync, stabilize
-    uint64_t lsn;
+    // Write, sync, stabilize
+    uint32_t modified_block, modified_block2;
 
     // Read
     std::vector<copy_buffer_t> read_vec;
@@ -65,9 +65,6 @@ struct blockstore_op_private_t
 
     // Stabilize, rollback
     int stab_pos;
-
-    // Stabilize
-    uint64_t to_lsn;
 
     // Write
     struct iovec iov_zerofill[3];
@@ -119,6 +116,9 @@ public:
     int unsynced_queued_ops = 0;
     uint8_t *zero_object = NULL;
 
+    std::vector<uint32_t> pending_modified_blocks;
+    robin_hood::unordered_flat_set<uint32_t> modified_blocks;
+
     journal_flusher_t *flusher;
     int write_iodepth = 0;
     int inflight_big = 0;
@@ -153,11 +153,11 @@ public:
     // Read
     int dequeue_read(blockstore_op_t *op);
     int fulfill_read(blockstore_op_t *op);
-    uint32_t prepare_read(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end);
-    uint32_t prepare_read_with_bitmaps(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end);
+    uint32_t prepare_read(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end);
+    uint32_t prepare_read_with_bitmaps(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end);
     uint32_t prepare_read_zero(std::vector<copy_buffer_t> & read_vec, uint32_t start, uint32_t end);
-    uint32_t prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end);
-    void prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int pos, heap_object_t *obj, heap_write_t *wr,
+    uint32_t prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end);
+    void prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int pos, heap_entry_t *obj, heap_entry_t *wr,
         uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags);
     void find_holes(std::vector<copy_buffer_t> & read_vec, uint32_t item_start, uint32_t item_end,
         std::function<void(int&, uint32_t, uint32_t)> callback);
@@ -167,9 +167,10 @@ public:
 
     // Write
     bool enqueue_write(blockstore_op_t *op);
-    void prepare_meta_block_write(blockstore_op_t *op, uint64_t modified_block, io_uring_sqe *sqe = NULL);
+    void prepare_meta_block_write(uint32_t modified_block);
+    bool meta_block_is_pending(uint32_t modified_block);
+    bool intent_write_allowed(blockstore_op_t *op, heap_entry_t *obj);
     int dequeue_write(blockstore_op_t *op);
-    int make_big_write(blockstore_op_t *op, uint32_t offset, uint32_t len, uint32_t *modified_block, uint32_t *moved_from_block);
     int continue_write(blockstore_op_t *op);
     void handle_write_event(ring_data_t *data, blockstore_op_t *op);
 

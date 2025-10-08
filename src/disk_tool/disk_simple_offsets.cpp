@@ -132,16 +132,13 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
     uint64_t meta_size;
     if (meta_format == BLOCKSTORE_META_FORMAT_HEAP)
     {
-        uint32_t min_object_size = sizeof(heap_object_t)+sizeof(heap_write_t)+data_csum_size+2*clean_entry_bitmap_size;
-        uint32_t meta_block_target_free_space = cfg["meta_block_target_free_space"].uint64_value();
-        if (!meta_block_target_free_space || meta_block_target_free_space > device_block_size-min_object_size)
-            meta_block_target_free_space = 800;
+        uint32_t min_object_size = sizeof(heap_big_write_t) + data_csum_size + 2*clean_entry_bitmap_size;
         double meta_reserve = cfg["meta_reserve"].number_value();
         if (!meta_reserve)
             meta_reserve = 1.5;
         else if (meta_reserve < 1)
             meta_reserve = 1;
-        uint32_t entries_per_block = (device_block_size-meta_block_target_free_space) / min_object_size;
+        uint32_t entries_per_block = device_block_size / min_object_size;
         meta_size = device_block_size * (uint64_t)((object_count+entries_per_block-1) / entries_per_block * meta_reserve);
     }
     else if (meta_format == BLOCKSTORE_META_FORMAT_V2)

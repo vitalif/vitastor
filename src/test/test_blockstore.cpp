@@ -240,12 +240,14 @@ static void test_fsync(bool separate_meta)
     if (separate_meta)
     {
         test.config["meta_device"] = "./test_meta.bin";
-        test.config["disable_meta_fsync"] = "1";
+        test.config["disable_meta_fsync"] = "0";
         test.config["meta_device_size"] = "33554432";
         test.config["meta_device_sect"] = "4096";
         test.config["data_offset"] = "0";
     }
     test.init();
+    if (test.meta_disk)
+        test.meta_disk->trace = 1;
 
     // Write
     printf("writing\n");
@@ -263,7 +265,10 @@ static void test_fsync(bool separate_meta)
     // Destroy and restart without sync
     printf("destroying\n");
     test.destroy_bs();
-    test.data_disk->discard_buffers(true, 0);
+    if (separate_meta)
+        test.meta_disk->discard_buffers(true, 0);
+    else
+        test.data_disk->discard_buffers(true, 0);
     test.init();
 
     // Check ENOENT
@@ -292,7 +297,10 @@ static void test_fsync(bool separate_meta)
     // Discard and restart again
     printf("destroying again\n");
     test.destroy_bs();
-    test.data_disk->discard_buffers(true, 0);
+    if (separate_meta)
+        test.meta_disk->discard_buffers(true, 0);
+    else
+        test.data_disk->discard_buffers(true, 0);
     test.init();
 
     // Check that it's present now
@@ -353,7 +361,7 @@ static void test_padded_csum_intent(bool perfect)
     // Write
     printf("writing\n");
     blockstore_op_t op;
-    op.opcode = BS_OP_WRITE;
+    op.opcode = BS_OP_WRITE_STABLE;
     op.oid = { .inode = 1, .stripe = 0 };
     op.version = 1;
     op.offset = 8192;
@@ -386,36 +394,16 @@ static void test_padded_csum_intent(bool perfect)
     test.exec_op(&op);
     assert(op.retval == op.len);
 
-    // Write again (small because uncompactable)
-    printf("writing (small)\n");
-    op.version = 3;
-    op.offset = 60*1024;
-    memset(op.buf, 0xcc, 4096);
-    test.exec_op(&op);
-    assert(op.retval == op.len);
-
-    // Check that these are really big+intent+small writes
+    // Check that these are really big+intent writes
     // (intent is not collapsible because of csum_block_size > bitmap_granularity)
-    heap_object_t *obj = test.bs->heap->read_entry((object_id){ .inode = 1, .stripe = 0 }, NULL);
-    assert(obj);
-    assert(obj->get_writes()->next());
-    assert(obj->get_writes()->next()->next());
-    assert(!obj->get_writes()->next()->next()->next());
-    assert(obj->get_writes()->entry_type == BS_HEAP_SMALL_WRITE);
-    assert(obj->get_writes()->next()->entry_type == (perfect ? BS_HEAP_SMALL_WRITE : BS_HEAP_INTENT_WRITE));
-    assert(obj->get_writes()->next()->next()->entry_type == BS_HEAP_BIG_WRITE);
-
-    // Commit
-    printf("commit version 3\n");
-    op.opcode = BS_OP_STABLE;
-    op.len = 1;
-    *((obj_ver_id*)op.buf) = {
-        .oid = { .inode = 1, .stripe = 0 },
-        .version = 3,
-    };
-    test.exec_op(&op);
-    assert(op.retval == 0);
-    assert(test.bs->heap->get_compact_queue_size());
+    heap_entry_t *obj = test.bs->heap->read_entry((object_id){ .inode = 1, .stripe = 0 });
+    auto wr = obj;
+    assert(wr);
+    assert(wr->entry_type == (perfect ? BS_HEAP_SMALL_WRITE : BS_HEAP_INTENT_WRITE) | BS_HEAP_STABLE);
+    wr = test.bs->heap->prev(wr);
+    assert(wr);
+    assert(wr->entry_type == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
+    assert(!test.bs->heap->prev(wr));
 
     // Trigger & wait compaction
     test.bs->flusher->request_trim();
@@ -436,12 +424,10 @@ static void test_padded_csum_intent(bool perfect)
     assert(memcheck(op2.buf+8*1024, 0xaa, 4*1024));
     assert(memcheck(op2.buf+12*1024, 0, 16*1024));
     assert(memcheck(op2.buf+28*1024, 0xbb, 4*1024));
-    assert(memcheck(op2.buf+32*1024, 0, 28*1024));
-    assert(memcheck(op2.buf+60*1024, 0xcc, 4*1024));
-    assert(memcheck(op2.buf+64*1024, 0, 64*1024));
+    assert(memcheck(op2.buf+32*1024, 0, 96*1024));
 
-    obj = test.bs->heap->read_entry((object_id){ .inode = 1, .stripe = 0 }, NULL);
-    assert(!obj->get_writes()->next());
+    obj = test.bs->heap->read_entry((object_id){ .inode = 1, .stripe = 0 });
+    assert(!test.bs->heap->prev(obj));
 
     free(op.buf);
     free(op2.buf);

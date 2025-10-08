@@ -197,6 +197,12 @@ void blockstore_impl_t::loop()
         {
             throw std::runtime_error(std::string("io_uring_submit: ") + strerror(-ret));
         }
+        for (auto & block_num: pending_modified_blocks)
+        {
+            heap->start_block_write(block_num);
+            modified_blocks.insert(block_num);
+        }
+        pending_modified_blocks.clear();
         if ((initial_ring_space - ringloop->space_left()) > 0)
         {
             live = true;

@@ -24,6 +24,11 @@ journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
     {
         co[i].co_id = i;
         co[i].bs = bs;
+        if (bs->dsk.csum_block_size > bs->dsk.bitmap_granularity)
+        {
+            co[i].new_csums = (uint8_t*)malloc_or_die(bs->dsk.data_block_size / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
+            co[i].new_bmp = (uint8_t*)malloc_or_die(bs->dsk.clean_entry_bitmap_size);
+        }
         co[i].flusher = this;
     }
 }
@@ -54,6 +59,16 @@ journal_flusher_t::~journal_flusher_t()
 
 journal_flusher_co::~journal_flusher_co()
 {
+    if (new_csums)
+    {
+        free(new_csums);
+        new_csums = NULL;
+    }
+    if (new_bmp)
+    {
+        free(new_bmp);
+        new_bmp = NULL;
+    }
     free_buffers();
 }
 
@@ -151,14 +166,6 @@ bool journal_flusher_co::loop()
     else if (wait_state == 14) goto resume_14;
     else if (wait_state == 15) goto resume_15;
     else if (wait_state == 16) goto resume_16;
-    else if (wait_state == 17) goto resume_17;
-    else if (wait_state == 18) goto resume_18;
-    else if (wait_state == 19) goto resume_19;
-    else if (wait_state == 20) goto resume_20;
-    else if (wait_state == 21) goto resume_21;
-    else if (wait_state == 22) goto resume_22;
-    else if (wait_state == 23) goto resume_23;
-    else if (wait_state == 24) goto resume_24;
 resume_0:
     wait_state = 0;
     wait_count = 0;
@@ -168,10 +175,10 @@ resume_0:
         (!bs->dsk.disable_journal_fsync || !bs->dsk.disable_meta_fsync))
     {
         flusher->active_flushers++;
-resume_21:
-resume_22:
-        res = fsync_buffer(21);
-        if (!res)
+resume_14:
+resume_15:
+resume_16:
+        if (!fsync_buffer(14))
         {
             return false;
         }
@@ -180,18 +187,6 @@ resume_22:
     }
     if (res == ENOENT)
     {
-        if (co_id == 0 && flusher->force_start > 0)
-        {
-            flusher->active_flushers++;
-resume_16:
-resume_17:
-resume_18:
-resume_19:
-resume_20:
-            if (!trim_lsn(16))
-                return false;
-            flusher->active_flushers--;
-        }
         cur_oid = {};
         wait_state = 0;
         return true;
@@ -206,35 +201,37 @@ resume_20:
         }
     }
 resume_1:
+    wait_state = 1;
     should_repeat = false;
-    cur_obj = bs->heap->lock_and_read_entry(cur_oid, copy_id);
+    cur_obj = bs->heap->lock_and_read_entry(cur_oid);
     if (!cur_obj)
     {
         // Object does not exist
         goto resume_0;
     }
-    cur_version = cur_obj->get_writes()->version;
-    // Find the range to compact
-    compact_lsn = bs->heap->get_fsynced_lsn();
-    bs->heap->get_compact_range(cur_obj, compact_lsn, &begin_wr, &end_wr);
-    if (!begin_wr)
-    {
-        // Nothing to flush
-        bs->heap->unlock_entry(cur_oid, copy_id);
-        goto resume_0;
-    }
-    assert(!end_wr->next() && end_wr->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
-    clean_loc = end_wr->big_location(bs->heap);
-    if (bs->log_level > 10)
-        printf("Compacting %jx:%jx l%ju .. l%ju (last l%ju)\n", cur_oid.inode, cur_oid.stripe, end_wr->lsn, begin_wr->lsn, compact_lsn);
-    flusher->active_flushers++;
     // Scan versions to flush
     free_buffers();
     copy_count = 0;
-    for (auto wr = begin_wr; wr != end_wr; wr = wr->next())
+    fsynced_lsn = bs->heap->get_fsynced_lsn();
+    compact_info = bs->heap->iterate_compaction(cur_obj, fsynced_lsn, flusher->force_start, [&](heap_entry_t *wr)
     {
-        bs->prepare_read(read_vec, cur_obj, wr, 0, bs->dsk.data_block_size);
-        copy_count++;
+        if (wr->type() == BS_HEAP_SMALL_WRITE ||
+            wr->type() == BS_HEAP_INTENT_WRITE && bs->dsk.csum_block_size > bs->dsk.bitmap_granularity)
+        {
+            bs->prepare_read(read_vec, cur_obj, wr, 0, bs->dsk.data_block_size);
+            copy_count++;
+        }
+    });
+    if (!compact_info.compact_lsn)
+    {
+        // Flushing is aborted
+        bs->heap->unlock_entry(cur_oid);
+        goto resume_0;
+    }
+    flusher->active_flushers++;
+    if (bs->log_level > 10)
+    {
+        printf("Compacting %jx:%jx l%ju .. l%ju\n", cur_oid.inode, cur_oid.stripe, compact_info.clean_lsn, compact_info.compact_lsn);
     }
     overwrite_start = overwrite_end = 0;
     if (read_vec.size() > 0)
@@ -254,7 +251,6 @@ resume_1:
     }
     // Read buffered data
     cur_obj = NULL;
-    begin_wr = end_wr = NULL;
 resume_2:
 resume_3:
     if (!read_buffered(2))
@@ -272,28 +268,44 @@ resume_3:
         flusher->wanting_meta_fsync--;
     }
     res = check_and_punch_checksums();
-    if (res == EBUSY)
-    {
-resume_4:
-resume_5:
-        if (!write_meta_block(4))
-        {
-            return false;
-        }
-resume_6:
-resume_7:
-resume_8:
-        if (!fsync_meta(6))
-        {
-            return false;
-        }
-        res = 0;
-    }
-    else if (res == ENOENT || res == EDOM)
+    if (res == ENOENT || res == EDOM)
     {
         // Abort compaction
         flusher->active_flushers--;
         goto resume_0;
+    }
+    if (res == EBUSY)
+    {
+resume_4:
+        modified_block = UINT32_MAX;
+        res = bs->heap->add_punch_holes(cur_obj, compact_info.clean_lsn, compact_info.clean_version, new_bmp, new_csums, &modified_block);
+        if (res == ENOENT)
+        {
+            // Abort compaction
+            flusher->active_flushers--;
+            goto resume_0;
+        }
+        if (res == EAGAIN)
+        {
+            // Retry, block is busy
+            wait_state = 4;
+            return false;
+        }
+        assert(res == 0);
+resume_5:
+resume_6:
+        if (!write_meta_block(5))
+        {
+            return false;
+        }
+resume_7:
+resume_8:
+resume_9:
+        if (!fsync_meta(7))
+        {
+            return false;
+        }
+        res = 0;
     }
     assert(res == 0);
     // Submit data writes
@@ -304,26 +316,26 @@ resume_8:
             (read_vec[i].copy_flags & COPY_BUF_PADDED)) // FIXME Shit, simplify these flags
         {
             assert(read_vec[i].buf);
-            await_sqe(9);
+            await_sqe(10);
             data->iov = (struct iovec){ read_vec[i].buf + (read_vec[i].copy_flags & COPY_BUF_PADDED
                 ? read_vec[i].offset - read_vec[i].disk_offset : 0), (size_t)read_vec[i].len };
             data->callback = simple_callback_w;
-            io_uring_prep_writev(sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + clean_loc + read_vec[i].offset);
+            io_uring_prep_writev(sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + compact_info.clean_loc + read_vec[i].offset);
             wait_count++;
         }
     }
-resume_10:
+resume_11:
     if (wait_count > 0)
     {
-        wait_state = 10;
+        wait_state = 11;
         return false;
     }
     // Lock is only needed to prevent freeing the big_write because we overwrite it...
-    bs->heap->unlock_entry(cur_oid, copy_id);
+    bs->heap->unlock_entry(cur_oid);
     // Mark the object compacted, but don't free and remove small_writes
     // We'll free and remove them only when trimming
     // The only thing we modify here are big_write block checksums if >4k block is used
-    cur_obj = bs->heap->read_entry(cur_oid, &modified_block);
+    cur_obj = bs->heap->read_entry(cur_oid);
     if (!cur_obj)
     {
         // Abort compaction
@@ -334,40 +346,20 @@ resume_10:
         // Abort compaction
         goto resume_0;
     }
-    if (read_to_fill_incomplete)
-    {
-resume_23:
-resume_24:
-        if (!write_meta_block(23))
-        {
-            return false;
-        }
-        // Recheck the object because it could be invalidated again
-        cur_obj = bs->heap->read_entry(cur_oid, &modified_block);
-        if (!cur_obj)
-        {
-            // Abort compaction
-            goto resume_0;
-        }
-    }
-    bs->heap->mark_object_compacted(cur_obj, compact_lsn);
-    // Done
-    if (bs->log_level > 10)
-        printf("Compacted %jx:%jx l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe, compact_lsn, copy_count);
-    flusher->compact_counter++;
-    flusher->active_flushers--;
-    // Advance compacted_lsn every <journal_trim_interval> objects
-    if (co_id == 0 && !((++flusher->advance_lsn_counter) % bs->journal_trim_interval))
-    {
-        flusher->advance_lsn_counter = 0;
-resume_11:
+    bs->heap->add_compact(cur_obj, compact_info.compact_lsn, &modified_block, new_csums);
 resume_12:
 resume_13:
-resume_14:
-resume_15:
-        if (!trim_lsn(11))
-            return false;
+    if (!write_meta_block(12))
+    {
+        return false;
     }
+    // Done
+    if (bs->log_level > 10)
+    {
+        printf("Compacted %jx:%jx l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe, compact_info.compact_lsn, copy_count);
+    }
+    flusher->compact_counter++;
+    flusher->active_flushers--;
     if (should_repeat)
     {
         // Flush the same object again
@@ -409,11 +401,11 @@ void journal_flusher_co::fill_partial_checksum_blocks()
                 .copy_flags = COPY_BUF_DATA | copy_flags,
                 .offset = blk_begin,
                 .len = blk_end - blk_begin,
-                .disk_loc = end_wr->big_location(bs->heap),
+                .disk_loc = compact_info.clean_loc,
                 .disk_offset = blk_begin,
                 .disk_len = blk_end - blk_begin,
                 .buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, blk_end - blk_begin),
-                .wr_lsn = end_wr->lsn,
+                .wr_lsn = compact_info.clean_lsn,
             });
         }
         auto & vec = read_vec[read_vec.size()-1];
@@ -451,16 +443,18 @@ int journal_flusher_co::check_and_punch_checksums()
         return 0;
     }
     // Verify data checksums
-    cur_obj = bs->heap->read_locked_entry(cur_oid, copy_id);
+    cur_obj = bs->heap->read_entry(cur_oid);
     bool csum_ok = true;
     for (int i = 0; i < read_vec.size(); i++)
     {
         auto & vec = read_vec[i];
         if (!(vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_ZERO|COPY_BUF_SKIP_CSUM)))
         {
-            heap_write_t *wr = cur_obj->get_writes();
+            heap_entry_t *wr = cur_obj;
             while (wr && wr->lsn != vec.wr_lsn)
-                wr = wr->next();
+            {
+                wr = bs->heap->prev(wr);
+            }
             assert(wr);
             uint32_t *csums = (uint32_t*)(wr->get_checksums(bs->heap)
                 + (vec.disk_offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)
@@ -489,20 +483,30 @@ int journal_flusher_co::check_and_punch_checksums()
         // Nothing to do
         return 0;
     }
-    cur_obj = bs->heap->read_entry(cur_oid, &modified_block);
+    cur_obj = bs->heap->read_entry(cur_oid);
     if (!cur_obj)
     {
         // Object is deleted, abort compaction
         return ENOENT;
     }
-    bs->heap->get_compact_range(cur_obj, compact_lsn, &begin_wr, &end_wr);
-    if (!begin_wr)
+    heap_entry_t *clean_wr = NULL;
+    for (auto wr = cur_obj; wr; wr = bs->heap->prev(wr))
     {
-        // Object is overwritten, abort compaction
-        return ENOENT;
+        if (wr->is_overwrite() && wr->lsn > compact_info.clean_lsn &&
+            wr->lsn <= fsynced_lsn)
+        {
+            // Object is overwritten, abort compaction
+            return ENOENT;
+        }
+        if (wr->lsn == compact_info.clean_lsn)
+        {
+            clean_wr = wr;
+            break;
+        }
     }
-    uint8_t *bmp = end_wr->get_int_bitmap(bs->heap);
-    uint8_t *csums = end_wr->get_checksums(bs->heap);
+    assert(clean_wr);
+    memcpy(new_bmp, clean_wr->get_int_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
+    memcpy(new_csums, clean_wr->get_checksums(bs->heap), bs->dsk.data_block_size/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
     // Clear bits
     for (auto & vec: read_vec)
     {
@@ -513,7 +517,7 @@ int journal_flusher_co::check_and_punch_checksums()
         if (!(vec.copy_flags & COPY_BUF_COALESCED) &&
             ((vec.offset % bs->dsk.csum_block_size) || (vec.len % bs->dsk.csum_block_size)))
         {
-            bitmap_clear(bmp, vec.offset, vec.len, bs->dsk.bitmap_granularity);
+            bitmap_clear(new_bmp, vec.offset, vec.len, bs->dsk.bitmap_granularity);
         }
     }
     // Update partial block checksums
@@ -522,17 +526,10 @@ int journal_flusher_co::check_and_punch_checksums()
         if (vec.copy_flags & COPY_BUF_CSUM_FILL)
         {
             uint32_t csum_off = vec.offset/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
-            bs->heap->calc_block_checksums((uint32_t*)(csums+csum_off), vec.buf, bmp, vec.offset, vec.offset+vec.len, true, NULL);
+            bs->heap->calc_block_checksums((uint32_t*)(new_csums+csum_off), vec.buf, new_bmp, vec.offset, vec.offset+vec.len, true, NULL);
         }
     }
-    cur_obj->crc32c = cur_obj->calc_crc32c();
-    if (res == ENOENT)
-    {
-        // Object is deleted, abort compaction
-        return ENOENT;
-    }
-    // Modified, we should write the block to disk
-    assert(!res);
+    // Modified, we should add_punch_holes and then write the block to disk
     return EBUSY;
 }
 
@@ -542,20 +539,30 @@ bool journal_flusher_co::calc_block_checksums()
     {
         return true;
     }
-    bs->heap->get_compact_range(cur_obj, compact_lsn, &begin_wr, &end_wr);
-    if (!begin_wr)
+    heap_entry_t *clean_wr = NULL;
+    for (auto wr = cur_obj; wr; wr = bs->heap->prev(wr))
     {
-        // Object is overwritten, abort compaction
-        return false;
+        if (wr->is_overwrite() && wr->lsn > compact_info.clean_lsn &&
+            wr->lsn <= fsynced_lsn)
+        {
+            // Object is overwritten, abort compaction
+            return false;
+        }
+        if (wr->lsn == compact_info.clean_lsn)
+        {
+            clean_wr = wr;
+            break;
+        }
     }
-    uint8_t *bmp = end_wr->get_int_bitmap(bs->heap);
-    uint8_t *csums = end_wr->get_checksums(bs->heap);
+    assert(clean_wr);
+    memcpy(new_bmp, clean_wr->get_int_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
+    memcpy(new_csums, clean_wr->get_checksums(bs->heap), bs->dsk.data_block_size/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
     // Set bits
     for (auto & vec: read_vec)
     {
         if (!(vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_CSUM_FILL)))
         {
-            bitmap_set(bmp, vec.offset, vec.len, bs->dsk.bitmap_granularity);
+            bitmap_set(new_bmp, vec.offset, vec.len, bs->dsk.bitmap_granularity);
         }
     }
     // Update block checksums
@@ -576,7 +583,7 @@ bool journal_flusher_co::calc_block_checksums()
         assert(!(end % bs->dsk.csum_block_size));
         uint32_t csum_off = start/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
         bs->heap->calc_block_checksums(
-            (uint32_t*)(csums+csum_off), bmp, start, end,
+            (uint32_t*)(new_csums+csum_off), new_bmp, start, end,
             [&](uint32_t start, uint32_t & len)
             {
                 // O(n^2) search, may be fixed later :-p
@@ -593,7 +600,6 @@ bool journal_flusher_co::calc_block_checksums()
             }, true, NULL
         );
     }
-    cur_obj->crc32c = cur_obj->calc_crc32c();
     return true;
 }
 
@@ -603,13 +609,15 @@ bool journal_flusher_co::write_meta_block(int wait_base)
         goto resume_0;
     else if (wait_state == wait_base+1)
         goto resume_1;
-    await_sqe(0);
-    data->iov = (struct iovec){ bs->heap->get_meta_block(modified_block), (size_t)bs->dsk.meta_block_size };
-    data->callback = simple_callback_w;
-    io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (modified_block+1)*bs->dsk.meta_block_size);
-    wait_count++;
+resume_0:
+    if (bs->ringloop->space_left() < 1)
+    {
+        wait_state = wait_base+0;
+        return 0;
+    }
+    bs->prepare_meta_block_write(modified_block);
 resume_1:
-    if (wait_count > 0)
+    if (bs->meta_block_is_pending(modified_block))
     {
         wait_state = wait_base+1;
         return false;
@@ -664,11 +672,11 @@ bool journal_flusher_co::fsync_meta(int wait_base)
     if (wait_state == wait_base)        goto resume_0;
     else if (wait_state == wait_base+1) goto resume_1;
     else if (wait_state == wait_base+2) goto resume_2;
-resume_0:
     if (bs->dsk.disable_meta_fsync)
     {
         return true;
     }
+resume_0:
     if (flusher->wanting_meta_fsync || flusher->fsyncing_meta > 0)
     {
         wait_state = wait_base;
@@ -693,69 +701,31 @@ resume_2:
     return true;
 }
 
-int journal_flusher_co::fsync_buffer(int wait_base)
-{
-    if (wait_state == wait_base)        goto resume_0;
-    else if (wait_state == wait_base+1) goto resume_1;
-    if (bs->dsk.disable_journal_fsync && bs->dsk.disable_meta_fsync && bs->dsk.disable_data_fsync || !bs->unsynced_big_write_count && !bs->unsynced_small_write_count)
-    {
-        return 1;
-    }
-    if (flusher->syncing_buffer)
-    {
-        return 0;
-    }
-    flusher->active_flushers++;
-    flusher->syncing_buffer++;
-resume_0:
-    assert(!wait_count);
-    compact_lsn = bs->heap->get_completed_lsn();
-    if (!bs->submit_fsyncs(wait_count))
-    {
-        wait_state = wait_base+0;
-        return 0;
-    }
-resume_1:
-    if (wait_count > 0)
-    {
-        wait_state = wait_base+1;
-        return 0;
-    }
-    bs->heap->mark_lsn_fsynced(compact_lsn);
-    flusher->active_flushers--;
-    flusher->syncing_buffer--;
-    return 2;
-}
-
-bool journal_flusher_co::trim_lsn(int wait_base)
+bool journal_flusher_co::fsync_buffer(int wait_base)
 {
     if (wait_state == wait_base)        goto resume_0;
     else if (wait_state == wait_base+1) goto resume_1;
     else if (wait_state == wait_base+2) goto resume_2;
-    else if (wait_state == wait_base+3) goto resume_3;
-    else if (wait_state == wait_base+4) goto resume_4;
-    compact_lsn = bs->heap->get_compacted_lsn();
-    if (((blockstore_meta_header_v3_t*)bs->meta_superblock)->compacted_lsn == compact_lsn)
+    if (bs->dsk.disable_journal_fsync && bs->dsk.disable_meta_fsync && bs->dsk.disable_data_fsync ||
+        !bs->unsynced_big_write_count && !bs->unsynced_small_write_count)
     {
         return true;
     }
-    flusher->active_flushers++;
-    assert(!wait_count);
-    if (!bs->dsk.disable_meta_fsync)
+resume_0:
+    if (flusher->syncing_buffer)
     {
-        await_sqe(0);
-        data->iov = { 0 };
-        data->callback = simple_callback_w;
-        io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
-        wait_count++;
+        wait_state = wait_base+0;
+        return false;
     }
-    if (!bs->dsk.disable_data_fsync && bs->dsk.data_fd != bs->dsk.meta_fd)
+    flusher->active_flushers++;
+    flusher->syncing_buffer++;
+resume_1:
+    assert(!wait_count);
+    fsynced_lsn = bs->heap->get_completed_lsn();
+    if (!bs->submit_fsyncs(wait_count))
     {
-        await_sqe(1);
-        data->iov = { 0 };
-        data->callback = simple_callback_w;
-        io_uring_prep_fsync(sqe, bs->dsk.data_fd, IORING_FSYNC_DATASYNC);
-        wait_count++;
+        wait_state = wait_base+1;
+        return false;
     }
 resume_2:
     if (wait_count > 0)
@@ -763,23 +733,8 @@ resume_2:
         wait_state = wait_base+2;
         return false;
     }
-    ((blockstore_meta_header_v3_t*)bs->meta_superblock)->compacted_lsn = compact_lsn;
-    ((blockstore_meta_header_v3_t*)bs->meta_superblock)->set_crc32c();
-    await_sqe(3);
-    data->iov = (struct iovec){ bs->meta_superblock, (size_t)bs->dsk.meta_block_size };
-    data->callback = simple_callback_w;
-    io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
-    // Update superblock with datasync
-    sqe->rw_flags = RWF_DSYNC;
-    wait_count++;
-resume_4:
-    if (wait_count > 0)
-    {
-        wait_state = wait_base+4;
-        return false;
-    }
-    bs->heap->mark_lsn_trimmed(compact_lsn);
-    flusher->compact_counter++;
+    bs->heap->mark_lsn_fsynced(fsynced_lsn);
     flusher->active_flushers--;
+    flusher->syncing_buffer--;
     return true;
 }

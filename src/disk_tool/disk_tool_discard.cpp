@@ -55,9 +55,9 @@ int disk_tool_t::trim_data(std::string device)
     data_alloc = new allocator_t(dsk.block_count);
     r = process_meta(
         [this](blockstore_meta_header_v3_t *hdr) {},
-        [this](blockstore_heap_t *heap, heap_object_t *obj, uint32_t meta_block_num)
+        [this](blockstore_heap_t *heap, heap_entry_t *obj, uint32_t meta_block_num)
         {
-            for (auto wr = obj->get_writes(); wr; wr = wr->next())
+            for (auto wr = obj; wr; wr = heap->prev(wr))
             {
                 if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
                 {

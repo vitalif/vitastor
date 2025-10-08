@@ -79,7 +79,6 @@ resume_1:
             hdr->meta_block_size = bs->dsk.meta_block_size;
             hdr->data_block_size = bs->dsk.data_block_size;
             hdr->bitmap_granularity = bs->dsk.bitmap_granularity;
-            hdr->compacted_lsn = 0;
             if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
             {
                 hdr->data_csum_type = bs->dsk.data_csum_type;
@@ -156,7 +155,6 @@ resume_1:
         bs->dsk.check_lengths();
     }
     bs->init();
-    bs->heap->set_compacted_lsn(((blockstore_meta_header_v3_t *)bs->meta_superblock)->compacted_lsn);
     if (bs->dsk.inmemory_journal)
     {
         // Read buffer area
@@ -224,7 +222,11 @@ resume_4:
         if (bufs[i].state == INIT_META_READ_DONE)
         {
             // Handle result
-            entries_loaded += bs->heap->load_blocks(bufs[i].offset-bs->dsk.meta_block_size, bufs[i].size, bufs[i].buf);
+            uint64_t loaded = 0;
+            int r = bs->heap->load_blocks(bufs[i].offset-bs->dsk.meta_block_size, bufs[i].size, bufs[i].buf, loaded);
+            if (r != 0)
+                exit(1);
+            entries_loaded += loaded;
             bufs[i].state = 0;
             bs->ringloop->wakeup();
         }

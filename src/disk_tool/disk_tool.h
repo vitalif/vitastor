@@ -100,15 +100,15 @@ struct disk_tool_t
     int process_journal(std::function<int(void*)> block_fn, bool do_open = true);
     int process_journal_block(void *buf, std::function<void(int, journal_entry*)> iter_fn);
     int process_meta(std::function<void(blockstore_meta_header_v3_t *)> hdr_fn,
-        std::function<void(blockstore_heap_t *heap, heap_object_t *obj, uint32_t meta_block_num)> obj_fn,
+        std::function<void(blockstore_heap_t *heap, heap_entry_t *obj, uint32_t meta_block_num)> obj_fn,
         std::function<void(uint64_t block_num, clean_disk_entry *entry_v1, uint8_t *bitmap)> record_fn,
         bool with_data, bool do_open);
 
     int dump_meta();
     void dump_meta_header(blockstore_meta_header_v3_t *hdr);
     void dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap);
-    void dump_heap_entry_as_old(blockstore_heap_t *heap, heap_object_t *obj);
-    void dump_heap_entry(blockstore_heap_t *heap, heap_object_t *obj);
+    void dump_heap_entry_as_old(blockstore_heap_t *heap, heap_entry_t *obj);
+    void dump_heap_entry(blockstore_heap_t *heap, heap_entry_t *obj);
 
     int dump_load_check_superblock(const std::string & device);
 

@@ -36,26 +36,23 @@ class journal_flusher_co
     int wait_state, wait_count;
     struct io_uring_sqe *sqe;
     struct ring_data_t *data;
+    uint8_t *new_csums = NULL;
+    uint8_t *new_bmp = NULL;
 
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
 
     object_id cur_oid;
-    uint64_t copy_id;
-    uint64_t compact_lsn;
-    uint64_t cur_version;
-    heap_object_t *cur_obj;
-    heap_write_t *begin_wr, *end_wr;
+    heap_entry_t *cur_obj;
+    uint64_t fsynced_lsn;
+    heap_compact_t compact_info;
     uint32_t modified_block;
     bool should_repeat;
 
     std::vector<copy_buffer_t> read_vec;
     uint32_t overwrite_start, overwrite_end;
-    uint32_t big_start, big_end;
     int i, res;
     bool read_to_fill_incomplete;
     int copy_count;
-    uint64_t clean_loc;
-    flusher_meta_write_t meta_old, meta_new;
     bool do_repeat = false;
 
     friend class journal_flusher_t;
@@ -68,8 +65,7 @@ class journal_flusher_co
     bool write_meta_block(int wait_base);
     bool read_buffered(int wait_base);
     bool fsync_meta(int wait_base);
-    int fsync_buffer(int wait_base);
-    bool trim_lsn(int wait_base);
+    bool fsync_buffer(int wait_base);
 public:
     journal_flusher_co();
     ~journal_flusher_co();

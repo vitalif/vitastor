@@ -7,7 +7,7 @@
 
 int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
 {
-    heap_object_t *obj = heap->lock_and_read_entry(op->oid, PRIV(op)->lsn);
+    heap_entry_t *obj = heap->lock_and_read_entry(op->oid);
     if (!obj)
     {
         op->version = 0;
@@ -20,11 +20,11 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     auto & rv = PRIV(op)->read_vec;
     uint64_t result_version = 0;
     bool found = false;
-    for (auto wr = obj->get_writes(); wr; wr = wr->next())
+    heap->iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *wr, bool stable)
     {
         if (op->version < wr->version)
         {
-            continue;
+            return true;
         }
         if (!found)
         {
@@ -37,16 +37,16 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
         }
         fulfilled += prepare_read(PRIV(op)->read_vec, obj, wr, op->offset, op->offset+op->len);
         if (fulfilled == op->len ||
-            wr->type() == BS_HEAP_BIG_WRITE ||
-            wr->type() == BS_HEAP_TOMBSTONE)
+            wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_DELETE)
         {
-            break;
+            return false;
         }
-    }
+        return true;
+    });
     if (!found)
     {
         // May happen if there are entries but all of them are > requested version
-        heap->unlock_entry(op->oid, PRIV(op)->lsn);
+        heap->unlock_entry(op->oid);
         op->version = 0;
         op->retval = -ENOENT;
         FINISH_OP(op);
@@ -56,7 +56,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     if (!fulfill_read(op))
     {
         // Need to wait. undo added requests, unlock lsn
-        heap->unlock_entry(op->oid, PRIV(op)->lsn);
+        heap->unlock_entry(op->oid);
         free_read_buffers(rv);
         rv.clear();
         return 0;
@@ -65,7 +65,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     if (!PRIV(op)->pending_ops)
     {
         // everything is fulfilled from memory
-        heap->unlock_entry(op->oid, PRIV(op)->lsn);
+        heap->unlock_entry(op->oid);
         op->retval = op->len;
         free_read_buffers(rv);
         FINISH_OP(op);
@@ -108,20 +108,20 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *op)
     return 1;
 }
 
-uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
+uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end)
 {
     if (wr->type() == BS_HEAP_BIG_WRITE)
     {
         return prepare_read_with_bitmaps(read_vec, obj, wr, start, end);
     }
-    if (wr->type() == BS_HEAP_TOMBSTONE)
+    if (wr->type() == BS_HEAP_DELETE)
     {
         return prepare_read_zero(read_vec, start, end);
     }
     return prepare_read_simple(read_vec, obj, wr, start, end);
 }
 
-uint32_t blockstore_impl_t::prepare_read_with_bitmaps(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
+uint32_t blockstore_impl_t::prepare_read_with_bitmaps(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end)
 {
     // BIG_WRITEs contain a bitmap and we have to handle its holes
     uint32_t res = 0;
@@ -166,7 +166,7 @@ uint32_t blockstore_impl_t::prepare_read_zero(std::vector<copy_buffer_t> & read_
     return res;
 }
 
-uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_object_t *obj, heap_write_t *wr, uint32_t start, uint32_t end)
+uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end)
 {
     uint32_t res = 0;
     if (wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE)
@@ -212,10 +212,14 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
             uint32_t skip_csum = 0;
             if (!perfect_csum_update && wr->type() == BS_HEAP_BIG_WRITE)
             {
-                for (auto owr = obj->get_writes(); owr && owr != wr; owr = owr->next())
+                for (auto owr = obj; owr && owr != wr; owr = heap->prev(owr))
+                {
                     if ((owr->type() == BS_HEAP_INTENT_WRITE || owr->type() == BS_HEAP_SMALL_WRITE) &&
                         owr->small().offset < blk_end && owr->small().offset+owr->small().len > blk_start)
+                    {
                         skip_csum = COPY_BUF_SKIP_CSUM;
+                    }
+                }
             }
             if ((blk_end-1)/dsk.csum_block_size == blk_start/dsk.csum_block_size ||
                 blk_end/dsk.csum_block_size == blk_start/dsk.csum_block_size+1 && blk_end != end && blk_start != start ||
@@ -243,18 +247,34 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
     return res;
 }
 
-void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int pos, heap_object_t *obj, heap_write_t *wr,
+void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int pos, heap_entry_t *obj, heap_entry_t *wr,
     uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags)
 {
     // Only one INTENT_WRITE is allowed at a time
-    assert(wr->type() != BS_HEAP_INTENT_WRITE || wr->next()->type() == BS_HEAP_BIG_WRITE);
+    uint64_t loc = 0;
+    if (wr->type() == BS_HEAP_INTENT_WRITE)
+    {
+        heap_entry_t *big_wr = wr;
+        while (big_wr && big_wr->type() == BS_HEAP_INTENT_WRITE)
+        {
+            big_wr = heap->prev(big_wr);
+        }
+        assert(big_wr);
+        loc = big_wr->big_location(heap);
+    }
+    else if (wr->type() == BS_HEAP_SMALL_WRITE)
+    {
+        loc = wr->small().location-wr->small().offset;
+    }
+    else /*if (wr->type() == BS_HEAP_BIG_WRITE)*/
+    {
+        loc = wr->big_location(heap);
+    }
     copy_buffer_t vec = {
         .copy_flags = (wr->type() == BS_HEAP_SMALL_WRITE ? COPY_BUF_JOURNAL : COPY_BUF_DATA) | copy_flags,
         .offset = start,
         .len = end-start,
-        .disk_loc = (wr->type() == BS_HEAP_INTENT_WRITE ? wr->next()->big_location(heap)
-            : (wr->type() == BS_HEAP_SMALL_WRITE ? wr->small().location-wr->small().offset
-            : wr->big_location(heap))),
+        .disk_loc = loc,
         .disk_offset = blk_start,
         .disk_len = blk_end - blk_start,
         .wr_lsn = wr->lsn,
@@ -349,7 +369,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
             op->retval = -EDOM;
         else if (op->retval == 0)
             op->retval = op->len;
-        heap->unlock_entry(op->oid, PRIV(op)->lsn);
+        heap->unlock_entry(op->oid);
         free_read_buffers(PRIV(op)->read_vec);
         FINISH_OP(op);
     }
@@ -357,7 +377,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
 
 bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
 {
-    heap_object_t *obj = heap->read_locked_entry(op->oid, PRIV(op)->lsn);
+    heap_entry_t *obj = heap->read_entry(op->oid);
     auto & rv = PRIV(op)->read_vec;
     for (auto & vec: rv)
     {
@@ -367,9 +387,9 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
             memcpy(op->buf + vec.offset - op->offset, vec.buf + vec.offset - vec.disk_offset, vec.len);
         if (vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_SKIP_CSUM))
             continue;
-        heap_write_t *wr = obj->get_writes();
+        heap_entry_t *wr = obj;
         while (wr && wr->lsn != vec.wr_lsn)
-            wr = wr->next();
+            wr = heap->prev(wr);
         assert(wr);
         uint8_t *buf = vec.buf ? vec.buf : (op->buf + vec.offset - op->offset);
         uint32_t *csums = (uint32_t*)(wr->get_checksums(heap)
@@ -394,23 +414,29 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
 
 int blockstore_impl_t::read_bitmap(object_id oid, uint64_t target_version, void *bitmap, uint64_t *result_version)
 {
-    heap_object_t *obj = heap->read_entry(oid, NULL);
+    heap_entry_t *obj = heap->read_entry(oid);
     if (obj)
     {
-        for (auto wr = obj->get_writes(); wr; wr = wr->next())
+        bool found = false;
+        heap->iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *wr, bool stable)
         {
-            if (target_version < wr->version)
+            if (target_version >= wr->version)
             {
-                continue;
+                found = true;
+                if (result_version)
+                {
+                    *result_version = wr->version;
+                }
+                if (bitmap)
+                {
+                    memcpy(bitmap, wr->get_ext_bitmap(heap), dsk.clean_entry_bitmap_size);
+                }
+                return false;
             }
-            if (result_version)
-            {
-                *result_version = wr->version;
-            }
-            if (bitmap)
-            {
-                memcpy(bitmap, wr->get_ext_bitmap(heap), dsk.clean_entry_bitmap_size);
-            }
+            return true;
+        });
+        if (found)
+        {
             return 0;
         }
     }
