@@ -94,6 +94,10 @@ uint32_t kv_get_access(const authsys_parms & auth_sys, const json11::Json & attr
     uint32_t uid = attrs["uid"].uint64_value();
     uint32_t gid = attrs["gid"].uint64_value();
     uint32_t access = 0;
+    if (!auth_sys.uid)
+    {
+        return (ACCESS3_READ|ACCESS3_LOOKUP|ACCESS3_MODIFY|ACCESS3_EXTEND|ACCESS3_DELETE|ACCESS3_EXECUTE);
+    }
     if (uid == auth_sys.uid)
     {
         access |= ((mode & (1 << 8)) ? ACCESS3_READ|ACCESS3_LOOKUP : 0);
@@ -120,6 +124,8 @@ uint32_t kv_get_access(const authsys_parms & auth_sys, const json11::Json & attr
 bool kv_is_accessible(const authsys_parms & auth_sys, const json11::Json & attrs, uint32_t access)
 {
     uint32_t mode = attrs["mode"].is_null() ? (attrs["type"] == "dir" ? 0755 : 0644) : attrs["mode"].uint64_value();
+    if (!auth_sys.uid)
+        return true;
     uint32_t mask = 1 << (access == ACCESS3_EXECUTE ? 0
         : (access == ACCESS3_MODIFY || access == ACCESS3_EXTEND || access == ACCESS3_DELETE ? 1 : 2));
     if (mode & mask)
