@@ -191,14 +191,11 @@ uint32_t heap_entry_t::calc_crc32c()
 {
     auto old_crc32c = crc32c;
     auto old_prev_pos = prev_pos;
-    auto old_prev_count = prev_count;
     crc32c = 0;
     prev_pos = 0;
-    prev_count = 0;
     uint32_t res = ::crc32c(0, (uint8_t*)this, size);
     crc32c = old_crc32c;
     prev_pos = old_prev_pos;
-    prev_count = old_prev_count;
     return res;
 }
 
@@ -326,18 +323,18 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
         }
         entries_loaded++;
         auto & inode_idx = block_index[get_pg_id(wr->inode, wr->stripe)][wr->inode];
-        auto obj_it = inode_idx.find(wr->stripe);
+        auto & idx = inode_idx[wr->stripe];
         const uint64_t wr_pos = (uint8_t*)wr - buf + disk_offset + 1;
-        if (obj_it == inode_idx.end())
+        idx.refcnt++;
+        if (!idx.pos)
         {
-            inode_idx[wr->stripe] = wr_pos;
+            idx.pos = wr_pos;
         }
         else
         {
-            auto & idx = inode_idx[wr->stripe];
-            auto prev_wr = (idx - idx % dsk->meta_block_size) == disk_offset
-                ? (heap_entry_t*)(buf + (idx % dsk->meta_block_size) - 1)
-                : entry_from_pos(idx, true);
+            auto prev_wr = (idx.pos - idx.pos % dsk->meta_block_size) == disk_offset
+                ? (heap_entry_t*)(buf + (idx.pos % dsk->meta_block_size) - 1)
+                : entry_from_pos(idx.pos, true);
             if (!prev_wr || prev_wr->is_before(wr))
             {
                 if (wr->is_overwrite())
@@ -356,10 +353,10 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
                 }
                 else
                 {
-                    wr->prev_pos = idx;
+                    wr->prev_pos = idx.pos;
                 }
                 // Insert <wr> on top
-                idx = wr_pos;
+                idx.pos = wr_pos;
             }
             else
             {
@@ -426,7 +423,7 @@ void blockstore_heap_t::fill_recheck_queue()
         {
             for (auto & op: ip.second)
             {
-                auto wr = entry_from_pos(op.second);
+                auto wr = entry_from_pos(op.second.pos);
                 bool prev_intent = false;
                 while (wr)
                 {
@@ -451,7 +448,7 @@ void blockstore_heap_t::mark_used_blocks()
             for (auto & op: ip.second)
             {
                 bool added = false;
-                auto wr = entry_from_pos(op.second);
+                auto wr = entry_from_pos(op.second.pos);
                 while (wr)
                 {
                     if (wr->type() == BS_HEAP_SMALL_WRITE)
@@ -485,7 +482,7 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
     {
         // write entry is invalid, erase it and all newer entries
         auto & inode_idx = block_index[get_pg_id(cwr->inode, cwr->stripe)][cwr->inode];
-        auto wr_pos = inode_idx[cwr->stripe];
+        auto wr_pos = inode_idx[cwr->stripe].pos;
         auto wr = entry_from_pos(wr_pos);
         int rolled_back = 0;
         auto free_entry = [&]()
@@ -509,11 +506,12 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
             free_entry();
         }
         assert(wr == cwr);
+        // FIXME refcnt
         if (wr->prev_pos)
         {
             fprintf(stderr, "Notice: %u unfinished writes to %jx:%jx v%jx since lsn %ju, rolling back\n",
                 rolled_back+1, wr->inode, wr->stripe, prev(wr)->version, prev(wr)->lsn);
-            inode_idx[wr->stripe] = wr->prev_pos;
+            inode_idx[wr->stripe].pos = wr->prev_pos;
         }
         else
         {
@@ -833,8 +831,8 @@ heap_entry_t *blockstore_heap_t::read_entry(object_id oid)
     {
         return NULL;
     }
-    heap_entry_t *obj = entry_from_pos(stripe_it->second);
-    assert(obj->inode == oid.inode && obj->stripe == oid.stripe);
+    heap_entry_t *obj = entry_from_pos(stripe_it->second.pos);
+    assert(!obj || obj->inode == oid.inode && obj->stripe == oid.stripe);
     return obj;
 }
 
@@ -907,16 +905,16 @@ void blockstore_heap_t::defragment_block(uint32_t block_num)
             continue;
         }
         auto & idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe];
-        auto new_it = remap.find(idx);
+        auto new_it = remap.find(idx.pos);
         heap_entry_t *wr = NULL;
         if (new_it != remap.end())
         {
-            idx = new_it->second.new_pos;
+            idx.pos = new_it->second.new_pos;
             wr = (heap_entry_t*)(new_data + (new_it->second.new_pos % dsk->meta_block_size) - 1); // like entry_from_pos
             new_it->second.new_pos = 0;
         }
         else
-            wr = entry_from_pos(idx);
+            wr = entry_from_pos(idx.pos);
         while (wr)
         {
             assert(!(wr->prev_pos & GARBAGE_BIT));
@@ -1137,10 +1135,9 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, heap_entry_t *old_head, uint3
         (new_wr->is_overwrite() ? HEAP_INFLIGHT_COMPACTED : 0) |
         (new_wr->is_compactable() ? HEAP_INFLIGHT_COMPACTABLE : 0));
     const uint64_t new_pos = entry_pos(block_num, offset);
-    if (old_head && defragmented)
-    {
-        old_head = read_entry(oid);
-    }
+    auto & idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe];
+    idx.refcnt++;
+    old_head = entry_from_pos(idx.pos);
     if (old_head && !old_head->is_before(new_wr))
     {
         // BIG_WRITE may be inserted into the middle of the sequence during compaction
@@ -1149,7 +1146,6 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, heap_entry_t *old_head, uint3
         auto next_wr = old_head;
         while (true)
         {
-            next_wr->prev_count++;
             auto nn = prev(next_wr);
             if (!nn || nn->is_before(new_wr))
                 break;
@@ -1157,31 +1153,16 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, heap_entry_t *old_head, uint3
         }
         auto prev_wr = prev(next_wr);
         // <prev_wr> may be an identical big_write entry when we "punch holes" in the bitmap
-        assert(prev_wr->type() != BS_HEAP_DELETE &&
+        assert(prev_wr && prev_wr->type() != BS_HEAP_DELETE &&
             (prev_wr->type() != BS_HEAP_BIG_WRITE || prev_wr->version == new_wr->version));
         // Insert <new_wr> between <next_wr> and <prev_wr>
         new_wr->prev_pos = next_wr->prev_pos;
-        new_wr->prev_count = prev_wr->prev_count + 1;
         next_wr->prev_pos = new_pos;
     }
     else
     {
-        auto & idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe];
-        new_wr->prev_pos = idx;
-        new_wr->prev_count = (old_head ? old_head->prev_count+1 : 0);
-        if (old_head)
-            new_wr->prev_count = old_head->prev_count+1;
-        else
-        {
-            auto del_it = deref_deletes.find(oid);
-            if (del_it != deref_deletes.end())
-            {
-                // An inflight garbage-collected delete entry is still potentially on disk, reflect it
-                new_wr->prev_count = 1;
-                deref_deletes.erase(del_it);
-            }
-        }
-        idx = new_pos;
+        new_wr->prev_pos = idx.pos;
+        idx.pos = new_pos;
     }
     new_wr->size = wr_size;
     new_wr->crc32c = new_wr->calc_crc32c();
@@ -1379,7 +1360,8 @@ int blockstore_heap_t::add_punch_holes(heap_entry_t *obj, uint64_t to_lsn, uint6
         return ENOENT;
     }
     auto & idx = block_index[get_pg_id(obj->inode, obj->stripe)][obj->inode][obj->stripe];
-    uint32_t block_num = idx / dsk->meta_block_size;
+    assert(idx.pos);
+    uint32_t block_num = idx.pos / dsk->meta_block_size;
     auto & inf = block_info.at(block_num);
     if (inf.is_writing)
     {
@@ -1805,7 +1787,7 @@ int blockstore_heap_t::list_objects(uint32_t pg_num, object_id min_oid, object_i
             {
                 continue;
             }
-            heap_entry_t *obj = entry_from_pos(stripe_pair.second);
+            heap_entry_t *obj = entry_from_pos(stripe_pair.second.pos);
             assert(obj->inode == oid.inode && obj->stripe == oid.stripe);
             uint64_t stable_version = 0;
             auto first_wr = obj;
@@ -2056,28 +2038,28 @@ void blockstore_heap_t::apply_inflight()
     }
     else if (inflight.flags & HEAP_INFLIGHT_GC)
     {
-        // Remove 1 prev_count from the object refcount in the DB or in deref_deletes
+        // Decrement the object's refcount
         auto & oid = inflight.oid;
         auto & inode_idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode];
         auto idx_it = inode_idx.find(oid.stripe);
-        if (idx_it == inode_idx.end())
+        assert(idx_it != inode_idx.end());
+        auto & idx = idx_it->second;
+        idx.refcnt--;
+        if (idx.refcnt == 1)
         {
-            // delete is dereferenced
-            int del = deref_deletes.erase(oid);
-            assert(del > 0);
-        }
-        else
-        {
-            heap_entry_t *newer_obj = entry_from_pos(idx_it->second);
-            newer_obj->prev_count--;
-            if (newer_obj->prev_count == 0 && newer_obj->entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
+            heap_entry_t *obj = entry_from_pos(idx.pos);
+            if (obj->entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
             {
-                // free BS_HEAP_DELETEs when their prev_count becomes 0
-                // but remember that they have a 'temporary' dereferenced prev_count of 1
-                mark_garbage(idx_it->second / dsk->meta_block_size, newer_obj, UINT32_MAX);
-                deref_deletes.insert(oid);
-                inode_idx.erase(idx_it);
+                // free BS_HEAP_DELETEs when their refcount becomes 1
+                //free_entry(idx.pos / dsk->meta_block_size, obj);
+                mark_garbage(idx.pos / dsk->meta_block_size, obj, UINT32_MAX);
+                idx.pos = 0;
+                //deref_deletes.insert(oid);
             }
+        }
+        else if (!idx.refcnt)
+        {
+            inode_idx.erase(idx_it);
         }
     }
     inflight_lsn.pop_front();

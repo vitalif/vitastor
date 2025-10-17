@@ -245,7 +245,6 @@ void test_delete(bool csum)
         assert(obj);
         assert(count_writes(heap, obj) == 1);
         assert(obj->entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE));
-        assert(obj->prev_count == 1);
 
         assert(space.at(INODE_WITH_POOL(1, 1)) == 0x20000);
         assert(heap.get_data_used_space() == 0x20000);
@@ -257,7 +256,6 @@ void test_delete(bool csum)
         assert(obj);
         assert(count_writes(heap, obj) == 1);
         assert(obj->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
-        assert(obj->prev_count == 2);
 
         // Delete it again...
         res = heap.add_delete(obj, &mblock);
@@ -268,7 +266,6 @@ void test_delete(bool csum)
 
         obj = heap.read_entry(oid);
         assert(obj);
-        assert(obj->prev_count == 3);
 
         // Now the trickiest part - check that the delete entry itself disappears
         // when all previous entries disappear from the disk too. It happens only
@@ -299,21 +296,50 @@ void test_defrag_block()
 
     uint32_t big_write_size = heap.get_big_entry_size();
     uint32_t small_write_size = heap.get_small_entry_size(0, 4096);
-    assert(big_write_size == 192);
-    assert(small_write_size == 76);
-    uint32_t nwr = dsk.meta_block_size/(big_write_size+small_write_size);
+    assert(big_write_size == 188);
+    assert(small_write_size == 72);
+    uint32_t nwr = 0;
+    bool add = false;
+    if ((dsk.meta_block_size % (big_write_size+small_write_size)) >= big_write_size)
+    {
+        nwr = (dsk.meta_block_size / (big_write_size+small_write_size)) +
+            (dsk.meta_block_size-small_write_size) / (big_write_size+small_write_size);
+        add = (dsk.meta_block_size - small_write_size -
+            (dsk.meta_block_size-small_write_size) % (big_write_size+small_write_size)) >= big_write_size;
+    }
+    else
+        nwr = dsk.meta_block_size/(big_write_size+small_write_size);
 
     {
-        for (uint32_t i = 0; i < nwr*2-1; i++)
+        uint32_t used = 0;
+        uint32_t expected_block = 0;
+        for (uint32_t i = 0; i < nwr; i++)
         {
-            _test_big_write(heap, dsk, 1, i*0x20000, 1, i*0x20000, true, 0, 0, buffer_area.data(), (i < nwr ? 0 : 1));
-            _test_small_write(heap, dsk, 1, i*0x20000, 2, 0, 4096, i*4096, true, buffer_area.data()+i*4096, false, (i < nwr ? 0 : 1));
+            _test_big_write(heap, dsk, 1, i*0x20000, 1, i*0x20000, true, 0, 0, buffer_area.data(), expected_block);
+            used += big_write_size;
+            if (dsk.meta_block_size-used < small_write_size)
+            {
+                used = 0;
+                expected_block++;
+            }
+            _test_small_write(heap, dsk, 1, i*0x20000, 2, 0, 4096, i*4096, true, buffer_area.data()+i*4096, false, expected_block);
+            used += small_write_size;
+            if (dsk.meta_block_size-used < big_write_size)
+            {
+                used = 0;
+                expected_block++;
+            }
+        }
+        if (add)
+        {
+            _test_big_write(heap, dsk, 1, nwr*0x20000, 1, nwr*0x20000, true, 0, 0, buffer_area.data(), 1);
+            used += big_write_size;
         }
         // The next write should be rejected because allowing it would block compaction
-        assert(_test_do_big_write(heap, dsk, 1, (nwr*2)*0x20000, 1, (nwr*2)*0x20000, true, 0, 0, buffer_area.data()) == ENOSPC);
+        assert(_test_do_big_write(heap, dsk, 1, (nwr+1)*0x20000, 1, (nwr+1)*0x20000, true, 0, 0, buffer_area.data()) == ENOSPC);
         // Compact all small writes
         uint32_t mblock = 999999;
-        for (uint32_t i = 0; i < nwr*2-1; i++)
+        for (uint32_t i = 0; i < nwr; i++)
         {
             auto obj = heap.read_entry((object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = i*0x20000 });
             assert(obj);
@@ -1047,7 +1073,7 @@ void test_full_alloc()
     std::map<std::string, std::string> config;
     config["data_csum_type"] = "crc32c";
     dsk.parse_config(config);
-    dsk.data_device_size = 8*1024*1024;
+    dsk.data_device_size = 64*1024*1024;
     dsk.meta_device_size = 5*4096;
     dsk.journal_device_size = 4*1024*1024;
     dsk.data_device = "data";
@@ -1062,28 +1088,19 @@ void test_full_alloc()
 
     uint32_t big_write_size = heap.get_big_entry_size();
     uint32_t small_write_size = heap.get_small_entry_size(0, 4096);
-    assert(big_write_size == 192);
-    assert(small_write_size == 76);
-    uint32_t b_4s = (big_write_size + 4*small_write_size);
-    uint32_t epb = dsk.meta_block_size/b_4s;
+    assert(big_write_size == 188);
+    assert(small_write_size == 72);
+    uint32_t epb = dsk.meta_block_size/big_write_size;
     for (int j = 0; j < 4; j++)
     {
         assert(heap.get_meta_nearfull_blocks() == j);
-        for (int i = j*epb; i < j*epb+epb; i++)
+        for (int i = j*epb; i < j*epb+epb-(j == 3); i++)
         {
             _test_big_write(heap, dsk, 1, i*0x20000, 1, i*0x20000, true, 0, 0, buffer_area.data(), j);
-            _test_small_write(heap, dsk, 1, i*0x20000, 2, 8192, 4096, i*16384, true, buffer_area.data(), false, j);
-            _test_small_write(heap, dsk, 1, i*0x20000, 3, 8192, 4096, i*16384+4096, true, buffer_area.data(), false, j);
-            _test_small_write(heap, dsk, 1, i*0x20000, 4, 8192, 4096, i*16384+2*4096, true, buffer_area.data(), false, j);
-            if (i < 4*epb-1)
-            {
-                // Don't write the last entry
-                _test_small_write(heap, dsk, 1, i*0x20000, 5, 8192, 4096, i*16384+3*4096, true, buffer_area.data(), false, j);
-            }
-            assert(heap.get_meta_block_used_space(0) == (i < epb ? i+1 : epb)*b_4s);
-            assert(heap.get_meta_block_used_space(1) == (i < epb ? 0 : (i < 2*epb ? i+1-epb : epb)*b_4s));
-            assert(heap.get_meta_block_used_space(2) == (i < 2*epb ? 0 : (i < 3*epb ? i+1-2*epb : epb)*b_4s));
-            assert(heap.get_meta_block_used_space(3) == (i < 3*epb ? 0 : (i < 4*epb ? i+1-3*epb : epb)*b_4s) - (i < 4*epb-1 ? 0 : small_write_size));
+            assert(heap.get_meta_block_used_space(0) == (i < epb ? i+1 : epb)*big_write_size);
+            assert(heap.get_meta_block_used_space(1) == (i < epb ? 0 : (i < 2*epb ? i+1-epb : epb)*big_write_size));
+            assert(heap.get_meta_block_used_space(2) == (i < 2*epb ? 0 : (i < 3*epb ? i+1-2*epb : epb)*big_write_size));
+            assert(heap.get_meta_block_used_space(3) == (i < 3*epb ? 0 : (i < 4*epb ? i+1-3*epb : epb)*big_write_size));
         }
     }
 
@@ -1091,12 +1108,12 @@ void test_full_alloc()
     assert(ENOSPC == _test_do_big_write(heap, dsk, 1, epb*4*0x20000, 1, epb*4*0x20000, true, 0, 0, buffer_area.data(), 0));
 
     // We can still do some more overwrites into 3 of 4 nearfull blocks
-    int rest_fit = (dsk.meta_block_size-b_4s*(dsk.meta_block_size/b_4s))/small_write_size * 3;
+    int rest_fit = (dsk.meta_block_size % big_write_size)/small_write_size * 4;
     for (int i = 0; i < rest_fit; i++)
     {
-        _test_small_write(heap, dsk, 1, (4*epb-1)*0x20000, 5+i, 8192, 4096, (4*epb-1)*16384+3*4096+i*4096, true, buffer_area.data(), false, UINT32_MAX /*any block*/);
+        _test_small_write(heap, dsk, 1, 1*0x20000, 5+i, 8192, 4096, (4*epb-1)*16384+3*4096+i*4096, true, buffer_area.data(), false, UINT32_MAX /*any block*/);
     }
-    assert(ENOSPC == _test_do_small_write(heap, dsk, 1, (4*epb-1)*0x20000, 5+rest_fit, 8192, 4096, (4*epb-1)*16384+3*4096+rest_fit*4096, true, buffer_area.data(), false, 0));
+    assert(ENOSPC == _test_do_small_write(heap, dsk, 1, 1*0x20000, 5+rest_fit, 8192, 4096, (4*epb-1)*16384+3*4096+rest_fit*4096, true, buffer_area.data(), false, 0));
 
     printf("OK test_full_alloc\n");
 }

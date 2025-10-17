@@ -44,8 +44,7 @@ struct __attribute__((__packed__)) heap_entry_t
     uint64_t inode;
     uint64_t stripe;
     uint64_t version;
-    uint64_t prev_pos;   // ALWAYS invalid on disk and skipped in checksum calculation
-    uint32_t prev_count; // ALWAYS invalid on disk and skipped in checksum calculation
+    uint64_t prev_pos; // ALWAYS invalid on disk and skipped in checksum calculation
 
     // uint8_t[] external_bitmap
     // uint8_t[] internal_bitmap
@@ -108,21 +107,21 @@ struct heap_inflight_lsn_t
     uint64_t compact_lsn;
 };
 
-struct heap_deref_prev_t
-{
-    uint32_t block_num;
-    object_id oid;
-};
-
 struct heap_compact_t
 {
     uint64_t compact_lsn, compact_version;
     uint64_t clean_lsn, clean_version, clean_loc;
 };
 
+struct heap_object_ptr_t
+{
+    uint64_t pos;
+    uint32_t refcnt;
+};
+
 using i64hash_t = robin_hood::hash<uint64_t>;
 using heap_block_index_t = robin_hood::unordered_flat_map<uint64_t,
-    robin_hood::unordered_flat_map<inode_t, robin_hood::unordered_flat_map<uint64_t, uint64_t, i64hash_t, std::equal_to<uint64_t>, 88>, i64hash_t>, i64hash_t>;
+    robin_hood::unordered_flat_map<inode_t, robin_hood::unordered_flat_map<uint64_t, heap_object_ptr_t, i64hash_t, std::equal_to<uint64_t>, 88>, i64hash_t>, i64hash_t>;
 using heap_mvcc_map_t = robin_hood::unordered_flat_map<object_id, heap_object_mvcc_t>;
 
 class blockstore_heap_t
@@ -160,8 +159,6 @@ class blockstore_heap_t
     uint64_t completed_lsn = 0;
     uint64_t fsynced_lsn = 0;
     std::deque<object_id> compact_queue;
-    std::vector<heap_deref_prev_t> deref_prev;
-    robin_hood::unordered_flat_set<object_id> deref_deletes;
 
     bool marked_used_blocks = false;
     bool recheck_queue_filled = false;
