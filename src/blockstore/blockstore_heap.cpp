@@ -836,12 +836,6 @@ heap_entry_t *blockstore_heap_t::read_entry(object_id oid)
     return obj;
 }
 
-struct heap_defrag_remap_t
-{
-    object_id oid;
-    uint64_t new_pos;
-};
-
 void blockstore_heap_t::defragment_block(uint32_t block_num)
 {
     auto & inf = block_info[block_num];
@@ -851,7 +845,6 @@ void blockstore_heap_t::defragment_block(uint32_t block_num)
     uint8_t *old = inf.data;
     uint8_t *cur = new_data;
     uint32_t removed_garbage = 0;
-    robin_hood::unordered_flat_map<uint64_t, heap_defrag_remap_t> remap;
     while (old <= end-2)
     {
         heap_entry_t *obj = (heap_entry_t *)old;
@@ -882,9 +875,35 @@ void blockstore_heap_t::defragment_block(uint32_t block_num)
             // live entry, we need to change linked list pointer(s) to it
             // but the change should be applied carefully, after copying all entries,
             // because they may reference each other
+            uint64_t block_start = entry_pos(block_num, 0);
             uint64_t old_pos = entry_pos(block_num, old - inf.data);
             uint64_t new_pos = entry_pos(block_num, ((uint8_t*)new_obj - new_data));
-            remap[old_pos] = (heap_defrag_remap_t){ .oid = oid, new_pos = new_pos };
+            auto & idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe];
+            if (idx.pos == old_pos)
+            {
+                idx.pos = new_pos;
+            }
+            else
+            {
+                // entry is already moved if it's >= block_start and <= old_pos
+                heap_entry_t *wr = idx.pos >= block_start && idx.pos <= old_pos
+                    ? (heap_entry_t*)(new_data + (idx.pos % dsk->meta_block_size) - 1)
+                    : entry_from_pos(idx.pos);
+                while (true)
+                {
+                    assert(!(wr->prev_pos & GARBAGE_BIT));
+                    if (!wr->prev_pos)
+                        break;
+                    if (wr->prev_pos == old_pos)
+                    {
+                        wr->prev_pos = new_pos;
+                        break;
+                    }
+                    wr = wr->prev_pos >= block_start && wr->prev_pos <= old_pos
+                        ? (heap_entry_t*)(new_data + (wr->prev_pos % dsk->meta_block_size) - 1)
+                        : entry_from_pos(wr->prev_pos);
+                }
+            }
         }
         memcpy(cur, obj, obj->size);
         cur += obj->size;
@@ -895,41 +914,6 @@ void blockstore_heap_t::defragment_block(uint32_t block_num)
         assert(cur <= new_data+dsk->meta_block_size-2);
         *((uint16_t*)cur) = FREE_SPACE_BIT | (dsk->meta_block_size-(cur-new_data));
         memset(cur+2, 0, dsk->meta_block_size-(cur-new_data)-2);
-    }
-    for (auto rp_it = remap.begin(); rp_it != remap.end(); rp_it++)
-    {
-        auto oid = rp_it->second.oid;
-        if (!rp_it->second.new_pos)
-        {
-            // Remap each object only once
-            continue;
-        }
-        auto & idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe];
-        auto new_it = remap.find(idx.pos);
-        heap_entry_t *wr = NULL;
-        if (new_it != remap.end())
-        {
-            idx.pos = new_it->second.new_pos;
-            wr = (heap_entry_t*)(new_data + (new_it->second.new_pos % dsk->meta_block_size) - 1); // like entry_from_pos
-            new_it->second.new_pos = 0;
-        }
-        else
-            wr = entry_from_pos(idx.pos);
-        while (wr)
-        {
-            assert(!(wr->prev_pos & GARBAGE_BIT));
-            if (!wr->prev_pos)
-                break;
-            new_it = remap.find(wr->prev_pos);
-            if (new_it != remap.end())
-            {
-                wr->prev_pos = new_it->second.new_pos;
-                wr = (heap_entry_t*)(new_data + (new_it->second.new_pos % dsk->meta_block_size) - 1); // like entry_from_pos
-                new_it->second.new_pos = 0;
-            }
-            else
-                wr = entry_from_pos(wr->prev_pos);
-        }
     }
     free(inf.data);
     modify_alloc(block_num, [&](heap_block_info_t & inf)
