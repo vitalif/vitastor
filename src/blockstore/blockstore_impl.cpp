@@ -200,7 +200,7 @@ void blockstore_impl_t::loop()
         for (auto & block_num: pending_modified_blocks)
         {
             heap->start_block_write(block_num);
-            modified_blocks.insert(block_num);
+            modified_blocks[block_num] = true;
         }
         pending_modified_blocks.clear();
         if ((initial_ring_space - ringloop->space_left()) > 0)

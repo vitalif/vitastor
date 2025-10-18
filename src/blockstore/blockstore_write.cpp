@@ -13,15 +13,12 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 
 void blockstore_impl_t::prepare_meta_block_write(uint32_t modified_block)
 {
-    //assert(modified_blocks.find(modified_block) == modified_blocks.end());
-    for (auto & block_num: pending_modified_blocks)
-    {
-        if (block_num == modified_block)
-            return;
-    }
+    if (modified_blocks.find(modified_block) != modified_blocks.end())
+        return;
     io_uring_sqe *sqe = get_sqe();
-    assert(sqe != NULL); // FIXME
+    assert(sqe != NULL);
     pending_modified_blocks.push_back(modified_block);
+    modified_blocks[modified_block] = false;
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
     data->iov = (struct iovec){ heap->get_meta_block(modified_block), (size_t)dsk.meta_block_size };
     data->callback = [this, modified_block](ring_data_t *data)
@@ -44,14 +41,7 @@ void blockstore_impl_t::prepare_meta_block_write(uint32_t modified_block)
 bool blockstore_impl_t::meta_block_is_pending(uint32_t modified_block)
 {
     auto mb_it = modified_blocks.find(modified_block);
-    if (mb_it != modified_blocks.end())
-        return true;
-    for (auto & block_num: pending_modified_blocks)
-    {
-        if (block_num == modified_block)
-            return true;
-    }
-    return false;
+    return mb_it != modified_blocks.end();
 }
 
 bool blockstore_impl_t::intent_write_allowed(blockstore_op_t *op, heap_entry_t *obj)

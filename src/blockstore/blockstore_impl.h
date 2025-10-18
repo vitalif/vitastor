@@ -117,7 +117,7 @@ public:
     uint8_t *zero_object = NULL;
 
     std::vector<uint32_t> pending_modified_blocks;
-    robin_hood::unordered_flat_set<uint32_t> modified_blocks;
+    robin_hood::unordered_flat_map<uint32_t, bool> modified_blocks;
 
     journal_flusher_t *flusher;
     int write_iodepth = 0;
