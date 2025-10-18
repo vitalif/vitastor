@@ -191,15 +191,19 @@ resume_16:
         wait_state = 0;
         return true;
     }
-    for (int i = 0; i < flusher->cur_flusher_count; i++)
+    if (flusher->flushing.find(cur_oid) != flusher->flushing.end())
     {
-        if (i != co_id && flusher->co[i].cur_oid == cur_oid)
+        for (int i = 0; i < flusher->cur_flusher_count; i++)
         {
-            // Already flushing it
-            flusher->co[i].should_repeat = true;
-            goto resume_0;
+            if (i != co_id && flusher->co[i].cur_oid == cur_oid)
+            {
+                // Already flushing it
+                flusher->co[i].should_repeat = true;
+                goto resume_0;
+            }
         }
     }
+    flusher->flushing.insert(cur_oid);
 resume_1:
     wait_state = 1;
     should_repeat = false;
@@ -207,6 +211,7 @@ resume_1:
     if (!cur_obj)
     {
         // Object does not exist
+        flusher->flushing.erase(cur_oid);
         goto resume_0;
     }
     // Scan versions to flush
@@ -225,6 +230,7 @@ resume_1:
     if (!compact_info.compact_lsn)
     {
         // Flushing is aborted
+        flusher->flushing.erase(cur_oid);
         bs->heap->unlock_entry(cur_oid);
         goto resume_0;
     }
@@ -271,6 +277,8 @@ resume_3:
     if (res == ENOENT || res == EDOM)
     {
         // Abort compaction
+        flusher->flushing.erase(cur_oid);
+        bs->heap->unlock_entry(cur_oid);
         flusher->active_flushers--;
         goto resume_0;
     }
@@ -282,6 +290,8 @@ resume_4:
         if (res == ENOENT)
         {
             // Abort compaction
+            flusher->flushing.erase(cur_oid);
+            bs->heap->unlock_entry(cur_oid);
             flusher->active_flushers--;
             goto resume_0;
         }
@@ -339,11 +349,13 @@ resume_11:
     if (!cur_obj)
     {
         // Abort compaction
+        flusher->flushing.erase(cur_oid);
         goto resume_0;
     }
     if (!calc_block_checksums())
     {
         // Abort compaction
+        flusher->flushing.erase(cur_oid);
         goto resume_0;
     }
     bs->heap->add_compact(cur_obj, compact_info.compact_lsn, &modified_block, new_csums);
@@ -365,6 +377,7 @@ resume_13:
         // Flush the same object again
         goto resume_1;
     }
+    flusher->flushing.erase(cur_oid);
     // All done
     goto resume_0;
 }
@@ -444,6 +457,11 @@ int journal_flusher_co::check_and_punch_checksums()
     }
     // Verify data checksums
     cur_obj = bs->heap->read_entry(cur_oid);
+    if (!cur_obj)
+    {
+        // Object is deleted, abort compaction
+        return ENOENT;
+    }
     bool csum_ok = true;
     for (int i = 0; i < read_vec.size(); i++)
     {
@@ -451,7 +469,7 @@ int journal_flusher_co::check_and_punch_checksums()
         if (!(vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_ZERO|COPY_BUF_SKIP_CSUM)))
         {
             heap_entry_t *wr = cur_obj;
-            while (wr && wr->lsn != vec.wr_lsn)
+            while (wr && wr->lsn != vec.wr_lsn) // FIXME: Skip compacted
             {
                 wr = bs->heap->prev(wr);
             }
@@ -482,12 +500,6 @@ int journal_flusher_co::check_and_punch_checksums()
     {
         // Nothing to do
         return 0;
-    }
-    cur_obj = bs->heap->read_entry(cur_oid);
-    if (!cur_obj)
-    {
-        // Object is deleted, abort compaction
-        return ENOENT;
     }
     heap_entry_t *clean_wr = NULL;
     for (auto wr = cur_obj; wr; wr = bs->heap->prev(wr))

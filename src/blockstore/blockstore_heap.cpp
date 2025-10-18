@@ -2038,7 +2038,6 @@ void blockstore_heap_t::apply_inflight()
                 //free_entry(idx.pos / dsk->meta_block_size, obj);
                 mark_garbage(idx.pos / dsk->meta_block_size, obj, UINT32_MAX);
                 idx.pos = 0;
-                //deref_deletes.insert(oid);
             }
         }
         else if (!idx.refcnt)

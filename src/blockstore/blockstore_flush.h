@@ -84,6 +84,7 @@ class journal_flusher_t
     int advance_lsn_counter = 0;
     uint64_t compact_counter = 0;
 
+    robin_hood::unordered_flat_set<object_id> flushing;
     int active_flushers = 0;
     int wanting_meta_fsync = 0;
     bool fsyncing_meta = false;
