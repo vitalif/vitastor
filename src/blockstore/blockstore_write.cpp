@@ -20,9 +20,12 @@ void blockstore_impl_t::prepare_meta_block_write(uint32_t modified_block)
     pending_modified_blocks.push_back(modified_block);
     modified_blocks[modified_block] = false;
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
-    data->iov = (struct iovec){ heap->get_meta_block(modified_block), (size_t)dsk.meta_block_size };
-    data->callback = [this, modified_block](ring_data_t *data)
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
+    heap->get_meta_block(modified_block, buf);
+    data->iov = (struct iovec){ buf, (size_t)dsk.meta_block_size };
+    data->callback = [this, modified_block, buf](ring_data_t *data)
     {
+        free(buf);
         live = true;
         if (data->res != data->iov.iov_len)
         {

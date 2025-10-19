@@ -44,7 +44,8 @@ struct __attribute__((__packed__)) heap_entry_t
     uint64_t inode;
     uint64_t stripe;
     uint64_t version;
-    uint64_t prev_pos; // ALWAYS invalid on disk and skipped in checksum calculation
+    uint32_t block_num;
+    heap_entry_t *prev;
 
     // uint8_t[] external_bitmap
     // uint8_t[] internal_bitmap
@@ -53,11 +54,11 @@ struct __attribute__((__packed__)) heap_entry_t
     inline uint8_t type() const { return (entry_type & BS_HEAP_TYPE); }
     inline heap_small_write_t& small() { return *(heap_small_write_t*)this; }
     inline heap_big_write_t& big() { return *(heap_big_write_t*)this; }
+    bool is_garbage();
+    void set_garbage();
     bool is_overwrite();
     bool is_compactable();
-    bool is_garbage();
     bool is_before(heap_entry_t *other);
-    void set_garbage();
     uint32_t get_size(blockstore_heap_t *heap);
     uint8_t *get_ext_bitmap(blockstore_heap_t *heap);
     uint8_t *get_int_bitmap(blockstore_heap_t *heap);
@@ -87,24 +88,22 @@ struct __attribute__((__packed__)) heap_big_write_t
 struct heap_object_mvcc_t
 {
     uint32_t readers = 0;
-    uint64_t garbage_lsn = 0;
+    heap_entry_t *garbage_entry = NULL;
 };
 
-struct __attribute__((__packed__)) heap_block_info_t
+struct heap_block_info_t
 {
-    uint8_t *data = NULL;
     uint32_t used_space = 0;
-    uint32_t garbage_space = 0;
     uint64_t mod_lsn = 0, mod_lsn_to = 0; // only 1 block write of LSN sequence is allowed at a moment
-    uint32_t free_pos = 0;
-    bool is_writing = false;
+    bool is_writing: 1;
+    bool has_garbage: 1;
+    std::vector<heap_entry_t*> entries;
 };
 
 struct heap_inflight_lsn_t
 {
-    object_id oid;
     uint64_t flags;
-    uint64_t compact_lsn;
+    heap_entry_t *wr;
 };
 
 struct heap_compact_t
@@ -113,15 +112,15 @@ struct heap_compact_t
     uint64_t clean_lsn, clean_version, clean_loc;
 };
 
-struct heap_object_ptr_t
+struct heap_idx_t
 {
-    uint64_t pos;
+    heap_entry_t *ptr;
     uint32_t refcnt;
 };
 
 using i64hash_t = robin_hood::hash<uint64_t>;
 using heap_block_index_t = robin_hood::unordered_flat_map<uint64_t,
-    robin_hood::unordered_flat_map<inode_t, robin_hood::unordered_flat_map<uint64_t, heap_object_ptr_t, i64hash_t, std::equal_to<uint64_t>, 88>, i64hash_t>, i64hash_t>;
+    robin_hood::unordered_flat_map<inode_t, robin_hood::unordered_flat_map<uint64_t, heap_idx_t, i64hash_t, std::equal_to<uint64_t>, 88>, i64hash_t>, i64hash_t>;
 using heap_mvcc_map_t = robin_hood::unordered_flat_map<object_id, heap_object_mvcc_t>;
 
 class blockstore_heap_t
@@ -175,18 +174,15 @@ class blockstore_heap_t
     void recheck_buffer(heap_entry_t *cwr, uint8_t *buf);
     void defragment_block(uint32_t block_num);
 
-    uint32_t find_block_run(heap_block_info_t & block, uint32_t space);
-    uint32_t find_block_space(uint32_t block_num, uint32_t space, bool & defragmented);
-    void allocate_block(heap_block_info_t & inf);
-    int allocate_entry(uint32_t entry_size, uint32_t *block_num, uint32_t *offset, bool allow_last_free, bool & defragmented);
+    int allocate_entry(uint32_t entry_size, uint32_t *block_num, heap_entry_t **entry, bool allow_last_free);
     int add_entry(uint32_t wr_size, heap_entry_t *old_head, uint32_t *modified_block, bool allow_last_free,
         std::function<void(heap_entry_t *wr)> fill_entry);
     int add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type);
     uint32_t meta_alloc_pos(const heap_block_info_t & inf);
     void modify_alloc(uint32_t block_num, std::function<void(heap_block_info_t &)> change_cb);
-    void mark_garbage_up_to(object_id oid, uint64_t lsn);
+    void mark_garbage_up_to(heap_entry_t *wr);
     void mark_garbage(uint32_t block_num, heap_entry_t *prev_wr, uint32_t used_big);
-    void push_inflight_lsn(object_id oid, uint64_t lsn, uint64_t compact_lsn, uint64_t flags);
+    void push_inflight_lsn(uint64_t lsn, heap_entry_t *wr, uint64_t flags);
     void mark_lsn_completed(uint64_t lsn);
     void apply_inflight();
 public:
@@ -272,7 +268,7 @@ public:
     uint64_t get_buffer_area_used_space();
 
     // get metadata block data buffer and used space
-    uint8_t *get_meta_block(uint32_t block_num);
+    void get_meta_block(uint32_t block_num, uint8_t *buffer);
     uint32_t get_meta_block_used_space(uint32_t block_num);
 
     // get space usage statistics
