@@ -25,21 +25,26 @@ static int count_writes(blockstore_heap_t & heap, heap_entry_t *obj)
 
 bool check_used_space(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint32_t block_num)
 {
-    // FIXME
-    return true;
-/*    uint8_t *data = heap.get_meta_block(block_num);
+    uint8_t *buf = (uint8_t*)malloc_or_die(dsk.meta_block_size);
+    heap.get_meta_block(block_num, buf);
+    uint8_t *data = buf;
     uint8_t *end = data+dsk.meta_block_size;
     uint32_t used = 0;
     while (data < end)
     {
         heap_entry_t *wr = ((heap_entry_t*)data);
-        if (!(wr->size & FREE_SPACE_BIT) && !(wr->prev_pos & GARBAGE_BIT))
+        if (!(wr->size & FREE_SPACE_BIT) && !wr->is_garbage())
         {
             used += wr->size;
         }
+        if (!wr->size)
+        {
+            break;
+        }
         data += (wr->size & ~FREE_SPACE_BIT);
     }
-    return used == heap.get_meta_block_used_space(block_num);*/
+    free(buf);
+    return used == heap.get_meta_block_used_space(block_num);
 }
 
 int _test_do_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t location,
@@ -163,8 +168,8 @@ void test_mvcc(bool csum)
 
         assert(count_writes(heap, heap.read_entry(oid)) == 3); // MVCC prevents GC of old entries
 
-        //assert(heap.unlock_entry(oid));
-        //assert(count_writes(heap, heap.read_entry(oid)) == 1); // Now we unlock it and old entries are GCed
+        assert(heap.unlock_entry(oid));
+        assert(count_writes(heap, heap.read_entry(oid)) == 3); // Now we unlock it and old entries are GCed, but left in the list
     }
 
     printf("OK test_mvcc %s\n", csum ? "csum" : "no_csum");
@@ -279,8 +284,8 @@ void test_defrag_block()
 
     uint32_t big_write_size = heap.get_big_entry_size();
     uint32_t small_write_size = heap.get_small_entry_size(0, 4096);
-    assert(big_write_size == 200);
-    assert(small_write_size == 84);
+    assert(big_write_size == 180);
+    assert(small_write_size == 64);
     uint32_t nwr = 0;
     bool add = false;
     if ((dsk.meta_block_size % (big_write_size+small_write_size)) >= big_write_size)
@@ -437,7 +442,7 @@ void test_compact(bool csum, bool stable)
 
     obj = heap.read_entry(oid);
     assert(obj);
-    assert(count_writes(heap, obj) == 1);
+    assert(count_writes(heap, obj) == (stable ? 3 : 4));
     assert(obj->version == 3);
     bitmap_set(ref_int_bitmap, 8192, 4096, 4096);
     assert(!memcmp(obj->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
@@ -933,7 +938,7 @@ void test_rollback()
 
         obj = heap.read_entry(oid);
         assert(obj);
-        assert(count_writes(heap, obj) == 4);
+        assert(count_writes(heap, obj) == 6);
 
         assert(heap.get_to_compact_count() == 1);
 
@@ -1070,8 +1075,8 @@ void test_full_alloc()
 
     uint32_t big_write_size = heap.get_big_entry_size();
     uint32_t small_write_size = heap.get_small_entry_size(0, 4096);
-    assert(big_write_size == 192);
-    assert(small_write_size == 76);
+    assert(big_write_size == 180);
+    assert(small_write_size == 64);
     uint32_t epb = dsk.meta_block_size/big_write_size;
     for (int j = 0; j < 4; j++)
     {

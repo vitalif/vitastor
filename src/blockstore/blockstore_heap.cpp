@@ -4,6 +4,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include <stddef.h>
 
 #include <stdexcept>
 #include <algorithm>
@@ -23,9 +24,15 @@
 #define HEAP_INFLIGHT_COMPACTED 4
 #define HEAP_INFLIGHT_GC 8
 
+static inline heap_list_item_t *list_item(heap_entry_t *wr)
+{
+    return (heap_list_item_t*)((uint8_t*)wr - offsetof(struct heap_list_item_t, entry));
+}
+
 heap_entry_t *blockstore_heap_t::prev(heap_entry_t *wr)
 {
-    return wr->prev == (heap_entry_t*)1 ? NULL : wr->prev;
+    auto li = list_item(wr);
+    return li->prev ? &li->prev->entry : NULL;
 }
 
 uint32_t blockstore_heap_t::get_simple_entry_size()
@@ -168,17 +175,8 @@ void heap_entry_t::set_big_location(blockstore_heap_t *heap, uint64_t location)
 uint32_t heap_entry_t::calc_crc32c()
 {
     auto old_crc32c = crc32c;
-    auto old_block = block_num;
-    auto old_prev = prev;
-    auto old_next = next;
-    block_num = 0;
-    prev = NULL;
-    next = NULL;
     crc32c = 0;
     uint32_t res = ::crc32c(0, (uint8_t*)this, size);
-    block_num = old_block;
-    prev = old_prev;
-    next = old_next;
     crc32c = old_crc32c;
     return res;
 }
@@ -230,7 +228,7 @@ blockstore_heap_t::~blockstore_heap_t()
 }
 
 int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uint8_t *buf,
-    std::function<void(heap_entry_t*)> handle_write, std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block)
+    std::function<void(uint32_t block_num, heap_entry_t* wr)> handle_write, std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block)
 {
     for (uint64_t buf_offset = 0; buf_offset < disk_size; buf_offset += dsk->meta_block_size)
     {
@@ -286,10 +284,7 @@ int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uin
                     block_num, block_offset, expected_crc32c, wr->crc32c);
                 return EDOM;
             }
-            wr->prev = NULL;
-            wr->next = NULL;
-            wr->block_num = block_num;
-            handle_write(wr);
+            handle_write(block_num, wr);
             block_offset += wr->size;
         }
         handle_block(block_num, block_offset, buf+buf_offset);
@@ -301,10 +296,13 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
 {
     entries_loaded = 0;
     uint32_t used_space = 0;
-    return read_blocks(disk_offset, size, buf, [&](heap_entry_t *wr_orig)
+    return read_blocks(disk_offset, size, buf, [&](uint32_t block_num, heap_entry_t *wr_orig)
     {
-        heap_entry_t *wr = (heap_entry_t*)malloc_or_die(wr_orig->size);
-        memcpy(wr, wr_orig, wr_orig->size);
+        heap_list_item_t *li = (heap_list_item_t*)malloc_or_die(wr_orig->size + sizeof(heap_list_item_t) - sizeof(heap_entry_t));
+        li->block_num = block_num;
+        li->prev = li->next = NULL;
+        memcpy(&li->entry, wr_orig, wr_orig->size);
+        auto wr = &li->entry;
         if (wr->lsn > next_lsn)
         {
             next_lsn = wr->lsn;
@@ -314,67 +312,66 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
         auto & idx = inode_idx[wr->stripe];
         if (!idx.ptr)
         {
-            idx.ptr = wr;
+            idx.ptr = li;
         }
         else
         {
-            auto prev_wr = idx.ptr;
-            if (!prev_wr || prev_wr->is_before(wr))
+            auto prev_li = idx.ptr;
+            if (!prev_li || prev_li->entry.is_before(wr))
             {
-                wr->prev = prev_wr;
-                if (prev_wr)
+                li->prev = prev_li;
+                if (prev_li)
                 {
-                    prev_wr->next = wr;
+                    prev_li->next = li;
                 }
                 if (wr->is_overwrite())
                 {
                     // Mark all previous entries as garbage
-                    while (prev_wr)
+                    while (prev_li)
                     {
-                        auto prev_prev = prev(wr);
-                        prev_wr->set_garbage();
-                        block_info[prev_wr->block_num].has_garbage = true; // FIXME modify_alloc
-                        prev_wr = prev_prev;
+                        prev_li->entry.set_garbage();
+                        block_info[prev_li->block_num].has_garbage = true; // FIXME modify_alloc
+                        prev_li = prev_li->prev;
                     }
                 }
                 // Insert <wr> on top
-                idx.ptr = wr;
+                idx.ptr = li;
             }
             else
             {
                 while (true)
                 {
-                    auto prev_prev = prev(prev_wr);
-                    if (!prev_prev || prev_prev->is_before(wr))
+                    auto prev_prev = prev_li->prev;
+                    if (!prev_prev || prev_prev->entry.is_before(wr))
                     {
                         break;
                     }
-                    prev_wr = prev_prev;
+                    prev_li = prev_prev;
                 }
-                if (prev_wr->is_overwrite())
+                if (prev_li->entry.is_overwrite())
                 {
                     // Mark <wr> as garbage
                     wr->set_garbage();
-                    block_info[wr->block_num].has_garbage = true;
+                    block_info[li->block_num].has_garbage = true;
                 }
                 // Insert <wr> before <prev_wr>
-                wr->prev = prev_wr->prev;
-                if (prev_wr->prev)
-                    prev_wr->prev->next = wr;
-                prev_wr->prev = wr;
-                wr->next = prev_wr;
+                li->prev = prev_li->prev;
+                if (prev_li->prev)
+                    prev_li->prev->next = li;
+                prev_li->prev = li;
+                li->next = prev_li;
             }
         }
         if (!wr->is_garbage())
         {
             used_space += wr->size;
         }
-        auto & inf = block_info[wr->block_num];
+        auto & inf = block_info[li->block_num];
         if (!inf.entries.size())
         {
             inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t));
         }
-        inf.entries.push_back(wr);
+        inf.entries.push_back(li);
     }, [&](uint32_t block_num, uint32_t last_offset, uint8_t *buf)
     {
         modify_alloc(block_num, [&](heap_block_info_t & inf)
@@ -393,7 +390,7 @@ void blockstore_heap_t::fill_recheck_queue()
         {
             for (auto & op: ip.second)
             {
-                auto wr = op.second.ptr;
+                auto wr = &op.second.ptr->entry;
                 bool prev_intent = false;
                 while (wr)
                 {
@@ -418,7 +415,7 @@ void blockstore_heap_t::mark_used_blocks()
             for (auto & op: ip.second)
             {
                 bool added = false;
-                auto wr = op.second.ptr;
+                auto wr = &op.second.ptr->entry;
                 while (wr)
                 {
                     if (wr->type() == BS_HEAP_SMALL_WRITE)
@@ -452,20 +449,20 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
     {
         // write entry is invalid, erase it and all newer entries
         auto & inode_idx = block_index[get_pg_id(cwr->inode, cwr->stripe)][cwr->inode];
-        auto wr = inode_idx[cwr->stripe].ptr;
+        auto li = inode_idx[cwr->stripe].ptr;
         int rolled_back = 0;
         auto free_entry = [&]()
         {
-            uint32_t block_num = wr->block_num;
-            auto prev = wr->prev;
-            auto wr_size = wr->size;
-            free(wr);
+            uint32_t block_num = li->block_num;
+            auto prev = li->prev;
+            auto wr_size = li->entry.size;
+            free(li);
             modify_alloc(block_num, [&](heap_block_info_t & inf)
             {
                 inf.used_space -= wr_size;
                 for (auto it = inf.entries.begin(); it != inf.entries.end(); it++)
                 {
-                    if (*it == wr)
+                    if (*it == li)
                     {
                         inf.entries.erase(it);
                         break;
@@ -473,25 +470,26 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
                 }
             });
             recheck_modified_blocks.insert(block_num);
-            wr = prev;
+            li = prev;
             rolled_back++;
         };
-        while (wr && wr != cwr)
+        while (li && cwr != &li->entry)
         {
             free_entry();
         }
-        assert(wr == cwr);
-        if (wr->prev)
+        assert(li);
+        if (li->prev)
         {
             fprintf(stderr, "Notice: %u unfinished writes to %jx:%jx v%jx since lsn %ju, rolling back\n",
-                rolled_back+1, wr->inode, wr->stripe, prev(wr)->version, prev(wr)->lsn);
-            inode_idx[wr->stripe].ptr = wr->prev;
+                rolled_back+1, cwr->inode, cwr->stripe, prev(cwr)->version, prev(cwr)->lsn);
+            inode_idx[cwr->stripe].ptr = li->prev;
+            li->prev->next = NULL;
         }
         else
         {
             fprintf(stderr, "Notice: the whole object %jx:%jx only has unfinished writes, rolling back\n",
-                wr->inode, wr->stripe);
-            inode_idx.erase(wr->stripe);
+                cwr->inode, cwr->stripe);
+            inode_idx.erase(cwr->stripe);
         }
         free_entry();
     }
@@ -808,10 +806,10 @@ heap_entry_t *blockstore_heap_t::read_entry(object_id oid)
     {
         return NULL;
     }
-    return stripe_it->second.ptr;
+    return &stripe_it->second.ptr->entry;
 }
 
-int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, heap_entry_t **entry, bool allow_last_free)
+int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free)
 {
     if (last_allocated_block != UINT32_MAX)
     {
@@ -882,7 +880,7 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
         size_t i = 0, j = 0;
         for (; i < inf.entries.size(); i++)
         {
-            if (inf.entries[i]->is_garbage())
+            if (inf.entries[i]->entry.is_garbage())
             {
                 // old entry invalidated by a newer one, mark it as freeable on block write
                 // assign a 'virtual' LSN to track GC completion
@@ -890,7 +888,7 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
                 uint64_t gc_lsn = ++next_lsn;
                 inf.mod_lsn = inf.mod_lsn ? inf.mod_lsn : gc_lsn;
                 inf.mod_lsn_to = gc_lsn;
-                push_inflight_lsn(gc_lsn, inf.entries[i], HEAP_INFLIGHT_GC);
+                push_inflight_lsn(gc_lsn, &inf.entries[i]->entry, HEAP_INFLIGHT_GC);
             }
             else if (j != i)
             {
@@ -901,10 +899,6 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
         inf.has_garbage = false;
     }
     *block_num = last_allocated_block;
-    *entry = (heap_entry_t*)malloc_or_die(entry_size);
-    if (!inf.entries.size())
-        inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t));
-    inf.entries.push_back(*entry);
     modify_alloc(last_allocated_block, [&](heap_block_info_t & inf)
     {
         inf.used_space += entry_size;
@@ -912,12 +906,11 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
     return 0;
 }
 
-int blockstore_heap_t::add_entry(uint32_t wr_size, heap_entry_t *old_head, uint32_t *modified_block,
+int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
     bool allow_last_free, std::function<void(heap_entry_t *wr)> fill_entry)
 {
-    heap_entry_t *new_wr = NULL;
     uint32_t block_num;
-    int res = allocate_entry(wr_size, &block_num, &new_wr, allow_last_free);
+    int res = allocate_entry(wr_size, &block_num, allow_last_free);
     if (res != 0)
     {
         return res;
@@ -926,7 +919,12 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, heap_entry_t *old_head, uint3
     {
         *modified_block = block_num;
     }
+    auto li = (heap_list_item_t*)malloc_or_die(wr_size + sizeof(heap_list_item_t) - sizeof(heap_entry_t));
+    auto new_wr = &li->entry;
     auto & inf = block_info.at(block_num);
+    if (!inf.entries.size())
+        inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t));
+    inf.entries.push_back(li);
     assert(!inf.mod_lsn_to || inf.mod_lsn_to == next_lsn);
     new_wr->lsn = ++next_lsn;
     fill_entry(new_wr);
@@ -938,40 +936,39 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, heap_entry_t *old_head, uint3
         (new_wr->is_overwrite() ? HEAP_INFLIGHT_COMPACTED : 0) |
         (new_wr->is_compactable() ? HEAP_INFLIGHT_COMPACTABLE : 0));
     auto & idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe];
-    old_head = idx.ptr;
-    if (old_head && !old_head->is_before(new_wr))
+    auto old_head = idx.ptr;
+    if (old_head && !old_head->entry.is_before(new_wr))
     {
         // BIG_WRITE may be inserted into the middle of the sequence during compaction
         // and it overrides SMALL_WRITEs and COMMITs with the same LSN
         // However, all entries of other types (say DELETE) override previous ones
-        auto next_wr = old_head;
+        auto next_li = old_head;
         while (true)
         {
-            auto nn = prev(next_wr);
-            if (!nn || nn->is_before(new_wr))
+            if (!next_li->prev || next_li->prev->entry.is_before(new_wr))
                 break;
-            next_wr = nn;
+            next_li = next_li->prev;
         }
-        auto prev_wr = prev(next_wr);
+        auto prev_wr = &next_li->prev->entry;
         // <prev_wr> may be an identical big_write entry when we "punch holes" in the bitmap
         assert(prev_wr && prev_wr->type() != BS_HEAP_DELETE &&
             (prev_wr->type() != BS_HEAP_BIG_WRITE || prev_wr->version == new_wr->version));
         // Insert <new_wr> between <next_wr> and <prev_wr>
-        new_wr->prev = next_wr->prev;
-        if (next_wr->prev)
-            next_wr->prev->next = new_wr;
-        next_wr->prev = new_wr;
-        new_wr->next = next_wr;
+        li->prev = next_li->prev;
+        if (next_li->prev)
+            next_li->prev->next = li;
+        next_li->prev = li;
+        li->next = next_li;
     }
     else
     {
-        new_wr->prev = idx.ptr;
-        new_wr->next = NULL;
+        li->prev = idx.ptr;
+        li->next = NULL;
         if (idx.ptr)
-            idx.ptr->next = new_wr;
-        idx.ptr = new_wr;
+            idx.ptr->next = li;
+        idx.ptr = li;
     }
-    new_wr->block_num = block_num;
+    li->block_num = block_num;
     new_wr->size = wr_size;
     new_wr->crc32c = new_wr->calc_crc32c();
     return 0;
@@ -989,7 +986,7 @@ int blockstore_heap_t::add_small_write(object_id oid, heap_entry_t *old_head, ui
         return EINVAL;
     }
     uint32_t wr_size = get_small_entry_size(offset, len);
-    return add_entry(wr_size, old_head, modified_block, false, [&](heap_entry_t *wr)
+    return add_entry(wr_size, modified_block, false, [&](heap_entry_t *wr)
     {
         wr->entry_type = type;
         wr->inode = oid.inode;
@@ -1019,7 +1016,7 @@ int blockstore_heap_t::add_big_write(object_id oid, heap_entry_t *old_head, bool
         return EINVAL;
     }
     uint32_t wr_size = get_big_entry_size();
-    return add_entry(wr_size, old_head, modified_block, false, [&](heap_entry_t *wr)
+    return add_entry(wr_size, modified_block, false, [&](heap_entry_t *wr)
     {
         wr->entry_type = BS_HEAP_BIG_WRITE | (stable ? BS_HEAP_STABLE : 0);
         wr->inode = oid.inode;
@@ -1061,7 +1058,7 @@ int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t to_lsn, uint32_t 
             if (!has_entry)
             {
                 uint64_t compact_lsn = obj->lsn;
-                return add_entry(get_simple_entry_size(), obj, modified_block, false, [&](heap_entry_t *wr)
+                return add_entry(get_simple_entry_size(), modified_block, false, [&](heap_entry_t *wr)
                 {
                     wr->entry_type = BS_HEAP_DELETE|BS_HEAP_STABLE;
                     wr->inode = obj->inode;
@@ -1078,7 +1075,7 @@ int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t to_lsn, uint32_t 
     }
     auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
     uint32_t wr_size = get_big_entry_size();
-    return add_entry(wr_size, obj, modified_block, true, [&](heap_entry_t *new_wr)
+    return add_entry(wr_size, modified_block, true, [&](heap_entry_t *new_wr)
     {
         // obj and old_wr are invalid, re-read them - the block could have been compacted
         obj = read_entry(oid);
@@ -1187,7 +1184,7 @@ int blockstore_heap_t::add_punch_holes(heap_entry_t *obj, uint64_t to_lsn, uint6
 int blockstore_heap_t::add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type)
 {
     uint32_t wr_size = get_simple_entry_size();
-    return add_entry(wr_size, obj, modified_block, false, [&](heap_entry_t *wr)
+    return add_entry(wr_size, modified_block, false, [&](heap_entry_t *wr)
     {
         wr->entry_type = entry_type;
         wr->inode = obj->inode;
@@ -1391,7 +1388,7 @@ void blockstore_heap_t::mark_garbage_up_to(heap_entry_t *wr)
     while (wr && !wr->is_garbage())
     {
         auto prev_wr = prev(wr);
-        mark_garbage(wr->block_num, wr, used_big);
+        mark_garbage(list_item(wr)->block_num, wr, used_big);
         wr = prev_wr;
     }
 }
@@ -1586,7 +1583,7 @@ int blockstore_heap_t::list_objects(uint32_t pg_num, object_id min_oid, object_i
             {
                 continue;
             }
-            heap_entry_t *obj = stripe_pair.second.ptr;
+            heap_entry_t *obj = &stripe_pair.second.ptr->entry;
             assert(obj->inode == oid.inode && obj->stripe == oid.stripe);
             uint64_t stable_version = 0;
             auto first_wr = obj;
@@ -1710,10 +1707,10 @@ void blockstore_heap_t::get_meta_block(uint32_t block_num, uint8_t *buffer)
 {
     auto & inf = block_info.at(block_num);
     size_t pos = 0;
-    for (auto entry: inf.entries)
+    for (auto li: inf.entries)
     {
-        memcpy(buffer+pos, entry, entry->size);
-        pos += entry->size;
+        memcpy(buffer+pos, &li->entry, li->entry.size);
+        pos += li->entry.size;
     }
     memset(buffer+pos, 0, dsk->meta_block_size-pos);
 }
@@ -1845,8 +1842,8 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
     else if (inflight.flags & HEAP_INFLIGHT_GC)
     {
         // Remove entry
-        auto prev = wr->prev;
-        auto next = wr->next;
+        auto prev = list_item(wr)->prev;
+        auto next = list_item(wr)->next;
         if (prev)
         {
             prev->next = next;
@@ -1858,13 +1855,13 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
         else
         {
             next->prev = prev;
-            if (!prev && next->entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
+            if (!prev && next->entry.entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
             {
                 // free BS_HEAP_DELETEs when their refcount becomes 1
-                mark_garbage(next->block_num, next, UINT32_MAX);
+                mark_garbage(next->block_num, &next->entry, UINT32_MAX);
             }
         }
-        free(wr);
+        free(list_item(wr));
     }
 }
 

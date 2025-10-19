@@ -45,9 +45,6 @@ struct __attribute__((__packed__)) heap_entry_t
     uint64_t inode;
     uint64_t stripe;
     uint64_t version;
-    uint32_t block_num; // FIXME this shit
-    heap_entry_t *prev; // FIXME and this shit too should be moved into a separate structure
-    heap_entry_t *next; // FIXME and this shit too
 
     // uint8_t[] external_bitmap
     // uint8_t[] internal_bitmap
@@ -87,6 +84,14 @@ struct __attribute__((__packed__)) heap_big_write_t
     uint32_t block_num;
 };
 
+struct __attribute__((__packed__)) heap_list_item_t
+{
+    heap_list_item_t *prev;
+    heap_list_item_t *next;
+    uint32_t block_num;
+    heap_entry_t entry;
+};
+
 struct heap_object_mvcc_t
 {
     uint32_t readers = 0;
@@ -99,7 +104,7 @@ struct heap_block_info_t
     uint64_t mod_lsn = 0, mod_lsn_to = 0; // only 1 block write of LSN sequence is allowed at a moment
     bool is_writing: 1;
     bool has_garbage: 1;
-    std::vector<heap_entry_t*> entries;
+    std::vector<heap_list_item_t*> entries;
 };
 
 struct heap_inflight_lsn_t
@@ -116,7 +121,7 @@ struct heap_compact_t
 
 struct heap_idx_t
 {
-    heap_entry_t *ptr;
+    heap_list_item_t *ptr;
 };
 
 using i64hash_t = robin_hood::hash<uint64_t>;
@@ -174,8 +179,8 @@ class blockstore_heap_t
     void recheck_buffer(heap_entry_t *cwr, uint8_t *buf);
     void defragment_block(uint32_t block_num);
 
-    int allocate_entry(uint32_t entry_size, uint32_t *block_num, heap_entry_t **entry, bool allow_last_free);
-    int add_entry(uint32_t wr_size, heap_entry_t *old_head, uint32_t *modified_block, bool allow_last_free,
+    int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free);
+    int add_entry(uint32_t wr_size, uint32_t *modified_block, bool allow_last_free,
         std::function<void(heap_entry_t *wr)> fill_entry);
     int add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type);
     uint32_t meta_alloc_pos(const heap_block_info_t & inf);
@@ -190,7 +195,8 @@ public:
     ~blockstore_heap_t();
     // load data from the disk, returns EDOM on corruption
     int read_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf,
-        std::function<void(heap_entry_t*)> handle_write, std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block);
+        std::function<void(uint32_t block_num, heap_entry_t* wr)> handle_write,
+        std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block);
     int load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf, uint64_t &entries_loaded);
     // finish loading
     void finish_load();

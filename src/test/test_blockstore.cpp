@@ -427,7 +427,7 @@ static void test_padded_csum_intent(bool perfect)
     assert(memcheck(op2.buf+32*1024, 0, 96*1024));
 
     obj = test.bs->heap->read_entry((object_id){ .inode = 1, .stripe = 0 });
-    assert(!test.bs->heap->prev(obj));
+    assert(test.bs->heap->prev(obj) && test.bs->heap->prev(obj)->is_garbage());
 
     free(op.buf);
     free(op2.buf);
