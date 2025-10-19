@@ -834,13 +834,18 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
                 last_allocated_block = UINT32_MAX;
             }
         }
-        if (last_allocated_block == UINT32_MAX && meta_nearfull.size() > 0)
+        if (last_allocated_block == UINT32_MAX)
         {
             // Then into nearfull blocks
-            auto most_free = *std::prev(meta_nearfull.end());
-            if ((most_free >> 32) >= entry_size)
+            for (uint32_t b = meta_alloc->find(META_ALLOC_LEVELS-1); b != UINT32_MAX; b = meta_alloc->next(b))
             {
-                last_allocated_block = (uint32_t)most_free;
+                auto & inf = block_info.at(b);
+                auto free_space = dsk->meta_block_size - inf.used_space;
+                if (free_space >= entry_size)
+                {
+                    last_allocated_block = b;
+                    break;
+                }
             }
         }
         if (last_allocated_block == UINT32_MAX)
@@ -1316,14 +1321,6 @@ void blockstore_heap_t::modify_alloc(uint32_t block_num, std::function<void(heap
     if ((old_pos < META_ALLOC_LEVELS-1) != (new_pos < META_ALLOC_LEVELS-1))
     {
         meta_nearfull_blocks += (new_pos >= META_ALLOC_LEVELS-1 ? 1 : -1);
-    }
-    if (old_pos == META_ALLOC_LEVELS-1 || new_pos == META_ALLOC_LEVELS-1)
-    {
-        // block is nearfull -> free space between minimum and maximum entry size
-        if (old_pos == META_ALLOC_LEVELS-1)
-            meta_nearfull.erase(block_num | (((uint64_t)(dsk->meta_block_size-old_used)) << 32));
-        if (new_pos == META_ALLOC_LEVELS-1)
-            meta_nearfull.insert(block_num | (((uint64_t)(dsk->meta_block_size-new_used)) << 32));
     }
 }
 

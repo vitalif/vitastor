@@ -139,7 +139,6 @@ class blockstore_heap_t
     std::vector<heap_block_info_t> block_info;
     allocator_t *data_alloc = NULL;
     multilist_index_t *meta_alloc = NULL;
-    std::set<uint64_t> meta_nearfull;
     uint32_t meta_nearfull_blocks = 0;
     uint64_t meta_used_space = 0;
     multilist_alloc_t *buffer_alloc = NULL;

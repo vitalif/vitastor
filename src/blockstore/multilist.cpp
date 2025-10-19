@@ -300,6 +300,11 @@ uint32_t multilist_index_t::find(uint32_t wanted_used)
     return heads[wanted_used];
 }
 
+uint32_t multilist_index_t::next(uint32_t pos)
+{
+    return nexts[pos];
+}
+
 void multilist_index_t::change(uint32_t pos, uint32_t old_used, uint32_t new_used)
 {
     if (new_used == old_used)

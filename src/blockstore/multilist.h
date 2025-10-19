@@ -32,6 +32,7 @@ struct multilist_index_t
     // used should be always < max_used
     multilist_index_t(uint32_t count, uint32_t max_used, uint32_t init_used);
     uint32_t find(uint32_t wanted_used);
+    uint32_t next(uint32_t pos);
     void change(uint32_t pos, uint32_t old_used, uint32_t new_used);
     void print();
 };
