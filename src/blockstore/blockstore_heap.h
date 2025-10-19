@@ -29,6 +29,7 @@ struct pool_shard_settings_t
 #define BS_HEAP_COMMIT 5
 #define BS_HEAP_ROLLBACK 6
 #define BS_HEAP_STABLE 8
+#define BS_HEAP_GARBAGE 16
 
 class blockstore_heap_t;
 
@@ -46,6 +47,7 @@ struct __attribute__((__packed__)) heap_entry_t
     uint64_t version;
     uint32_t block_num; // FIXME this shit
     heap_entry_t *prev; // FIXME and this shit too should be moved into a separate structure
+    heap_entry_t *next; // FIXME and this shit too
 
     // uint8_t[] external_bitmap
     // uint8_t[] internal_bitmap
@@ -115,7 +117,6 @@ struct heap_compact_t
 struct heap_idx_t
 {
     heap_entry_t *ptr;
-    uint32_t refcnt;
 };
 
 using i64hash_t = robin_hood::hash<uint64_t>;
