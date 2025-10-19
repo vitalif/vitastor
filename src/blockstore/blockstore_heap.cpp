@@ -1351,8 +1351,13 @@ void blockstore_heap_t::complete_block_write(uint32_t block_num)
     });
     if (mod_lsn)
     {
-        for (uint64_t lsn = mod_lsn; lsn <= mod_lsn_to; lsn++)
-            mark_lsn_completed(lsn);
+        auto it = inflight_lsn.begin() + (mod_lsn-first_inflight_lsn);
+        for (uint64_t lsn = mod_lsn; lsn <= mod_lsn_to; lsn++, it++)
+        {
+            assert(!(it->flags & HEAP_INFLIGHT_DONE));
+            it->flags |= HEAP_INFLIGHT_DONE;
+        }
+        mark_completed_lsns();
     }
 }
 
@@ -1768,31 +1773,30 @@ void blockstore_heap_t::push_inflight_lsn(uint64_t lsn, heap_entry_t *wr, uint64
     }
 }
 
-void blockstore_heap_t::mark_lsn_completed(uint64_t lsn)
+void blockstore_heap_t::mark_completed_lsns()
 {
-    assert(lsn >= first_inflight_lsn && lsn < first_inflight_lsn+inflight_lsn.size());
-    auto it = inflight_lsn.begin() + (lsn-first_inflight_lsn);
-    assert(!(it->flags & HEAP_INFLIGHT_DONE));
-    it->flags |= HEAP_INFLIGHT_DONE;
-    if (lsn == completed_lsn+1)
+    if (dsk->disable_meta_fsync && dsk->disable_journal_fsync)
     {
-        if (dsk->disable_meta_fsync && dsk->disable_journal_fsync)
+        // Apply effects immediately if metadata doesn't need fsyncing
+        while (inflight_lsn.size())
         {
-            // Apply effects immediately if metadata doesn't need fsyncing
-            while (inflight_lsn.size() && (inflight_lsn[0].flags & HEAP_INFLIGHT_DONE))
+            auto & first = inflight_lsn.front();
+            if (!(first.flags & HEAP_INFLIGHT_DONE))
             {
-                completed_lsn++;
-                apply_inflight();
+                break;
             }
+            completed_lsn++;
+            apply_inflight(first);
+            inflight_lsn.pop_front();
+            first_inflight_lsn++;
         }
-        else
+    }
+    else
+    {
+        // Only advanced completed_lsn
+        for (auto it = inflight_lsn.begin(); it != inflight_lsn.end() && (it->flags & HEAP_INFLIGHT_DONE); it++)
         {
-            auto it = inflight_lsn.begin() + (completed_lsn+1-first_inflight_lsn);
-            while (it != inflight_lsn.end() && (it->flags & HEAP_INFLIGHT_DONE))
-            {
-                completed_lsn++;
-                it++;
-            }
+            completed_lsn++;
         }
     }
 }
@@ -1805,15 +1809,16 @@ void blockstore_heap_t::mark_lsn_fsynced(uint64_t lsn)
         assert(lsn <= completed_lsn);
         while (lsn >= first_inflight_lsn)
         {
-            apply_inflight();
+            apply_inflight(inflight_lsn.front());
+            inflight_lsn.pop_front();
+            first_inflight_lsn++;
         }
         fsynced_lsn = lsn;
     }
 }
 
-void blockstore_heap_t::apply_inflight()
+void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
 {
-    auto & inflight = inflight_lsn.front();
     auto wr = inflight.wr;
     if (inflight.flags & HEAP_INFLIGHT_COMPACTED)
     {
@@ -1849,8 +1854,6 @@ void blockstore_heap_t::apply_inflight()
         }
         free(wr);
     }
-    inflight_lsn.pop_front();
-    first_inflight_lsn++;
 }
 
 uint64_t blockstore_heap_t::get_completed_lsn()

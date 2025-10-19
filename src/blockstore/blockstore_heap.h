@@ -183,8 +183,8 @@ class blockstore_heap_t
     void mark_garbage_up_to(heap_entry_t *wr);
     void mark_garbage(uint32_t block_num, heap_entry_t *prev_wr, uint32_t used_big);
     void push_inflight_lsn(uint64_t lsn, heap_entry_t *wr, uint64_t flags);
-    void mark_lsn_completed(uint64_t lsn);
-    void apply_inflight();
+    void mark_completed_lsns();
+    void apply_inflight(heap_inflight_lsn_t & inflight);
 public:
     blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_area, int log_level = 0);
     ~blockstore_heap_t();
