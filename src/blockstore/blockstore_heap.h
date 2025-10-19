@@ -44,8 +44,8 @@ struct __attribute__((__packed__)) heap_entry_t
     uint64_t inode;
     uint64_t stripe;
     uint64_t version;
-    uint32_t block_num;
-    heap_entry_t *prev;
+    uint32_t block_num; // FIXME this shit
+    heap_entry_t *prev; // FIXME and this shit too should be moved into a separate structure
 
     // uint8_t[] external_bitmap
     // uint8_t[] internal_bitmap
