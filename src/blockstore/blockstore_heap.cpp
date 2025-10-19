@@ -365,7 +365,12 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
         {
             used_space += wr->size;
         }
-        block_info[wr->block_num].entries.push_back(wr);
+        auto & inf = block_info[wr->block_num];
+        if (!inf.entries.size())
+        {
+            inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t));
+        }
+        inf.entries.push_back(wr);
     }, [&](uint32_t block_num, uint32_t last_offset, uint8_t *buf)
     {
         modify_alloc(block_num, [&](heap_block_info_t & inf)
@@ -892,6 +897,8 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
     }
     *block_num = last_allocated_block;
     *entry = (heap_entry_t*)malloc_or_die(entry_size);
+    if (!inf.entries.size())
+        inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t));
     inf.entries.push_back(*entry);
     modify_alloc(last_allocated_block, [&](heap_block_info_t & inf)
     {
