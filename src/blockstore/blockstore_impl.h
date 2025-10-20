@@ -71,6 +71,12 @@ struct blockstore_op_private_t
     timespec tv_begin;
 };
 
+struct bs_modified_block_t
+{
+    bool sent;
+    uint8_t *buf;
+};
+
 class blockstore_impl_t: public blockstore_i
 {
 public:
@@ -117,7 +123,7 @@ public:
     uint8_t *zero_object = NULL;
 
     std::vector<uint32_t> pending_modified_blocks;
-    robin_hood::unordered_flat_map<uint32_t, bool> modified_blocks;
+    robin_hood::unordered_flat_map<uint32_t, bs_modified_block_t> modified_blocks;
 
     journal_flusher_t *flusher;
     int write_iodepth = 0;

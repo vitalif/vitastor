@@ -733,25 +733,18 @@ int disk_tool_t::resize_write_new_meta()
     {
         assert(new_heap);
         uint32_t new_meta_blocks = new_meta_len / dsk.meta_block_size - 1;
-        uint8_t *zero_block = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
-        memset(zero_block, 0, dsk.meta_block_size);
-        std::vector<iovec> iov;
-        iov.reserve(IOV_MAX);
-        iov.push_back((iovec){ .iov_base = new_meta_hdr, .iov_len = dsk.meta_block_size });
-        for (uint32_t i = 0; i < new_meta_blocks; i++)
+        const uint32_t nb = 1024;
+        uint8_t *data = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size*nb);
+        write_blocking(new_meta_fd, new_meta_hdr, dsk.meta_block_size);
+        for (uint32_t i = 0; i < new_meta_blocks; )
         {
-            uint8_t *data = new_heap->get_meta_block(i);
-            iov.push_back((iovec){ .iov_base = data ? data : zero_block, .iov_len = dsk.meta_block_size });
-            if (iov.size() >= IOV_MAX)
+            uint32_t j = 0;
+            for (j = 0; j < nb && i < new_meta_blocks; j++, i++)
             {
-                writev_blocking(new_meta_fd, iov.data(), iov.size());
-                iov.clear();
+                new_heap->get_meta_block(i, data + j*dsk.meta_block_size);
             }
+            write_blocking(new_meta_fd, data, j*dsk.meta_block_size);
         }
-        if (iov.size() > 0)
-            writev_blocking(new_meta_fd, iov.data(), iov.size());
-        free(zero_block);
-        zero_block = NULL;
     }
     fsync(new_meta_fd);
     close(new_meta_fd);

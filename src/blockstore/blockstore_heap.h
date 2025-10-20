@@ -180,6 +180,7 @@ class blockstore_heap_t
     void defragment_block(uint32_t block_num);
 
     int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free);
+    void insert_list_item(heap_idx_t & idx, heap_list_item_t *li);
     int add_entry(uint32_t wr_size, uint32_t *modified_block, bool allow_last_free,
         std::function<void(heap_entry_t *wr)> fill_entry);
     int add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type);

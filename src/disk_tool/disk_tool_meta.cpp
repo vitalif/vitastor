@@ -108,9 +108,9 @@ close_error:
         {
             uint64_t read_len = buf_size < dsk.meta_area_size-meta_pos ? buf_size : dsk.meta_area_size-meta_pos;
             read_blocking(dsk.meta_fd, data, read_len);
-            heap->read_blocks(meta_pos-dsk.meta_block_size, read_len, data, [&](heap_entry_t *obj)
+            heap->read_blocks(meta_pos-dsk.meta_block_size, read_len, data, [&](uint32_t block_num, heap_entry_t *obj)
             {
-                obj_fn(heap, obj, ((uint8_t*)obj-data+meta_pos)/dsk.meta_block_size);
+                obj_fn(heap, obj, block_num);
             }, [](uint32_t, uint32_t, uint8_t*){});
             meta_pos += read_len;
         }

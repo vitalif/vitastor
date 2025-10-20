@@ -17,11 +17,8 @@ void blockstore_impl_t::prepare_meta_block_write(uint32_t modified_block)
         return;
     io_uring_sqe *sqe = get_sqe();
     assert(sqe != NULL);
-    pending_modified_blocks.push_back(modified_block);
-    modified_blocks[modified_block] = false;
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
     uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
-    heap->get_meta_block(modified_block, buf);
     data->iov = (struct iovec){ buf, (size_t)dsk.meta_block_size };
     data->callback = [this, modified_block, buf](ring_data_t *data)
     {
@@ -39,6 +36,8 @@ void blockstore_impl_t::prepare_meta_block_write(uint32_t modified_block)
     io_uring_prep_writev(
         sqe, dsk.meta_fd, &data->iov, 1, dsk.meta_offset + (modified_block+1)*dsk.meta_block_size
     );
+    pending_modified_blocks.push_back(modified_block);
+    modified_blocks[modified_block] = { .sent = false, .buf = buf };
 }
 
 bool blockstore_impl_t::meta_block_is_pending(uint32_t modified_block)
