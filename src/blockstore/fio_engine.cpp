@@ -42,6 +42,7 @@ struct bs_data
     bool imm = true;
     bool last_sync = false;
     bool trace = false;
+    uint8_t *bitmap = NULL;
 };
 
 struct bs_options
@@ -137,6 +138,7 @@ static void bs_cleanup(struct thread_data *td)
         delete bsd->bs;
         delete bsd->epmgr;
         delete bsd->ringloop;
+        free(bsd->bitmap);
         delete bsd;
     }
 }
@@ -160,6 +162,8 @@ static int bs_init(struct thread_data *td)
                 config[p.first] = p.second.dump();
         }
     }
+    bsd->bitmap = (uint8_t*)malloc_or_die(MAX_DATA_BLOCK_SIZE/512/8);
+    memset(bsd->bitmap, 0, MAX_DATA_BLOCK_SIZE/512/8);
     bsd->ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     bsd->epmgr = new epoll_manager_t(bsd->ringloop);
     bsd->bs = blockstore_i::create(config, bsd->ringloop, bsd->epmgr->tfd);
@@ -208,6 +212,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->version = UINT64_MAX; // last unstable
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
+        op->bitmap = bsd->bitmap;
         op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
         {
             io->error = op->retval < 0 ? -op->retval : 0;
@@ -229,6 +234,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->version = 0; // assign automatically
         op->offset = io->offset % bsd->bs->get_block_size();
         op->len = io->xfer_buflen;
+        op->bitmap = bsd->bitmap;
         if (bsd->ec)
         {
             op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
