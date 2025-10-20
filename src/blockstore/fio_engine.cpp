@@ -28,6 +28,7 @@
 #include "epoll_manager.h"
 #include "malloc_or_die.h"
 #include "json11/json11.hpp"
+#include "../util/robin_hood.h"
 #include "fio_headers.h"
 
 struct bs_data
@@ -37,12 +38,15 @@ struct bs_data
     ring_loop_t *ringloop;
     /* The list of completed io_u structs. */
     std::vector<io_u*> completed;
+    robin_hood::unordered_flat_map<uint64_t, int> inflight_oids;
+    std::vector<io_u*> postponed;
     int op_n = 0, inflight = 0;
     bool ec = false;
     bool imm = true;
     bool last_sync = false;
     bool trace = false;
     uint8_t *bitmap = NULL;
+    uint32_t block_size = 0;
 };
 
 struct bs_options
@@ -167,6 +171,7 @@ static int bs_init(struct thread_data *td)
     bsd->ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     bsd->epmgr = new epoll_manager_t(bsd->ringloop);
     bsd->bs = blockstore_i::create(config, bsd->ringloop, bsd->epmgr->tfd);
+    bsd->block_size = bsd->bs->get_block_size();
     bsd->imm = config.find("immediate_commit") == config.end() ||
         config["immediate_commit"] == "all";
     while (1)
@@ -181,8 +186,33 @@ static int bs_init(struct thread_data *td)
     return 0;
 }
 
+static enum fio_q_status _bs_queue(struct thread_data *td, struct io_u *io, bool force);
+
+static void _bs_retry(struct bs_data *bsd, uint64_t offset)
+{
+    // Retry postponed ops
+    auto inflight_it = bsd->inflight_oids.find(offset / bsd->block_size);
+    assert(inflight_it != bsd->inflight_oids.end());
+    inflight_it->second--;
+    if (inflight_it->second > 0)
+    {
+        for (size_t i = 0; i < bsd->postponed.size(); i++)
+        {
+            auto oio = bsd->postponed[i];
+            if (oio->offset/bsd->block_size == offset/bsd->block_size)
+            {
+                bsd->postponed.erase(bsd->postponed.begin()+i);
+                _bs_queue((thread_data*)oio->engine_data, oio, true);
+                break;
+            }
+        }
+    }
+    else
+        bsd->inflight_oids.erase(inflight_it);
+}
+
 /* Begin read or write request. */
-static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
+static enum fio_q_status _bs_queue(struct thread_data *td, struct io_u *io, bool force)
 {
     bs_data *bsd = (bs_data*)td->io_ops_data;
     if (io->ddir == DDIR_SYNC && bsd->last_sync)
@@ -192,10 +222,22 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
 
     fio_ro_check(td, io);
 
-    io->engine_data = bsd;
+    io->engine_data = td;
 
     if (io->ddir == DDIR_WRITE || io->ddir == DDIR_READ)
-        assert(io->xfer_buflen <= bsd->bs->get_block_size());
+        assert(io->xfer_buflen <= bsd->block_size);
+
+    uint64_t stripe = io->offset / bsd->block_size;
+    if (!force && io->ddir == DDIR_WRITE)
+    {
+        auto & inflight = bsd->inflight_oids[stripe];
+        inflight++;
+        if (inflight > 1)
+        {
+            bsd->postponed.push_back(io);
+            return FIO_Q_QUEUED;
+        }
+    }
 
     blockstore_op_t *op = new blockstore_op_t;
     op->callback = NULL;
@@ -207,16 +249,16 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->buf = (uint8_t*)io->xfer_buf;
         op->oid = {
             .inode = 1,
-            .stripe = io->offset / bsd->bs->get_block_size(),
+            .stripe = stripe,
         };
         op->version = UINT64_MAX; // last unstable
-        op->offset = io->offset % bsd->bs->get_block_size();
+        op->offset = io->offset % bsd->block_size;
         op->len = io->xfer_buflen;
         op->bitmap = bsd->bitmap;
         op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
         {
             io->error = op->retval < 0 ? -op->retval : 0;
-            bs_data *bsd = (bs_data*)io->engine_data;
+            bs_data *bsd = ((bs_data*)((thread_data*)io->engine_data)->io_ops_data);
             bsd->inflight--;
             bsd->completed.push_back(io);
             if (bsd->trace)
@@ -229,17 +271,17 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->buf = (uint8_t*)io->xfer_buf;
         op->oid = {
             .inode = 1,
-            .stripe = io->offset / bsd->bs->get_block_size(),
+            .stripe = stripe,
         };
         op->version = 0; // assign automatically
-        op->offset = io->offset % bsd->bs->get_block_size();
+        op->offset = io->offset % bsd->block_size;
         op->len = io->xfer_buflen;
         op->bitmap = bsd->bitmap;
         if (bsd->ec)
         {
             op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
             {
-                bs_data *bsd = (bs_data*)io->engine_data;
+                bs_data *bsd = ((bs_data*)((thread_data*)io->engine_data)->io_ops_data);
                 if (bsd->trace)
                     printf("--- OP_WRITE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
                 if (op->retval < 0)
@@ -247,6 +289,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
                     io->error = op->retval < 0 ? -op->retval : 0;
                     bsd->inflight--;
                     bsd->completed.push_back(io);
+                    _bs_retry(bsd, io->offset);
                     delete op;
                 }
                 else
@@ -260,12 +303,13 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
                     stab_op->len = 1;
                     stab_op->callback = [io, n](blockstore_op_t *op)
                     {
-                        bs_data *bsd = (bs_data*)io->engine_data;
+                        bs_data *bsd = ((bs_data*)((thread_data*)io->engine_data)->io_ops_data);
                         if (bsd->trace)
                             printf("--- OP_STABLE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
                         io->error = op->retval < 0 ? -op->retval : 0;
                         bsd->inflight--;
                         bsd->completed.push_back(io);
+                        _bs_retry(bsd, io->offset);
                         delete op;
                     };
                     bsd->bs->enqueue_op(stab_op);
@@ -277,12 +321,13 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         {
             op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
             {
-                bs_data *bsd = (bs_data*)io->engine_data;
+                bs_data *bsd = ((bs_data*)((thread_data*)io->engine_data)->io_ops_data);
                 if (bsd->trace)
                     printf("--- OP_WRITE_STABLE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
                 io->error = op->retval < 0 ? -op->retval : 0;
                 bsd->inflight--;
                 bsd->completed.push_back(io);
+                _bs_retry(bsd, io->offset);
                 delete op;
             };
         }
@@ -292,7 +337,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         op->opcode = BS_OP_SYNC;
         op->callback = [io, n = bsd->op_n](blockstore_op_t *op)
         {
-            bs_data *bsd = (bs_data*)io->engine_data;
+            bs_data *bsd = ((bs_data*)((thread_data*)io->engine_data)->io_ops_data);
             io->error = op->retval < 0 ? -op->retval : 0;
             bsd->completed.push_back(io);
             bsd->inflight--;
@@ -318,6 +363,11 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
     if (io->error != 0)
         return FIO_Q_COMPLETED;
     return FIO_Q_QUEUED;
+}
+
+static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
+{
+    return _bs_queue(td, io, false);
 }
 
 static int bs_getevents(struct thread_data *td, unsigned int min, unsigned int max, const struct timespec *t)
