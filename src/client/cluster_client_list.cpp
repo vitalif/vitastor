@@ -226,8 +226,8 @@ void cluster_client_t::retry_start_pg_listing(inode_list_pg_t *pg)
 
 void cluster_client_t::set_list_retry_timeout(int ms, timespec new_time)
 {
-    if (!list_retry_time.tv_sec || list_retry_time.tv_sec > new_time.tv_sec ||
-        list_retry_time.tv_sec == new_time.tv_sec && list_retry_time.tv_nsec > new_time.tv_nsec)
+    if (!list_retry_time.tv_sec || list_retry_time.tv_sec < new_time.tv_sec ||
+        list_retry_time.tv_sec == new_time.tv_sec && list_retry_time.tv_nsec < new_time.tv_nsec)
     {
         list_retry_time = new_time;
         if (list_retry_timeout_id >= 0)
