@@ -202,7 +202,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         {
             wr = heap->prev(wr);
         }
-        assert(wr->type() == BS_HEAP_BIG_WRITE);
+        assert(wr && wr->type() == BS_HEAP_BIG_WRITE);
         PRIV(op)->location = wr->big_location(heap);
         int res = heap->add_small_write(op->oid, obj, (BS_HEAP_INTENT_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
             op->version, op->offset, op->len, 0, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
