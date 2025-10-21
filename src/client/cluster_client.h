@@ -127,7 +127,7 @@ public:
     ring_consumer_t consumer;
     std::vector<std::function<void(void)>> on_ready_hooks;
     int list_retry_timeout_id = -1;
-    timespec list_retry_time;
+    timespec list_retry_time = {};
     std::vector<inode_list_t*> lists;
     std::multimap<osd_num_t, osd_op_t*> raw_ops;
     int continuing_ops = 0;
@@ -194,7 +194,7 @@ protected:
     void retry_start_pg_listing(inode_list_pg_t *pg);
     int start_pg_listing(inode_list_pg_t *pg);
     void send_list(inode_list_osd_t *cur_list);
-    void set_list_retry_timeout(int ms, timespec new_time);
+    bool set_list_retry_timeout(int ms, timespec new_time);
     void finish_list_pg(inode_list_pg_t *pg, bool retry_epipe);
     bool check_finish_listing(inode_list_t *lst);
     void continue_raw_ops(osd_num_t peer_osd);

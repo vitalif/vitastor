@@ -31,7 +31,7 @@ struct inode_list_pg_t
     osd_num_t cur_primary = 0;
     int state = 0;
     int inflight_ops = 0;
-    timespec wait_until;
+    timespec wait_until = {};
     std::vector<inode_list_osd_t> list_osds;
 
     bool has_unstable = false;
@@ -206,7 +206,10 @@ void cluster_client_t::retry_start_pg_listing(inode_list_pg_t *pg)
         {
             fprintf(stderr, "Waiting for PG %u/%u to become active for %d seconds\n", pg->lst->pool_id, pg->pg_num, client_wait_up_timeout);
         }
-        set_list_retry_timeout(client_wait_up_timeout*1000, pg->wait_until);
+        if (!set_list_retry_timeout(client_wait_up_timeout*1000, pg->wait_until))
+        {
+            pg->wait_until = list_retry_time;
+        }
         return;
     }
     assert(pg->state == LIST_PG_WAIT_ACTIVE);
@@ -224,7 +227,7 @@ void cluster_client_t::retry_start_pg_listing(inode_list_pg_t *pg)
     }
 }
 
-void cluster_client_t::set_list_retry_timeout(int ms, timespec new_time)
+bool cluster_client_t::set_list_retry_timeout(int ms, timespec new_time)
 {
     if (!list_retry_time.tv_sec || list_retry_time.tv_sec > new_time.tv_sec ||
         list_retry_time.tv_sec == new_time.tv_sec && list_retry_time.tv_nsec > new_time.tv_nsec)
@@ -240,7 +243,9 @@ void cluster_client_t::set_list_retry_timeout(int ms, timespec new_time)
             list_retry_time = {};
             continue_lists();
         });
+        return true;
     }
+    return false;
 }
 
 int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
@@ -433,7 +438,10 @@ void cluster_client_t::finish_list_pg(inode_list_pg_t *pg, bool retry_epipe)
             pg->wait_until.tv_nsec += client_retry_interval*1000000;
             pg->wait_until.tv_sec += (pg->wait_until.tv_nsec / 1000000000);
             pg->wait_until.tv_nsec = (pg->wait_until.tv_nsec % 1000000000);
-            set_list_retry_timeout(client_retry_interval, pg->wait_until);
+            if (!set_list_retry_timeout(client_retry_interval, pg->wait_until))
+            {
+                pg->wait_until = list_retry_time;
+            }
             return;
         }
         lst->done_pgs++;
