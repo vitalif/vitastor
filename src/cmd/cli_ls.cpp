@@ -97,11 +97,11 @@ struct image_lister_t
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
                             parent->cli->st_cli.etcd_prefix+"/pool/stats"+
-                            (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"/"
+                            (list_pool_id ? "/"+std::to_string(list_pool_id) : "/")
                         ) },
                         { "range_end", base64_encode(
                             parent->cli->st_cli.etcd_prefix+"/pool/stats"+
-                            (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"0"
+                            (list_pool_id ? "/"+std::to_string(list_pool_id+1) : "0")
                         ) },
                     } },
                 },
