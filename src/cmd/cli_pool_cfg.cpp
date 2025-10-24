@@ -180,13 +180,21 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
         {
             return "Changing scheme for an existing pool will lead to data loss. Use --force to proceed";
         }
-        if (etcd_state_client_t::parse_scheme(old_cfg["scheme"].string_value()) == POOL_SCHEME_EC)
+        auto old_scheme = etcd_state_client_t::parse_scheme(old_cfg["scheme"].string_value());
+        if (old_scheme == POOL_SCHEME_EC)
         {
             uint64_t old_data_chunks = old_cfg["pg_size"].uint64_value() - old_cfg["parity_chunks"].uint64_value();
             uint64_t new_data_chunks = cfg["pg_size"].uint64_value() - cfg["parity_chunks"].uint64_value();
             if (old_data_chunks != new_data_chunks)
             {
                 return "Changing EC data chunk count for an existing pool will lead to data loss. Use --force to proceed";
+            }
+        }
+        else if (old_scheme != POOL_SCHEME_REPLICATED)
+        {
+            if (old_cfg["pg_size"].uint64_value() != cfg["pg_size"].uint64_value())
+            {
+                return "Changing XOR data chunk count for an existing pool will lead to data loss. Use --force to proceed";
             }
         }
         if (old_cfg["block_size"] != cfg["block_size"] ||
