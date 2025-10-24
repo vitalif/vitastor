@@ -57,6 +57,13 @@ function derive_osd_stats(st, prev, prev_diff)
             }
         }
     }
+   for (const pool_id in diff.inode_stats)
+    {
+        if (!st.inode_stats[pool_id])
+        {
+            delete diff.inode_stats[pool_id]
+        }
+    }
     return diff;
 }
 
