@@ -21,20 +21,22 @@ struct pool_shard_settings_t
     uint32_t pg_stripe_size;
 };
 
-#define BS_HEAP_TYPE 7
+#define BS_HEAP_TYPE 0x07
 #define BS_HEAP_BIG_WRITE 1
 #define BS_HEAP_SMALL_WRITE 2
 #define BS_HEAP_INTENT_WRITE 3
-#define BS_HEAP_DELETE 4
-#define BS_HEAP_COMMIT 5
-#define BS_HEAP_ROLLBACK 6
-#define BS_HEAP_STABLE 8
-#define BS_HEAP_GARBAGE 16
+#define BS_HEAP_BIG_INTENT 4
+#define BS_HEAP_DELETE 5
+#define BS_HEAP_COMMIT 6
+#define BS_HEAP_ROLLBACK 7
+#define BS_HEAP_STABLE 0x40
+#define BS_HEAP_GARBAGE 0x80
 
 class blockstore_heap_t;
 
 struct heap_small_write_t;
 struct heap_big_write_t;
+struct heap_big_intent_t;
 
 struct __attribute__((__packed__)) heap_entry_t
 {
@@ -53,6 +55,7 @@ struct __attribute__((__packed__)) heap_entry_t
     inline uint8_t type() const { return (entry_type & BS_HEAP_TYPE); }
     inline heap_small_write_t& small() { return *(heap_small_write_t*)this; }
     inline heap_big_write_t& big() { return *(heap_big_write_t*)this; }
+    inline heap_big_intent_t& big_intent() { return *(heap_big_intent_t*)this; }
     bool is_garbage();
     void set_garbage();
     bool is_overwrite();
@@ -75,6 +78,8 @@ struct __attribute__((__packed__)) heap_small_write_t
     uint64_t location; // FIXME: change to uint32_t and shift by block size
     uint32_t offset;
     uint32_t len;
+
+    // Also includes 1 bitmap and 1 crc32c after the bitmap if checksums are disabled
 };
 
 struct __attribute__((__packed__)) heap_big_write_t
@@ -82,6 +87,17 @@ struct __attribute__((__packed__)) heap_big_write_t
     heap_entry_t hdr;
 
     uint32_t block_num;
+};
+
+struct __attribute__((__packed__)) heap_big_intent_t
+{
+    heap_entry_t hdr;
+
+    uint32_t block_num;
+    uint32_t offset;
+    uint32_t len;
+
+    // Also includes 2 bitmaps and 1 crc32c if checksums are disabled
 };
 
 struct __attribute__((__packed__)) heap_list_item_t
@@ -137,7 +153,7 @@ class blockstore_heap_t
     uint8_t* buffer_area = NULL;
     int log_level = 0;
     const uint32_t meta_block_count = 0;
-    const uint32_t big_entry_size = 0;
+    const uint32_t max_entry_size = 0;
 
     robin_hood::unordered_flat_map<pool_id_t, pool_shard_settings_t> pool_shard_settings;
     // PG => inode => stripe => block number
@@ -229,6 +245,9 @@ public:
     // adds a big_write (overwrite) entry to an object
     int add_big_write(object_id oid, heap_entry_t *old_head, bool stable, uint64_t version,
         uint32_t offset, uint32_t len, uint64_t location, uint8_t *bitmap, uint8_t *data, uint32_t *modified_block);
+    // adds a big_intent (atomic partial modification) entry to an object
+    int add_big_intent(object_id oid, heap_entry_t *old_head, uint64_t version,
+        uint32_t offset, uint32_t len, uint8_t *bitmap, uint8_t *data, uint8_t *checksums, uint32_t *modified_block);
     // adds a compacted up to <version> entry to an object
     int add_compact(heap_entry_t *obj, uint64_t to_lsn, uint32_t *modified_block, uint8_t *new_csums);
     // "punch holes" in a big_entry and make a duplicate big_entry
@@ -293,6 +312,7 @@ public:
     heap_entry_t *prev(heap_entry_t *wr);
     uint32_t get_simple_entry_size();
     uint32_t get_big_entry_size();
+    uint32_t get_big_intent_entry_size();
     uint32_t get_small_entry_size(uint32_t offset, uint32_t len);
     uint32_t get_csum_size(heap_entry_t *wr);
     uint32_t get_csum_size(uint32_t entry_type, uint32_t offset = 0, uint32_t len = 0);

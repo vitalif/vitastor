@@ -197,15 +197,29 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     {
         // Direct intent-write
         BS_SUBMIT_CHECK_SQES(1);
-        auto wr = obj;
-        while (wr && (wr->type() == BS_HEAP_INTENT_WRITE || wr->type() == BS_HEAP_COMMIT || wr->type() == BS_HEAP_ROLLBACK))
+        int res = 0;
+        if (dsk.csum_block_size <= dsk.bitmap_granularity &&
+            (obj->entry_type == (BS_HEAP_BIG_INTENT|BS_HEAP_STABLE) ||
+            obj->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE)))
         {
-            wr = heap->prev(wr);
+            // Even more simplified BIG_INTENT writes
+            // FIXME: Support RMW mode for csum_block_size > bitmap_granularity
+            PRIV(op)->location = obj->big_location(heap);
+            res = heap->add_big_intent(op->oid, obj, op->version, op->offset, op->len, op->bitmap,
+                (uint8_t*)op->buf, NULL, &PRIV(op)->modified_block);
         }
-        assert(wr && wr->type() == BS_HEAP_BIG_WRITE);
-        PRIV(op)->location = wr->big_location(heap);
-        int res = heap->add_small_write(op->oid, obj, (BS_HEAP_INTENT_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
-            op->version, op->offset, op->len, 0, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
+        else
+        {
+            auto wr = obj;
+            while (wr && (wr->type() == BS_HEAP_INTENT_WRITE || wr->type() == BS_HEAP_COMMIT || wr->type() == BS_HEAP_ROLLBACK))
+            {
+                wr = heap->prev(wr);
+            }
+            assert(wr && (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT));
+            PRIV(op)->location = wr->big_location(heap);
+            res = heap->add_small_write(op->oid, obj, (BS_HEAP_INTENT_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
+                op->version, op->offset, op->len, 0, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
+        }
         if (res == EAGAIN)
         {
             assert(heap->get_inflight_queue_size());

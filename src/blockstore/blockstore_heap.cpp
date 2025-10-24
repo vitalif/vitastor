@@ -42,11 +42,14 @@ uint32_t blockstore_heap_t::get_simple_entry_size()
 
 uint32_t blockstore_heap_t::get_big_entry_size()
 {
-    // We always store full checksums for "big" entries to prevent ENOSPC on compaction
-    // when (big_write+small_write) are smaller than (compacted big_write)
-    // However, we only use part of it related to offset..offset+len
     return sizeof(heap_big_write_t) + dsk->clean_entry_bitmap_size*2 +
         (!dsk->data_csum_type ? 0 : dsk->data_block_size/dsk->csum_block_size * (dsk->data_csum_type & 0xFF));
+}
+
+uint32_t blockstore_heap_t::get_big_intent_entry_size()
+{
+    return sizeof(heap_big_intent_t) + dsk->clean_entry_bitmap_size*2 +
+        (!dsk->data_csum_type ? 4 : dsk->data_block_size/dsk->csum_block_size * (dsk->data_csum_type & 0xFF));
 }
 
 uint32_t blockstore_heap_t::get_small_entry_size(uint32_t offset, uint32_t len)
@@ -77,7 +80,8 @@ uint32_t blockstore_heap_t::get_csum_size(uint32_t entry_type, uint32_t offset, 
         return ((dsk->data_csum_type & 0xFF) *
             ((offset+len+dsk->csum_block_size-1)/dsk->csum_block_size - offset/dsk->csum_block_size));
     }
-    else if ((entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+    else if ((entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ||
+        (entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_INTENT)
     {
         return (dsk->data_block_size/dsk->csum_block_size * (dsk->data_csum_type & 0xFF));
     }
@@ -90,6 +94,10 @@ uint32_t heap_entry_t::get_size(blockstore_heap_t *heap)
     {
         return heap->get_big_entry_size();
     }
+    if (type() == BS_HEAP_BIG_INTENT)
+    {
+        return heap->get_big_intent_entry_size();
+    }
     if (type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE)
     {
         return heap->get_small_entry_size(small().offset, small().len);
@@ -100,6 +108,7 @@ uint32_t heap_entry_t::get_size(blockstore_heap_t *heap)
 bool heap_entry_t::is_overwrite()
 {
     return ((entry_type & ~BS_HEAP_GARBAGE) == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
+        (entry_type & ~BS_HEAP_GARBAGE) == (BS_HEAP_BIG_INTENT|BS_HEAP_STABLE) ||
         (entry_type & ~BS_HEAP_GARBAGE) == (BS_HEAP_DELETE|BS_HEAP_STABLE));
 }
 
@@ -127,16 +136,22 @@ void heap_entry_t::set_garbage()
 
 uint8_t *heap_entry_t::get_ext_bitmap(blockstore_heap_t *heap)
 {
-    if (type() == BS_HEAP_DELETE)
-        return NULL;
-    return ((uint8_t*)this + (type() == BS_HEAP_BIG_WRITE ? sizeof(heap_big_write_t) : sizeof(heap_small_write_t)));
+    if (type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE)
+        return ((uint8_t*)this + sizeof(heap_small_write_t));
+    else if (type() == BS_HEAP_BIG_WRITE)
+        return ((uint8_t*)this + sizeof(heap_big_write_t));
+    else if (type() == BS_HEAP_BIG_INTENT)
+        return ((uint8_t*)this + sizeof(heap_big_intent_t));
+    return NULL;
 }
 
 uint8_t *heap_entry_t::get_int_bitmap(blockstore_heap_t *heap)
 {
-    if (type() != BS_HEAP_BIG_WRITE)
-        return NULL;
-    return ((uint8_t*)this + (type() == BS_HEAP_BIG_WRITE ? sizeof(heap_big_write_t) : sizeof(heap_small_write_t)) + heap->dsk->clean_entry_bitmap_size);
+    if (type() == BS_HEAP_BIG_WRITE)
+        return ((uint8_t*)this + sizeof(heap_big_write_t) + heap->dsk->clean_entry_bitmap_size);
+    else if (type() == BS_HEAP_BIG_INTENT)
+        return ((uint8_t*)this + sizeof(heap_big_intent_t) + heap->dsk->clean_entry_bitmap_size);
+    return NULL;
 }
 
 uint8_t *heap_entry_t::get_checksums(blockstore_heap_t *heap)
@@ -145,20 +160,26 @@ uint8_t *heap_entry_t::get_checksums(blockstore_heap_t *heap)
         return NULL;
     if ((type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE) && small().len > 0)
         return ((uint8_t*)this + sizeof(heap_small_write_t) + heap->dsk->clean_entry_bitmap_size);
-    if (type() != BS_HEAP_BIG_WRITE)
-        return NULL;
-    return ((uint8_t*)this + sizeof(heap_big_write_t) + 2*heap->dsk->clean_entry_bitmap_size);
+    if (type() == BS_HEAP_BIG_WRITE)
+        return ((uint8_t*)this + sizeof(heap_big_write_t) + 2*heap->dsk->clean_entry_bitmap_size);
+    if (type() == BS_HEAP_BIG_INTENT)
+        return ((uint8_t*)this + sizeof(heap_big_intent_t) + 2*heap->dsk->clean_entry_bitmap_size);
+    return NULL;
 }
 
 uint32_t *heap_entry_t::get_checksum(blockstore_heap_t *heap)
 {
-    if (heap->dsk->csum_block_size ||
-        type() != BS_HEAP_SMALL_WRITE && type() != BS_HEAP_INTENT_WRITE ||
-        small().len == 0)
+    if (type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE)
     {
-        return NULL;
+        if (heap->dsk->csum_block_size || small().len == 0)
+            return NULL;
+        return (uint32_t*)((uint8_t*)this + sizeof(heap_small_write_t) + heap->dsk->clean_entry_bitmap_size);
     }
-    return (uint32_t*)((uint8_t*)this + sizeof(heap_small_write_t) + heap->dsk->clean_entry_bitmap_size);
+    if (type() == BS_HEAP_BIG_INTENT)
+    {
+        return (uint32_t*)((uint8_t*)this + sizeof(heap_big_intent_t) + 2*heap->dsk->clean_entry_bitmap_size);
+    }
+    return NULL;
 }
 
 uint64_t heap_entry_t::big_location(blockstore_heap_t *heap)
@@ -199,7 +220,7 @@ blockstore_heap_t::blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_are
     buffer_area(buffer_area),
     log_level(log_level),
     meta_block_count(dsk->meta_area_size/dsk->meta_block_size-1), // first block is the superblock
-    big_entry_size(get_big_entry_size())
+    max_entry_size(get_big_intent_entry_size())
 {
     assert(dsk->meta_block_size < 32768);
     assert(dsk->meta_area_size > 0);
@@ -268,6 +289,7 @@ int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uin
                 block_offset += (wr->size & ~FREE_SPACE_BIT);
                 continue;
             }
+            wr->entry_type &= ~BS_HEAP_GARBAGE;
             if ((wr->entry_type & BS_HEAP_TYPE) < BS_HEAP_BIG_WRITE ||
                 (wr->entry_type & BS_HEAP_TYPE) > BS_HEAP_ROLLBACK ||
                 (wr->entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)))
@@ -338,7 +360,7 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
         modify_alloc(block_num, [&](heap_block_info_t & inf)
         {
             if (!inf.entries.size())
-                inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t));
+                inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t)); // FIXME maybe less
             inf.entries.push_back(li);
             if (!wr->is_garbage())
                 inf.used_space += wr->size;
@@ -352,6 +374,7 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
 
 void blockstore_heap_t::fill_recheck_queue()
 {
+    // FIXME: Validate objects
     for (auto & pgp: block_index)
     {
         for (auto & ip: pgp.second)
@@ -359,9 +382,10 @@ void blockstore_heap_t::fill_recheck_queue()
             for (auto & op: ip.second)
             {
                 auto obj = &op.second.ptr->entry;
-                if (obj->type() == BS_HEAP_INTENT_WRITE)
+                if (obj->type() == BS_HEAP_INTENT_WRITE || obj->type() == BS_HEAP_BIG_INTENT)
                 {
                     // Recheck only the latest intent_write
+                    // FIXME Save checked_lsn in the superblock
                     recheck_queue.push_back(obj);
                 }
                 else
@@ -410,6 +434,10 @@ void blockstore_heap_t::mark_used_blocks()
                     {
                         use_data(wr->inode, wr->big_location(this));
                     }
+                    else if (wr->type() == BS_HEAP_BIG_INTENT)
+                    {
+                        use_data(wr->inode, wr->big_intent().block_num * dsk->data_block_size);
+                    }
                     if (wr->is_compactable() && !added)
                     {
                         compact_queue.push_back((object_id){ .inode = wr->inode, .stripe = wr->stripe });
@@ -441,6 +469,7 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
                 }
             }
         });
+        // FIXME: Write recheck_modified_blocks to disk
         recheck_modified_blocks.insert(block_num);
     };
     if (cwr->is_garbage())
@@ -503,33 +532,55 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
     {
         heap_entry_t *wr = recheck_queue.front();
         recheck_queue.pop_front();
-        bool is_intent = wr->type() == BS_HEAP_INTENT_WRITE;
-        uint64_t loc = wr->small().location;
-        if (is_intent)
+        bool from_data = false;
+        uint64_t loc = 0;
+        uint32_t len = 0;
+        if (wr->type() == BS_HEAP_INTENT_WRITE)
         {
             auto prev_wr = prev(wr);
-            if (!prev_wr || prev_wr->entry_type != (BS_HEAP_BIG_WRITE | (wr->entry_type & BS_HEAP_STABLE)) && prev_wr->entry_type != wr->entry_type)
+            while (prev_wr && prev_wr->entry_type == wr->entry_type)
+            {
+                // Skip other intent_writes
+                prev_wr = prev(prev_wr);
+            }
+            if (!prev_wr || prev_wr->entry_type != (BS_HEAP_BIG_WRITE | (wr->entry_type & BS_HEAP_STABLE)) &&
+                prev_wr->entry_type != (BS_HEAP_BIG_INTENT | (wr->entry_type & BS_HEAP_STABLE)))
             {
                 fprintf(stderr, "Error: intent_write entry %jx:%jx v%ju l%ju is not written over a big_write\n",
                     wr->inode, wr->stripe, wr->version, wr->lsn);
                 exit(1);
             }
             loc = wr->small().offset + prev_wr->big_location(this);
+            len = wr->small().len;
+            from_data = true;
+        }
+        else if (wr->type() == BS_HEAP_BIG_INTENT)
+        {
+            auto & bi = wr->big_intent();
+            loc = bi.block_num * dsk->data_block_size + bi.offset;
+            len = bi.len;
+            from_data = true;
+        }
+        else
+        {
+            assert(wr->type() == BS_HEAP_SMALL_WRITE);
+            loc = wr->small().location;
+            len = wr->small().len;
         }
         if (log_level > 5)
         {
             fprintf(stderr, "Notice: rechecking %u bytes at %ju in %s area (lsn %ju)\n",
-                wr->small().len, loc, is_intent ? "data" : "buffer", wr->lsn);
+                len, loc, from_data ? "data" : "buffer", wr->lsn);
         }
-        if (!is_intent && buffer_area)
+        if (!from_data && buffer_area)
         {
             recheck_buffer(wr, buffer_area+loc);
         }
         else
         {
             recheck_in_progress++;
-            uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, wr->small().len);
-            recheck_cb(is_intent, loc, wr->small().len, buf, [this, wr, buf]()
+            uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, len);
+            recheck_cb(from_data, loc, len, buf, [this, wr, buf]()
             {
                 recheck_buffer(wr, buf);
                 free(buf);
@@ -584,7 +635,14 @@ bool blockstore_heap_t::calc_checksums(heap_entry_t *wr, uint8_t *data, bool set
         {
             return true;
         }
-        uint32_t real_csum = crc32c(0, data, wr->small().len);
+        uint32_t len = 0;
+        if (wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE)
+            len = wr->small().len;
+        else if (wr->type() == BS_HEAP_BIG_INTENT)
+            len = wr->big_intent().len;
+        else
+            assert(0);
+        uint32_t real_csum = crc32c(0, data, len);
         if (set)
         {
             *wr_csum = real_csum;
@@ -597,6 +655,13 @@ bool blockstore_heap_t::calc_checksums(heap_entry_t *wr, uint8_t *data, bool set
         return calc_block_checksums((uint32_t*)(wr->get_checksums(this) + offset/dsk->csum_block_size * (dsk->data_csum_type & 0xFF)),
             data, wr->get_int_bitmap(this), offset, offset+len, set, NULL);
     }
+    if (wr->type() == BS_HEAP_BIG_INTENT)
+    {
+        auto & bi = wr->big_intent();
+        return calc_block_checksums((uint32_t*)(wr->get_checksums(this) + offset/dsk->csum_block_size * (dsk->data_csum_type & 0xFF)),
+            data, wr->get_int_bitmap(this), bi.offset, bi.offset+bi.len, set, NULL);
+    }
+    assert(wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE);
     return calc_block_checksums((uint32_t*)wr->get_checksums(this), data, NULL,
         wr->small().offset, wr->small().offset+wr->small().len, set, NULL);
 }
@@ -803,10 +868,10 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
         // First try to write into the same block as the previous time
         auto & inf = block_info.at(last_allocated_block);
         auto free_space = dsk->meta_block_size - inf.used_space;
-        if (inf.is_writing || free_space < entry_size /* FIXME edge cases with +2? */ ||
+        if (inf.is_writing || free_space < entry_size ||
             // Do not allow to make the last non-nearfull block nearfull
             !allow_last_free && meta_nearfull_blocks >= meta_block_count-1 &&
-            free_space >= big_entry_size && free_space < big_entry_size+entry_size)
+            free_space >= max_entry_size && free_space < max_entry_size+entry_size)
         {
             last_allocated_block = UINT32_MAX;
         }
@@ -824,7 +889,7 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
             // Do not allow to make the last non-nearfull block nearfull
             auto & inf = block_info.at(last_allocated_block);
             auto free_space = dsk->meta_block_size - inf.used_space;
-            if (free_space >= big_entry_size && free_space < big_entry_size+entry_size)
+            if (free_space >= max_entry_size && free_space < max_entry_size+entry_size)
             {
                 last_allocated_block = UINT32_MAX;
             }
@@ -853,8 +918,8 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
     {
         // Do not allow to make the last non-nearfull block nearfull
         auto & inf = block_info.at(last_allocated_block);
-        if (dsk->meta_block_size-inf.used_space >= big_entry_size &&
-            dsk->meta_block_size-inf.used_space+entry_size < big_entry_size)
+        if (dsk->meta_block_size-inf.used_space >= max_entry_size &&
+            dsk->meta_block_size-inf.used_space+entry_size < max_entry_size)
         {
             last_allocated_block = UINT32_MAX;
             return ENOSPC;
@@ -944,7 +1009,7 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
     auto new_wr = &li->entry;
     auto & inf = block_info.at(block_num);
     if (!inf.entries.size())
-        inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t));
+        inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t)); // FIXME Maybe less
     inf.entries.push_back(li);
     assert(!inf.mod_lsn_to || inf.mod_lsn_to == next_lsn);
     new_wr->lsn = ++next_lsn;
@@ -1024,6 +1089,50 @@ int blockstore_heap_t::add_big_write(object_id oid, heap_entry_t *old_head, bool
             memset(wr->get_checksums(this), 0, get_csum_size(wr));
             calc_checksums(wr, (uint8_t*)data, true, offset, len);
         }
+    });
+}
+
+int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t *old_head, uint64_t version,
+    uint32_t offset, uint32_t len, uint8_t *bitmap, uint8_t *data, uint8_t *checksums, uint32_t *modified_block)
+{
+    if (!old_head ||
+        old_head->entry_type != (BS_HEAP_BIG_INTENT|BS_HEAP_STABLE) &&
+        old_head->entry_type != (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
+        dsk->csum_block_size > dsk->bitmap_granularity && !checksums)
+    {
+        return EINVAL;
+    }
+    uint32_t wr_size = get_big_intent_entry_size();
+    return add_entry(wr_size, modified_block, false, [&](heap_entry_t *wr)
+    {
+        wr->entry_type = BS_HEAP_BIG_INTENT | BS_HEAP_STABLE;
+        wr->inode = oid.inode;
+        wr->stripe = oid.stripe;
+        wr->version = version;
+        auto & bi = wr->big_intent();
+        bi.offset = offset;
+        bi.len = len;
+        bi.block_num = (old_head->type() == BS_HEAP_BIG_INTENT
+            ? old_head->big_intent().block_num
+            : old_head->big().block_num);
+        if (bitmap)
+            memcpy(wr->get_ext_bitmap(this), bitmap, dsk->clean_entry_bitmap_size);
+        else
+            memcpy(wr->get_ext_bitmap(this), old_head->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
+        memcpy(wr->get_int_bitmap(this), old_head->get_int_bitmap(this), dsk->clean_entry_bitmap_size);
+        bitmap_set(wr->get_int_bitmap(this), offset, len, dsk->bitmap_granularity);
+        if (dsk->data_csum_type)
+        {
+            if (checksums)
+                memcpy(wr->get_checksums(this), checksums, dsk->clean_entry_bitmap_size);
+            else
+            {
+                memcpy(wr->get_checksums(this), old_head->get_checksums(this), dsk->clean_entry_bitmap_size);
+                calc_checksums(wr, (uint8_t*)data, true, offset, len);
+            }
+        }
+        else
+            calc_checksums(wr, (uint8_t*)data, true);
     });
 }
 
@@ -1302,13 +1411,13 @@ uint32_t blockstore_heap_t::meta_alloc_pos(const heap_block_info_t & inf)
         // 100% full - no entry can be written into this block at all
         return META_ALLOC_LEVELS;
     }
-    if (inf.used_space > dsk->meta_block_size-big_entry_size)
+    if (inf.used_space > dsk->meta_block_size-max_entry_size)
     {
         // nearfull - big_entries won't fit into this block so it can't be used for compaction
         return META_ALLOC_LEVELS-1;
     }
     // normal block
-    return inf.used_space / ((dsk->meta_block_size-big_entry_size) / (META_ALLOC_LEVELS-1));
+    return inf.used_space / ((dsk->meta_block_size-max_entry_size+META_ALLOC_LEVELS-2) / (META_ALLOC_LEVELS-1));
 }
 
 void blockstore_heap_t::modify_alloc(uint32_t block_num, std::function<void(heap_block_info_t &)> change_cb)
@@ -1373,7 +1482,7 @@ void blockstore_heap_t::mark_garbage_up_to(heap_entry_t *wr)
         return;
     }
     assert(wr->is_overwrite());
-    uint32_t used_big = (wr->type() == BS_HEAP_BIG_WRITE ? wr->big().block_num : UINT32_MAX);
+    uint32_t used_big = (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT ? wr->big().block_num : UINT32_MAX);
     wr = prev(wr);
     while (wr && !wr->is_garbage())
     {
@@ -1391,7 +1500,7 @@ void blockstore_heap_t::mark_garbage(uint32_t block_num, heap_entry_t *prev_wr, 
     {
         free_buffer_area(prev_wr->inode, prev_wr->small().location, prev_wr->small().len);
     }
-    else if (prev_wr->type() == BS_HEAP_BIG_WRITE && prev_wr->big().block_num != used_big)
+    else if ((prev_wr->type() == BS_HEAP_BIG_WRITE || prev_wr->type() == BS_HEAP_BIG_INTENT) && prev_wr->big().block_num != used_big)
     {
         free_data(prev_wr->inode, prev_wr->big_location(this));
     }

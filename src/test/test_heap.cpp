@@ -1095,7 +1095,8 @@ void test_full_alloc()
     assert(ENOSPC == _test_do_big_write(heap, dsk, 1, epb*4*0x20000, 1, epb*4*0x20000, true, 0, 0, buffer_area.data(), 0));
 
     // We can still do some more overwrites into 3 of 4 nearfull blocks
-    int rest_fit = (dsk.meta_block_size % big_write_size)/small_write_size * 4;
+    int rest_fit = (big_write_size + dsk.meta_block_size % big_write_size)/small_write_size +
+        (dsk.meta_block_size % big_write_size)/small_write_size * 2;
     for (int i = 0; i < rest_fit; i++)
     {
         _test_small_write(heap, dsk, 1, 1*0x20000, 5+i, 8192, 4096, (4*epb-1)*16384+3*4096+i*4096, true, buffer_area.data(), false, UINT32_MAX /*any block*/);

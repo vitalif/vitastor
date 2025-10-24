@@ -515,6 +515,8 @@ static void test_padded_csum_parallel_read(bool perfect, uint32_t offset)
     free(op2.buf);
 }
 
+// FIXME Add a simple intent_write / big_intent test
+
 int main(int narg, char *args[])
 {
     test_simple();

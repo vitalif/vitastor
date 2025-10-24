@@ -132,7 +132,7 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
     uint64_t meta_size;
     if (meta_format == BLOCKSTORE_META_FORMAT_HEAP)
     {
-        uint32_t min_object_size = sizeof(heap_big_write_t) + data_csum_size + 2*clean_entry_bitmap_size;
+        uint32_t min_object_size = sizeof(heap_big_intent_t) + (data_csum_size ? data_csum_size : 4) + 2*clean_entry_bitmap_size;
         double meta_reserve = cfg["meta_reserve"].number_value();
         if (!meta_reserve)
             meta_reserve = 1.5;
