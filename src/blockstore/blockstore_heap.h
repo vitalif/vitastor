@@ -132,7 +132,8 @@ struct heap_inflight_lsn_t
 struct heap_compact_t
 {
     uint64_t compact_lsn, compact_version;
-    uint64_t clean_lsn, clean_version, clean_loc;
+    heap_entry_t *clean_wr;
+    bool do_delete;
 };
 
 struct heap_idx_t
@@ -249,9 +250,10 @@ public:
     int add_big_intent(object_id oid, heap_entry_t *old_head, uint64_t version,
         uint32_t offset, uint32_t len, uint8_t *bitmap, uint8_t *data, uint8_t *checksums, uint32_t *modified_block);
     // adds a compacted up to <version> entry to an object
-    int add_compact(heap_entry_t *obj, uint64_t to_lsn, uint32_t *modified_block, uint8_t *new_csums);
-    // "punch holes" in a big_entry and make a duplicate big_entry
-    int add_punch_holes(heap_entry_t *obj, uint64_t to_lsn, uint64_t version, uint8_t *new_bitmap, uint8_t *new_csums, uint32_t *modified_block);
+    int add_compact(heap_entry_t *obj, uint64_t compact_version, uint64_t compact_lsn, uint64_t compact_location,
+        bool do_delete, uint32_t *modified_block, uint8_t *new_int_bitmap, uint8_t *new_ext_bitmap, uint8_t *new_csums);
+    // "punch holes" in a big_entry
+    int punch_holes(heap_entry_t *wr, uint8_t *new_bitmap, uint8_t *new_csums, uint32_t *modified_block);
     // stabilize an unstable object version
     // return 0 if OK, ENOENT if not exists
     int add_commit(heap_entry_t *obj, uint64_t version, uint32_t *modified_block);

@@ -328,12 +328,16 @@ void test_defrag_block()
         // The next write should be rejected because allowing it would block compaction
         assert(_test_do_big_write(heap, dsk, 1, (nwr+1)*0x20000, 1, (nwr+1)*0x20000, true, 0, 0, buffer_area.data()) == ENOSPC);
         // Compact all small writes
+        uint8_t bitmap[dsk.clean_entry_bitmap_size];
+        memset(bitmap, 0xFF, dsk.clean_entry_bitmap_size);
         uint32_t mblock = 999999;
         for (uint32_t i = 0; i < nwr; i++)
         {
             auto obj = heap.read_entry((object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = i*0x20000 });
             assert(obj);
-            int res = heap.add_compact(obj, obj->lsn, &mblock, NULL);
+            assert(heap.prev(obj)->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
+            int res = heap.add_compact(obj, obj->version, obj->lsn, heap.prev(obj)->big_location(&heap),
+                false, &mblock, bitmap, bitmap, NULL);
             assert(res == 0);
             heap.start_block_write(mblock);
             heap.complete_block_write(mblock);
@@ -414,8 +418,6 @@ void test_compact(bool csum, bool stable)
     int small_writes = 0;
     heap_entry_t *small_wr = NULL;
     // FIXME: Check more iterate_compaction cases, also check more compact_object cases
-    // At least:
-    // - BIG_STABLE[v=1 l=1] SMALL_U[v=2 l=2] SMALL_U[v=3 l=3] ROLLBACK[v=1 l=4] -> BIG_STABLE[l=4]
     auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
     {
         small_wr = wr;
@@ -423,14 +425,20 @@ void test_compact(bool csum, bool stable)
     });
     assert(compact_info.compact_lsn == (stable ? 2 : 4));
     assert(compact_info.compact_version == 3);
-    assert(compact_info.clean_lsn == 1);
-    assert(compact_info.clean_version == 1);
-    assert(compact_info.clean_loc == 0x20000);
+    assert(compact_info.clean_wr->lsn == 1);
     assert(small_writes == 1);
     assert(small_wr->lsn == 2);
 
-    res = heap.add_compact(obj, 4 /*max_lsn*/, &mblock, NULL);
-    assert(res == 0);
+    bitmap_set(ref_int_bitmap, 8192, 4096, 4096);
+    {
+        uint32_t csums[dsk.data_block_size/(dsk.csum_block_size ? dsk.csum_block_size : 4096)] = {};
+        csums[0] = crc32c(0, buffer_area.data(), 4096);
+        csums[2] = crc32c(0, buffer_area.data()+8192, 4096);
+        res = heap.add_compact(obj, compact_info.compact_version, compact_info.compact_lsn,
+            compact_info.clean_wr->big_location(&heap), compact_info.do_delete,
+            &mblock, ref_int_bitmap, ref_int_bitmap, (uint8_t*)csums);
+        assert(res == 0);
+    }
     assert(mblock == 0);
     heap.start_block_write(mblock);
     heap.complete_block_write(mblock);
@@ -444,7 +452,6 @@ void test_compact(bool csum, bool stable)
     assert(obj);
     assert(count_writes(heap, obj) == (stable ? 3 : 4));
     assert(obj->version == 3);
-    bitmap_set(ref_int_bitmap, 8192, 4096, 4096);
     assert(!memcmp(obj->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
     if (csum)
     {
@@ -491,7 +498,7 @@ void test_modify_bitmap()
     new_csums[0] = crc32c(0, buffer_area.data(), 4096);
 
     uint32_t mblock = 999999;
-    int res = heap.add_punch_holes(obj, 999, 1, new_bmp, new_csums, &mblock);
+    int res = heap.punch_holes(heap.prev(obj), new_bmp, new_csums, &mblock);
     assert(res == 0);
     assert(mblock == 0);
     heap.start_block_write(mblock);
@@ -499,7 +506,7 @@ void test_modify_bitmap()
 
     obj = heap.read_entry(oid);
     assert(obj);
-    assert(count_writes(heap, obj) == 2); // duplicate big_write should be inserted after previous big_write, but before small_writes
+    assert(count_writes(heap, obj) == 2);
     assert(memcmp(heap.prev(obj)->get_int_bitmap(&heap), new_bmp, dsk.clean_entry_bitmap_size) == 0);
     assert(memcmp(heap.prev(obj)->get_checksums(&heap), new_csums, dsk.data_block_size/32768*4) == 0);
 
@@ -726,8 +733,11 @@ void test_full_overwrite(bool stable)
             assert(!heap.is_buffer_area_free(16384, 4096));
             assert(!heap.is_buffer_area_free(20480, 4096));
 
+            uint8_t bitmap[dsk.clean_entry_bitmap_size];
+            memset(bitmap, 0xFF, dsk.clean_entry_bitmap_size);
             uint32_t mblock = 999999;
-            res = heap.add_compact(obj, 999, &mblock, NULL);
+            res = heap.add_compact(obj, obj->version, obj->lsn, wr->big_location(&heap),
+                false, &mblock, bitmap, bitmap, NULL);
             assert(res == 0);
             assert(mblock == 0);
             heap.start_block_write(mblock);
@@ -921,6 +931,7 @@ void test_rollback()
         assert(!(wr->entry_type & BS_HEAP_STABLE));
         wr = heap.prev(wr);
         assert(wr->version == 2);
+        assert(wr->lsn == 2);
         assert(wr->entry_type == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
         assert(wr->small().location == 16384);
         assert(wr->small().len == 4096);
@@ -930,7 +941,10 @@ void test_rollback()
         assert(wr->big_location(&heap) == 0x20000);
 
         // compact without rollback (can we do it at all?)
-        res = heap.add_compact(obj, 4, &mblock, NULL);
+        uint8_t bitmap[dsk.clean_entry_bitmap_size];
+        memset(bitmap, 0xFF, dsk.clean_entry_bitmap_size);
+        res = heap.add_compact(obj, 2, 2, wr->big_location(&heap),
+            false, &mblock, bitmap, bitmap, NULL);
         assert(res == 0);
         assert(mblock == 0);
         heap.start_block_write(mblock);
@@ -978,7 +992,7 @@ void test_rollback()
         // But the data is still in place, removed only on compaction
         assert(heap.is_data_used(0x20000));
 
-        res = heap.add_compact(obj, obj->lsn, &mblock, NULL);
+        res = heap.add_compact(obj, 0, 2, 0, true, &mblock, NULL, NULL, NULL);
         assert(res == 0);
         assert(mblock == 0);
         heap.start_block_write(mblock);

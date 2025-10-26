@@ -1053,10 +1053,7 @@ int blockstore_heap_t::add_small_write(object_id oid, heap_entry_t *old_head, ui
         if (bitmap)
             memcpy(wr->get_ext_bitmap(this), bitmap, dsk->clean_entry_bitmap_size);
         else if (old_head)
-        {
-            old_head = read_entry(oid);
             memcpy(wr->get_ext_bitmap(this), old_head->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
-        }
         else
             memset(wr->get_ext_bitmap(this), 0, dsk->clean_entry_bitmap_size);
         calc_checksums(wr, (uint8_t*)data, true);
@@ -1136,139 +1133,42 @@ int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t *old_head, uin
     });
 }
 
-int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t to_lsn, uint32_t *modified_block, uint8_t *new_csums)
+int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t compact_version, uint64_t compact_lsn, uint64_t compact_location,
+    bool do_delete, uint32_t *modified_block, uint8_t *new_int_bitmap, uint8_t *new_ext_bitmap, uint8_t *new_csums)
 {
-    // Slightly tricky - we don't want to compact an object if it's overwritten or deleted during compaction
+    if (do_delete)
     {
-        heap_entry_t *old_wr = obj;
-        while (old_wr && !old_wr->is_overwrite())
+        return add_entry(get_simple_entry_size(), modified_block, false, [&](heap_entry_t *wr)
         {
-            old_wr = prev(old_wr);
-        }
-        if (!old_wr)
-        {
-            // Check if we have to remove the object at all
-            bool has_entry = false;
-            iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *old_wr, bool stable)
-            {
-                has_entry = true;
-                return false;
-            });
-            if (!has_entry)
-            {
-                uint64_t compact_lsn = obj->lsn;
-                return add_entry(get_simple_entry_size(), modified_block, false, [&](heap_entry_t *wr)
-                {
-                    wr->entry_type = BS_HEAP_DELETE|BS_HEAP_STABLE;
-                    wr->inode = obj->inode;
-                    wr->stripe = obj->stripe;
-                    wr->version = 0;
-                    wr->lsn = compact_lsn;
-                });
-            }
-        }
-        else if (old_wr->lsn > to_lsn)
-        {
-            return ENOENT;
-        }
+            wr->entry_type = BS_HEAP_DELETE|BS_HEAP_STABLE;
+            wr->inode = obj->inode;
+            wr->stripe = obj->stripe;
+            wr->version = 0;
+            wr->lsn = compact_lsn;
+        });
     }
-    auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
     uint32_t wr_size = get_big_entry_size();
     return add_entry(wr_size, modified_block, true, [&](heap_entry_t *new_wr)
     {
-        // obj and old_wr are invalid, re-read them - the block could have been compacted
-        obj = read_entry(oid);
-        while (obj && obj->lsn > to_lsn)
-        {
-            // skip new entries
-            obj = prev(obj);
-        }
-        assert(obj);
-        new_wr->entry_type = BS_HEAP_BIG_WRITE | BS_HEAP_STABLE;
+        new_wr->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
         new_wr->inode = obj->inode;
         new_wr->stripe = obj->stripe;
-        memset(new_wr->get_int_bitmap(this), 0, dsk->clean_entry_bitmap_size);
-        bool need_copy = false, bitmap_copied = false;
-        std::vector<heap_entry_t*> cswr;
-        // Determine the latest compacted entry
-        uint64_t compact_lsn = obj->lsn, compact_version = obj->version;
-        iterate_with_stable(obj, to_lsn, [&](heap_entry_t *old_wr, bool stable)
-        {
-            if (!stable)
-            {
-                // This entry is still uncommitted, so it's not compacted and makes a gap
-                compact_lsn = old_wr->lsn-1;
-                compact_version = prev(old_wr)->version;
-            }
-            return !old_wr->is_overwrite();
-        });
         new_wr->version = compact_version;
         new_wr->lsn = compact_lsn;
-        bool found = false;
-        iterate_with_stable(obj, compact_lsn, [&](heap_entry_t *old_wr, bool stable)
-        {
-            if (!stable)
-                return true;
-            if (old_wr->type() == BS_HEAP_SMALL_WRITE || old_wr->type() == BS_HEAP_INTENT_WRITE)
-            {
-                if (!bitmap_copied)
-                {
-                    memcpy(new_wr->get_ext_bitmap(this), old_wr->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
-                    bitmap_copied = true;
-                }
-                bitmap_set(new_wr->get_int_bitmap(this), old_wr->small().offset, old_wr->small().len, dsk->bitmap_granularity);
-                if (dsk->data_csum_type && old_wr->small().len > 0)
-                {
-                    if (dsk->csum_block_size == dsk->bitmap_granularity)
-                        cswr.push_back(old_wr);
-                    else
-                        need_copy = true;
-                }
-            }
-            else if (old_wr->type() == BS_HEAP_BIG_WRITE)
-            {
-                found = true;
-                new_wr->big().block_num = old_wr->big().block_num;
-                mem_or(new_wr->get_int_bitmap(this), old_wr->get_int_bitmap(this), dsk->clean_entry_bitmap_size);
-                if (need_copy)
-                    memcpy(new_wr->get_checksums(this), new_csums, dsk->data_block_size/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
-                else if (dsk->data_csum_type)
-                {
-                    // Copy checksums in the reverse order
-                    memcpy(new_wr->get_checksums(this), old_wr->get_checksums(this), dsk->data_block_size/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
-                    for (size_t i = cswr.size(); i > 0; i--)
-                    {
-                        heap_entry_t *old_wr = cswr[i-1];
-                        memcpy(new_wr->get_checksums(this) + old_wr->small().offset/dsk->csum_block_size*(dsk->data_csum_type & 0xFF),
-                            old_wr->get_checksums(this), old_wr->small().len/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
-                    }
-                }
-                return false;
-            }
-            return true;
-        });
-        assert(found);
+        new_wr->set_big_location(this, compact_location);
+        memcpy(new_wr->get_int_bitmap(this), new_int_bitmap, dsk->clean_entry_bitmap_size);
+        memcpy(new_wr->get_ext_bitmap(this), new_ext_bitmap, dsk->clean_entry_bitmap_size);
+        if (dsk->data_csum_type && new_csums)
+            memcpy(new_wr->get_checksums(this), new_csums, dsk->data_block_size/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
     });
 }
 
 // A bit of a hack: overwrite the bitmap in an existing entry
-int blockstore_heap_t::add_punch_holes(heap_entry_t *obj, uint64_t to_lsn, uint64_t version, uint8_t *new_bitmap, uint8_t *new_csums, uint32_t *modified_block)
+int blockstore_heap_t::punch_holes(heap_entry_t *wr, uint8_t *new_bitmap, uint8_t *new_csums, uint32_t *modified_block)
 {
     assert(dsk->data_csum_type && dsk->csum_block_size > dsk->bitmap_granularity);
     assert(new_csums);
-    // Abort if the object is overwritten or deleted during compaction
-    heap_entry_t *wr = obj;
-    while (wr && wr->lsn != to_lsn && !wr->is_overwrite())
-    {
-        wr = prev(wr);
-    }
-    if (!wr || wr->lsn > to_lsn)
-    {
-        return ENOENT;
-    }
-    auto & idx = block_index[get_pg_id(obj->inode, obj->stripe)][obj->inode][obj->stripe];
-    assert(idx.ptr);
-    uint32_t block_num = idx.ptr->block_num;
+    uint32_t block_num = list_item(wr)->block_num;
     auto & inf = block_info.at(block_num);
     if (inf.is_writing)
     {
@@ -1566,19 +1466,23 @@ void blockstore_heap_t::iterate_with_stable(heap_entry_t *obj, uint64_t max_lsn,
     }
 }
 
+// Interesting cases:
+// 1) BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) SMALL(v4 l4) ROLLBACK(v3 l5) COMMIT(v2 l6)
+//    -> compact by adding BIG_STABLE(v2 l2)
+// 2) BIG_STABLE(v1 l1) DELETE(l2) BIG_UNSTABLE(v1 l3) ROLLBACK(v0 l4)
+//    -> compact by adding DELETE(l4)
+// 3) BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) ROLLBACK(v2 l4) SMALL(v3 l5) COMMIT(v3 l6)
+//    -> compact by adding BIG_STABLE(v3 l6) and skip l3
+// 4) BIG_STABLE(v1 l1) SMALL_STABLE(v2 l2) BIG_UNSTABLE(v3 l3)
+//    -> skip compaction of l2 into l1 if not under pressure
 heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t fsynced_lsn, bool under_pressure, std::function<void(heap_entry_t*)> small_wr_cb)
 {
     heap_compact_t res = {};
     uint64_t commit_version = 0, rollback_version = UINT64_MAX;
     bool has_small = false;
+    res.do_delete = true;
     for (heap_entry_t *wr = obj; wr; wr = prev(wr))
     {
-        // 1) 1 2 3 ROLLBACK(2) COMMIT(3) -> impossible
-        // 2) 1 2 3 4 ROLLBACK(3) COMMIT(2) -> OK
-        // 3) 1 2 3 ROLLBACK(2) 3 COMMIT(3) -> first 3 shouldn't be treated as stable
-        // 4) 1 2 3 COMMIT(3) ROLLBACK(2) -> impossible
-        //    I.e. a rollback always has version >= previous commit
-        // 5) 1 2 3 4 5 ROLLBACK(4) 5 ROLLBACK(3)
         if (wr->type() == BS_HEAP_ROLLBACK)
         {
             if (wr->lsn <= fsynced_lsn && !res.compact_lsn)
@@ -1596,54 +1500,57 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
                 res.compact_lsn = wr->lsn;
                 res.compact_version = wr->version;
             }
+            res.do_delete = false;
             commit_version = wr->version;
             continue;
         }
         bool rolled_back = (wr->version > rollback_version);
-        bool stable = !rolled_back && ((wr->entry_type & BS_HEAP_STABLE) || (wr->version <= commit_version));
-        if (!stable || wr->lsn > fsynced_lsn)
+        if (rolled_back)
         {
-            // Skip unstable or non-fsynced writes
+            continue;
+        }
+        bool stable = (wr->entry_type & BS_HEAP_STABLE);
+        bool committed = (wr->version <= commit_version);
+        if (!stable && !committed || wr->lsn > fsynced_lsn)
+        {
+            // Unstable and non-fsynced writes can't be compacted yet
+            res.do_delete = false;
+            res.compact_lsn = 0;
+            res.compact_version = 0;
             if (!under_pressure && (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_DELETE))
             {
                 // We may postpone compaction if we have an unstable overwrite when not under pressure
-                res.compact_lsn = 0;
-                res.compact_version = 0;
                 return res;
             }
             continue;
         }
-        if (wr->type() == BS_HEAP_BIG_WRITE)
+        if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
         {
-            // Stable big_write is here
-            res.clean_loc = wr->big_location(this);
-            res.clean_version = wr->version;
-            res.clean_lsn = wr->lsn;
+            // Big_write to merge small_writes into is here
+            if (!stable && !res.compact_lsn)
+            {
+                res.compact_lsn = wr->lsn;
+                res.compact_version = wr->version;
+            }
+            res.clean_wr = wr;
+            res.do_delete = false;
             return res;
         }
         if (wr->type() == BS_HEAP_DELETE)
         {
             // Object is deleted
-            assert(!has_small);
-            if (wr->entry_type & BS_HEAP_STABLE)
-            {
-                // Already have the stable bit, no need to generate a compaction entry
-                res.compact_lsn = 0;
-                res.compact_version = 0;
-            }
+            assert(!has_small && stable); // unstable deletes are not supported
             return res;
         }
-        // We finally have something compactable
+        assert(wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE);
         if (!res.compact_lsn)
         {
             res.compact_lsn = wr->lsn;
             res.compact_version = wr->version;
         }
-        if (wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE)
-        {
-            has_small = true;
-            small_wr_cb(wr);
-        }
+        res.do_delete = false;
+        has_small = true;
+        small_wr_cb(wr);
     }
     return res;
 }

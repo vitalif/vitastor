@@ -6,7 +6,7 @@ struct copy_buffer_t
     uint32_t copy_flags;
     uint64_t offset, len, disk_loc, disk_offset, disk_len;
     uint8_t *buf;
-    uint64_t wr_lsn;
+    heap_entry_t *wr;
 };
 
 struct meta_sector_t
@@ -38,6 +38,8 @@ class journal_flusher_co
     struct ring_data_t *data;
     uint8_t *new_csums = NULL;
     uint8_t *new_bmp = NULL;
+    uint8_t *punch_bmp = NULL;
+    uint8_t *new_ext_bmp = NULL;
 
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
 
@@ -45,10 +47,13 @@ class journal_flusher_co
     heap_entry_t *cur_obj;
     uint64_t fsynced_lsn;
     heap_compact_t compact_info;
+    uint64_t clean_loc;
     uint32_t modified_block;
+    bool bitmap_copied;
     bool should_repeat;
 
     std::vector<copy_buffer_t> read_vec;
+    std::vector<heap_entry_t*> csum_copy;
     uint32_t overwrite_start, overwrite_end;
     int i, res;
     bool read_to_fill_incomplete;

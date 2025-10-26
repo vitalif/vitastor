@@ -24,10 +24,12 @@ journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
     {
         co[i].co_id = i;
         co[i].bs = bs;
-        if (bs->dsk.csum_block_size > bs->dsk.bitmap_granularity)
+        co[i].new_bmp = (uint8_t*)malloc_or_die(3*bs->dsk.clean_entry_bitmap_size);
+        co[i].new_ext_bmp = co[i].new_bmp + bs->dsk.clean_entry_bitmap_size;
+        co[i].punch_bmp = co[i].new_bmp + 2*bs->dsk.clean_entry_bitmap_size;
+        if (bs->dsk.csum_block_size > 0)
         {
             co[i].new_csums = (uint8_t*)malloc_or_die(bs->dsk.data_block_size / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
-            co[i].new_bmp = (uint8_t*)malloc_or_die(bs->dsk.clean_entry_bitmap_size);
         }
         co[i].flusher = this;
     }
@@ -69,6 +71,8 @@ journal_flusher_co::~journal_flusher_co()
         free(new_bmp);
         new_bmp = NULL;
     }
+    new_ext_bmp = NULL;
+    punch_bmp = NULL;
     free_buffers();
 }
 
@@ -218,8 +222,21 @@ resume_1:
     free_buffers();
     copy_count = 0;
     fsynced_lsn = bs->heap->get_fsynced_lsn();
+    bitmap_copied = false;
+    memset(new_bmp, 0, bs->dsk.clean_entry_bitmap_size);
+    csum_copy.clear();
     compact_info = bs->heap->iterate_compaction(cur_obj, fsynced_lsn, flusher->force_start, [&](heap_entry_t *wr)
     {
+        if (!bitmap_copied)
+        {
+            memcpy(new_ext_bmp, wr->get_ext_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
+            bitmap_copied = true;
+        }
+        bitmap_set(new_bmp, wr->small().offset, wr->small().len, bs->dsk.bitmap_granularity);
+        if (bs->dsk.csum_block_size && bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity)
+        {
+            csum_copy.push_back(wr);
+        }
         if (wr->type() == BS_HEAP_SMALL_WRITE ||
             wr->type() == BS_HEAP_INTENT_WRITE && bs->dsk.csum_block_size > bs->dsk.bitmap_granularity)
         {
@@ -234,10 +251,28 @@ resume_1:
         bs->heap->unlock_entry(cur_oid);
         goto resume_0;
     }
+    mem_or(new_bmp, compact_info.clean_wr->get_int_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
+    if (!bitmap_copied)
+    {
+        memcpy(new_ext_bmp, compact_info.clean_wr->get_ext_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
+        bitmap_copied = true;
+    }
+    if (bs->dsk.csum_block_size && bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity)
+    {
+        memcpy(new_csums, compact_info.clean_wr->get_checksums(bs->heap), bs->dsk.data_block_size/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
+        for (size_t i = csum_copy.size(); i > 0; i--)
+        {
+            auto wr = csum_copy[i-1];
+            memcpy(new_csums + wr->small().offset/bs->dsk.csum_block_size*(bs->dsk.data_csum_type & 0xFF),
+                wr->get_checksums(bs->heap), wr->small().len/bs->dsk.csum_block_size*(bs->dsk.data_csum_type & 0xFF));
+        }
+        csum_copy.clear();
+    }
+    clean_loc = compact_info.clean_wr->big_location(bs->heap);
     flusher->active_flushers++;
     if (bs->log_level > 10)
     {
-        printf("Compacting %jx:%jx l%ju .. l%ju\n", cur_oid.inode, cur_oid.stripe, compact_info.clean_lsn, compact_info.compact_lsn);
+        printf("Compacting %jx:%jx l%ju .. l%ju\n", cur_oid.inode, cur_oid.stripe, compact_info.clean_wr->lsn, compact_info.compact_lsn);
     }
     overwrite_start = overwrite_end = 0;
     if (read_vec.size() > 0)
@@ -286,7 +321,7 @@ resume_3:
     {
 resume_4:
         modified_block = UINT32_MAX;
-        res = bs->heap->add_punch_holes(cur_obj, compact_info.clean_lsn, compact_info.clean_version, new_bmp, new_csums, &modified_block);
+        res = bs->heap->punch_holes(compact_info.clean_wr, punch_bmp, new_csums, &modified_block);
         if (res == ENOENT)
         {
             // Abort compaction
@@ -330,7 +365,7 @@ resume_9:
             data->iov = (struct iovec){ read_vec[i].buf + (read_vec[i].copy_flags & COPY_BUF_PADDED
                 ? read_vec[i].offset - read_vec[i].disk_offset : 0), (size_t)read_vec[i].len };
             data->callback = simple_callback_w;
-            io_uring_prep_writev(sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + compact_info.clean_loc + read_vec[i].offset);
+            io_uring_prep_writev(sqe, bs->dsk.data_fd, &data->iov, 1, bs->dsk.data_offset + clean_loc + read_vec[i].offset);
             wait_count++;
         }
     }
@@ -358,7 +393,8 @@ resume_11:
         flusher->flushing.erase(cur_oid);
         goto resume_0;
     }
-    bs->heap->add_compact(cur_obj, compact_info.compact_lsn, &modified_block, new_csums);
+    bs->heap->add_compact(cur_obj, compact_info.compact_version, compact_info.compact_lsn, clean_loc,
+        compact_info.do_delete, &modified_block, new_bmp, new_ext_bmp, new_csums);
 resume_12:
 resume_13:
     if (!write_meta_block(12))
@@ -414,11 +450,11 @@ void journal_flusher_co::fill_partial_checksum_blocks()
                 .copy_flags = COPY_BUF_DATA | copy_flags,
                 .offset = blk_begin,
                 .len = blk_end - blk_begin,
-                .disk_loc = compact_info.clean_loc,
+                .disk_loc = clean_loc,
                 .disk_offset = blk_begin,
                 .disk_len = blk_end - blk_begin,
                 .buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, blk_end - blk_begin),
-                .wr_lsn = compact_info.clean_lsn,
+                .wr = compact_info.clean_wr,
             });
         }
         auto & vec = read_vec[read_vec.size()-1];
@@ -468,22 +504,16 @@ int journal_flusher_co::check_and_punch_checksums()
         auto & vec = read_vec[i];
         if (!(vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_ZERO|COPY_BUF_SKIP_CSUM)))
         {
-            heap_entry_t *wr = cur_obj;
-            while (wr && wr->lsn != vec.wr_lsn) // FIXME: Skip compacted
-            {
-                wr = bs->heap->prev(wr);
-            }
-            assert(wr);
-            uint32_t *csums = (uint32_t*)(wr->get_checksums(bs->heap)
+            uint32_t *csums = (uint32_t*)(vec.wr->get_checksums(bs->heap)
                 + (vec.disk_offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)
-                - ((wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
-                    ? 0 : (wr->small().offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)));
+                - ((vec.wr->type() == BS_HEAP_BIG_WRITE || vec.wr->type() == BS_HEAP_BIG_INTENT)
+                    ? 0 : (vec.wr->small().offset/bs->dsk.csum_block_size)*(bs->dsk.data_csum_type & 0xFF)));
             bs->heap->calc_block_checksums(
-                csums, vec.buf, wr->get_int_bitmap(bs->heap), vec.disk_offset, vec.disk_offset+vec.disk_len, false,
+                csums, vec.buf, vec.wr->get_int_bitmap(bs->heap), vec.disk_offset, vec.disk_offset+vec.disk_len, false,
                 [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)
                 {
                     printf("Checksum mismatch during compaction in object %jx:%jx v%ju, offset 0x%x in %s area at offset 0x%jx: got %08x, expected %08x\n",
-                        cur_oid.inode, cur_oid.stripe, wr->version, mismatch_pos,
+                        cur_oid.inode, cur_oid.stripe, vec.wr->version, mismatch_pos,
                         (vec.copy_flags & COPY_BUF_JOURNAL ? "buffer" : "data"),
                         vec.disk_loc+vec.disk_offset, real_csum, expected_csum);
                     csum_ok = false;
@@ -502,24 +532,8 @@ int journal_flusher_co::check_and_punch_checksums()
         // Nothing to do
         return 0;
     }
-    heap_entry_t *clean_wr = NULL;
-    for (auto wr = cur_obj; wr; wr = bs->heap->prev(wr))
-    {
-        if (wr->is_overwrite() && wr->lsn > compact_info.clean_lsn &&
-            wr->lsn <= fsynced_lsn)
-        {
-            // Object is overwritten, abort compaction
-            return ENOENT;
-        }
-        if (wr->lsn == compact_info.clean_lsn)
-        {
-            clean_wr = wr;
-            break;
-        }
-    }
-    assert(clean_wr);
-    memcpy(new_bmp, clean_wr->get_int_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
-    memcpy(new_csums, clean_wr->get_checksums(bs->heap), bs->dsk.data_block_size/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
+    memcpy(punch_bmp, compact_info.clean_wr->get_int_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
+    memcpy(new_csums, compact_info.clean_wr->get_checksums(bs->heap), bs->dsk.data_block_size/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
     // Clear bits
     for (auto & vec: read_vec)
     {
@@ -530,7 +544,7 @@ int journal_flusher_co::check_and_punch_checksums()
         if (!(vec.copy_flags & COPY_BUF_COALESCED) &&
             ((vec.offset % bs->dsk.csum_block_size) || (vec.len % bs->dsk.csum_block_size)))
         {
-            bitmap_clear(new_bmp, vec.offset, vec.len, bs->dsk.bitmap_granularity);
+            bitmap_clear(punch_bmp, vec.offset, vec.len, bs->dsk.bitmap_granularity);
         }
     }
     // Update partial block checksums
@@ -539,7 +553,7 @@ int journal_flusher_co::check_and_punch_checksums()
         if (vec.copy_flags & COPY_BUF_CSUM_FILL)
         {
             uint32_t csum_off = vec.offset/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF);
-            bs->heap->calc_block_checksums((uint32_t*)(new_csums+csum_off), vec.buf, new_bmp, vec.offset, vec.offset+vec.len, true, NULL);
+            bs->heap->calc_block_checksums((uint32_t*)(new_csums+csum_off), vec.buf, punch_bmp, vec.offset, vec.offset+vec.len, true, NULL);
         }
     }
     // Modified, we should add_punch_holes and then write the block to disk
@@ -552,32 +566,7 @@ bool journal_flusher_co::calc_block_checksums()
     {
         return true;
     }
-    heap_entry_t *clean_wr = NULL;
-    for (auto wr = cur_obj; wr; wr = bs->heap->prev(wr))
-    {
-        if (wr->is_overwrite() && wr->lsn > compact_info.clean_lsn &&
-            wr->lsn <= fsynced_lsn)
-        {
-            // Object is overwritten, abort compaction
-            return false;
-        }
-        if (wr->lsn == compact_info.clean_lsn)
-        {
-            clean_wr = wr;
-            break;
-        }
-    }
-    assert(clean_wr);
-    memcpy(new_bmp, clean_wr->get_int_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
-    memcpy(new_csums, clean_wr->get_checksums(bs->heap), bs->dsk.data_block_size/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
-    // Set bits
-    for (auto & vec: read_vec)
-    {
-        if (!(vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_CSUM_FILL)))
-        {
-            bitmap_set(new_bmp, vec.offset, vec.len, bs->dsk.bitmap_granularity);
-        }
-    }
+    memcpy(new_csums, compact_info.clean_wr->get_checksums(bs->heap), bs->dsk.data_block_size/bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
     // Update block checksums
     size_t i = 0;
     while (i < read_vec.size() && !(read_vec[i].copy_flags & COPY_BUF_CSUM_FILL))
