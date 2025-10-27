@@ -31,7 +31,7 @@ struct inode_list_pg_t
     osd_num_t cur_primary = 0;
     int state = 0;
     int inflight_ops = 0;
-    timespec wait_until;
+    timespec wait_until = {};
     std::vector<inode_list_osd_t> list_osds;
 
     bool has_unstable = false;
@@ -177,6 +177,9 @@ void cluster_client_t::retry_start_pg_listing(inode_list_pg_t *pg)
         if (tv.tv_sec < pg->wait_until.tv_sec ||
             tv.tv_sec == pg->wait_until.tv_sec && tv.tv_nsec < pg->wait_until.tv_nsec)
         {
+            // Ensure that the retry timer is set
+            set_list_retry_timeout(pg->wait_until.tv_sec*1000 - tv.tv_sec*1000 +
+                (pg->wait_until.tv_nsec - tv.tv_nsec)/1000000, pg->wait_until);
             return;
         }
     }
