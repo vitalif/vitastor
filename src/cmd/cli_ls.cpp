@@ -94,16 +94,14 @@ struct image_lister_t
         parent->etcd_txn(json11::Json::object {
             { "success", json11::Json::array {
                 json11::Json::object {
-                    { "request_range", json11::Json::object {
-                        { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/pool/stats"+
-                            (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"/"
-                        ) },
-                        { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/pool/stats"+
-                            (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"0"
-                        ) },
-                    } },
+                    { "request_range", (list_pool_id
+                        ? json11::Json::object {
+                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/pool/stats/"+std::to_string(list_pool_id)) },
+                        }
+                        : json11::Json::object {
+                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/pool/stats/") },
+                            { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/pool/stats0") },
+                        }) },
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
