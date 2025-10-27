@@ -36,7 +36,7 @@ void timerfd_manager_t::inc_timer(timerfd_timer_t & t)
 {
     t.next.tv_sec += t.micros/1000000;
     t.next.tv_nsec += (t.micros%1000000)*1000;
-    if (t.next.tv_nsec > 1000000000)
+    if (t.next.tv_nsec >= 1000000000)
     {
         t.next.tv_sec++;
         t.next.tv_nsec -= 1000000000;
