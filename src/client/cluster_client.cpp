@@ -1317,7 +1317,8 @@ int cluster_client_t::try_send(cluster_op_t *op, int i)
     auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(op->cur_inode));
     auto pg_it = pool_cfg.pg_config.find(part->pg_num);
     if (pg_it != pool_cfg.pg_config.end() &&
-        !pg_it->second.pause && pg_it->second.cur_primary)
+        !pg_it->second.pause && pg_it->second.cur_primary &&
+        (pg_it->second.cur_state & PG_ACTIVE))
     {
         osd_num_t primary_osd = pg_it->second.cur_primary;
         if (pool_cfg.local_reads != POOL_LOCAL_READ_PRIMARY &&
