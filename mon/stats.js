@@ -276,6 +276,10 @@ function sum_inode_stats(state, prev_stats)
         }
         for (const pool_id in osd_diff.inode_stats)
         {
+            if (!inode_stats[pool_id])
+            {
+                continue;
+            }
             for (const inode_num in prev_stats.osd_diff[osd].inode_stats[pool_id])
             {
                 inode_stats[pool_id][inode_num] = inode_stats[pool_id][inode_num] || inode_stub();
