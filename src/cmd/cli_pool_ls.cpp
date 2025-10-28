@@ -87,6 +87,16 @@ struct pool_lister_t
                         ) },
                     } },
                 },
+                json11::Json::object {
+                    { "request_range", json11::Json::object {
+                        { "key", base64_encode(
+                            parent->cli->st_cli.etcd_prefix+"/config/osd/"
+                        ) },
+                        { "range_end", base64_encode(
+                            parent->cli->st_cli.etcd_prefix+"/config/osd0"
+                        ) },
+                    } },
+                },
             } },
         });
         state = base_state+1;
@@ -115,6 +125,14 @@ resume_1:
             // osd/stats/<N>::free
             osd_free[osd_num] = value["free"].uint64_value();
         });
+        std::map<uint64_t, double> osd_reweight;
+        parent->iterate_kvs_1(space_info["responses"][3]["response_range"]["kvs"], "/config/osd/", [&](uint64_t osd_num, json11::Json value)
+        {
+            if (value.object_items().find("reweight") != value.object_items().end())
+            {
+                osd_reweight[osd_num] = value["reweight"].number_value();
+            }
+        });
         // Calculate max_avail for each pool
         for (auto & pp: parent->cli->st_cli.pool_config)
         {
@@ -140,7 +158,8 @@ resume_1:
             }
             for (auto pg_per_pair: pg_per_osd)
             {
-                uint64_t pg_free = osd_free[pg_per_pair.first] * pool_cfg.real_pg_count / pg_per_pair.second;
+                uint64_t pg_free = osd_free[pg_per_pair.first]*
+                    (osd_reweight.find(pg_per_pair.first) != osd_reweight.end() ? osd_reweight[pg_per_pair.first]: 1.0) * pool_cfg.real_pg_count / pg_per_pair.second;
                 if (pool_avail > pg_free)
                 {
                     pool_avail = pg_free;
