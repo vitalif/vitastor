@@ -158,8 +158,9 @@ resume_1:
             }
             for (auto pg_per_pair: pg_per_osd)
             {
-                uint64_t pg_free = osd_free[pg_per_pair.first]*
-                    (osd_reweight.find(pg_per_pair.first) != osd_reweight.end() ? osd_reweight[pg_per_pair.first]: 1.0) * pool_cfg.real_pg_count / pg_per_pair.second;
+                uint64_t pg_free = osd_free[pg_per_pair.first] *
+                    (osd_reweight.find(pg_per_pair.first) != osd_reweight.end() ? osd_reweight[pg_per_pair.first] : 1.0) *
+                    pool_cfg.real_pg_count / pg_per_pair.second;
                 if (pool_avail > pg_free)
                 {
                     pool_avail = pg_free;
