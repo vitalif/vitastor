@@ -221,6 +221,9 @@ public:
         bool allow_corrupted, uint64_t &entries_loaded);
     // finish loading
     int finish_load(bool allow_corrupted = false);
+    // get blocks which are modified during loading and should be written to the disk
+    // before finishing initialization if not R/O
+    std::vector<uint32_t> get_recheck_modified_blocks();
     // recheck small write data after reading the database from disk
     bool recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> read_buffer, int queue_depth);
     // reshard database according to the pool's PG count

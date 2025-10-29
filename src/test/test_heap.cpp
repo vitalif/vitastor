@@ -579,6 +579,10 @@ void test_recheck(bool async, bool csum, bool intent)
 
         heap.finish_load();
 
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 1);
+        assert(mod[0] == 0);
+
         // read object 1 - big_write should be there but small_write should be rechecked and removed
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
         heap_entry_t *obj = heap.read_entry(oid);

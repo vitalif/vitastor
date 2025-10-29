@@ -51,6 +51,8 @@ int blockstore_init_meta::loop()
     else if (wait_state == 5) goto resume_5;
     else if (wait_state == 6) goto resume_6;
     else if (wait_state == 7) goto resume_7;
+    else if (wait_state == 8) goto resume_8;
+    else if (wait_state == 9) goto resume_9;
     metadata_buffer = memalign(MEM_ALIGNMENT, 2*bs->metadata_buf_size);
     if (!metadata_buffer)
         throw std::runtime_error("Failed to allocate metadata read buffer");
@@ -283,6 +285,46 @@ resume_6:
     }, bs->meta_write_recheck_parallelism);
     return 1;
 resume_7:
+    recheck_mod = bs->heap->get_recheck_modified_blocks();
+    if (bs->readonly)
+    {
+        recheck_mod.clear();
+    }
+    for (i = 0; i < recheck_mod.size(); i++)
+    {
+resume_8:
+        if (wait_count >= bs->meta_write_recheck_parallelism || !(sqe = bs->get_sqe()))
+        {
+            bs->ringloop->submit();
+            wait_state = 8;
+            return 1;
+        }
+        data = ((ring_data_t*)sqe->user_data);
+        uint8_t *buf = (uint8_t*)malloc_or_die(bs->dsk.meta_block_size);
+        bs->heap->get_meta_block(recheck_mod[i], buf);
+        data->iov = { buf, bs->dsk.meta_block_size };
+        data->callback = [this, buf, block_num = i](ring_data_t *data)
+        {
+            wait_count--;
+            free(buf);
+            if (data->res != bs->dsk.meta_block_size)
+            {
+                throw std::runtime_error(
+                    "write metadata failed at offset " + std::to_string(bs->dsk.meta_offset + (block_num+1)*bs->dsk.meta_block_size) +
+                    ": " + strerror(-data->res)
+                );
+            }
+        };
+        io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (i+1)*bs->dsk.meta_block_size);
+        wait_count++;
+    }
+resume_9:
+    if (wait_count > 0)
+    {
+        bs->ringloop->submit();
+        wait_state = 9;
+        return 1;
+    }
     if (bs->heap->finish_load() != 0)
     {
         exit(1);

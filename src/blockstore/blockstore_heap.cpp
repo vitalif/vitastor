@@ -595,7 +595,6 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
                 }
             }
         });
-        // FIXME: Write recheck_modified_blocks to disk
         recheck_modified_blocks.insert(block_num);
     };
     if (cwr->is_garbage())
@@ -727,6 +726,13 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
         return true;
     }
     return false;
+}
+
+std::vector<uint32_t> blockstore_heap_t::get_recheck_modified_blocks()
+{
+    std::vector<uint32_t> modified(recheck_modified_blocks.begin(), recheck_modified_blocks.end());
+    recheck_modified_blocks.clear();
+    return modified;
 }
 
 int blockstore_heap_t::finish_load(bool allow_corrupted)
