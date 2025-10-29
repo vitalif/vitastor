@@ -191,8 +191,9 @@ class blockstore_heap_t
     int recheck_queue_depth = 0;
 
     uint64_t get_pg_id(inode_t inode, uint64_t stripe);
+    bool validate_object(heap_entry_t *obj);
     void fill_recheck_queue();
-    void mark_used_blocks();
+    int mark_used_blocks();
     void recheck_buffer(heap_entry_t *cwr, uint8_t *buf);
     void defragment_block(uint32_t block_num);
 
@@ -219,7 +220,7 @@ public:
     int load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf,
         bool allow_corrupted, uint64_t &entries_loaded);
     // finish loading
-    void finish_load();
+    int finish_load(bool allow_corrupted = false);
     // recheck small write data after reading the database from disk
     bool recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> read_buffer, int queue_depth);
     // reshard database according to the pool's PG count

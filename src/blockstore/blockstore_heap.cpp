@@ -307,7 +307,10 @@ int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uin
             wr->entry_type &= ~BS_HEAP_GARBAGE;
             if ((wr->entry_type & BS_HEAP_TYPE) < BS_HEAP_BIG_WRITE ||
                 (wr->entry_type & BS_HEAP_TYPE) > BS_HEAP_ROLLBACK ||
-                (wr->entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)))
+                (wr->entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)) ||
+                (wr->entry_type == BS_HEAP_DELETE) ||
+                (wr->entry_type == (BS_HEAP_ROLLBACK|BS_HEAP_STABLE)) ||
+                (wr->entry_type == (BS_HEAP_COMMIT|BS_HEAP_STABLE)))
             {
                 fprintf(stderr, "Error: entry has unknown type %u in metadata block %u at %u. ",
                     wr->entry_type, block_num, block_offset);
@@ -323,6 +326,12 @@ corrupted_object:
                     fprintf(stderr, "Metadata is corrupted, aborting\n");
                     return EDOM;
                 }
+            }
+            if (wr->entry_type == BS_HEAP_COMMIT && !wr->version)
+            {
+                fprintf(stderr, "Error: commit entry has zero version in metadata block %u at %u. ",
+                    block_num, block_offset);
+                goto corrupted_object;
             }
             if (wr->size != wr->get_size(this))
             {
@@ -398,9 +407,91 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
     });
 }
 
+// Validate object entry sequence
+bool blockstore_heap_t::validate_object(heap_entry_t *obj)
+{
+    heap_entry_t *small_wr = NULL;
+    heap_entry_t *commit_wr = NULL, *rollback_wr = NULL;
+    heap_entry_t *stable_wr = NULL;
+    heap_entry_t *next_wr = NULL;
+    for (auto wr = obj; wr && !wr->is_garbage(); wr = prev(wr))
+    {
+        if (next_wr && wr->lsn == next_wr->lsn && (wr->is_overwrite() == next_wr->is_overwrite()))
+        {
+            // Check duplicate lsns
+            fprintf(stderr, "Error: there are two entries for %jx:%jx with lsn %ju\n", wr->inode, wr->stripe, wr->lsn);
+            return false;
+        }
+        next_wr = wr;
+        if (wr->type() == BS_HEAP_ROLLBACK)
+        {
+            if (commit_wr && wr->version > commit_wr->version)
+            {
+                // rollback may not come before commit with a smaller version
+                fprintf(stderr, "Error: rollback entry %jx:%jx v%ju l%ju comes before a commit entry v%ju l%ju\n",
+                    wr->inode, wr->stripe, wr->version, wr->lsn, commit_wr->version, commit_wr->lsn);
+                return false;
+            }
+            rollback_wr = wr;
+            continue;
+        }
+        if (wr->type() == BS_HEAP_COMMIT)
+        {
+            commit_wr = wr;
+            continue;
+        }
+        if (wr->entry_type & BS_HEAP_STABLE)
+        {
+            stable_wr = wr;
+        }
+        else if (rollback_wr && wr->version > rollback_wr->version)
+        {
+            // neither stable nor unstable but ignored
+        }
+        else if (commit_wr && wr->version <= commit_wr->version)
+        {
+            stable_wr = wr;
+        }
+        else
+        {
+            if (stable_wr)
+            {
+                // a stable write may not come over unstable
+                fprintf(stderr, "Error: uncommitted entry %jx:%jx v%ju l%ju comes before a committed entry v%ju l%ju\n",
+                    wr->inode, wr->stripe, wr->version, wr->lsn, stable_wr->version, stable_wr->lsn);
+                return false;
+            }
+        }
+        if (wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE)
+        {
+            small_wr = wr;
+        }
+        else if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
+        {
+            small_wr = NULL;
+        }
+        else if (wr->type() == BS_HEAP_DELETE)
+        {
+            if (small_wr)
+            {
+                // small_write may not come over delete
+                fprintf(stderr, "Error: entry %jx:%jx v%ju l%ju comes over a DELETE but a BIG_WRITE or BIG_INTENT is expected\n",
+                    small_wr->inode, small_wr->stripe, small_wr->version, small_wr->lsn);
+                return false;
+            }
+        }
+    }
+    if (small_wr)
+    {
+        fprintf(stderr, "Error: entry %jx:%jx v%ju l%ju comes first but a BIG_WRITE or BIG_INTENT is expected before it\n",
+            small_wr->inode, small_wr->stripe, small_wr->version, small_wr->lsn);
+        return false;
+    }
+    return true;
+}
+
 void blockstore_heap_t::fill_recheck_queue()
 {
-    // FIXME: Validate objects
     for (auto & pgp: block_index)
     {
         for (auto & ip: pgp.second)
@@ -408,6 +499,7 @@ void blockstore_heap_t::fill_recheck_queue()
             for (auto & op: ip.second)
             {
                 auto obj = &op.second.ptr->entry;
+                // Add object to recheck queue
                 if (obj->type() == BS_HEAP_INTENT_WRITE || obj->type() == BS_HEAP_BIG_INTENT)
                 {
                     // Recheck only the latest intent_write
@@ -419,7 +511,7 @@ void blockstore_heap_t::fill_recheck_queue()
                 }
                 else
                 {
-                    // Or a series of small_writes
+                    // Or recheck a series of small_writes
                     for (auto wr = obj; wr && wr->type() == BS_HEAP_SMALL_WRITE; wr = prev(wr))
                     {
                         if (wr->small().len > 0)
@@ -433,7 +525,7 @@ void blockstore_heap_t::fill_recheck_queue()
     }
 }
 
-void blockstore_heap_t::mark_used_blocks()
+int blockstore_heap_t::mark_used_blocks()
 {
     for (auto & pgp: block_index)
     {
@@ -444,6 +536,10 @@ void blockstore_heap_t::mark_used_blocks()
                 bool added = false;
                 auto li = op.second.ptr;
                 auto wr = &li->entry;
+                if (!validate_object(wr))
+                {
+                    return EDOM;
+                }
                 if (wr->entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE) && !li->prev)
                 {
                     mark_garbage(li->block_num, wr, UINT32_MAX);
@@ -477,6 +573,7 @@ void blockstore_heap_t::mark_used_blocks()
             }
         }
     }
+    return 0;
 }
 
 void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
@@ -632,12 +729,16 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
     return false;
 }
 
-void blockstore_heap_t::finish_load()
+int blockstore_heap_t::finish_load(bool allow_corrupted)
 {
     if (!marked_used_blocks)
     {
         // We can't mark data/buffers as used before loading and rechecking the whole store, so mark them here
-        mark_used_blocks();
+        int res = mark_used_blocks();
+        if (res != 0)
+        {
+            return res;
+        }
         marked_used_blocks = true;
     }
     completed_lsn = next_lsn;
@@ -648,6 +749,7 @@ void blockstore_heap_t::finish_load()
         auto bo = read_entry(b);
         return ao->lsn < bo->lsn;
     });
+    return 0;
 }
 
 bool blockstore_heap_t::calc_checksums(heap_entry_t *wr, uint8_t *data, bool set, uint32_t offset, uint32_t len)

@@ -283,7 +283,10 @@ resume_6:
     }, bs->meta_write_recheck_parallelism);
     return 1;
 resume_7:
-    bs->heap->finish_load();
+    if (bs->heap->finish_load() != 0)
+    {
+        exit(1);
+    }
     free(metadata_buffer);
     metadata_buffer = NULL;
     return 0;
