@@ -98,12 +98,6 @@ struct osd_pg_lock_t
     uint64_t state = 0;
 };
 
-struct osd_unstable_wr_t
-{
-    uint64_t latest_ver = 0;
-    uint64_t ver_count = 0;
-};
-
 class osd_t
 {
     // config
@@ -129,7 +123,6 @@ class osd_t
     int slow_log_interval = 10;
     int immediate_commit = IMMEDIATE_NONE;
     int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // "emergency" sync every 5 seconds
-    int autosync_dirty_per_object = 16;
     int autosync_writes = DEFAULT_AUTOSYNC_WRITES;
     uint64_t recovery_queue_depth = 1;
     uint64_t recovery_sleep_us = 0;
@@ -202,8 +195,7 @@ class osd_t
 
     // Unstable writes
     uint64_t unstable_write_count = 0;
-    uint64_t unstable_per_object = 0;
-    std::map<osd_object_id_t, osd_unstable_wr_t> unstable_writes;
+    std::map<osd_object_id_t, uint64_t> unstable_writes;
     std::deque<osd_op_t*> syncs_in_progress;
 
     // client & peer I/O

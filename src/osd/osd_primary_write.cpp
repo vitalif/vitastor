@@ -408,9 +408,9 @@ continue_others:
     }
     // finish_op would invalidate next_it if it cleared pg.write_queue, but it doesn't do that :)
     finish_op(cur_op, cur_op->reply.hdr.retval);
-    if (unstable_write_count >= autosync_writes ||
-        unstable_per_object >= autosync_dirty_per_object)
+    if (unstable_write_count >= autosync_writes)
     {
+        unstable_write_count = 0;
         autosync();
     }
     if (next_op)
@@ -543,17 +543,13 @@ lazy:
             for (auto & chunk: loc_set)
             {
                 this->dirty_osds.insert(chunk.osd_num);
-                auto & unst = this->unstable_writes[(osd_object_id_t){
+                this->unstable_writes[(osd_object_id_t){
                     .osd_num = chunk.osd_num,
                     .oid = {
                         .inode = op_data->oid.inode,
                         .stripe = op_data->oid.stripe | chunk.role,
                     },
-                }];
-                unst.latest_ver = op_data->fact_ver;
-                unst.ver_count++;
-                if (unstable_per_object < unst.ver_count)
-                    unstable_per_object = unst.ver_count;
+                }] = op_data->fact_ver;
             }
         }
         else

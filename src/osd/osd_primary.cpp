@@ -790,9 +790,9 @@ resume_5:
         if (immediate_commit == IMMEDIATE_NONE)
         {
             unstable_write_count++;
-            if (unstable_write_count >= autosync_writes ||
-                unstable_per_object >= autosync_dirty_per_object)
+            if (unstable_write_count >= autosync_writes)
             {
+                unstable_write_count = 0;
                 autosync();
             }
         }

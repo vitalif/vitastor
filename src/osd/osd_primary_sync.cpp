@@ -45,10 +45,7 @@ resume_2:
     if (unstable_writes.size() > 0)
     {
         op_data->unstable_write_osds = new std::vector<unstable_osd_num_t>();
-        op_data->unstable_writes = (obj_ver_id*)malloc_or_die(
-            (sizeof(obj_ver_id) + sizeof(uint64_t)) * this->unstable_writes.size());
-        op_data->unstable_ver_counts = (uint64_t*)((uint8_t*)op_data->unstable_writes +
-            sizeof(obj_ver_id) * this->unstable_writes.size());
+        op_data->unstable_writes = new obj_ver_id[this->unstable_writes.size()];
         osd_num_t last_osd = 0;
         int last_start = 0, last_end = 0;
         for (auto it = this->unstable_writes.begin(); it != this->unstable_writes.end(); it++)
@@ -68,9 +65,8 @@ resume_2:
             }
             op_data->unstable_writes[last_end] = (obj_ver_id){
                 .oid = it->first.oid,
-                .version = it->second.latest_ver,
+                .version = it->second,
             };
-            op_data->unstable_ver_counts[last_end] = it->second.ver_count;
             last_end++;
         }
         if (last_osd != 0)
@@ -82,8 +78,6 @@ resume_2:
             });
         }
         this->unstable_writes.clear();
-        this->unstable_write_count = 0;
-        this->unstable_per_object = 0;
     }
     {
         op_data->dirty_pg_count = dirty_pgs.size();
@@ -181,12 +175,11 @@ resume_6:
                     };
                     if (pgs.at(wpg).state & PG_ACTIVE)
                     {
-                        auto & dest = this->unstable_writes[(osd_object_id_t){
+                        uint64_t & dest = this->unstable_writes[(osd_object_id_t){
                             .osd_num = unstable_osd.osd_num,
                             .oid = w.oid,
                         }];
-                        dest.latest_ver = dest.latest_ver < w.version ? w.version : dest.latest_ver;
-                        dest.ver_count += op_data->unstable_ver_counts[unstable_osd.start + i];
+                        dest = dest < w.version ? w.version : dest;
                         dirty_pgs.insert(wpg);
                     }
                 }
@@ -243,7 +236,7 @@ resume_8:
     if (op_data->unstable_writes)
     {
         delete op_data->unstable_write_osds;
-        free(op_data->unstable_writes);
+        delete[] op_data->unstable_writes;
         op_data->unstable_writes = NULL;
         op_data->unstable_write_osds = NULL;
     }
