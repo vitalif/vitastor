@@ -260,8 +260,9 @@ void blockstore_heap_t::start_load(uint64_t completed_lsn)
     this->completed_lsn = completed_lsn;
 }
 
-int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uint8_t *buf,
-    std::function<void(uint32_t block_num, heap_entry_t* wr)> handle_write, std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block)
+int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uint8_t *buf, bool allow_corrupted,
+    std::function<void(uint32_t block_num, heap_entry_t* wr)> handle_write,
+    std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block)
 {
     for (uint64_t buf_offset = 0; buf_offset < disk_size; buf_offset += dsk->meta_block_size)
     {
@@ -284,9 +285,18 @@ int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uin
             }
             if ((wr->size & ~FREE_SPACE_BIT) > dsk->meta_block_size-block_offset)
             {
-                fprintf(stderr, "Error: entry is too large in metadata block %u at %u (%u > max %u bytes). Metadata is corrupted, aborting\n",
+                fprintf(stderr, "Error: entry is too large in metadata block %u at %u (%u > max %u bytes). ",
                     block_num, block_offset, (wr->size & ~FREE_SPACE_BIT), dsk->meta_block_size-block_offset);
-                return EDOM;
+                if (allow_corrupted)
+                {
+                    fprintf(stderr, "Metadata block is corrupted, skipping\n");
+                    break;
+                }
+                else
+                {
+                    fprintf(stderr, "Metadata is corrupted, aborting\n");
+                    return EDOM;
+                }
             }
             if (wr->size & FREE_SPACE_BIT)
             {
@@ -299,15 +309,26 @@ int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uin
                 (wr->entry_type & BS_HEAP_TYPE) > BS_HEAP_ROLLBACK ||
                 (wr->entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)))
             {
-                fprintf(stderr, "Error: entry has unknown type %u in metadata block %u at %u. Metadata is corrupted, aborting\n",
+                fprintf(stderr, "Error: entry has unknown type %u in metadata block %u at %u. ",
                     wr->entry_type, block_num, block_offset);
-                return EDOM;
+corrupted_object:
+                if (allow_corrupted)
+                {
+                    fprintf(stderr, "Entry is corrupted, skipping\n");
+                    block_offset += wr->size;
+                    continue;
+                }
+                else
+                {
+                    fprintf(stderr, "Metadata is corrupted, aborting\n");
+                    return EDOM;
+                }
             }
             if (wr->size != wr->get_size(this))
             {
                 fprintf(stderr, "Error: entry %jx:%jx v%ju has invalid size in metadata block %u at %u (%u != expected %u bytes). Metadata is corrupted, aborting\n",
                     wr->inode, wr->stripe, wr->version, block_num, block_offset, wr->size, wr->get_size(this));
-                return EDOM;
+                goto corrupted_object;
             }
             // Verify crc
             uint32_t expected_crc32c = wr->calc_crc32c();
@@ -316,7 +337,7 @@ int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uin
                 fprintf(stderr, "Error: entry %jx:%jx v%ju in metadata block %u at %u is corrupt (crc32c mismatch: expected %08x, got %08x). Metadata is corrupted, aborting\n",
                     wr->inode, wr->stripe, wr->version,
                     block_num, block_offset, expected_crc32c, wr->crc32c);
-                return EDOM;
+                goto corrupted_object;
             }
             handle_write(block_num, wr);
             block_offset += wr->size;
@@ -326,10 +347,10 @@ int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uin
     return 0;
 }
 
-int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf, uint64_t &entries_loaded)
+int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf, bool allow_corrupted, uint64_t &entries_loaded)
 {
     entries_loaded = 0;
-    return read_blocks(disk_offset, size, buf, [&](uint32_t block_num, heap_entry_t *wr_orig)
+    return read_blocks(disk_offset, size, buf, allow_corrupted, [&](uint32_t block_num, heap_entry_t *wr_orig)
     {
         heap_list_item_t *li = (heap_list_item_t*)malloc_or_die(wr_orig->size + sizeof(heap_list_item_t) - sizeof(heap_entry_t));
         li->block_num = block_num;
@@ -1560,6 +1581,21 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
         small_wr_cb(wr);
     }
     return res;
+}
+
+void blockstore_heap_t::iterate_objects(std::function<void(heap_entry_t*, uint32_t block_num)> cb)
+{
+    for (auto & pgp: block_index)
+    {
+        for (auto & ip: pgp.second)
+        {
+            for (auto & op: ip.second)
+            {
+                auto li = op.second.ptr;
+                cb(&li->entry, li->block_num);
+            }
+        }
+    }
 }
 
 int blockstore_heap_t::list_objects(uint32_t pg_num, object_id min_oid, object_id max_oid,

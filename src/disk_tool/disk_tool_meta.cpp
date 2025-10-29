@@ -104,16 +104,18 @@ close_error:
         hdr = NULL;
         meta_pos = dsk.meta_block_size;
         lseek64(dsk.meta_fd, dsk.meta_offset+meta_pos, 0);
+        uint64_t entries_loaded = 0;
         while (meta_pos < dsk.meta_area_size)
         {
             uint64_t read_len = buf_size < dsk.meta_area_size-meta_pos ? buf_size : dsk.meta_area_size-meta_pos;
             read_blocking(dsk.meta_fd, data, read_len);
-            heap->read_blocks(meta_pos-dsk.meta_block_size, read_len, data, [&](uint32_t block_num, heap_entry_t *obj)
-            {
-                obj_fn(heap, obj, block_num);
-            }, [](uint32_t, uint32_t, uint8_t*){});
+            r = heap->load_blocks(meta_pos-dsk.meta_block_size, read_len, data, true, entries_loaded);
             meta_pos += read_len;
         }
+        heap->iterate_objects([&](heap_entry_t* obj, uint32_t meta_block_num)
+        {
+            obj_fn(heap, obj, meta_block_num);
+        });
         delete heap;
     }
     else if (hdr->zero == 0 && hdr->magic == BLOCKSTORE_META_MAGIC_V1)
@@ -286,7 +288,10 @@ int disk_tool_t::dump_meta()
             if (dump_as_old)
                 dump_heap_entry_as_old(heap, obj);
             else
-                dump_heap_entry(heap, obj);
+            {
+                for (auto wr = obj; wr; wr = heap->prev(wr))
+                    dump_heap_entry(heap, obj);
+            }
         },
         [this](uint64_t block_num, clean_disk_entry *entry, uint8_t *bitmap) { dump_meta_entry(block_num, entry, bitmap); },
         true, true
@@ -340,7 +345,8 @@ void disk_tool_t::dump_heap_entry_as_old(blockstore_heap_t *heap, heap_entry_t *
     for (wr = obj; wr && !wr->is_overwrite(); wr = heap->prev(wr))
     {
     }
-    if (!wr || wr->entry_type != (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE))
+    if (!wr || wr->entry_type != (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) &&
+        wr->entry_type != (BS_HEAP_BIG_INTENT|BS_HEAP_STABLE))
     {
         return;
     }
@@ -391,17 +397,22 @@ void disk_tool_t::dump_heap_entry(blockstore_heap_t *heap, heap_entry_t *wr)
         INODE_POOL(wr->inode), INODE_NO_POOL(wr->inode), wr->stripe,
         wr->lsn, wr->version,
             t == BS_HEAP_BIG_WRITE ? "big" : (
+            t == BS_HEAP_BIG_INTENT ? "big_intent" : (
             t == BS_HEAP_SMALL_WRITE ? "small" : (
             t == BS_HEAP_INTENT_WRITE ? "intent" : (
             t == BS_HEAP_DELETE ? "delete" : (
             t == BS_HEAP_COMMIT ? "commit" : (
             t == BS_HEAP_ROLLBACK ? "rollback" : (
-            "unknown")))))),
+            "unknown"))))))),
         (wr->entry_type & BS_HEAP_STABLE) ? "true" : "false"
     );
     if (t == BS_HEAP_BIG_WRITE)
     {
         printf(",\"location\":%ju", wr->big_location(heap));
+    }
+    else if (t == BS_HEAP_BIG_INTENT)
+    {
+        printf(",\"location\":%ju,\"offset\":%u,\"len\":%u", wr->big_location(heap), wr->big_intent().offset, wr->big_intent().len);
     }
     else if (t == BS_HEAP_INTENT_WRITE)
     {
@@ -646,6 +657,8 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
                 wr_type = BS_HEAP_INTENT_WRITE;
             else if (meta_entry["type"] == "big")
                 wr_type = BS_HEAP_BIG_WRITE;
+            else if (meta_entry["type"] == "big_intent")
+                wr_type = BS_HEAP_BIG_INTENT;
             else if (meta_entry["type"] == "delete")
                 wr_type = BS_HEAP_DELETE;
             else if (meta_entry["type"] == "commit")
@@ -664,7 +677,11 @@ close_err0:
             uint64_t wr_len = meta_entry["len"].uint64_value();
             uint32_t wr_size = (wr_type == BS_HEAP_SMALL_WRITE || wr_type == BS_HEAP_INTENT_WRITE
                 ? heap.get_small_entry_size(wr_offset, wr_len)
-                : (wr_type == BS_HEAP_BIG_WRITE ? heap.get_big_entry_size() : heap.get_simple_entry_size()));
+                : (wr_type == BS_HEAP_BIG_WRITE
+                    ? heap.get_big_entry_size()
+                    : (wr_type == BS_HEAP_BIG_INTENT
+                        ? heap.get_big_intent_entry_size()
+                        : heap.get_simple_entry_size())));
             if (!(wr = get_wr(wr_size)))
                 goto close_err0;
             wr->inode = oid.inode;
@@ -697,6 +714,16 @@ close_err0:
                 assert((loc / dsk.data_block_size) < 0xFFFF0000);
                 wr->set_big_location(&heap, loc);
             }
+            else if (wr_type == BS_HEAP_BIG_INTENT)
+            {
+                uint64_t loc = meta_entry["location"].uint64_value();
+                assert(!(loc % dsk.data_block_size));
+                assert((loc / dsk.data_block_size) < 0xFFFF0000);
+                auto & bi = wr->big_intent();
+                bi.block_num = loc / dsk.data_block_size;
+                bi.offset = wr_offset;
+                bi.len = wr_len;
+            }
             if (meta_entry["bitmap"].is_string() && wr->get_int_bitmap(&heap))
             {
                 fromhexstr(meta_entry["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_int_bitmap(&heap));
@@ -714,7 +741,6 @@ close_err0:
                 *wr->get_checksum(&heap) = sscanf_json("%jx", meta_entry["data_crc32c"]);
             }
             wr->crc32c = wr->calc_crc32c();
-            
             assert((uint8_t*)wr + wr->size == new_meta_buf + meta_offset + used_space);
         }
     }

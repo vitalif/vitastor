@@ -76,8 +76,6 @@ struct disk_tool_t
     journal_entry_start je_start;
     uint8_t *new_journal_buf = NULL, *new_meta_buf = NULL, *new_journal_ptr = NULL, *new_journal_data = NULL;
     blockstore_meta_header_v3_t *new_meta_hdr = NULL;
-    blockstore_disk_t new_dsk;
-    blockstore_heap_t *new_heap = NULL;
     uint64_t new_journal_in_pos;
     int64_t data_idx_diff;
     uint64_t total_blocks, free_first, free_last;
@@ -132,6 +130,10 @@ struct disk_tool_t
     void choose_journal_block(uint32_t je_size);
     int resize_rebuild_journal();
     int resize_write_new_journal();
+    void remap_big_write(heap_entry_t *wr);
+    void remap_small_write(heap_entry_t *wr);
+    void fill_old_clean_entry(blockstore_heap_t *heap, heap_entry_t *big_wr);
+    void fill_old_journal_entry(blockstore_heap_t *heap, heap_entry_t *wr);
     int resize_rebuild_meta();
     int resize_write_new_meta();
     void free_new_meta();

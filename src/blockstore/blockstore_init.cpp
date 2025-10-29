@@ -224,7 +224,7 @@ resume_4:
         {
             // Handle result
             uint64_t loaded = 0;
-            int r = bs->heap->load_blocks(bufs[i].offset-bs->dsk.meta_block_size, bufs[i].size, bufs[i].buf, loaded);
+            int r = bs->heap->load_blocks(bufs[i].offset-bs->dsk.meta_block_size, bufs[i].size, bufs[i].buf, false, loaded);
             if (r != 0)
                 exit(1);
             entries_loaded += loaded;

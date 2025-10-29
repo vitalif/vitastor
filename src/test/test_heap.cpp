@@ -550,7 +550,7 @@ void test_recheck(bool async, bool csum, bool intent)
 
         blockstore_heap_t heap(&dsk, async ? NULL : buffer_area.data(), 10);
         uint64_t entries_loaded;
-        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), entries_loaded);
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
 
         int calls = 0;
         bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
@@ -642,7 +642,7 @@ void test_corruption()
         blockstore_heap_t heap(&dsk, buffer_area.data());
         tmp.data()[10]++; // corrupt the first object
         uint64_t entries_loaded;
-        assert(heap.load_blocks(0, dsk.meta_block_size, tmp.data(), entries_loaded) == EDOM);
+        assert(heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded) == EDOM);
     }
 
     // reload heap with bad entry size
@@ -652,7 +652,7 @@ void test_corruption()
         entry->size++;
         entry->crc32c = entry->calc_crc32c();
         uint64_t entries_loaded;
-        assert(heap.load_blocks(0, dsk.meta_block_size, tmp.data(), entries_loaded) == EDOM);
+        assert(heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded) == EDOM);
     }
 
     printf("OK test_corruption\n");

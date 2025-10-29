@@ -59,7 +59,8 @@ int disk_tool_t::trim_data(std::string device)
         {
             for (auto wr = obj; wr; wr = heap->prev(wr))
             {
-                if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE)
+                if ((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_WRITE ||
+                    (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_BIG_INTENT)
                 {
                     data_alloc->set(wr->big_location(heap) / dsk.data_block_size, true);
                 }

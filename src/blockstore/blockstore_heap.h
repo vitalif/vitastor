@@ -213,10 +213,11 @@ public:
     ~blockstore_heap_t();
     void start_load(uint64_t completed_lsn);
     // load data from the disk, returns EDOM on corruption
-    int read_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf,
+    int read_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf, bool allow_corrupted,
         std::function<void(uint32_t block_num, heap_entry_t* wr)> handle_write,
         std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block);
-    int load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf, uint64_t &entries_loaded);
+    int load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf,
+        bool allow_corrupted, uint64_t &entries_loaded);
     // finish loading
     void finish_load();
     // recheck small write data after reading the database from disk
@@ -272,6 +273,8 @@ public:
     // iterate compactable entries
     heap_compact_t iterate_compaction(heap_entry_t *obj, uint64_t fsynced_lsn, bool under_pressure,
         std::function<void(heap_entry_t*)> small_wr_cb);
+    // iterate all objects
+    void iterate_objects(std::function<void(heap_entry_t*, uint32_t block_num)> cb);
     // retrieve object listing from a PG
     int list_objects(uint32_t pg_num, object_id min_oid, object_id max_oid,
         obj_ver_id **result_list, size_t *stable_count, size_t *unstable_count);
