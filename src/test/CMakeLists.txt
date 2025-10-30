@@ -78,3 +78,7 @@ add_test(NAME test_blockstore COMMAND test_blockstore)
 ## test_shit
 #add_executable(test_shit test_shit.cpp osd_peering_pg.cpp)
 #target_link_libraries(test_shit ${LIBURING_LIBRARIES} m)
+
+# test_atomic
+add_executable(test_atomic test_atomic.cpp ../util/ringloop.cpp)
+target_link_libraries(test_atomic ${LIBURING_LIBRARIES})
