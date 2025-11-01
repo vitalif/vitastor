@@ -237,6 +237,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         assert(res == 0);
         prepare_meta_block_write(PRIV(op)->modified_block);
+        intent_write_counter++;
         PRIV(op)->pending_ops++;
         PRIV(op)->op_state = 9;
         write_iodepth++;

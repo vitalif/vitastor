@@ -211,6 +211,7 @@ class blockstore_heap_t
 public:
     blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_area, int log_level = 0);
     ~blockstore_heap_t();
+    void start_load(uint64_t completed_lsn);
     // load data from the disk, returns EDOM on corruption
     int read_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf,
         std::function<void(uint32_t block_num, heap_entry_t* wr)> handle_write,

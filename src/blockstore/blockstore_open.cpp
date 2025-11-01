@@ -42,7 +42,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     }
     if (!journal_trim_interval)
     {
-        journal_trim_interval = 1024;
+        journal_trim_interval = 4096;
     }
     if (!flusher_start_threshold)
     {

@@ -255,6 +255,11 @@ blockstore_heap_t::~blockstore_heap_t()
     delete buffer_alloc;
 }
 
+void blockstore_heap_t::start_load(uint64_t completed_lsn)
+{
+    this->completed_lsn = completed_lsn;
+}
+
 int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uint8_t *buf,
     std::function<void(uint32_t block_num, heap_entry_t* wr)> handle_write, std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block)
 {
@@ -385,8 +390,11 @@ void blockstore_heap_t::fill_recheck_queue()
                 if (obj->type() == BS_HEAP_INTENT_WRITE || obj->type() == BS_HEAP_BIG_INTENT)
                 {
                     // Recheck only the latest intent_write
-                    // FIXME Save checked_lsn in the superblock
-                    recheck_queue.push_back(obj);
+                    if (obj->lsn > completed_lsn)
+                    {
+                        // Do not recheck if it's already marked as completed in the superblock
+                        recheck_queue.push_back(obj);
+                    }
                 }
                 else
                 {
@@ -1344,7 +1352,6 @@ void blockstore_heap_t::start_block_write(uint32_t block_num)
         assert(!inf.is_writing);
         inf.is_writing = true;
     });
-    // FIXME also get_meta_block
 }
 
 void blockstore_heap_t::complete_block_write(uint32_t block_num)

@@ -554,7 +554,7 @@ int disk_tool_t::resize_rebuild_meta()
             new_meta_hdr->bitmap_granularity = dsk.bitmap_granularity ? dsk.bitmap_granularity : 4096;
             new_meta_hdr->data_csum_type = dsk.data_csum_type;
             new_meta_hdr->csum_block_size = dsk.csum_block_size;
-            new_meta_hdr->compacted_lsn = hdr->compacted_lsn;
+            new_meta_hdr->completed_lsn = hdr->completed_lsn;
             new_meta_hdr->header_csum = 0;
             new_meta_hdr->header_csum = crc32c(0, new_meta_hdr, new_meta_hdr->version == BLOCKSTORE_META_FORMAT_HEAP
                 ? sizeof(blockstore_meta_header_v3_t) : sizeof(blockstore_meta_header_v2_t));

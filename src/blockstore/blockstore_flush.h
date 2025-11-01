@@ -71,6 +71,7 @@ class journal_flusher_co
     bool read_buffered(int wait_base);
     bool fsync_meta(int wait_base);
     bool fsync_buffer(int wait_base);
+    bool trim_lsn(int wait_base);
 public:
     journal_flusher_co();
     ~journal_flusher_co();
@@ -86,7 +87,6 @@ class journal_flusher_t
     blockstore_impl_t *bs;
     friend class journal_flusher_co;
 
-    int advance_lsn_counter = 0;
     uint64_t compact_counter = 0;
 
     robin_hood::unordered_flat_set<object_id> flushing;

@@ -155,6 +155,7 @@ resume_1:
         bs->dsk.check_lengths();
     }
     bs->init();
+    bs->heap->start_load(((blockstore_meta_header_v3_t *)bs->meta_superblock)->completed_lsn);
     if (bs->dsk.inmemory_journal)
     {
         // Read buffer area

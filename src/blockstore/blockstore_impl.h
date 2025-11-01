@@ -29,18 +29,6 @@ class blockstore_impl_t;
 
 //#define BLOCKSTORE_DEBUG
 
-// - Sync must be submitted after previous writes/deletes (not before!)
-// - Reads may be submitted in parallel with writes/deletes because we use MVCC
-// - Writes may be submitted in any order, because they don't overlap. Each write
-//   goes into a new location - either on the journal device or on the data device
-// - Stable (stabilize) must be submitted after sync of that object is completed
-//   It's even OK to return an error to the caller if that object is not synced yet
-// - compacted_lsn should be moved forward only after all versions are moved to the main storage
-// - If an operation can not be submitted because the ring is full
-//   we should stop submission of other operations. Otherwise some "scatter" reads
-//   may end up blocked for a long time.
-// Otherwise, the submission order is free.
-
 #include "blockstore_init.h"
 
 #include "blockstore_flush.h"
@@ -128,6 +116,7 @@ public:
     journal_flusher_t *flusher;
     int write_iodepth = 0;
     int inflight_big = 0;
+    int intent_write_counter = 0;
     bool fsyncing_data = false;
 
     bool live = false, queue_stall = false;

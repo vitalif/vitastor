@@ -18,7 +18,6 @@ journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
     this->cur_flusher_count = bs->min_flusher_count;
     this->target_flusher_count = bs->min_flusher_count;
     active_flushers = 0;
-    advance_lsn_counter = 0;
     co = new journal_flusher_co[max_flusher_count];
     for (int i = 0; i < max_flusher_count; i++)
     {
@@ -132,8 +131,12 @@ void journal_flusher_t::loop()
         }
     }
     int prev_active = active_flushers;
-    for (int i = 0; (active_flushers > 0 || force_start > 0 || bs->heap->get_to_compact_count() > bs->flusher_start_threshold) && i < cur_flusher_count; i++)
+    for (int i = 0; (active_flushers > 0 || force_start > 0 ||
+        bs->heap->get_to_compact_count() > bs->flusher_start_threshold ||
+        i == 0 && bs->intent_write_counter >= bs->journal_trim_interval) && i < cur_flusher_count; i++)
+    {
         co[i].loop();
+    }
     if (prev_active && !active_flushers && force_start > 0)
         bs->ringloop->wakeup();
 }
@@ -170,11 +173,22 @@ bool journal_flusher_co::loop()
     else if (wait_state == 14) goto resume_14;
     else if (wait_state == 15) goto resume_15;
     else if (wait_state == 16) goto resume_16;
+    else if (wait_state == 17) goto resume_17;
+    else if (wait_state == 18) goto resume_18;
 resume_0:
     wait_state = 0;
     wait_count = 0;
     cur_oid = {};
     res = bs->heap->get_next_compact(cur_oid);
+    // Advance fsynced_lsn every <journal_trim_interval> intent writes
+    if ((bs->intent_write_counter >= bs->journal_trim_interval) && co_id == 0)
+    {
+        bs->intent_write_counter = 0;
+resume_17:
+resume_18:
+        if (!trim_lsn(17))
+            return false;
+    }
     if (res == ENOENT && flusher->force_start > 0 && co_id == 0 &&
         (!bs->dsk.disable_journal_fsync || !bs->dsk.disable_meta_fsync))
     {
@@ -738,5 +752,35 @@ resume_2:
     bs->heap->mark_lsn_fsynced(fsynced_lsn);
     flusher->active_flushers--;
     flusher->syncing_buffer--;
+    return true;
+}
+
+bool journal_flusher_co::trim_lsn(int wait_base)
+{
+    if (wait_state == wait_base)        goto resume_0;
+    else if (wait_state == wait_base+1) goto resume_1;
+    fsynced_lsn = bs->heap->get_fsynced_lsn();
+    if (((blockstore_meta_header_v3_t*)bs->meta_superblock)->completed_lsn == fsynced_lsn)
+    {
+        return true;
+    }
+    flusher->active_flushers++;
+    ((blockstore_meta_header_v3_t*)bs->meta_superblock)->completed_lsn = fsynced_lsn;
+    ((blockstore_meta_header_v3_t*)bs->meta_superblock)->set_crc32c();
+    await_sqe(0);
+    data->iov = (struct iovec){ bs->meta_superblock, (size_t)bs->dsk.meta_block_size };
+    data->callback = simple_callback_w;
+    io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
+    // Update superblock with datasync
+    sqe->rw_flags = RWF_DSYNC;
+    wait_count++;
+resume_1:
+    if (wait_count > 0)
+    {
+        wait_state = wait_base+1;
+        return false;
+    }
+    flusher->compact_counter++;
+    flusher->active_flushers--;
     return true;
 }

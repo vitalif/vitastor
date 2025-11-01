@@ -275,7 +275,7 @@ int disk_tool_t::dump_meta()
             if (dump_as_old)
             {
                 hdr->version = BLOCKSTORE_META_FORMAT_V2;
-                hdr->compacted_lsn = 0;
+                hdr->completed_lsn = 0;
                 hdr->header_csum = 0;
                 hdr->header_csum = crc32c(0, hdr, sizeof(blockstore_meta_header_v2_t));
             }
