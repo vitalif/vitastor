@@ -299,23 +299,24 @@ resume_8:
             wait_state = 8;
             return 1;
         }
+        uint32_t block_num = recheck_mod[i];
+        uint64_t block_offset = bs->dsk.meta_offset + (uint64_t)(block_num+1) * bs->dsk.meta_block_size;
         data = ((ring_data_t*)sqe->user_data);
         uint8_t *buf = (uint8_t*)malloc_or_die(bs->dsk.meta_block_size);
-        bs->heap->get_meta_block(recheck_mod[i], buf);
+        bs->heap->get_meta_block(block_num, buf);
         data->iov = { buf, bs->dsk.meta_block_size };
-        data->callback = [this, buf, block_num = i](ring_data_t *data)
+        data->callback = [this, buf, block_offset](ring_data_t *data)
         {
             wait_count--;
             free(buf);
             if (data->res != bs->dsk.meta_block_size)
             {
                 throw std::runtime_error(
-                    "write metadata failed at offset " + std::to_string(bs->dsk.meta_offset + (block_num+1)*bs->dsk.meta_block_size) +
-                    ": " + strerror(-data->res)
+                    "write metadata failed at offset " + std::to_string(block_offset) + ": " + strerror(-data->res)
                 );
             }
         };
-        io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (i+1)*bs->dsk.meta_block_size);
+        io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, block_offset);
         wait_count++;
     }
 resume_9:

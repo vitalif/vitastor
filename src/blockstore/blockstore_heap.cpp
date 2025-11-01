@@ -374,33 +374,12 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
         auto & inode_idx = block_index[get_pg_id(wr->inode, wr->stripe)][wr->inode];
         auto & idx = inode_idx[wr->stripe];
         insert_list_item(idx, li);
-        if (li->next && (li->next->entry.is_overwrite() || li->next->entry.is_garbage()))
-        {
-            // Mark <wr> as garbage
-            wr->set_garbage();
-        }
-        else if (wr->is_overwrite())
-        {
-            // Mark all previous entries as garbage
-            for (auto prev_li = li->prev; prev_li && !prev_li->entry.is_garbage(); prev_li = prev_li->prev)
-            {
-                prev_li->entry.set_garbage();
-                modify_alloc(prev_li->block_num, [&](heap_block_info_t & inf)
-                {
-                    inf.has_garbage = true;
-                    inf.used_space -= prev_li->entry.size;
-                });
-            }
-        }
         modify_alloc(block_num, [&](heap_block_info_t & inf)
         {
             if (!inf.entries.size())
                 inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t)); // FIXME maybe less
             inf.entries.push_back(li);
-            if (!wr->is_garbage())
-                inf.used_space += wr->size;
-            else
-                inf.has_garbage = true;
+            inf.used_space += wr->size;
         });
     }, [&](uint32_t block_num, uint32_t last_offset, uint8_t *buf)
     {
@@ -421,6 +400,11 @@ bool blockstore_heap_t::validate_object(heap_entry_t *obj)
             // Check duplicate lsns
             fprintf(stderr, "Error: there are two entries for %jx:%jx with lsn %ju\n", wr->inode, wr->stripe, wr->lsn);
             return false;
+        }
+        if (next_wr && next_wr->is_overwrite())
+        {
+            // Don't care if the object is overwritten/deleted
+            return true;
         }
         next_wr = wr;
         if (wr->type() == BS_HEAP_ROLLBACK)
@@ -542,33 +526,44 @@ int blockstore_heap_t::mark_used_blocks()
                 }
                 if (wr->entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE) && !li->prev)
                 {
-                    mark_garbage(li->block_num, wr, UINT32_MAX);
-                    wr = NULL;
-                }
-                while (wr)
-                {
-                    if (wr->is_garbage())
+                    wr->set_garbage();
+                    modify_alloc(li->block_num, [&](heap_block_info_t & inf)
                     {
-                        break;
+                        inf.used_space -= wr->size;
+                        inf.has_garbage = true;
+                    });
+                    li = NULL;
+                }
+                bool overwritten = false;
+                for (; li; li = li->prev, wr = &li->entry)
+                {
+                    if (overwritten)
+                    {
+                        wr->set_garbage();
+                        modify_alloc(li->block_num, [&](heap_block_info_t & inf)
+                        {
+                            inf.used_space -= wr->size;
+                            inf.has_garbage = true;
+                        });
+                        continue;
                     }
                     if (wr->type() == BS_HEAP_SMALL_WRITE)
                     {
                         use_buffer_area(wr->inode, wr->small().location, wr->small().len);
                     }
-                    else if (wr->type() == BS_HEAP_BIG_WRITE)
+                    else if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
                     {
                         use_data(wr->inode, wr->big_location(this));
-                    }
-                    else if (wr->type() == BS_HEAP_BIG_INTENT)
-                    {
-                        use_data(wr->inode, wr->big_intent().block_num * dsk->data_block_size);
                     }
                     if (wr->is_compactable() && !added)
                     {
                         compact_queue.push_back((object_id){ .inode = wr->inode, .stripe = wr->stripe });
                         added = true;
                     }
-                    wr = prev(wr);
+                    if (wr->is_overwrite())
+                    {
+                        overwritten = true;
+                    }
                 }
             }
         }
@@ -586,14 +581,17 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
         modify_alloc(block_num, [&](heap_block_info_t & inf)
         {
             inf.used_space -= wr_size;
+            bool found = false;
             for (auto it = inf.entries.begin(); it != inf.entries.end(); it++)
             {
                 if (*it == li)
                 {
+                    found = true;
                     inf.entries.erase(it);
                     break;
                 }
             }
+            assert(found);
         });
         recheck_modified_blocks.insert(block_num);
     };
@@ -604,7 +602,7 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
     }
     else if (!calc_checksums(cwr, buf, false))
     {
-        // write entry is invalid, erase it and mark newer entries with FREE_SPACE_BIT
+        // write entry is invalid, erase it and mark newer entries with garbage bit
         auto & inode_idx = block_index[get_pg_id(cwr->inode, cwr->stripe)][cwr->inode];
         auto li = inode_idx[cwr->stripe].ptr;
         int rolled_back = 1;
