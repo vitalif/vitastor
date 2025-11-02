@@ -1501,7 +1501,7 @@ void blockstore_heap_t::complete_block_write(uint32_t block_num)
             assert(!(it->flags & HEAP_INFLIGHT_DONE));
             it->flags |= HEAP_INFLIGHT_DONE;
         }
-        mark_completed_lsns();
+        mark_completed_lsns(mod_lsn);
     }
 }
 
@@ -1938,7 +1938,7 @@ void blockstore_heap_t::push_inflight_lsn(uint64_t lsn, heap_entry_t *wr, uint64
     }
 }
 
-void blockstore_heap_t::mark_completed_lsns()
+void blockstore_heap_t::mark_completed_lsns(uint64_t mod_lsn)
 {
     if (dsk->disable_meta_fsync && dsk->disable_journal_fsync)
     {
@@ -1956,10 +1956,11 @@ void blockstore_heap_t::mark_completed_lsns()
             first_inflight_lsn++;
         }
     }
-    else
+    else if (mod_lsn == completed_lsn+1)
     {
-        // Only advanced completed_lsn
-        for (auto it = inflight_lsn.begin(); it != inflight_lsn.end() && (it->flags & HEAP_INFLIGHT_DONE); it++)
+        // Only advance completed_lsn
+        assert(inflight_lsn.size() > mod_lsn-first_inflight_lsn);
+        for (auto it = inflight_lsn.begin()+(mod_lsn-first_inflight_lsn); it != inflight_lsn.end() && (it->flags & HEAP_INFLIGHT_DONE); it++)
         {
             completed_lsn++;
         }
@@ -1974,6 +1975,7 @@ void blockstore_heap_t::mark_lsn_fsynced(uint64_t lsn)
         assert(lsn <= completed_lsn);
         while (lsn >= first_inflight_lsn)
         {
+            assert(inflight_lsn.size() > 0);
             apply_inflight(inflight_lsn.front());
             inflight_lsn.pop_front();
             first_inflight_lsn++;
