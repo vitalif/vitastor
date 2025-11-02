@@ -1347,7 +1347,8 @@ int blockstore_heap_t::add_commit(heap_entry_t *obj, uint64_t version, uint32_t 
         }
         if (wr->type() == BS_HEAP_COMMIT)
         {
-            commit_version = wr->version;
+            if (commit_version < wr->version)
+                commit_version = wr->version;
             wr = prev(wr);
             continue;
         }
@@ -1397,7 +1398,8 @@ int blockstore_heap_t::add_rollback(heap_entry_t *obj, uint64_t version, uint32_
         }
         if (wr->type() == BS_HEAP_COMMIT)
         {
-            commit_version = wr->version;
+            if (commit_version < wr->version)
+                commit_version = wr->version;
             wr = prev(wr);
             continue;
         }
@@ -1581,7 +1583,8 @@ void blockstore_heap_t::iterate_with_stable(heap_entry_t *obj, uint64_t max_lsn,
         }
         else if (old_wr->type() == BS_HEAP_COMMIT)
         {
-            commit_version = old_wr->version;
+            if (commit_version < old_wr->version)
+                commit_version = old_wr->version;
         }
         else
         {
@@ -1639,7 +1642,8 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
                 res.compact_version = wr->version;
             }
             res.do_delete = false;
-            commit_version = wr->version;
+            if (commit_version < wr->version)
+                commit_version = wr->version;
             continue;
         }
         bool rolled_back = (wr->version > rollback_version);

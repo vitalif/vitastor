@@ -104,9 +104,10 @@ void journal_flusher_t::release_trim()
 void journal_flusher_t::dump_diagnostics()
 {
     printf(
-        "Compaction queue: %u items, data: %ju/%ju blocks used, meta: %ju/%ju bytes used, %u/%ju blocks nearfull\n",
-        bs->heap->get_to_compact_count(),
+        "Compaction queue: %u/%u items, data: %ju/%ju blocks used, buffer: %ju/%ju bytes used, meta: %ju/%ju bytes used, %u/%ju blocks nearfull\n",
+        bs->heap->get_compact_queue_size(), bs->heap->get_to_compact_count(),
         bs->heap->get_data_used_space()/bs->dsk.data_block_size, bs->dsk.block_count,
+        bs->heap->get_buffer_area_used_space(), bs->dsk.journal_len,
         bs->heap->get_meta_used_space(), bs->heap->get_meta_total_space(),
         bs->heap->get_meta_nearfull_blocks(), bs->dsk.meta_area_size/bs->dsk.meta_block_size-1
     );
@@ -220,6 +221,7 @@ resume_16:
                 goto resume_0;
             }
         }
+        assert(false);
     }
     flusher->flushing.insert(cur_oid);
 resume_1:
@@ -286,7 +288,9 @@ resume_1:
     flusher->active_flushers++;
     if (bs->log_level > 10)
     {
-        printf("Compacting %jx:%jx l%ju .. l%ju\n", cur_oid.inode, cur_oid.stripe, compact_info.clean_wr->lsn, compact_info.compact_lsn);
+        printf("Compacting %jx:%jx v%ju..v%ju / l%ju..l%ju\n", cur_oid.inode, cur_oid.stripe,
+            compact_info.clean_wr->version, compact_info.compact_version,
+            compact_info.clean_wr->lsn, compact_info.compact_lsn);
     }
     overwrite_start = overwrite_end = 0;
     if (read_vec.size() > 0)
@@ -723,7 +727,7 @@ bool journal_flusher_co::fsync_buffer(int wait_base)
     else if (wait_state == wait_base+1) goto resume_1;
     else if (wait_state == wait_base+2) goto resume_2;
     if (bs->dsk.disable_journal_fsync && bs->dsk.disable_meta_fsync && bs->dsk.disable_data_fsync ||
-        !bs->unsynced_big_write_count && !bs->unsynced_small_write_count)
+        !bs->unsynced_big_write_count && !bs->unsynced_small_write_count && !bs->unsynced_meta_write_count)
     {
         return true;
     }
