@@ -513,6 +513,40 @@ void test_iterate_compaction()
         assert(small_writes == 4);
     }
 
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        // Case: BIG_STABLE(v1 l1) -> SMALL(v2 l2) -> COMMIT(v2 l3) -> SMALL(v3 l4) -> COMMIT(v3 l5) unfinished
+        uint32_t mblock = 0;
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 0, 4096, 0, false, buffer_area.data(), false);
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        res = heap.add_commit(obj, 2, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
+        _test_small_write(heap, dsk, 1, 0, 3, 4*1024, 4096, 4096, false, buffer_area.data(), false);
+        obj = heap.read_entry(oid);
+        res = heap.add_commit(obj, 3, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+
+        assert(heap.get_fsynced_lsn() == 4);
+        int small_writes = 0;
+        obj = heap.read_entry(oid);
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 3);
+        assert(compact_info.compact_version == 2);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(small_writes == 1);
+    }
+
     printf("OK test_iterate_compaction\n");
 }
 

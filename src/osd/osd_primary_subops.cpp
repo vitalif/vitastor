@@ -404,8 +404,8 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
             if (op_data->fact_ver != 0 && op_data->fact_ver != version)
             {
                 fprintf(
-                    stderr, "different fact_versions returned from %s subops: %ju vs %ju\n",
-                    osd_op_names[opcode], version, op_data->fact_ver
+                    stderr, "different fact_versions returned from %s %jx:%jx subops: %ju vs %ju\n",
+                    osd_op_names[opcode], subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, version, op_data->fact_ver
                 );
                 retval = -ERANGE;
             }

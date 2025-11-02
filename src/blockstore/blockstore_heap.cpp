@@ -1624,9 +1624,9 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
     res.do_delete = true;
     for (heap_entry_t *wr = obj; wr; wr = prev(wr))
     {
-        if (wr->type() == BS_HEAP_ROLLBACK)
+        if (wr->type() == BS_HEAP_ROLLBACK && wr->lsn <= fsynced_lsn)
         {
-            if (wr->lsn <= fsynced_lsn && !res.compact_lsn)
+            if (!res.compact_lsn)
             {
                 res.compact_lsn = wr->lsn;
                 res.compact_version = wr->version;
@@ -1634,9 +1634,9 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
             rollback_version = wr->version;
             continue;
         }
-        if (wr->type() == BS_HEAP_COMMIT)
+        if (wr->type() == BS_HEAP_COMMIT && wr->lsn <= fsynced_lsn)
         {
-            if (wr->lsn <= fsynced_lsn && !res.compact_lsn)
+            if (!res.compact_lsn)
             {
                 res.compact_lsn = wr->lsn;
                 res.compact_version = wr->version;

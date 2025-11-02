@@ -22,6 +22,10 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     bool found = false;
     heap->iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *wr, bool stable)
     {
+        if (wr->type() == BS_HEAP_DELETE)
+        {
+            return false;
+        }
         if (op->version < wr->version)
         {
             return true;
