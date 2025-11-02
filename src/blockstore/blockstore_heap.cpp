@@ -1522,6 +1522,10 @@ void blockstore_heap_t::mark_garbage_up_to(heap_entry_t *wr)
     {
         auto prev_wr = prev(wr);
         mark_garbage(list_item(wr)->block_num, wr, used_big);
+        if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
+        {
+            used_big = wr->big().block_num;
+        }
         wr = prev_wr;
     }
 }
