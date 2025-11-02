@@ -49,7 +49,7 @@ struct blockstore_op_private_t
 
     // Write
     uint64_t location;
-    bool is_big;
+    uint32_t write_type;
 
     // Stabilize, rollback
     int stab_pos;
@@ -106,7 +106,7 @@ public:
     uint8_t* meta_superblock = NULL;
     uint8_t *buffer_area = NULL;
     std::vector<blockstore_op_t*> submit_queue;
-    int unsynced_big_write_count = 0, unsynced_small_write_count = 0, unsynced_meta_write_count = 0;
+    int unsynced_data_write_count = 0, unsynced_small_write_count = 0, unsynced_meta_write_count = 0;
     int unsynced_queued_ops = 0;
     uint8_t *zero_object = NULL;
 

@@ -222,7 +222,7 @@ bool blockstore_impl_t::is_safe_to_stop()
     {
         return false;
     }
-    if (unsynced_big_write_count > 0 || unsynced_small_write_count > 0)
+    if (unsynced_data_write_count > 0 || unsynced_small_write_count > 0 || unsynced_meta_write_count > 0)
     {
         if (!readonly && !stop_sync_submitted)
         {
@@ -258,7 +258,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
     else if (PRIV(op)->wait_for == WAIT_COMPACTION)
     {
-        if (flusher->get_compact_counter() <= PRIV(op)->wait_detail)
+        if (heap->get_compacted_count() <= PRIV(op)->wait_detail)
         {
             // do not submit
 #ifdef BLOCKSTORE_DEBUG

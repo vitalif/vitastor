@@ -80,11 +80,6 @@ int journal_flusher_t::get_syncing_buffer()
     return syncing_buffer;
 }
 
-uint64_t journal_flusher_t::get_compact_counter()
-{
-    return compact_counter;
-}
-
 bool journal_flusher_t::is_active()
 {
     return active_flushers > 0;
@@ -104,7 +99,7 @@ void journal_flusher_t::release_trim()
 void journal_flusher_t::dump_diagnostics()
 {
     printf(
-        "Compaction queue: %u/%u items, data: %ju/%ju blocks used, buffer: %ju/%ju bytes used, meta: %ju/%ju bytes used, %u/%ju blocks nearfull\n",
+        "Compaction queue: %u items + %u future, data: %ju/%ju blocks used, buffer: %ju/%ju bytes used, meta: %ju/%ju bytes used, %u/%ju blocks nearfull\n",
         bs->heap->get_compact_queue_size(), bs->heap->get_to_compact_count(),
         bs->heap->get_data_used_space()/bs->dsk.data_block_size, bs->dsk.block_count,
         bs->heap->get_buffer_area_used_space(), bs->dsk.journal_len,
@@ -133,7 +128,7 @@ void journal_flusher_t::loop()
     }
     int prev_active = active_flushers;
     for (int i = 0; (active_flushers > 0 || force_start > 0 ||
-        bs->heap->get_to_compact_count() > bs->flusher_start_threshold ||
+        bs->heap->get_compact_queue_size() > bs->flusher_start_threshold ||
         i == 0 && bs->intent_write_counter >= bs->journal_trim_interval) && i < cur_flusher_count; i++)
     {
         co[i].loop();
@@ -424,7 +419,6 @@ resume_13:
     {
         printf("Compacted %jx:%jx l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe, compact_info.compact_lsn, copy_count);
     }
-    flusher->compact_counter++;
     flusher->active_flushers--;
     if (should_repeat)
     {
@@ -727,7 +721,7 @@ bool journal_flusher_co::fsync_buffer(int wait_base)
     else if (wait_state == wait_base+1) goto resume_1;
     else if (wait_state == wait_base+2) goto resume_2;
     if (bs->dsk.disable_journal_fsync && bs->dsk.disable_meta_fsync && bs->dsk.disable_data_fsync ||
-        !bs->unsynced_big_write_count && !bs->unsynced_small_write_count && !bs->unsynced_meta_write_count)
+        !bs->unsynced_data_write_count && !bs->unsynced_small_write_count && !bs->unsynced_meta_write_count)
     {
         return true;
     }
@@ -784,7 +778,6 @@ resume_1:
         wait_state = wait_base+1;
         return false;
     }
-    flusher->compact_counter++;
     flusher->active_flushers--;
     return true;
 }

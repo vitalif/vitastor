@@ -38,7 +38,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
             }
             if (res == ENOSPC)
             {
-                if (!heap->get_inflight_queue_size())
+                if (!heap->get_to_compact_count())
                 {
                     // no space
                     op->retval = -ENOSPC;
@@ -51,7 +51,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
                     goto resume_1;
                 }
                 priv->wait_for = WAIT_COMPACTION;
-                priv->wait_detail = flusher->get_compact_counter();
+                priv->wait_detail = heap->get_compacted_count();
                 flusher->request_trim();
                 return 0;
             }

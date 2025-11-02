@@ -176,6 +176,8 @@ class blockstore_heap_t
     // LSN queue: inflight (writing) -> completed [-> fsynced]
     std::deque<heap_inflight_lsn_t> inflight_lsn;
     uint32_t to_compact_count = 0;
+    uint64_t compacted_count = 0;
+    uint32_t inflight_overwrite_count = 0;
     uint64_t first_inflight_lsn = 0;
     uint64_t completed_lsn = 0;
     uint64_t fsynced_lsn = 0;
@@ -313,9 +315,9 @@ public:
     uint64_t get_meta_total_space();
     uint64_t get_meta_used_space();
     uint32_t get_meta_nearfull_blocks();
-    uint32_t get_inflight_queue_size();
     uint32_t get_compact_queue_size();
     uint32_t get_to_compact_count();
+    uint64_t get_compacted_count();
 
     uint64_t entry_pos(uint32_t block_num, uint32_t offset);
     heap_entry_t *entry_from_pos(uint64_t entry_pos, bool allow_unallocated = false);

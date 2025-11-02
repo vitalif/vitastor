@@ -87,8 +87,6 @@ class journal_flusher_t
     blockstore_impl_t *bs;
     friend class journal_flusher_co;
 
-    uint64_t compact_counter = 0;
-
     robin_hood::unordered_flat_set<object_id> flushing;
     int active_flushers = 0;
     int wanting_meta_fsync = 0;
@@ -100,7 +98,6 @@ public:
     ~journal_flusher_t();
     void loop();
     int get_syncing_buffer();
-    uint64_t get_compact_counter();
     bool is_active();
     void request_trim();
     void release_trim();

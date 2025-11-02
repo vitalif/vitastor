@@ -116,7 +116,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         return 0;
     }
     PRIV(op)->modified_block = UINT32_MAX;
-    PRIV(op)->is_big = false;
+    PRIV(op)->write_type = 0;
     heap_entry_t *obj = heap->read_entry(op->oid);
     if (op->opcode == BS_OP_DELETE)
     {
@@ -128,8 +128,11 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             FINISH_OP(op);
             return 2;
         }
+        PRIV(op)->write_type = BS_HEAP_DELETE;
         BS_SUBMIT_CHECK_SQES(1);
         int res = heap->add_delete(obj, &PRIV(op)->modified_block);
+        if (res == ENOSPC)
+            goto enospc;
         assert(res == 0);
         prepare_meta_block_write(PRIV(op)->modified_block);
         PRIV(op)->pending_ops++;
@@ -142,12 +145,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     else if (!obj || obj->type() == BS_HEAP_DELETE || op->offset == 0 && op->len == dsk.data_block_size)
     {
         // Big (redirect) write
+        PRIV(op)->write_type = BS_HEAP_BIG_WRITE;
         BS_SUBMIT_CHECK_SQES(1);
-        PRIV(op)->is_big = true;
-        uint64_t loc = heap->find_free_data();
-        if (loc == UINT64_MAX)
+        PRIV(op)->location = heap->find_free_data();
+        if (PRIV(op)->location == UINT64_MAX)
         {
-            if (!heap->get_inflight_queue_size())
+enospc:
+            if (!heap->get_to_compact_count())
             {
                 // no space
                 op->retval = -ENOSPC;
@@ -155,11 +159,11 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 return 2;
             }
             PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = flusher->get_compact_counter();
+            PRIV(op)->wait_detail = heap->get_compacted_count();
             flusher->request_trim();
             return 0;
         }
-        PRIV(op)->location = loc;
+        uint64_t loc = PRIV(op)->location;
 #ifdef BLOCKSTORE_DEBUG
         printf(
             "Allocate offset %ju for %jx:%jx v%ju\n",
@@ -204,12 +208,14 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         {
             // Even more simplified BIG_INTENT writes
             // FIXME: Support RMW mode for csum_block_size > bitmap_granularity
+            PRIV(op)->write_type = BS_HEAP_BIG_INTENT;
             PRIV(op)->location = obj->big_location(heap);
             res = heap->add_big_intent(op->oid, obj, op->version, op->offset, op->len, op->bitmap,
                 (uint8_t*)op->buf, NULL, &PRIV(op)->modified_block);
         }
         else
         {
+            PRIV(op)->write_type = BS_HEAP_INTENT_WRITE;
             auto wr = obj;
             while (wr && (wr->type() == BS_HEAP_INTENT_WRITE || wr->type() == BS_HEAP_COMMIT || wr->type() == BS_HEAP_ROLLBACK))
             {
@@ -220,21 +226,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             res = heap->add_small_write(op->oid, obj, (BS_HEAP_INTENT_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
                 op->version, op->offset, op->len, 0, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
         }
-        if (res == EAGAIN)
-        {
-            assert(heap->get_inflight_queue_size());
-            PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = flusher->get_compact_counter();
-            flusher->request_trim();
-            return 0;
-        }
-        else if (res == ENOSPC)
-        {
-            // no space
-            op->retval = -ENOSPC;
-            FINISH_OP(op);
-            return 2;
-        }
+        if (res == ENOSPC)
+            goto enospc;
         assert(res == 0);
         prepare_meta_block_write(PRIV(op)->modified_block);
         intent_write_counter++;
@@ -246,11 +239,12 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     {
         // Small (buffered) overwrite
         // First check if there is free buffer space
+        PRIV(op)->write_type = BS_HEAP_SMALL_WRITE;
         uint64_t loc = !op->len ? 0 : heap->find_free_buffer_area(op->len);
         if (loc == UINT64_MAX)
         {
             PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = flusher->get_compact_counter();
+            PRIV(op)->wait_detail = heap->get_compacted_count();
             flusher->request_trim();
             return 0;
         }
@@ -258,21 +252,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         BS_SUBMIT_CHECK_SQES(1 + (op->len > 0 ? 1 : 0));
         int res = heap->add_small_write(op->oid, obj, (BS_HEAP_SMALL_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
             op->version, op->offset, op->len, loc, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
-        if (res == EAGAIN)
-        {
-            assert(heap->get_inflight_queue_size());
-            PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = flusher->get_compact_counter();
-            flusher->request_trim();
-            return 0;
-        }
-        else if (res == ENOSPC)
-        {
-            // no space
-            op->retval = -ENOSPC;
-            FINISH_OP(op);
-            return 2;
-        }
+        if (res == ENOSPC)
+            goto enospc;
         assert(res == 0);
         if (op->len)
             heap->use_buffer_area(op->oid.inode, loc, op->len);
@@ -376,21 +357,21 @@ resume_4:
         auto obj = heap->read_entry(op->oid);
         int res = heap->add_big_write(op->oid, obj, (op->opcode == BS_OP_WRITE_STABLE), op->version,
             op->offset, op->len, PRIV(op)->location, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
-        if (res == EAGAIN)
+        if (res == ENOSPC)
         {
-            assert(heap->get_inflight_queue_size());
+            if (!heap->get_to_compact_count())
+            {
+                // no space
+                heap->free_data(op->oid.inode, PRIV(op)->location);
+                write_iodepth--;
+                op->retval = -ENOSPC;
+                FINISH_OP(op);
+                return 2;
+            }
             PRIV(op)->wait_for = WAIT_COMPACTION;
-            PRIV(op)->wait_detail = flusher->get_compact_counter();
+            PRIV(op)->wait_detail = heap->get_compacted_count();
             flusher->request_trim();
-            return 1;
-        }
-        else if (res == ENOSPC)
-        {
-            heap->free_data(op->oid.inode, PRIV(op)->location);
-            write_iodepth--;
-            op->retval = -ENOSPC;
-            FINISH_OP(op);
-            return 2;
+            return 0;
         }
         assert(res == 0);
         prepare_meta_block_write(PRIV(op)->modified_block);
@@ -399,8 +380,8 @@ resume_4:
         return 1;
     }
 resume_6:
-    // Apply throttling to not fill the journal too fast for the SSD+HDD case
-    if (!PRIV(op)->is_big && throttle_small_writes)
+    // Apply throttling to not fill the journal too quickly for the SSD+HDD case
+    if (PRIV(op)->write_type == BS_HEAP_SMALL_WRITE && throttle_small_writes)
     {
         // Apply throttling
         timespec tv_end;
@@ -436,8 +417,12 @@ resume_8:
     printf("Ack write %jx:%jx v%ju\n", op->oid.inode, op->oid.stripe, op->version);
 #endif
     op->retval = op->len;
-    if (PRIV(op)->is_big)
-        unsynced_big_write_count++;
+    if (PRIV(op)->write_type == BS_HEAP_BIG_WRITE ||
+        PRIV(op)->write_type == BS_HEAP_BIG_INTENT ||
+        PRIV(op)->write_type == BS_HEAP_INTENT_WRITE)
+        unsynced_data_write_count++;
+    else if (PRIV(op)->write_type == BS_HEAP_DELETE)
+        unsynced_meta_write_count++;
     else
         unsynced_small_write_count++;
     write_iodepth--;

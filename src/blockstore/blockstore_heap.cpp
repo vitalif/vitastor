@@ -1920,15 +1920,15 @@ uint32_t blockstore_heap_t::get_to_compact_count()
     return to_compact_count;
 }
 
-uint32_t blockstore_heap_t::get_inflight_queue_size()
+uint64_t blockstore_heap_t::get_compacted_count()
 {
-    return inflight_lsn.size();
+    return compacted_count;
 }
 
 void blockstore_heap_t::push_inflight_lsn(uint64_t lsn, heap_entry_t *wr, uint64_t flags)
 {
     uint64_t next_inf = first_inflight_lsn + inflight_lsn.size();
-    if (flags & HEAP_INFLIGHT_COMPACTABLE)
+    if (flags & (HEAP_INFLIGHT_COMPACTABLE|HEAP_INFLIGHT_COMPACTED))
     {
         to_compact_count++;
     }
@@ -1999,6 +1999,8 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
     {
         // Mark previous entries as garbage, sequentially
         mark_garbage_up_to(wr);
+        to_compact_count--;
+        compacted_count++;
     }
     else if (inflight.flags & HEAP_INFLIGHT_COMPACTABLE)
     {
