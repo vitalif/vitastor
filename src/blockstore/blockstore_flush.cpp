@@ -251,8 +251,11 @@ resume_1:
         if (wr->type() == BS_HEAP_SMALL_WRITE ||
             wr->type() == BS_HEAP_INTENT_WRITE && bs->dsk.csum_block_size > bs->dsk.bitmap_granularity)
         {
-            bs->prepare_read(read_vec, cur_obj, wr, 0, bs->dsk.data_block_size);
-            copy_count++;
+            auto res = bs->prepare_read(read_vec, cur_obj, wr, 0, bs->dsk.data_block_size,
+                wr->type() == BS_HEAP_INTENT_WRITE && bs->dsk.csum_block_size > bs->dsk.bitmap_granularity && !bs->perfect_csum_update
+                ? COPY_BUF_SKIP_CSUM : 0);
+            if (res > 0)
+                copy_count++;
         }
     });
     if (!compact_info.compact_lsn)
@@ -283,9 +286,9 @@ resume_1:
     flusher->active_flushers++;
     if (bs->log_level > 10)
     {
-        printf("Compacting %jx:%jx v%ju..v%ju / l%ju..l%ju\n", cur_oid.inode, cur_oid.stripe,
+        printf("Compacting %jx:%jx v%ju..v%ju / l%ju..l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe,
             compact_info.clean_wr->version, compact_info.compact_version,
-            compact_info.clean_wr->lsn, compact_info.compact_lsn);
+            compact_info.clean_wr->lsn, compact_info.compact_lsn, copy_count);
     }
     overwrite_start = overwrite_end = 0;
     if (read_vec.size() > 0)
@@ -574,7 +577,7 @@ int journal_flusher_co::check_and_punch_checksums()
 
 bool journal_flusher_co::calc_block_checksums()
 {
-    if (bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity || !read_vec.size())
+    if (bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity)
     {
         return true;
     }

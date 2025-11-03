@@ -96,7 +96,7 @@ bool blockstore_impl_t::intent_write_allowed(blockstore_op_t *op, heap_entry_t *
             }
             has_intent = true;
         }
-        if (wr->type() == BS_HEAP_BIG_WRITE)
+        if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
         {
             return false;
         }

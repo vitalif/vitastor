@@ -17,20 +17,28 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     }
     uint32_t fulfilled = 0;
     PRIV(op)->pending_ops = 0;
+    PRIV(op)->location = 0;
     auto & rv = PRIV(op)->read_vec;
     uint64_t result_version = 0;
     bool found = false;
+    uint32_t skip_csum = 0;
+    uint32_t blk_start = 0, blk_end = 0;
+    bool need_skip = dsk.csum_block_size > dsk.bitmap_granularity && !perfect_csum_update;
+    if (need_skip)
+    {
+        PRIV(op)->location = obj->lsn;
+        blk_start = op->offset - op->offset%dsk.csum_block_size;
+        blk_end = op->offset + op->len;
+        if (blk_end % dsk.csum_block_size)
+            blk_end += dsk.csum_block_size - (blk_end % dsk.csum_block_size);
+    }
     heap->iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *wr, bool stable)
     {
         if (wr->type() == BS_HEAP_DELETE)
         {
             return false;
         }
-        if (op->version < wr->version)
-        {
-            return true;
-        }
-        if (!found)
+        if (op->version >= wr->version && !found)
         {
             found = true;
             result_version = wr->version;
@@ -39,13 +47,28 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
                 memcpy(op->bitmap, wr->get_ext_bitmap(heap), dsk.clean_entry_bitmap_size);
             }
         }
-        fulfilled += prepare_read(PRIV(op)->read_vec, obj, wr, op->offset, op->offset+op->len);
-        if (fulfilled == op->len ||
-            wr->type() == BS_HEAP_BIG_WRITE ||
-            wr->type() == BS_HEAP_BIG_INTENT ||
-            wr->type() == BS_HEAP_DELETE)
+        if (need_skip && wr->lsn < heap->get_completed_lsn() &&
+            (wr->type() == BS_HEAP_BIG_INTENT && wr->big_intent().offset < blk_end && wr->big_intent().offset+wr->big_intent().len > blk_start ||
+            wr->type() == BS_HEAP_INTENT_WRITE && wr->small().offset < blk_end && wr->small().offset+wr->small().len > blk_start))
         {
-            return false;
+            skip_csum = COPY_BUF_SKIP_CSUM;
+        }
+        if (op->version >= wr->version)
+        {
+            fulfilled += prepare_read(PRIV(op)->read_vec, obj, wr, op->offset, op->offset+op->len,
+                wr->type() != BS_HEAP_SMALL_WRITE ? skip_csum : 0);
+            if (fulfilled == op->len ||
+                wr->type() == BS_HEAP_BIG_WRITE ||
+                wr->type() == BS_HEAP_BIG_INTENT ||
+                wr->type() == BS_HEAP_DELETE)
+            {
+                return false;
+            }
+        }
+        if (need_skip && (wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE) &&
+            wr->small().offset < blk_end && wr->small().offset+wr->small().len > blk_start)
+        {
+            skip_csum = COPY_BUF_SKIP_CSUM;
         }
         return true;
     });
@@ -114,20 +137,20 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *op)
     return 1;
 }
 
-uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end)
+uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end, uint32_t skip_csum)
 {
     if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
     {
-        return prepare_read_with_bitmaps(read_vec, obj, wr, start, end);
+        return prepare_read_with_bitmaps(read_vec, obj, wr, start, end, skip_csum);
     }
     if (wr->type() == BS_HEAP_DELETE)
     {
         return prepare_read_zero(read_vec, start, end);
     }
-    return prepare_read_simple(read_vec, obj, wr, start, end);
+    return prepare_read_simple(read_vec, obj, wr, start, end, skip_csum);
 }
 
-uint32_t blockstore_impl_t::prepare_read_with_bitmaps(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end)
+uint32_t blockstore_impl_t::prepare_read_with_bitmaps(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end, uint32_t skip_csum)
 {
     // BIG_WRITEs contain a bitmap and we have to handle its holes
     uint32_t res = 0;
@@ -150,7 +173,7 @@ uint32_t blockstore_impl_t::prepare_read_with_bitmaps(std::vector<copy_buffer_t>
         }
         if (bmp_end > bmp_start)
         {
-            res += prepare_read_simple(read_vec, obj, wr, bmp_start * dsk.bitmap_granularity, bmp_end * dsk.bitmap_granularity);
+            res += prepare_read_simple(read_vec, obj, wr, bmp_start * dsk.bitmap_granularity, bmp_end * dsk.bitmap_granularity, skip_csum);
             bmp_start = bmp_end;
         }
     }
@@ -172,7 +195,7 @@ uint32_t blockstore_impl_t::prepare_read_zero(std::vector<copy_buffer_t> & read_
     return res;
 }
 
-uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end)
+uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end, uint32_t skip_csum)
 {
     uint32_t res = 0;
     if (wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE)
@@ -215,21 +238,6 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
                 blk_start = blk_start < wr->small().offset ? wr->small().offset : blk_start;
                 blk_end = blk_end > wr->small().offset+wr->small().len ? wr->small().offset+wr->small().len : blk_end;
             }
-            uint32_t skip_csum = 0;
-            if (!perfect_csum_update)
-            {
-                if (wr->type() == BS_HEAP_BIG_INTENT && wr == obj &&
-                    wr->big_intent().offset < blk_end && wr->big_intent().offset+wr->big_intent().len > blk_start)
-                {
-                    skip_csum = COPY_BUF_SKIP_CSUM;
-                }
-                else if ((wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT) && wr != obj &&
-                    (obj->type() == BS_HEAP_INTENT_WRITE || obj->type() == BS_HEAP_SMALL_WRITE) &&
-                    obj->small().offset < blk_end && obj->small().offset+obj->small().len > blk_start)
-                {
-                    skip_csum = COPY_BUF_SKIP_CSUM;
-                }
-            }
             if ((blk_end-1)/dsk.csum_block_size == blk_start/dsk.csum_block_size ||
                 blk_end/dsk.csum_block_size == blk_start/dsk.csum_block_size+1 && blk_end != end && blk_start != start ||
                 blk_end == end && blk_start == start)
@@ -267,7 +275,7 @@ void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec,
         {
             big_wr = heap->prev(big_wr);
         }
-        assert(big_wr);
+        assert(big_wr->type() == BS_HEAP_BIG_WRITE || big_wr->type() == BS_HEAP_INTENT_WRITE);
         loc = big_wr->big_location(heap);
     }
     else if (wr->type() == BS_HEAP_SMALL_WRITE)
@@ -386,6 +394,15 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
 
 bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
 {
+    bool skip_all = false;
+    if (PRIV(op)->location)
+    {
+        heap_entry_t *obj = heap->read_entry(op->oid);
+        if (obj->lsn != PRIV(op)->location) // check top lsn
+        {
+            skip_all = true;
+        }
+    }
     auto & rv = PRIV(op)->read_vec;
     for (auto & vec: rv)
     {
@@ -393,7 +410,8 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
             continue;
         if (vec.copy_flags & COPY_BUF_PADDED)
             memcpy(op->buf + vec.offset - op->offset, vec.buf + vec.offset - vec.disk_offset, vec.len);
-        if (vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_SKIP_CSUM))
+        if (vec.copy_flags & (COPY_BUF_COALESCED|COPY_BUF_SKIP_CSUM) ||
+            skip_all && vec.wr->type() != BS_HEAP_SMALL_WRITE)
             continue;
         uint8_t *buf = vec.buf ? vec.buf : (op->buf + vec.offset - op->offset);
         uint32_t *csums = (uint32_t*)(vec.wr->get_checksums(heap)
@@ -404,9 +422,10 @@ bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
             vec.disk_offset, vec.disk_offset+vec.disk_len, false, [&](uint32_t mismatch_pos, uint32_t expected_csum, uint32_t real_csum)
             {
                 printf(
-                    "Checksum mismatch in object %jx:%jx v%ju, offset 0x%x in %s area at offset 0x%jx: %08x expected vs %08x actual\n",
+                    "Checksum mismatch in object %jx:%jx v%ju, offset 0x%x in %s area at offset 0x%jx during read %x+%x: %08x expected vs %08x actual\n",
                     op->oid.inode, op->oid.stripe, op->version, mismatch_pos,
                     (vec.copy_flags & COPY_BUF_JOURNAL) ? "buffer" : "data", vec.disk_loc + vec.disk_offset,
+                    op->offset, op->len,
                     expected_csum, real_csum
                 );
             }))

@@ -48,7 +48,7 @@ struct blockstore_op_private_t
     std::vector<copy_buffer_t> read_vec;
 
     // Write
-    uint64_t location;
+    uint64_t location; // or lsn for read
     uint32_t write_type;
 
     // Stabilize, rollback
@@ -148,10 +148,10 @@ public:
     // Read
     int dequeue_read(blockstore_op_t *op);
     int fulfill_read(blockstore_op_t *op);
-    uint32_t prepare_read(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end);
-    uint32_t prepare_read_with_bitmaps(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end);
+    uint32_t prepare_read(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end, uint32_t skip_csum);
+    uint32_t prepare_read_with_bitmaps(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end, uint32_t skip_csum);
     uint32_t prepare_read_zero(std::vector<copy_buffer_t> & read_vec, uint32_t start, uint32_t end);
-    uint32_t prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end);
+    uint32_t prepare_read_simple(std::vector<copy_buffer_t> & read_vec, heap_entry_t *obj, heap_entry_t *wr, uint32_t start, uint32_t end, uint32_t skip_csum);
     void prepare_disk_read(std::vector<copy_buffer_t> & read_vec, int pos, heap_entry_t *obj, heap_entry_t *wr,
         uint32_t blk_start, uint32_t blk_end, uint32_t start, uint32_t end, uint32_t copy_flags);
     void find_holes(std::vector<copy_buffer_t> & read_vec, uint32_t item_start, uint32_t item_end,
