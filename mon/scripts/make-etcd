@@ -61,7 +61,7 @@ async function run()
     }
     const etcd_url = 'http://' + (etcds[num].indexOf(':') >= 0 ? '['+etcds[num]+']' : etcds[num]);
     const etcd_name = 'etcd'+etcds[num].replace(/[^0-9a-z_]/ig, '_');
-    const etcd_cluster = etcds.map(e => `etcd${e.replace(/[^0-9a-z_]/ig, '_')}=${etcd_url}:2380`).join(',');
+    const etcd_cluster = etcds.map(e => `etcd${e.replace(/[^0-9a-z_]/ig, '_')}=http://${e.indexOf(':') >= 0 ? '['+e+']' : e}:2380`).join(',');
     if (in_docker)
     {
         let etcd_conf = fs.readFileSync("/etc/vitastor/etcd.conf", { encoding: 'utf-8' });
