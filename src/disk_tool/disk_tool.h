@@ -49,6 +49,7 @@ struct disk_tool_t
     bool all = false, json = false, now = false;
     bool dump_with_blocks = false, dump_with_data = false;
     bool dump_as_old = false;
+    bool skip_obsolete = false;
     int log_level = 1;
     blockstore_disk_t dsk;
 
@@ -61,7 +62,6 @@ struct disk_tool_t
 
     /**** State ****/
 
-    uint64_t meta_pos;
     uint64_t journal_pos, journal_calc_data_pos;
 
     uint8_t *buffer_area = NULL;

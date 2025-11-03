@@ -155,6 +155,7 @@ int disk_tool_t::resize_parse_params()
         ? parse_size(options["new_journal_len"]) : dsk.journal_len;
     new_meta_format = options.find("new_meta_format") != options.end()
         ? stoull_full(options["new_meta_format"]) : 0;
+    skip_obsolete = options.find("skip_obsolete") != options.end();
     if (new_data_len+new_data_offset > dsk.data_device_size)
         new_data_len = dsk.data_device_size-new_data_offset;
     if (new_meta_device == dsk.data_device && new_data_offset < new_meta_offset &&
@@ -531,6 +532,7 @@ void disk_tool_t::remap_big_write(heap_entry_t *wr)
     }
     block_num += data_idx_diff;
     wr->big().block_num = block_num;
+    wr->crc32c = wr->calc_crc32c();
 }
 
 void disk_tool_t::remap_small_write(heap_entry_t *wr)
@@ -545,6 +547,7 @@ void disk_tool_t::remap_small_write(heap_entry_t *wr)
         memcpy(new_journal_ptr, buffer_area+wr->small().location, wr->small().len);
         wr->small().location = new_journal_ptr-new_journal_buf;
         new_journal_ptr += wr->small().len;
+        wr->crc32c = wr->calc_crc32c();
     }
 }
 
@@ -613,7 +616,7 @@ int disk_tool_t::resize_rebuild_meta()
     new_meta_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_meta_len);
     memset(new_meta_buf, 0, new_meta_len);
     new_meta_hdr = (blockstore_meta_header_v3_t *)new_meta_buf;
-    meta_pos = dsk.meta_block_size;
+    uint64_t new_meta_pos = dsk.meta_block_size;
     uint64_t next_lsn = 0;
     std::vector<heap_entry_t*> writes;
     int r = process_meta(
@@ -638,14 +641,9 @@ int disk_tool_t::resize_rebuild_meta()
         },
         [&](blockstore_heap_t *heap, heap_entry_t *obj, uint32_t meta_block_num)
         {
-            heap->iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *wr, bool stable)
+            auto handle_write = [&](heap_entry_t *wr, bool stable)
             {
-                if (wr->type() == BS_HEAP_DELETE && stable)
-                {
-                    // Object is deleted, skip it
-                    return false;
-                }
-                else if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
+                if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
                 {
                     remap_big_write(wr);
                 }
@@ -653,7 +651,7 @@ int disk_tool_t::resize_rebuild_meta()
                 {
                     remap_small_write(wr);
                 }
-                else if (new_meta_format != BLOCKSTORE_META_FORMAT_HEAP)
+                else if (wr->type() != BS_HEAP_DELETE && new_meta_format != BLOCKSTORE_META_FORMAT_HEAP)
                 {
                     fprintf(stderr, "Object %jx:%jx can't be converted to the old format because it contains an entry of type 0x%x%s\n",
                         wr->inode, wr->stripe, wr->entry_type,
@@ -663,17 +661,18 @@ int disk_tool_t::resize_rebuild_meta()
                 if (new_meta_format == BLOCKSTORE_META_FORMAT_HEAP)
                 {
                     // New -> New
-                    if ((meta_pos % dsk.meta_block_size) + wr->size > dsk.meta_block_size)
+                    if ((new_meta_pos % dsk.meta_block_size) + wr->size > dsk.meta_block_size)
                     {
-                        meta_pos = (meta_pos % dsk.meta_block_size) + dsk.meta_block_size;
-                        if (meta_pos >= new_meta_len)
+                        new_meta_pos = (new_meta_pos/dsk.meta_block_size + 1) * dsk.meta_block_size;
+                        if (new_meta_pos >= new_meta_len)
                         {
                             fprintf(stderr, "New metadata doesn't fit into the provided area\n");
                             exit(1);
                         }
                     }
-                    memcpy(new_meta_buf + meta_pos, wr, wr->size);
-                    if (wr->type() == BS_HEAP_BIG_WRITE && stable)
+                    memcpy(new_meta_buf + new_meta_pos, wr, wr->size);
+                    new_meta_pos += wr->size;
+                    if (skip_obsolete && wr->type() == BS_HEAP_BIG_WRITE && stable)
                     {
                         // Skip older writes
                         return false;
@@ -682,6 +681,11 @@ int disk_tool_t::resize_rebuild_meta()
                 else
                 {
                     // New -> Old
+                    if (wr->type() == BS_HEAP_DELETE && stable)
+                    {
+                        // Object is deleted, skip it
+                        return false;
+                    }
                     if (wr->type() == BS_HEAP_BIG_WRITE && stable)
                     {
                         fill_old_clean_entry(heap, wr);
@@ -693,7 +697,18 @@ int disk_tool_t::resize_rebuild_meta()
                     }
                 }
                 return true;
-            });
+            };
+            if (new_meta_format != BLOCKSTORE_META_FORMAT_HEAP || skip_obsolete)
+            {
+                heap->iterate_with_stable(obj, obj->lsn, handle_write);
+            }
+            else
+            {
+                for (auto wr = obj; wr; wr = heap->prev(wr))
+                {
+                    handle_write(wr, false);
+                }
+            }
             if (writes.size())
             {
                 for (size_t i = writes.size(); i > 0; i--)
@@ -719,16 +734,16 @@ int disk_tool_t::resize_rebuild_meta()
                 // Old -> New
                 auto big_entry_size = sizeof(heap_big_write_t) + dsk.clean_entry_bitmap_size*2 +
                     (!dsk.data_csum_type ? 0 : dsk.data_block_size/dsk.csum_block_size * (dsk.data_csum_type & 0xFF));
-                if ((meta_pos % dsk.meta_block_size) + big_entry_size > dsk.meta_block_size)
+                if ((new_meta_pos % dsk.meta_block_size) + big_entry_size > dsk.meta_block_size)
                 {
-                    meta_pos = (meta_pos % dsk.meta_block_size) + dsk.meta_block_size;
-                    if (meta_pos >= new_meta_len)
+                    new_meta_pos = (new_meta_pos % dsk.meta_block_size) + dsk.meta_block_size;
+                    if (new_meta_pos >= new_meta_len)
                     {
                         fprintf(stderr, "New metadata doesn't fit into the provided area\n");
                         exit(1);
                     }
                 }
-                heap_entry_t *wr = (heap_entry_t*)(new_meta_buf + meta_pos);
+                heap_entry_t *wr = (heap_entry_t*)(new_meta_buf + new_meta_pos);
                 wr->size = big_entry_size;
                 wr->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
                 wr->inode = entry->oid.inode;
@@ -743,6 +758,7 @@ int disk_tool_t::resize_rebuild_meta()
                     memcpy(((uint8_t*)wr) + sizeof(heap_big_write_t) + 2*new_clean_entry_bitmap_size, bitmap+2*new_clean_entry_bitmap_size, new_data_csum_size);
                 }
                 wr->crc32c = wr->calc_crc32c();
+                new_meta_pos += wr->size;
             }
             else
             {
