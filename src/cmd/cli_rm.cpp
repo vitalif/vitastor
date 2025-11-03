@@ -97,8 +97,6 @@ struct snap_remover_t
             goto resume_8;
         else if (state == 9)
             goto resume_9;
-        else if (state == 10)
-            goto resume_10;
         else if (state == 100)
             goto resume_100;
         assert(!state);
@@ -157,11 +155,6 @@ resume_3:
 resume_4:
             while (!wait_result(4))
                 return;
-            // Mark child as deleted
-            start_mark_deleted(inverse_child);
-resume_9:
-            while (!wait_result(9))
-                return;
             // Delete "inverse" child data
             start_delete_source(inverse_child);
 resume_5:
@@ -190,8 +183,8 @@ resume_6:
             }
             // Mark child as deleted
             start_mark_deleted(chain_list[current_child]);
-resume_10:
-            while (!wait_result(10))
+resume_9:
+            while (!wait_result(9))
                 return;
             start_delete_source(chain_list[current_child]);
 resume_7:
@@ -456,6 +449,7 @@ resume_100:
         );
         // Fill new configuration
         inode_config_t new_cfg = *child_cfg;
+        new_cfg.deleted = false;
         new_cfg.num = target_cfg->num;
         new_cfg.parent_id = new_parent;
         json11::Json::array cmp = json11::Json::array {
