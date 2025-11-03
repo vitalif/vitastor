@@ -136,14 +136,25 @@ struct heap_compact_t
     bool do_delete;
 };
 
-struct heap_idx_t
+struct heap_li_hash
 {
-    heap_list_item_t *ptr;
+    size_t operator()(const heap_list_item_t* li) const noexcept
+    {
+        return robin_hood::hash_int(li->entry.stripe);
+    }
+};
+
+struct heap_li_equal
+{
+    constexpr bool operator()(const heap_list_item_t* a, const heap_list_item_t* b) const noexcept
+    {
+        return a->entry.stripe == b->entry.stripe;
+    }
 };
 
 using i64hash_t = robin_hood::hash<uint64_t>;
 using heap_block_index_t = robin_hood::unordered_flat_map<uint64_t,
-    robin_hood::unordered_flat_map<inode_t, robin_hood::unordered_flat_map<uint64_t, heap_idx_t, i64hash_t, std::equal_to<uint64_t>, 88>, i64hash_t>, i64hash_t>;
+    robin_hood::unordered_flat_map<inode_t, robin_hood::unordered_flat_set<heap_list_item_t*, heap_li_hash, heap_li_equal, 88>, i64hash_t>, i64hash_t>;
 using heap_mvcc_map_t = robin_hood::unordered_flat_map<object_id, heap_object_mvcc_t>;
 
 class blockstore_heap_t
@@ -200,7 +211,7 @@ class blockstore_heap_t
     void defragment_block(uint32_t block_num);
 
     int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free);
-    void insert_list_item(heap_idx_t & idx, heap_list_item_t *li);
+    void insert_list_item(heap_list_item_t *li);
     int add_entry(uint32_t wr_size, uint32_t *modified_block, bool allow_last_free,
         std::function<void(heap_entry_t *wr)> fill_entry);
     int add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type);

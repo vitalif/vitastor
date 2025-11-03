@@ -29,6 +29,11 @@ static inline heap_list_item_t *list_item(heap_entry_t *wr)
     return (heap_list_item_t*)((uint8_t*)wr - offsetof(struct heap_list_item_t, entry));
 }
 
+static inline heap_list_item_t *list_item_key(uint64_t *stripe)
+{
+    return (heap_list_item_t*)((uint8_t*)stripe - offsetof(struct heap_list_item_t, entry) - offsetof(struct heap_entry_t, stripe));
+}
+
 heap_entry_t *blockstore_heap_t::prev(heap_entry_t *wr)
 {
     auto li = list_item(wr);
@@ -371,9 +376,7 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
             next_lsn = wr->lsn;
         }
         entries_loaded++;
-        auto & inode_idx = block_index[get_pg_id(wr->inode, wr->stripe)][wr->inode];
-        auto & idx = inode_idx[wr->stripe];
-        insert_list_item(idx, li);
+        insert_list_item(li);
         modify_alloc(block_num, [&](heap_block_info_t & inf)
         {
             if (!inf.entries.size())
@@ -480,9 +483,9 @@ void blockstore_heap_t::fill_recheck_queue()
     {
         for (auto & ip: pgp.second)
         {
-            for (auto & op: ip.second)
+            for (auto li: ip.second)
             {
-                auto obj = &op.second.ptr->entry;
+                auto obj = &li->entry;
                 // Add object to recheck queue
                 if (obj->type() == BS_HEAP_INTENT_WRITE || obj->type() == BS_HEAP_BIG_INTENT)
                 {
@@ -515,10 +518,9 @@ int blockstore_heap_t::mark_used_blocks()
     {
         for (auto & ip: pgp.second)
         {
-            for (auto & op: ip.second)
+            for (auto li: ip.second)
             {
                 bool added = false;
-                auto li = op.second.ptr;
                 auto wr = &li->entry;
                 if (!validate_object(wr))
                 {
@@ -604,7 +606,8 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
     {
         // write entry is invalid, erase it and mark newer entries with garbage bit
         auto & inode_idx = block_index[get_pg_id(cwr->inode, cwr->stripe)][cwr->inode];
-        auto li = inode_idx[cwr->stripe].ptr;
+        auto li_it = inode_idx.find(list_item(cwr));
+        auto li = li_it != inode_idx.end() ? *li_it : NULL;
         int rolled_back = 1;
         while (li && cwr != &li->entry)
         {
@@ -616,18 +619,20 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
             rolled_back++;
         }
         assert(li);
+        inode_idx.erase(li_it);
         if (li->prev)
         {
             fprintf(stderr, "Notice: %u unfinished writes to %jx:%jx v%jx since lsn %ju, rolling back\n",
                 rolled_back, cwr->inode, cwr->stripe, li->prev->entry.version, li->prev->entry.lsn);
-            inode_idx[cwr->stripe].ptr = li->prev;
+            inode_idx.insert(li->prev);
             li->prev->next = NULL;
         }
         else
         {
             fprintf(stderr, "Notice: the whole object %jx:%jx only has unfinished writes, rolling back\n",
                 cwr->inode, cwr->stripe);
-            inode_idx.erase(cwr->stripe);
+            if (!inode_idx.size())
+                block_index[get_pg_id(cwr->inode, cwr->stripe)].erase(cwr->inode);
         }
         free_entry(li);
     }
@@ -905,13 +910,12 @@ void blockstore_heap_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_s
         }
         for (auto & inode_pair: sh_it->second)
         {
-            inode_t inode = inode_pair.first;
-            for (auto & pair: inode_pair.second)
+            for (auto li: inode_pair.second)
             {
                 // like map_to_pg()
-                uint64_t pg_num = (pair.first / pg_stripe_size) % pg_count + 1;
+                uint64_t pg_num = (li->entry.stripe / pg_stripe_size) % pg_count + 1;
                 uint64_t shard_id = (pool_id << (64-POOL_ID_BITS)) | pg_num;
-                new_shards[shard_id][inode][pair.first] = std::move(pair.second);
+                new_shards[shard_id][li->entry.inode].insert(li);
             }
         }
         block_index.erase(sh_it);
@@ -982,18 +986,15 @@ bool blockstore_heap_t::unlock_entry(object_id oid)
 heap_entry_t *blockstore_heap_t::read_entry(object_id oid)
 {
     auto pool_pg_id = get_pg_id(oid.inode, oid.stripe);
-    auto & pg_index = block_index[pool_pg_id];
-    auto inode_it = pg_index.find(oid.inode);
-    if (inode_it == pg_index.end())
-    {
+    auto & pg_idx = block_index[pool_pg_id];
+    auto inode_it = pg_idx.find(oid.inode);
+    if (inode_it == pg_idx.end())
         return NULL;
-    }
-    auto stripe_it = inode_it->second.find(oid.stripe);
-    if (stripe_it == inode_it->second.end())
-    {
+    auto stripe = oid.stripe;
+    auto li_it = inode_it->second.find(list_item_key(&stripe));
+    if (li_it == inode_it->second.end())
         return NULL;
-    }
-    return &stripe_it->second.ptr->entry;
+    return &(*li_it)->entry;
 }
 
 int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free)
@@ -1095,9 +1096,11 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
     return 0;
 }
 
-void blockstore_heap_t::insert_list_item(heap_idx_t & idx, heap_list_item_t *li)
+void blockstore_heap_t::insert_list_item(heap_list_item_t *li)
 {
-    auto old_head = idx.ptr;
+    auto & inode_idx = block_index[get_pg_id(li->entry.inode, li->entry.stripe)][li->entry.inode];
+    auto li_it = inode_idx.find(li);
+    heap_list_item_t *old_head = li_it != inode_idx.end() ? *li_it : NULL;
     if (old_head && !old_head->entry.is_before(&li->entry))
     {
         // BIG_WRITE may be inserted into the middle of the sequence during compaction
@@ -1119,11 +1122,15 @@ void blockstore_heap_t::insert_list_item(heap_idx_t & idx, heap_list_item_t *li)
     }
     else
     {
-        li->prev = idx.ptr;
+        li->prev = old_head;
         li->next = NULL;
-        if (idx.ptr)
-            idx.ptr->next = li;
-        idx.ptr = li;
+        if (old_head)
+        {
+            old_head->next = li;
+            *li_it = li;
+        }
+        else
+            inode_idx.insert(li);
     }
 }
 
@@ -1152,12 +1159,10 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
     inf.mod_lsn = inf.mod_lsn ? inf.mod_lsn : next_lsn;
     inf.mod_lsn_to = next_lsn;
     // Remember the object as dirty and remove older entries when this block is written and fsynced
-    auto oid = (object_id){ .inode = new_wr->inode, .stripe = new_wr->stripe };
     push_inflight_lsn(next_lsn, new_wr,
         (new_wr->is_overwrite() ? HEAP_INFLIGHT_COMPACTED : 0) |
         (new_wr->is_compactable() ? HEAP_INFLIGHT_COMPACTABLE : 0));
-    auto & idx = block_index[get_pg_id(oid.inode, oid.stripe)][oid.inode][oid.stripe];
-    insert_list_item(idx, li);
+    insert_list_item(li);
     li->block_num = block_num;
     new_wr->size = wr_size;
     new_wr->crc32c = new_wr->calc_crc32c();
@@ -1703,9 +1708,8 @@ void blockstore_heap_t::iterate_objects(std::function<void(heap_entry_t*, uint32
     {
         for (auto & ip: pgp.second)
         {
-            for (auto & op: ip.second)
+            for (auto li: ip.second)
             {
-                auto li = op.second.ptr;
                 cb(&li->entry, li->block_num);
             }
         }
@@ -1739,15 +1743,14 @@ int blockstore_heap_t::list_objects(uint32_t pg_num, object_id min_oid, object_i
         {
             continue;
         }
-        for (auto & stripe_pair: inode_it->second)
+        for (auto & li: inode_it->second)
         {
-            auto oid = (object_id){ .inode = inode_it->first, .stripe = stripe_pair.first };
+            heap_entry_t *obj = &li->entry;
+            auto oid = (object_id){ .inode = obj->inode, .stripe = obj->stripe };
             if (oid < min_oid || max_oid < oid)
             {
                 continue;
             }
-            heap_entry_t *obj = &stripe_pair.second.ptr->entry;
-            assert(obj->inode == oid.inode && obj->stripe == oid.stripe);
             uint64_t stable_version = 0;
             auto first_wr = obj;
             for (auto wr = first_wr; wr; wr = prev(wr))
@@ -2010,8 +2013,9 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
     else if (inflight.flags & HEAP_INFLIGHT_GC)
     {
         // Remove entry
-        auto prev = list_item(wr)->prev;
-        auto next = list_item(wr)->next;
+        auto li = list_item(wr);
+        auto prev = li->prev;
+        auto next = li->next;
         if (prev)
         {
             prev->next = next;
@@ -2019,7 +2023,11 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
         if (!next)
         {
             assert(!prev);
-            block_index[get_pg_id(wr->inode, wr->stripe)][wr->inode].erase(wr->stripe);
+            auto & pg_idx = block_index[get_pg_id(wr->inode, wr->stripe)];
+            auto & inode_idx = pg_idx[wr->inode];
+            inode_idx.erase(li);
+            if (!inode_idx.size())
+                pg_idx.erase(wr->inode);
         }
         else
         {
@@ -2030,7 +2038,7 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
                 mark_garbage(next->block_num, &next->entry, UINT32_MAX);
             }
         }
-        free(list_item(wr));
+        free(li);
     }
 }
 
