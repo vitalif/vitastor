@@ -44,7 +44,12 @@ curl -s https://git.yourcmc.ru/vitalif/antietcd/archive/master.tar.gz | tar -zx
 curl -s https://git.yourcmc.ru/vitalif/tinyraft/archive/master.tar.gz | tar -zx
 
 cd /root/vitastor/packages/vitastor-$REL
-tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_$VER.orig.tar.xz vitastor-$VER
+if [[ "$REL" = "trixie" && -e ../vitastor-bookworm/vitastor_$VER.orig.tar.xz ]]; then
+    # Fucking shit, archives differ between bookworm (xz 5.4.1) and trixie (xz 5.8.1)
+    cp ../vitastor-bookworm/vitastor_$VER.orig.tar.xz .
+else
+    tar --sort=name --mtime='2020-01-01' --owner=0 --group=0 --exclude=debian -cJf vitastor_$VER.orig.tar.xz vitastor-$VER
+fi
 cd vitastor-$VER
 DEBEMAIL="Vitaliy Filippov <vitalif@yourcmc.ru>" dch -D $REL -v "$FULLVER""$REL" "Rebuild for $REL"
 DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage --jobs=auto -sa
