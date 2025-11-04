@@ -76,7 +76,6 @@ resume_2:
             goto resume_1;
         }
     }
-    unsynced_meta_write_count++;
     // Fsync, just because our semantics imply that commit (stabilize) is immediately fsynced
     priv->op_state = 3;
 resume_3:

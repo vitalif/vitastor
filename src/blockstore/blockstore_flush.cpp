@@ -186,7 +186,7 @@ resume_18:
             return false;
     }
     if (res == ENOENT && flusher->force_start > 0 && co_id == 0 &&
-        (!bs->dsk.disable_journal_fsync || !bs->dsk.disable_meta_fsync))
+        (!bs->dsk.disable_journal_fsync || !bs->dsk.disable_meta_fsync || !bs->dsk.disable_data_fsync))
     {
         flusher->active_flushers++;
 resume_14:
@@ -723,8 +723,7 @@ bool journal_flusher_co::fsync_buffer(int wait_base)
     if (wait_state == wait_base)        goto resume_0;
     else if (wait_state == wait_base+1) goto resume_1;
     else if (wait_state == wait_base+2) goto resume_2;
-    if (bs->dsk.disable_journal_fsync && bs->dsk.disable_meta_fsync && bs->dsk.disable_data_fsync ||
-        !bs->unsynced_data_write_count && !bs->unsynced_small_write_count && !bs->unsynced_meta_write_count)
+    if (!bs->has_unsynced())
     {
         return true;
     }

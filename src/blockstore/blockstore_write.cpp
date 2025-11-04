@@ -36,6 +36,7 @@ void blockstore_impl_t::prepare_meta_block_write(uint32_t modified_block)
     io_uring_prep_writev(
         sqe, dsk.meta_fd, &data->iov, 1, dsk.meta_offset + (modified_block+1)*dsk.meta_block_size
     );
+    unsynced_meta_write_count++;
     pending_modified_blocks.push_back(modified_block);
     modified_blocks[modified_block] = { .sent = false, .buf = buf };
 }
@@ -421,10 +422,8 @@ resume_8:
         PRIV(op)->write_type == BS_HEAP_BIG_INTENT ||
         PRIV(op)->write_type == BS_HEAP_INTENT_WRITE)
         unsynced_data_write_count++;
-    else if (PRIV(op)->write_type == BS_HEAP_DELETE)
-        unsynced_meta_write_count++;
-    else
-        unsynced_small_write_count++;
+    else if (PRIV(op)->write_type != BS_HEAP_DELETE)
+        unsynced_buffer_write_count++;
     write_iodepth--;
     FINISH_OP(op);
     return 2;

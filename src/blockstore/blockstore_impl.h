@@ -106,7 +106,7 @@ public:
     uint8_t* meta_superblock = NULL;
     uint8_t *buffer_area = NULL;
     std::vector<blockstore_op_t*> submit_queue;
-    int unsynced_data_write_count = 0, unsynced_small_write_count = 0, unsynced_meta_write_count = 0;
+    int unsynced_data_write_count = 0, unsynced_buffer_write_count = 0, unsynced_meta_write_count = 0;
     int unsynced_queued_ops = 0;
     uint8_t *zero_object = NULL;
 
@@ -173,6 +173,7 @@ public:
     int continue_sync(blockstore_op_t *op);
     bool submit_fsyncs(int & wait_count);
     int do_sync(blockstore_op_t *op, int base_state);
+    bool has_unsynced();
 
     // Stabilize
     int dequeue_stable(blockstore_op_t *op);

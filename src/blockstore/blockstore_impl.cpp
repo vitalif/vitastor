@@ -222,7 +222,7 @@ bool blockstore_impl_t::is_safe_to_stop()
     {
         return false;
     }
-    if (unsynced_data_write_count > 0 || unsynced_small_write_count > 0 || unsynced_meta_write_count > 0)
+    if (has_unsynced())
     {
         if (!readonly && !stop_sync_submitted)
         {
