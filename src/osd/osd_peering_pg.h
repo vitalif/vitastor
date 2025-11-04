@@ -4,6 +4,7 @@
 #include <map>
 #include <vector>
 #include <algorithm>
+#include <stdint.h>
 
 #include "cpp-btree/btree_map.h"
 
