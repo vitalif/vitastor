@@ -551,10 +551,22 @@ int blockstore_heap_t::mark_used_blocks()
                     }
                     if (wr->type() == BS_HEAP_SMALL_WRITE)
                     {
+                        if (!is_buffer_area_free(wr->small().location, wr->small().len))
+                        {
+                            fprintf(stderr, "Error: double-claimed %u bytes in buffer area at %ju, second time by %jx:%jx l%ju\n",
+                                wr->small().len, wr->small().location, wr->inode, wr->stripe, wr->lsn);
+                            return EDOM;
+                        }
                         use_buffer_area(wr->inode, wr->small().location, wr->small().len);
                     }
                     else if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
                     {
+                        if (is_data_used(wr->big_location(this)))
+                        {
+                            fprintf(stderr, "Error: double-claimed data block %u, second time by %jx:%jx l%ju\n",
+                                wr->big().block_num, wr->inode, wr->stripe, wr->lsn);
+                            return EDOM;
+                        }
                         use_data(wr->inode, wr->big_location(this));
                     }
                     if (wr->is_compactable() && !added)
