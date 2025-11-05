@@ -285,6 +285,10 @@ resume_6:
     }, bs->meta_write_recheck_parallelism);
     return 1;
 resume_7:
+    if (bs->heap->finish_load() != 0)
+    {
+        exit(1);
+    }
     recheck_mod = bs->heap->get_recheck_modified_blocks();
     if (bs->readonly)
     {
@@ -325,10 +329,6 @@ resume_9:
         bs->ringloop->submit();
         wait_state = 9;
         return 1;
-    }
-    if (bs->heap->finish_load() != 0)
-    {
-        exit(1);
     }
     free(metadata_buffer);
     metadata_buffer = NULL;

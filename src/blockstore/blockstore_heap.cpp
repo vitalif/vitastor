@@ -634,8 +634,8 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
         inode_idx.erase(li_it);
         if (li->prev)
         {
-            fprintf(stderr, "Notice: %u unfinished writes to %jx:%jx v%jx since lsn %ju, rolling back\n",
-                rolled_back, cwr->inode, cwr->stripe, li->prev->entry.version, li->prev->entry.lsn);
+            fprintf(stderr, "Notice: %u unfinished %s to %jx:%jx v%ju since lsn %ju, rolling back\n",
+                rolled_back, rolled_back > 1 ? "writes" : "write", cwr->inode, cwr->stripe, li->prev->entry.version, li->entry.lsn);
             inode_idx.insert(li->prev);
             li->prev->next = NULL;
         }
@@ -709,8 +709,8 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
         }
         if (log_level > 5)
         {
-            fprintf(stderr, "Notice: rechecking %u bytes at %ju in %s area (lsn %ju)\n",
-                len, loc, from_data ? "data" : "buffer", wr->lsn);
+            fprintf(stderr, "Notice: rechecking %jx:%jx l%ju - %u bytes at %ju in %s area\n",
+                wr->inode, wr->stripe, wr->lsn, len, loc, from_data ? "data" : "buffer");
         }
         if (!from_data && buffer_area)
         {
@@ -2046,7 +2046,7 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
             next->prev = prev;
             if (!prev && next->entry.entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
             {
-                // free BS_HEAP_DELETEs when their refcount becomes 1
+                // free BS_HEAP_DELETEs when all previous entries are also freed
                 mark_garbage(next->block_num, &next->entry, UINT32_MAX);
             }
         }
