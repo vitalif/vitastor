@@ -73,10 +73,13 @@ void _test_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t
 }
 
 int _test_do_small_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version,
-    uint32_t offset, uint32_t len, uint64_t location, bool stable, uint8_t *data, bool is_intent = false, uint32_t *mblock = NULL)
+    uint32_t offset, uint32_t len, uint64_t location, bool stable, uint8_t *data, bool is_intent = false, uint32_t *mblock = NULL, heap_entry_t **obj = NULL)
 {
     object_id oid = { .inode = INODE_WITH_POOL(1, inode), .stripe = stripe };
-    heap_entry_t *obj = heap.read_entry(oid);
+    heap_entry_t *local_obj;
+    if (!obj)
+        obj = &local_obj;
+    *obj = heap.read_entry(oid);
     uint16_t type = (is_intent ? BS_HEAP_INTENT_WRITE : BS_HEAP_SMALL_WRITE) | (stable ? BS_HEAP_STABLE : 0);
     uint8_t ext_bitmap[dsk.clean_entry_bitmap_size];
     memset(ext_bitmap, 0xff, dsk.clean_entry_bitmap_size);
@@ -90,13 +93,15 @@ void _test_small_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64
     if (!is_intent)
         heap.use_buffer_area(INODE_WITH_POOL(1, inode), location, len); // blocks are allocated before write and outside the heap_t
     uint32_t mblock = 999999;
-    int res = _test_do_small_write(heap, dsk, inode, stripe, version, offset, len, location, stable, data, is_intent, &mblock);
+    heap_entry_t *obj = NULL;
+    int res = _test_do_small_write(heap, dsk, inode, stripe, version, offset, len, location, stable, data, is_intent, &mblock, &obj);
     assert(res == 0);
     if (!is_intent)
         assert(!heap.is_buffer_area_free(location, len));
     assert(mblock == expected_mblock || expected_mblock == UINT32_MAX);
     heap.start_block_write(mblock);
     heap.complete_block_write(mblock);
+    heap.complete_lsn_write(obj->lsn);
 }
 
 void _test_init(blockstore_disk_t & dsk, bool csum, std::function<void(std::map<std::string, std::string> &)> cfg_cb = NULL)
@@ -1233,6 +1238,8 @@ void test_intent_write(bool csum)
 
     printf("OK test_intent_write %s\n", csum ? "csum" : "no_csum");
 }
+
+// FIXME: Add a test for big_intent, incl. explicit_complete with big_intent over big_write over deletion over big_write :)
 
 int main(int narg, char *args[])
 {

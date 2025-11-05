@@ -213,7 +213,7 @@ class blockstore_heap_t
     int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free);
     void insert_list_item(heap_list_item_t *li);
     int add_entry(uint32_t wr_size, uint32_t *modified_block, bool allow_last_free,
-        std::function<void(heap_entry_t *wr)> fill_entry);
+        bool explicit_complete, std::function<void(heap_entry_t *wr)> fill_entry);
     int add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type);
     uint32_t meta_alloc_pos(const heap_block_info_t & inf);
     void modify_alloc(uint32_t block_num, std::function<void(heap_block_info_t &)> change_cb);
@@ -260,13 +260,13 @@ public:
         bool set, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);
     // adds a small_write or intent_write entry to an object
     // return 0 if OK, or maybe ENOSPC
-    int add_small_write(object_id oid, heap_entry_t *old_head, uint16_t type, uint64_t version,
+    int add_small_write(object_id oid, heap_entry_t **obj_ptr, uint16_t type, uint64_t version,
         uint32_t offset, uint32_t len, uint64_t location, uint8_t *bitmap, uint8_t *data, uint32_t *modified_block);
     // adds a big_write (overwrite) entry to an object
     int add_big_write(object_id oid, heap_entry_t *old_head, bool stable, uint64_t version,
         uint32_t offset, uint32_t len, uint64_t location, uint8_t *bitmap, uint8_t *data, uint32_t *modified_block);
     // adds a big_intent (atomic partial modification) entry to an object
-    int add_big_intent(object_id oid, heap_entry_t *old_head, uint64_t version,
+    int add_big_intent(object_id oid, heap_entry_t **obj_ptr, uint64_t version,
         uint32_t offset, uint32_t len, uint8_t *bitmap, uint8_t *data, uint8_t *checksums, uint32_t *modified_block);
     // adds a compacted up to <version> entry to an object
     int add_compact(heap_entry_t *obj, uint64_t compact_version, uint64_t compact_lsn, uint64_t compact_location,
@@ -299,6 +299,7 @@ public:
     // inflight write tracking
     void start_block_write(uint32_t block_num);
     void complete_block_write(uint32_t block_num);
+    void complete_lsn_write(uint64_t lsn);
     uint64_t get_completed_lsn();
     uint64_t get_fsynced_lsn();
     void mark_lsn_fsynced(uint64_t lsn);

@@ -17,7 +17,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     }
     uint32_t fulfilled = 0;
     PRIV(op)->pending_ops = 0;
-    PRIV(op)->location = 0;
+    PRIV(op)->lsn = 0;
     auto & rv = PRIV(op)->read_vec;
     uint64_t result_version = 0;
     bool found = false;
@@ -26,7 +26,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     bool need_skip = dsk.csum_block_size > dsk.bitmap_granularity && !perfect_csum_update;
     if (need_skip)
     {
-        PRIV(op)->location = obj->lsn;
+        PRIV(op)->lsn = obj->lsn;
         blk_start = op->offset - op->offset%dsk.csum_block_size;
         blk_end = op->offset + op->len;
         if (blk_end % dsk.csum_block_size)
@@ -395,10 +395,10 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
 bool blockstore_impl_t::verify_read_checksums(blockstore_op_t *op)
 {
     bool skip_all = false;
-    if (PRIV(op)->location)
+    if (PRIV(op)->lsn)
     {
         heap_entry_t *obj = heap->read_entry(op->oid);
-        if (obj->lsn != PRIV(op)->location) // check top lsn
+        if (obj->lsn != PRIV(op)->lsn) // check top lsn
         {
             skip_all = true;
         }

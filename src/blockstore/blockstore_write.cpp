@@ -211,8 +211,12 @@ enospc:
             // FIXME: Support RMW mode for csum_block_size > bitmap_granularity
             PRIV(op)->write_type = BS_HEAP_BIG_INTENT;
             PRIV(op)->location = obj->big_location(heap);
-            res = heap->add_big_intent(op->oid, obj, op->version, op->offset, op->len, op->bitmap,
+            res = heap->add_big_intent(op->oid, &obj, op->version, op->offset, op->len, op->bitmap,
                 (uint8_t*)op->buf, NULL, &PRIV(op)->modified_block);
+            if (res == ENOSPC)
+                goto enospc;
+            assert(res == 0);
+            PRIV(op)->lsn = obj->lsn;
         }
         else
         {
@@ -224,12 +228,13 @@ enospc:
             }
             assert(wr && (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT));
             PRIV(op)->location = wr->big_location(heap);
-            res = heap->add_small_write(op->oid, obj, (BS_HEAP_INTENT_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
+            res = heap->add_small_write(op->oid, &obj, (BS_HEAP_INTENT_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
                 op->version, op->offset, op->len, 0, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
+            if (res == ENOSPC)
+                goto enospc;
+            assert(res == 0);
+            PRIV(op)->lsn = obj->lsn;
         }
-        if (res == ENOSPC)
-            goto enospc;
-        assert(res == 0);
         prepare_meta_block_write(PRIV(op)->modified_block);
         intent_write_counter++;
         PRIV(op)->pending_ops++;
@@ -251,11 +256,12 @@ enospc:
         }
         // There is sufficient space. Check SQE(s)
         BS_SUBMIT_CHECK_SQES(1 + (op->len > 0 ? 1 : 0));
-        int res = heap->add_small_write(op->oid, obj, (BS_HEAP_SMALL_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
+        int res = heap->add_small_write(op->oid, &obj, (BS_HEAP_SMALL_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
             op->version, op->offset, op->len, loc, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
         if (res == ENOSPC)
             goto enospc;
         assert(res == 0);
+        PRIV(op)->lsn = obj->lsn;
         if (op->len)
             heap->use_buffer_area(op->oid.inode, loc, op->len);
         prepare_meta_block_write(PRIV(op)->modified_block);
@@ -418,6 +424,10 @@ resume_8:
     printf("Ack write %jx:%jx v%ju\n", op->oid.inode, op->oid.stripe, op->version);
 #endif
     op->retval = op->len;
+    if (PRIV(op)->write_type == BS_HEAP_BIG_INTENT ||
+        PRIV(op)->write_type == BS_HEAP_INTENT_WRITE ||
+        PRIV(op)->write_type == BS_HEAP_SMALL_WRITE)
+        heap->complete_lsn_write(PRIV(op)->lsn);
     if (PRIV(op)->write_type == BS_HEAP_BIG_WRITE ||
         PRIV(op)->write_type == BS_HEAP_BIG_INTENT ||
         PRIV(op)->write_type == BS_HEAP_INTENT_WRITE)

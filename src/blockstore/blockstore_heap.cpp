@@ -23,6 +23,7 @@
 #define HEAP_INFLIGHT_COMPACTABLE 2
 #define HEAP_INFLIGHT_COMPACTED 4
 #define HEAP_INFLIGHT_GC 8
+#define HEAP_INFLIGHT_EXPLICIT 16
 
 static inline heap_list_item_t *list_item(heap_entry_t *wr)
 {
@@ -697,7 +698,7 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
         else if (wr->type() == BS_HEAP_BIG_INTENT)
         {
             auto & bi = wr->big_intent();
-            loc = bi.block_num * dsk->data_block_size + bi.offset;
+            loc = (uint64_t)bi.block_num * dsk->data_block_size + bi.offset;
             len = bi.len;
             from_data = true;
         }
@@ -1147,7 +1148,7 @@ void blockstore_heap_t::insert_list_item(heap_list_item_t *li)
 }
 
 int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
-    bool allow_last_free, std::function<void(heap_entry_t *wr)> fill_entry)
+    bool allow_last_free, bool explicit_complete, std::function<void(heap_entry_t *wr)> fill_entry)
 {
     uint32_t block_num;
     int res = allocate_entry(wr_size, &block_num, allow_last_free);
@@ -1172,6 +1173,7 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
     inf.mod_lsn_to = next_lsn;
     // Remember the object as dirty and remove older entries when this block is written and fsynced
     push_inflight_lsn(next_lsn, new_wr,
+        (explicit_complete ? HEAP_INFLIGHT_EXPLICIT : 0) |
         (new_wr->is_overwrite() ? HEAP_INFLIGHT_COMPACTED : 0) |
         (new_wr->is_compactable() ? HEAP_INFLIGHT_COMPACTABLE : 0));
     insert_list_item(li);
@@ -1183,17 +1185,19 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
 
 // 1st step: post a write
 
-int blockstore_heap_t::add_small_write(object_id oid, heap_entry_t *old_head, uint16_t type, uint64_t version,
+int blockstore_heap_t::add_small_write(object_id oid, heap_entry_t **obj_ptr, uint16_t type, uint64_t version,
     uint32_t offset, uint32_t len, uint64_t location, uint8_t *bitmap, uint8_t *data, uint32_t *modified_block)
 {
-    if (!old_head || old_head->type() == BS_HEAP_DELETE || old_head->version > version ||
+    auto obj = *obj_ptr;
+    if (!obj || obj->type() == BS_HEAP_DELETE || obj->version > version ||
         type != (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) && type != BS_HEAP_SMALL_WRITE && type != (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) ||
-        (type & BS_HEAP_STABLE) && !(old_head->entry_type & BS_HEAP_STABLE))
+        (type & BS_HEAP_STABLE) && !(obj->entry_type & BS_HEAP_STABLE))
     {
         return EINVAL;
     }
     uint32_t wr_size = get_small_entry_size(offset, len);
-    return add_entry(wr_size, modified_block, false, [&](heap_entry_t *wr)
+    // Small writes are written in parallel with buffered data so they require explicit_complete
+    return add_entry(wr_size, modified_block, false, true, [&](heap_entry_t *wr)
     {
         wr->entry_type = type;
         wr->inode = oid.inode;
@@ -1204,11 +1208,12 @@ int blockstore_heap_t::add_small_write(object_id oid, heap_entry_t *old_head, ui
         wr->small().location = location;
         if (bitmap)
             memcpy(wr->get_ext_bitmap(this), bitmap, dsk->clean_entry_bitmap_size);
-        else if (old_head)
-            memcpy(wr->get_ext_bitmap(this), old_head->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
+        else if (obj)
+            memcpy(wr->get_ext_bitmap(this), obj->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
         else
             memset(wr->get_ext_bitmap(this), 0, dsk->clean_entry_bitmap_size);
         calc_checksums(wr, (uint8_t*)data, true);
+        *obj_ptr = wr;
     });
 }
 
@@ -1220,7 +1225,8 @@ int blockstore_heap_t::add_big_write(object_id oid, heap_entry_t *old_head, bool
         return EINVAL;
     }
     uint32_t wr_size = get_big_entry_size();
-    return add_entry(wr_size, modified_block, false, [&](heap_entry_t *wr)
+    // Big writes are written after writing data so they don't require explicit_complete
+    return add_entry(wr_size, modified_block, false, false, [&](heap_entry_t *wr)
     {
         wr->entry_type = BS_HEAP_BIG_WRITE | (stable ? BS_HEAP_STABLE : 0);
         wr->inode = oid.inode;
@@ -1241,18 +1247,20 @@ int blockstore_heap_t::add_big_write(object_id oid, heap_entry_t *old_head, bool
     });
 }
 
-int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t *old_head, uint64_t version,
+int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t **obj_ptr, uint64_t version,
     uint32_t offset, uint32_t len, uint8_t *bitmap, uint8_t *data, uint8_t *checksums, uint32_t *modified_block)
 {
-    if (!old_head ||
-        old_head->entry_type != (BS_HEAP_BIG_INTENT|BS_HEAP_STABLE) &&
-        old_head->entry_type != (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
+    auto obj = *obj_ptr;
+    if (!obj ||
+        obj->entry_type != (BS_HEAP_BIG_INTENT|BS_HEAP_STABLE) &&
+        obj->entry_type != (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE) ||
         dsk->csum_block_size > dsk->bitmap_granularity && !checksums)
     {
         return EINVAL;
     }
     uint32_t wr_size = get_big_intent_entry_size();
-    return add_entry(wr_size, modified_block, false, [&](heap_entry_t *wr)
+    // Big intents are written before writing data so they require explicit_complete
+    return add_entry(wr_size, modified_block, false, true, [&](heap_entry_t *wr)
     {
         wr->entry_type = BS_HEAP_BIG_INTENT | BS_HEAP_STABLE;
         wr->inode = oid.inode;
@@ -1261,14 +1269,14 @@ int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t *old_head, uin
         auto & bi = wr->big_intent();
         bi.offset = offset;
         bi.len = len;
-        bi.block_num = (old_head->type() == BS_HEAP_BIG_INTENT
-            ? old_head->big_intent().block_num
-            : old_head->big().block_num);
+        bi.block_num = (obj->type() == BS_HEAP_BIG_INTENT
+            ? obj->big_intent().block_num
+            : obj->big().block_num);
         if (bitmap)
             memcpy(wr->get_ext_bitmap(this), bitmap, dsk->clean_entry_bitmap_size);
         else
-            memcpy(wr->get_ext_bitmap(this), old_head->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
-        memcpy(wr->get_int_bitmap(this), old_head->get_int_bitmap(this), dsk->clean_entry_bitmap_size);
+            memcpy(wr->get_ext_bitmap(this), obj->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
+        memcpy(wr->get_int_bitmap(this), obj->get_int_bitmap(this), dsk->clean_entry_bitmap_size);
         bitmap_set(wr->get_int_bitmap(this), offset, len, dsk->bitmap_granularity);
         if (dsk->data_csum_type)
         {
@@ -1276,12 +1284,13 @@ int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t *old_head, uin
                 memcpy(wr->get_checksums(this), checksums, dsk->clean_entry_bitmap_size);
             else
             {
-                memcpy(wr->get_checksums(this), old_head->get_checksums(this), dsk->clean_entry_bitmap_size);
+                memcpy(wr->get_checksums(this), obj->get_checksums(this), dsk->clean_entry_bitmap_size);
                 calc_checksums(wr, (uint8_t*)data, true, offset, len);
             }
         }
         else
             calc_checksums(wr, (uint8_t*)data, true);
+        *obj_ptr = wr;
     });
 }
 
@@ -1290,7 +1299,7 @@ int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t compact_version, 
 {
     if (do_delete)
     {
-        return add_entry(get_simple_entry_size(), modified_block, false, [&](heap_entry_t *wr)
+        return add_entry(get_simple_entry_size(), modified_block, false, false, [&](heap_entry_t *wr)
         {
             wr->entry_type = BS_HEAP_DELETE|BS_HEAP_STABLE;
             wr->inode = obj->inode;
@@ -1300,7 +1309,8 @@ int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t compact_version, 
         });
     }
     uint32_t wr_size = get_big_entry_size();
-    return add_entry(wr_size, modified_block, true, [&](heap_entry_t *new_wr)
+    // Compaction entry is added after copying data so it doesn't require explicit_complete
+    return add_entry(wr_size, modified_block, true, false, [&](heap_entry_t *new_wr)
     {
         new_wr->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
         new_wr->inode = obj->inode;
@@ -1335,7 +1345,8 @@ int blockstore_heap_t::punch_holes(heap_entry_t *wr, uint8_t *new_bitmap, uint8_
 int blockstore_heap_t::add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type)
 {
     uint32_t wr_size = get_simple_entry_size();
-    return add_entry(wr_size, modified_block, false, [&](heap_entry_t *wr)
+    // Simple entries don't have data so they don't require explicit_complete
+    return add_entry(wr_size, modified_block, false, false, [&](heap_entry_t *wr)
     {
         wr->entry_type = entry_type;
         wr->inode = obj->inode;
@@ -1518,10 +1529,20 @@ void blockstore_heap_t::complete_block_write(uint32_t block_num)
         for (uint64_t lsn = mod_lsn; lsn <= mod_lsn_to; lsn++, it++)
         {
             assert(!(it->flags & HEAP_INFLIGHT_DONE));
-            it->flags |= HEAP_INFLIGHT_DONE;
+            if (!(it->flags & HEAP_INFLIGHT_EXPLICIT))
+                it->flags |= HEAP_INFLIGHT_DONE;
         }
         mark_completed_lsns(mod_lsn);
     }
+}
+
+void blockstore_heap_t::complete_lsn_write(uint64_t lsn)
+{
+    auto it = inflight_lsn.begin() + (lsn-first_inflight_lsn);
+    assert(!(it->flags & HEAP_INFLIGHT_DONE));
+    assert(it->flags & HEAP_INFLIGHT_EXPLICIT);
+    it->flags |= HEAP_INFLIGHT_DONE;
+    mark_completed_lsns(lsn);
 }
 
 void blockstore_heap_t::mark_garbage_up_to(heap_entry_t *wr)

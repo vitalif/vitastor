@@ -47,8 +47,11 @@ struct blockstore_op_private_t
     // Read
     std::vector<copy_buffer_t> read_vec;
 
+    // Read, write
+    uint64_t lsn;
+
     // Write
-    uint64_t location; // or lsn for read
+    uint64_t location;
     uint32_t write_type;
 
     // Stabilize, rollback
