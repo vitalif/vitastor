@@ -228,9 +228,9 @@ void blockstore_impl_t::loop()
         for (auto s: journal.submitting_sectors)
         {
             // Mark journal sector writes as submitted
-            journal.sector_info[s].submit_id = 0;
             if (journal.sector_info[s].submit_id)
                 journal.sector_info[s].written = true;
+            journal.sector_info[s].submit_id = 0;
         }
         journal.submitting_sectors.clear();
         if ((initial_ring_space - ringloop->space_left()) > 0)
