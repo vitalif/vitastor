@@ -367,6 +367,19 @@ int disk_tool_t::pre_exec_osd(std::string device)
         {
             return 1;
         }
+        if (sb["params"]["atomic_write_size"].uint64_value() > 4096 &&
+            sb["params"]["use_atomic_flag"].bool_value())
+        {
+            uint64_t atomic_write_size = get_atomic_write_size(sb["real_data_device"].string_value());
+            if (atomic_write_size < sb["params"]["atomic_write_size"].uint64_value())
+            {
+                fprintf(stderr, "Atomic write size is set to %ju in the OSD superblock but data device %s only supports %ju."
+                    " Did you enable IOMMU? Linux has a hardcoded max_hw_sectors_kb value for NVMe drives.\n",
+                    sb["params"]["atomic_write_size"].uint64_value(),
+                    sb["real_data_device"].string_value().c_str(), atomic_write_size);
+                return 1;
+            }
+        }
         if (json_is_true(sb["params"]["disable_meta_fsync"]) &&
             sb["real_meta_device"].string_value() != "" && sb["real_meta_device"] != sb["real_data_device"] &&
             check_disabled_cache(sb["real_meta_device"].string_value()) != 0)

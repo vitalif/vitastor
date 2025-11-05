@@ -48,3 +48,7 @@
 #define COPY_BUF_COALESCED  0x10
 #define COPY_BUF_PADDED     0x20
 #define COPY_BUF_SKIP_CSUM  0x40
+
+#ifndef RWF_ATOMIC
+#define RWF_ATOMIC 0x40
+#endif

@@ -56,8 +56,16 @@ static int check_queue_cache(std::string dev, std::string parent_dev)
     return trim(r) == "write through" ? 0 : -1;
 }
 
+uint64_t get_atomic_write_size(const std::string & dev)
+{
+    auto parent_dev = get_parent_device(dev);
+    if (parent_dev == "")
+        return 0;
+    return stoull_full(trim(read_file("/sys/block/"+parent_dev.substr(5)+"/queue/atomic_write_max_bytes")));
+}
+
 // returns 1 = warning, -1 = error, 0 = success
-int disable_cache(std::string dev)
+int disable_cache(const std::string & dev)
 {
     auto parent_dev = get_parent_device(dev);
     if (parent_dev == "")

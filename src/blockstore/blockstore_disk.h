@@ -36,6 +36,8 @@ struct blockstore_disk_t
     uint32_t meta_block_size = 4096;
     // Atomic write size of the data block device
     uint32_t atomic_write_size = 4096;
+    // Whether we should set RWF_ATOMIC on atomic writes
+    bool use_atomic_flag = false;
     // Sparse write tracking granularity. 4 KB is a good choice. Must be a multiple of disk_alignment
     uint32_t bitmap_granularity = 4096;
     // Data checksum type, BLOCKSTORE_CSUM_NONE or BLOCKSTORE_CSUM_CRC32C

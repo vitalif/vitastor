@@ -444,6 +444,8 @@ resume_10:
     data->iov = (struct iovec){ op->buf, op->len };
     data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
     io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + PRIV(op)->location + op->offset);
+    if (dsk.use_atomic_flag)
+        sqe->rw_flags = RWF_ATOMIC;
     PRIV(op)->pending_ops++;
     PRIV(op)->op_state = 7;
     return 1;

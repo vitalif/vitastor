@@ -169,7 +169,8 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output);
 
 uint64_t sscanf_json(const char *fmt, const json11::Json & str);
 void fromhexstr(const std::string & from, int bytes, uint8_t *to);
-int disable_cache(std::string dev);
+int disable_cache(const std::string & dev);
+uint64_t get_atomic_write_size(const std::string & dev);
 uint64_t get_device_size(const std::string & dev, bool should_exist = false);
 std::string get_parent_device(std::string dev);
 int shell_exec(const std::vector<std::string> & cmd, const std::string & in, std::string *out, std::string *err);

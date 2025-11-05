@@ -52,6 +52,8 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     meta_format = stoull_full(config["meta_format"]);
     atomic_write_size = (config.find("atomic_write_size") != config.end()
         ? parse_size(config["atomic_write_size"]) : 4096);
+    use_atomic_flag = config.find("use_atomic_flag") != config.end() &&
+        (config["use_atomic_flag"] == "true" || config["use_atomic_flag"] == "1" || config["use_atomic_flag"] == "yes");
     if (config.find("data_io") == config.end() &&
         config.find("meta_io") == config.end() &&
         config.find("journal_io") == config.end())

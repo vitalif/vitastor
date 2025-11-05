@@ -32,6 +32,8 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         "discard_on_start",
         "min_discard_size",
         "discard_granularity",
+        "atomic_write_size",
+        "use_atomic_flag",
     };
     if (options.find("force") == options.end())
     {
@@ -56,6 +58,18 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
                 is_hdd = trim(read_file("/sys/block/"+parent_dev.substr(5)+"/queue/rotational")) == "1";
             if (check_existing_partition(dev) != 0)
                 return 1;
+        }
+    }
+    if (options.find("atomic_write_size") == options.end())
+    {
+        auto data_dev = realpath_str(options["data_device"], false);
+        uint64_t atomic_write_size = get_atomic_write_size(data_dev);
+        if (atomic_write_size > 4096)
+        {
+            fprintf(stderr, "Data device %s supports atomic writes up to %ju bytes, enabling. Enjoy faster writes!\n",
+                data_dev.c_str(), atomic_write_size);
+            options["atomic_write_size"] = std::to_string(atomic_write_size);
+            options["use_atomic_flag"] = "1";
         }
     }
     for (auto dev: std::vector<std::string>{"data", "meta", "journal"})
