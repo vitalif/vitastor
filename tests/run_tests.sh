@@ -36,6 +36,8 @@ SCHEME=ec ./test_snapshot.sh
 
 ./test_move_reappear.sh
 
+./test_degraded.sh
+
 ./test_rm.sh
 
 ./test_rm_degraded.sh

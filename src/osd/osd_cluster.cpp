@@ -410,7 +410,11 @@ void osd_t::report_statistics()
 
 void osd_t::on_change_osd_state_hook(osd_num_t peer_osd)
 {
-    if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())
+    if (st_cli.peer_states[peer_osd].is_null())
+    {
+        repeer_pgs(peer_osd);
+    }
+    else if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())
     {
         msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
     }
