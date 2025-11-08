@@ -276,6 +276,7 @@ osd_messenger_t::~osd_messenger_t()
 #ifdef WITH_RDMA
     for (auto rdma_context: rdma_contexts)
     {
+        tfd->set_fd_handler(rdma_context->channel->fd, false, NULL);
         delete rdma_context;
     }
     rdma_contexts.clear();
