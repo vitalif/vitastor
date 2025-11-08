@@ -83,7 +83,8 @@ public:
     void check_default_pool();
     nfs_client_t* create_client();
     void do_accept(int listen_fd);
-    void daemonize();
+    void daemonize_fork(int *notifyfd);
+    void daemonize_reopen_stdio();
     void write_pid();
     void mount_fs();
     void check_already_mounted();

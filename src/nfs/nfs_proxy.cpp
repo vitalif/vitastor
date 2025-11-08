@@ -276,6 +276,19 @@ void nfs_proxy_t::run(json11::Json cfg)
     }
     // Check default pool
     check_default_pool();
+    // Daemonize before initializing messenger and RDMA because otherwise RDMA doesn't survive fork()
+    bool bg = cfg["foreground"].is_null() && cfg["cmd"].is_null();
+    int notifyfd[2] = { -1, -1 };
+    if (bg)
+    {
+        if (socketpair(AF_UNIX, SOCK_STREAM, 0, notifyfd) < 0)
+        {
+            perror("socketpair");
+            exit(1);
+        }
+        daemonize_fork(notifyfd);
+        close(notifyfd[0]);
+    }
     // Init VitastorFS after starting client because it depends on loaded inode configuration
     if (fsname != "")
     {
@@ -293,6 +306,13 @@ void nfs_proxy_t::run(json11::Json cfg)
     else if (cfg["cmd"] == "upgrade")
     {
         kvfs->upgrade_db([this](int res) { finished = true; });
+    }
+    if (bg)
+    {
+        daemonize_reopen_stdio();
+        int ok = 0;
+        (void)write(notifyfd[1], &ok, sizeof(ok));
+        close(notifyfd[1]);
     }
     while (!finished)
     {
@@ -408,10 +428,6 @@ void nfs_proxy_t::run_server(json11::Json cfg)
     if (mountpoint != "")
     {
         mount_fs();
-    }
-    if (cfg["foreground"].is_null())
-    {
-        daemonize();
     }
     if (pidfile != "")
     {
@@ -699,7 +715,8 @@ void nfs_client_t::handle_read(int result)
         return;
     if (result <= 0 && result != -EAGAIN && result != -EINTR && result != -ECANCELED)
     {
-        printf("Failed read from client %d: %d (%s)\n", nfs_fd, result, strerror(-result));
+        if (result != 0)
+            printf("Failed read from client %d: %d (%s)\n", nfs_fd, result, strerror(-result));
         stop();
         return;
     }
@@ -1224,26 +1241,31 @@ void nfs_client_t::free_or_rdma(rpc_op_t *rop, void *buf)
 #endif
 }
 
-void nfs_proxy_t::daemonize()
+void nfs_proxy_t::daemonize_fork(int *notifyfd)
 {
-    // Stop all clients because client I/O sometimes breaks during daemonize
-    // I.e. the new process stops receiving events on the old FD
-    // It doesn't happen if we call sleep(1) here, but we don't want to call sleep(1)...
-    for (auto & cli: rpc_clients)
-        cli->stop();
     if (fork())
-        exit(0);
+    {
+        // Parent - check status
+        close(notifyfd[1]);
+        int child_errno = 1;
+        (void)read(notifyfd[0], &child_errno, sizeof(child_errno));
+        exit(child_errno);
+    }
     setsid();
     if (fork())
         exit(0);
-    if (chdir("/") != 0)
-        fprintf(stderr, "Warning: Failed to chdir into /\n");
+}
+
+void nfs_proxy_t::daemonize_reopen_stdio()
+{
     close(0);
     close(1);
     close(2);
     open("/dev/null", O_RDONLY);
     open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
     open(logfile.c_str(), O_WRONLY|O_APPEND|O_CREAT, 0666);
+    if (chdir("/") != 0)
+        fprintf(stderr, "Warning: Failed to chdir into /\n");
 }
 
 void nfs_proxy_t::write_pid()
