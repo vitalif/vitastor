@@ -72,11 +72,12 @@ bool blockstore_impl_t::intent_write_allowed(blockstore_op_t *op, heap_entry_t *
     {
         return false;
     }
-    bool ok = true, has_intent = false;
+    bool ok = true;
     heap->iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *wr, bool stable)
     {
         // Intent writes are not allowed over buffered writes
-        if (wr->type() == BS_HEAP_SMALL_WRITE)
+        auto t = wr->type();
+        if (t == BS_HEAP_SMALL_WRITE)
         {
             ok = false;
             return false;
@@ -87,17 +88,14 @@ bool blockstore_impl_t::intent_write_allowed(blockstore_op_t *op, heap_entry_t *
             ok = false;
             return false;
         }
-        // One intent-write is allowed even with fsyncs because BIG_WRITE is always counted as fsynced
-        if (dsk.disable_data_fsync && wr->type() == BS_HEAP_INTENT_WRITE)
+        // Intent writes are not allowed over unfinished intent writes
+        if ((t == BS_HEAP_INTENT_WRITE || t == BS_HEAP_BIG_INTENT) && wr->lsn > heap->get_fsynced_lsn())
         {
-            if (has_intent)
-            {
-                ok = false;
-                return false;
-            }
-            has_intent = true;
+            ok = false;
+            return false;
         }
-        if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
+        // Intent writes are allowed over BIG_WRITEs even with fsyncs because BIG_WRITE is always counted as fsynced
+        if (t == BS_HEAP_BIG_WRITE || t == BS_HEAP_BIG_INTENT)
         {
             return false;
         }

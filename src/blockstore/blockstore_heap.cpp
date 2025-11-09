@@ -354,6 +354,26 @@ corrupted_object:
                     block_num, block_offset, expected_crc32c, wr->crc32c);
                 goto corrupted_object;
             }
+            // Verify offset & len
+            if ((wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE) &&
+                (wr->small().offset+wr->small().len > dsk->data_block_size ||
+                wr->small().offset % dsk->bitmap_granularity ||
+                wr->small().len % dsk->bitmap_granularity))
+            {
+                fprintf(stderr, "Error: %s entry %jx:%jx v%ju has invalid offset/length: %u/%u. Metadata is incompatible with current parameters, aborting\n",
+                    wr->type() == BS_HEAP_SMALL_WRITE ? "small_write" : "intent_write",
+                    wr->inode, wr->stripe, wr->version, wr->small().offset, wr->small().len);
+                goto corrupted_object;
+            }
+            if (wr->type() == BS_HEAP_BIG_INTENT &&
+                (wr->big_intent().offset+wr->big_intent().len > dsk->data_block_size ||
+                wr->big_intent().offset % dsk->bitmap_granularity ||
+                wr->big_intent().len % dsk->bitmap_granularity))
+            {
+                fprintf(stderr, "Error: big_intent entry %jx:%jx v%ju has invalid offset/length: %u/%u. Metadata is incompatible with current parameters, aborting\n",
+                    wr->inode, wr->stripe, wr->version, wr->big_intent().offset, wr->big_intent().len);
+                goto corrupted_object;
+            }
             handle_write(block_num, wr);
             block_offset += wr->size;
         }
