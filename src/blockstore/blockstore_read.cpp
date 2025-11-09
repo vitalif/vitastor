@@ -275,7 +275,7 @@ void blockstore_impl_t::prepare_disk_read(std::vector<copy_buffer_t> & read_vec,
         {
             big_wr = heap->prev(big_wr);
         }
-        assert(big_wr->type() == BS_HEAP_BIG_WRITE || big_wr->type() == BS_HEAP_INTENT_WRITE);
+        assert(big_wr->type() == BS_HEAP_BIG_WRITE || big_wr->type() == BS_HEAP_BIG_INTENT);
         loc = big_wr->big_location(heap);
     }
     else if (wr->type() == BS_HEAP_SMALL_WRITE)
