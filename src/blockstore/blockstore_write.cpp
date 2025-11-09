@@ -174,25 +174,9 @@ enospc:
         heap->use_data(op->oid.inode, PRIV(op)->location);
         io_uring_sqe *sqe = get_sqe();
         ring_data_t *data = ((ring_data_t*)sqe->user_data);
-        uint64_t stripe_offset = (op->offset % dsk.bitmap_granularity);
-        uint64_t stripe_end = (op->offset + op->len) % dsk.bitmap_granularity;
-        // Zero fill up to dsk.bitmap_granularity
-        int vcnt = 0;
-        if (stripe_offset)
-        {
-            PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, (size_t)stripe_offset };
-        }
-        PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ op->buf, op->len };
-        if (stripe_end)
-        {
-            stripe_end = dsk.bitmap_granularity - stripe_end;
-            PRIV(op)->iov_zerofill[vcnt++] = (struct iovec){ zero_object, (size_t)stripe_end };
-        }
-        data->iov.iov_len = op->len + stripe_offset + stripe_end; // to check it in the callback
+        data->iov = (struct iovec){ op->buf, op->len };
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
-        io_uring_prep_writev(
-            sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + loc + op->offset - stripe_offset
-        );
+        io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + loc + op->offset);
         PRIV(op)->pending_ops++;
         PRIV(op)->op_state = 1;
         write_iodepth++;

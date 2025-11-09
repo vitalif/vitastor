@@ -23,14 +23,12 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
         dsk.open_meta();
         dsk.open_journal();
         dsk.calc_lengths();
-        zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.data_block_size);
     }
     catch (std::exception & e)
     {
         dsk.close_all();
         throw;
     }
-    memset(zero_object, 0, dsk.data_block_size);
     meta_superblock = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
     memset(meta_superblock, 0, dsk.meta_block_size);
 }
@@ -55,8 +53,6 @@ blockstore_impl_t::~blockstore_impl_t()
         free(buffer_area);
     if (meta_superblock)
         free(meta_superblock);
-    if (zero_object)
-        free(zero_object);
     ringloop->unregister_consumer(&ring_consumer);
     dsk.close_all();
 }
@@ -281,7 +277,8 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
         ((op->opcode == BS_OP_READ || op->opcode == BS_OP_WRITE || op->opcode == BS_OP_WRITE_STABLE) && (
             op->offset >= dsk.data_block_size ||
             op->len > dsk.data_block_size-op->offset ||
-            (op->len % dsk.disk_alignment)
+            (op->offset % dsk.bitmap_granularity) ||
+            (op->len % dsk.bitmap_granularity)
         )) ||
         readonly && op->opcode != BS_OP_READ && op->opcode != BS_OP_LIST)
     {

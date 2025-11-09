@@ -58,7 +58,6 @@ struct blockstore_op_private_t
     int stab_pos;
 
     // Write
-    struct iovec iov_zerofill[3];
     timespec tv_begin;
 };
 
@@ -111,7 +110,6 @@ public:
     std::vector<blockstore_op_t*> submit_queue;
     int unsynced_data_write_count = 0, unsynced_buffer_write_count = 0, unsynced_meta_write_count = 0;
     int unsynced_queued_ops = 0;
-    uint8_t *zero_object = NULL;
 
     std::vector<uint32_t> pending_modified_blocks;
     robin_hood::unordered_flat_map<uint32_t, bs_modified_block_t> modified_blocks;
@@ -226,6 +224,6 @@ public:
     inline uint32_t get_block_size() { return dsk.data_block_size; }
     inline uint64_t get_block_count() { return dsk.block_count; }
     uint64_t get_free_block_count();
-    inline uint32_t get_bitmap_granularity() { return dsk.disk_alignment; }
+    inline uint32_t get_bitmap_granularity() { return dsk.bitmap_granularity; }
     inline uint64_t get_journal_size() { return dsk.journal_len; }
 };
