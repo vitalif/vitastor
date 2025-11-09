@@ -1240,6 +1240,7 @@ void test_intent_write(bool csum)
 }
 
 // FIXME: Add a test for big_intent, incl. explicit_complete with big_intent over big_write over deletion over big_write :)
+// FIXME: Add a test for redirect_intent
 
 int main(int narg, char *args[])
 {

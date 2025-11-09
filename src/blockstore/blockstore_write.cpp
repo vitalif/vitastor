@@ -5,6 +5,8 @@
 #include "blockstore_internal.h"
 #include "allocator.h"
 
+#define _REDIRECT_INTENT 0x101
+
 bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
     clock_gettime(CLOCK_REALTIME, &PRIV(op)->tv_begin);
@@ -138,13 +140,12 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         PRIV(op)->op_state = 5;
         write_iodepth++;
     }
-    // FIXME: Add 'big_intent' write mode
     // FIXME: Allow to do initial writes as buffered, not redirected
     // FIXME: Allow to do direct writes over holes
     else if (!obj || obj->type() == BS_HEAP_DELETE || op->offset == 0 && op->len == dsk.data_block_size)
     {
         // Big (redirect) write
-        PRIV(op)->write_type = BS_HEAP_BIG_WRITE;
+        PRIV(op)->write_type = dsk.disable_data_fsync || op->opcode != BS_OP_WRITE_STABLE ? BS_HEAP_BIG_WRITE : _REDIRECT_INTENT;
         BS_SUBMIT_CHECK_SQES(1);
         PRIV(op)->location = heap->find_free_data();
         if (PRIV(op)->location == UINT64_MAX)
@@ -176,9 +177,14 @@ enospc:
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + loc + op->offset);
         PRIV(op)->pending_ops++;
-        PRIV(op)->op_state = 1;
         write_iodepth++;
-        inflight_big++;
+        if (PRIV(op)->write_type == BS_HEAP_BIG_WRITE)
+        {
+            PRIV(op)->op_state = 1;
+            inflight_big++;
+        }
+        else
+            PRIV(op)->op_state = 3;
     }
     else if (intent_write_allowed(op, obj))
     {
@@ -344,8 +350,17 @@ resume_12:
 resume_4:
     {
         auto obj = heap->read_entry(op->oid);
-        int res = heap->add_big_write(op->oid, obj, (op->opcode == BS_OP_WRITE_STABLE), op->version,
-            op->offset, op->len, PRIV(op)->location, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
+        int res = 0;
+        if (PRIV(op)->write_type == _REDIRECT_INTENT)
+        {
+            res = heap->add_redirect_intent(op->oid, &obj, op->version, op->offset, op->len,
+                PRIV(op)->location, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
+        }
+        else
+        {
+            res = heap->add_big_write(op->oid, obj, op->opcode == BS_OP_WRITE_STABLE,
+                op->version, op->offset, op->len, PRIV(op)->location, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
+        }
         if (res == ENOSPC)
         {
             if (!heap->get_to_compact_count())

@@ -1267,6 +1267,34 @@ int blockstore_heap_t::add_big_write(object_id oid, heap_entry_t *old_head, bool
     });
 }
 
+int blockstore_heap_t::add_redirect_intent(object_id oid, heap_entry_t **obj_ptr, uint64_t version,
+    uint32_t offset, uint32_t len, uint64_t location, uint8_t *bitmap, uint8_t *data, uint32_t *modified_block)
+{
+    uint32_t wr_size = get_big_intent_entry_size();
+    // Big-redirect intents, just like regular big writes, are written after writing data so they don't require explicit_complete
+    return add_entry(wr_size, modified_block, false, false, [&](heap_entry_t *wr)
+    {
+        wr->entry_type = BS_HEAP_BIG_INTENT|BS_HEAP_STABLE;
+        wr->inode = oid.inode;
+        wr->stripe = oid.stripe;
+        wr->version = version;
+        wr->set_big_location(this, location);
+        auto & bi = wr->big_intent();
+        bi.offset = offset;
+        bi.len = len;
+        if (bitmap)
+            memcpy(wr->get_ext_bitmap(this), bitmap, dsk->clean_entry_bitmap_size);
+        else
+            memset(wr->get_ext_bitmap(this), 0, dsk->clean_entry_bitmap_size);
+        memset(wr->get_int_bitmap(this), 0, dsk->clean_entry_bitmap_size);
+        bitmap_set(wr->get_int_bitmap(this), offset, len, dsk->bitmap_granularity);
+        if (dsk->data_csum_type)
+            memset(wr->get_checksums(this), 0, get_csum_size(wr));
+        calc_checksums(wr, (uint8_t*)data, true, offset, len);
+        *obj_ptr = wr;
+    });
+}
+
 int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t **obj_ptr, uint64_t version,
     uint32_t offset, uint32_t len, uint8_t *bitmap, uint8_t *data, uint8_t *checksums, uint32_t *modified_block)
 {

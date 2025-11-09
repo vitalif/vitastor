@@ -265,6 +265,9 @@ public:
     // adds a big_write (overwrite) entry to an object
     int add_big_write(object_id oid, heap_entry_t *old_head, bool stable, uint64_t version,
         uint32_t offset, uint32_t len, uint64_t location, uint8_t *bitmap, uint8_t *data, uint32_t *modified_block);
+    // adds a "redirecting" big_intent entry to an object (same as big_write, used to avoid fsync on desktop SSDs)
+    int add_redirect_intent(object_id oid, heap_entry_t **obj_ptr, uint64_t version,
+        uint32_t offset, uint32_t len, uint64_t location, uint8_t *bitmap, uint8_t *data, uint32_t *modified_block);
     // adds a big_intent (atomic partial modification) entry to an object
     int add_big_intent(object_id oid, heap_entry_t **obj_ptr, uint64_t version,
         uint32_t offset, uint32_t len, uint8_t *bitmap, uint8_t *data, uint8_t *checksums, uint32_t *modified_block);
