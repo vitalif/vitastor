@@ -446,7 +446,7 @@ std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & d
     else
     {
         // Disk already has partitions. If these are empty Vitastor OSD partitions, we can use them
-        uint64_t osds_exist = 0, osds_size = 0;
+        uint64_t osds_exist = 0, osds_size = 0, empty_parts_size = 0;
         for (const auto & part: dev.pt["partitions"].array_items())
         {
             if (strtolower(part["type"].string_value()) == VITASTOR_PART_TYPE)
@@ -457,6 +457,7 @@ std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & d
                 {
                     // Use this partition
                     use_parts.push_back(part["uuid"].string_value());
+                    empty_parts_size += part["size"].uint64_value()*dev.pt["sectorsize"].uint64_value();
                 }
                 else
                 {
@@ -478,7 +479,7 @@ std::vector<std::string> disk_tool_t::get_new_data_parts(vitastor_dev_info_t & d
             }
         }
         // Still create OSD(s) if a disk has no more than (max_other_percent) other data
-        if (osds_exist >= osd_per_disk || (dev.free+osds_size) < dev.size*(100-max_other_percent)/100)
+        if (osds_exist >= osd_per_disk || (dev.free+osds_size+empty_parts_size) < dev.size*(100-max_other_percent)/100)
         {
             fprintf(stderr, "%s is already partitioned, skipping\n", dev.path.c_str());
             use_parts.clear();
