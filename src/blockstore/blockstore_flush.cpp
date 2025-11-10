@@ -409,8 +409,15 @@ resume_11:
         flusher->flushing.erase(cur_oid);
         goto resume_0;
     }
-    bs->heap->add_compact(cur_obj, compact_info.compact_version, compact_info.compact_lsn, clean_loc,
+    res = bs->heap->add_compact(cur_obj, compact_info.compact_version, compact_info.compact_lsn, clean_loc,
         compact_info.do_delete, &modified_block, new_bmp, new_ext_bmp, new_csums);
+    if (res == EBUSY)
+    {
+        // Abort compaction, object is already overwritten by something else
+        flusher->flushing.erase(cur_oid);
+        goto resume_0;
+    }
+    assert(res == 0);
 resume_12:
 resume_13:
     if (!write_meta_block(12))

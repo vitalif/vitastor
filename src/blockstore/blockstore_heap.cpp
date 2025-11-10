@@ -1345,6 +1345,11 @@ int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t **obj_ptr, uin
 int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t compact_version, uint64_t compact_lsn, uint64_t compact_location,
     bool do_delete, uint32_t *modified_block, uint8_t *new_int_bitmap, uint8_t *new_ext_bitmap, uint8_t *new_csums)
 {
+    for (auto wr = obj; wr && wr->lsn > compact_lsn; wr = prev(wr))
+    {
+        if (wr->is_overwrite())
+            return EBUSY;
+    }
     if (do_delete)
     {
         return add_entry(get_simple_entry_size(), modified_block, false, false, [&](heap_entry_t *wr)
