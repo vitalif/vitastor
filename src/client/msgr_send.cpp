@@ -323,8 +323,12 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
         }
         if (more)
         {
-            auto expected = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
-            assert(done == expected);
+            int expected = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
+            if (done != expected)
+            {
+                fprintf(stderr, "BUG (maybe kernel): Expected to send %d iovecs with MSG_WAITALL but sent %d\n", expected, done);
+                exit(1);
+            }
             cl->zc_free_list.push_back(NULL); // end marker
         }
         if (done > 0)
