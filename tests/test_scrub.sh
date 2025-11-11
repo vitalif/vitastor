@@ -7,13 +7,15 @@ if [[ ("$SCHEME" = "" || "$SCHEME" = "replicated") && ("$PG_SIZE" = "" || "$PG_S
     OSD_COUNT=2
 fi
 
-OSD_ARGS="--scrub_list_limit 1000 $OSD_ARGS"
+IMG_SIZE=128
+
+# OSD uses BIG_INTENTs, so we set journal_trim_interval exactly equal to the object count
+# to force it do it just 1 trim_lsn().
+OSD_ARGS="--scrub_list_limit 1000 --journal_trim_interval $((IMG_SIZE*8)) $OSD_ARGS"
 
 . `dirname $0`/run_3osds.sh
 
 check_qemu
-
-IMG_SIZE=128
 
 $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1024*1024))'}'
 
@@ -21,6 +23,8 @@ $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1
 LD_PRELOAD="build/src/client/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 \
         -mirror_file=./testdata/bin/mirror.bin -end_fsync=1 -rw=write -etcd=$ETCD_URL -image=testimg
+
+sleep 1
 
 # Save PG primary
 primary=$($ETCDCTL get --print-value-only /vitastor/pg/config | jq -r '.items["1"]["1"].primary')
@@ -34,6 +38,7 @@ data_offset=$(build/src/disk_tool/vitastor-disk simple-offsets ./testdata/bin/te
 truncate -s $data_offset ./testdata/bin/test_osd$ZERO_OSD.bin
 dd if=/dev/zero of=./testdata/bin/test_osd$ZERO_OSD.bin bs=1024 count=1 seek=$((OSD_SIZE*1024-1))
 $ETCDCTL del /vitastor/osd/state/$ZERO_OSD
+mv ./testdata/osd$ZERO_OSD.log ./testdata/osd${ZERO_OSD}_pre.log
 start_osd $ZERO_OSD
 
 # Wait until start
@@ -50,6 +55,7 @@ wait_condition 300 "$ETCDCTL get --prefix /vitastor/pg/history/ --print-value-on
 
 if [[ ($SCHEME = replicated && $PG_SIZE < 3) || ($SCHEME != replicated && $((PG_SIZE-PG_DATA_SIZE)) < 2) ]]; then
     # Check that objects are marked as inconsistent if 2 replicas or EC/XOR 2+1
+    build/src/cmd/vitastor-cli describe --etcd_address $ETCD_URL --json &>./testdata/describe.log
     build/src/cmd/vitastor-cli describe --etcd_address $ETCD_URL --json | jq -e '[ .[] | select(.inconsistent) ] | length == '$((IMG_SIZE * 8 * PG_SIZE / (SCHEME = replicated ? 1 : PG_DATA_SIZE)))
 
     # Fix objects using vitastor-cli fix

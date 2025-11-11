@@ -171,6 +171,9 @@ bool journal_flusher_co::loop()
     else if (wait_state == 16) goto resume_16;
     else if (wait_state == 17) goto resume_17;
     else if (wait_state == 18) goto resume_18;
+    else if (wait_state == 19) goto resume_19;
+    else if (wait_state == 20) goto resume_20;
+    else if (wait_state == 21) goto resume_21;
 resume_0:
     wait_state = 0;
     wait_count = 0;
@@ -182,7 +185,12 @@ resume_0:
         bs->intent_write_counter = 0;
 resume_17:
 resume_18:
-        if (!trim_lsn(17))
+resume_19:
+        if (!fsync_buffer(17))
+            return false;
+resume_20:
+resume_21:
+        if (!trim_lsn(20))
             return false;
     }
     if (res == ENOENT && flusher->force_start > 0 && co_id == 0 &&

@@ -224,7 +224,6 @@ enospc:
             PRIV(op)->lsn = obj->lsn;
         }
         prepare_meta_block_write(PRIV(op)->modified_block);
-        intent_write_counter++;
         PRIV(op)->pending_ops++;
         PRIV(op)->op_state = 9;
         write_iodepth++;
@@ -421,16 +420,27 @@ resume_8:
     printf("Ack write %jx:%jx v%ju\n", op->oid.inode, op->oid.stripe, op->version);
 #endif
     op->retval = op->len;
-    if (PRIV(op)->write_type == BS_HEAP_BIG_INTENT ||
-        PRIV(op)->write_type == BS_HEAP_INTENT_WRITE ||
-        PRIV(op)->write_type == BS_HEAP_SMALL_WRITE)
-        heap->complete_lsn_write(PRIV(op)->lsn);
-    if (PRIV(op)->write_type == BS_HEAP_BIG_WRITE ||
-        PRIV(op)->write_type == BS_HEAP_BIG_INTENT ||
-        PRIV(op)->write_type == BS_HEAP_INTENT_WRITE)
+    if (PRIV(op)->write_type == BS_HEAP_BIG_WRITE)
+    {
         unsynced_data_write_count++;
-    else if (PRIV(op)->write_type != BS_HEAP_DELETE)
+    }
+    else if (PRIV(op)->write_type == BS_HEAP_SMALL_WRITE)
+    {
         unsynced_buffer_write_count++;
+        heap->complete_lsn_write(PRIV(op)->lsn);
+    }
+    else if (PRIV(op)->write_type == BS_HEAP_BIG_INTENT ||
+        PRIV(op)->write_type == BS_HEAP_INTENT_WRITE)
+    {
+        unsynced_data_write_count++;
+        intent_write_counter++;
+        heap->complete_lsn_write(PRIV(op)->lsn);
+    }
+    else if (PRIV(op)->write_type == _REDIRECT_INTENT)
+    {
+        unsynced_data_write_count++;
+        intent_write_counter++;
+    }
     write_iodepth--;
     FINISH_OP(op);
     return 2;
