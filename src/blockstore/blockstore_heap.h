@@ -153,8 +153,9 @@ struct heap_li_equal
 };
 
 using i64hash_t = robin_hood::hash<uint64_t>;
+using heap_inode_map_t = robin_hood::unordered_flat_set<heap_list_item_t*, heap_li_hash, heap_li_equal, 88>;
 using heap_block_index_t = robin_hood::unordered_flat_map<uint64_t,
-    robin_hood::unordered_flat_map<inode_t, robin_hood::unordered_flat_set<heap_list_item_t*, heap_li_hash, heap_li_equal, 88>, i64hash_t>, i64hash_t>;
+    robin_hood::unordered_flat_map<inode_t, void*, i64hash_t>, i64hash_t>;
 using heap_mvcc_map_t = robin_hood::unordered_flat_map<object_id, heap_object_mvcc_t>;
 
 class blockstore_heap_t
@@ -202,6 +203,13 @@ class blockstore_heap_t
     bool in_recheck = false;
     std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> recheck_cb;
     int recheck_queue_depth = 0;
+
+    void inode_map_put(void* & inode_idx, heap_list_item_t* li);
+    void inode_map_get(void *inode_idx, heap_inode_map_t::iterator & li_it, heap_list_item_t* & li, uint64_t stripe);
+    void inode_map_free(void* inode_idx);
+    void inode_map_iterate(void* & inode_idx, std::function<void(heap_list_item_t*)> cb);
+    void inode_map_replace(void* & inode_idx, const heap_inode_map_t::iterator & li_it, heap_list_item_t* new_li);
+    void inode_map_erase(void* & inode_idx, const heap_inode_map_t::iterator & li_it, heap_list_item_t* li);
 
     uint64_t get_pg_id(inode_t inode, uint64_t stripe);
     bool validate_object(heap_entry_t *obj);
