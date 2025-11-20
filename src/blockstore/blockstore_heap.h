@@ -19,6 +19,7 @@ struct pool_shard_settings_t
 {
     uint32_t pg_count;
     uint32_t pg_stripe_size;
+    uint32_t no_inode_stats;
 };
 
 #define BS_HEAP_TYPE 0x07
@@ -249,6 +250,8 @@ public:
     bool recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> read_buffer, int queue_depth);
     // reshard database according to the pool's PG count
     void reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size);
+    void set_no_inode_stats(const std::vector<uint64_t> & pool_ids);
+    void recalc_inode_space_stats(uint64_t pool_id, bool per_inode);
     // read an object entry and lock it against removal
     // in the future, may become asynchronous
     heap_entry_t *lock_and_read_entry(object_id oid);

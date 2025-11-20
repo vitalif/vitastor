@@ -350,6 +350,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
 
 void blockstore_impl_t::set_no_inode_stats(const std::vector<uint64_t> & pool_ids)
 {
+    heap->set_no_inode_stats(pool_ids);
 }
 
 void blockstore_impl_t::dump_diagnostics()

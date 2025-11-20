@@ -216,7 +216,7 @@ uint64_t blockstore_heap_t::get_pg_id(inode_t inode, uint64_t stripe)
     uint64_t pg_num = 0;
     uint64_t pool_id = (inode >> (64-POOL_ID_BITS));
     auto sh_it = pool_shard_settings.find(pool_id);
-    if (sh_it != pool_shard_settings.end())
+    if (sh_it != pool_shard_settings.end() && sh_it->second.pg_count > 0)
     {
         // like map_to_pg()
         pg_num = (stripe / sh_it->second.pg_stripe_size) % sh_it->second.pg_count + 1;
@@ -1919,6 +1919,9 @@ bool blockstore_heap_t::is_data_used(uint64_t location)
 
 void blockstore_heap_t::use_data(inode_t inode, uint64_t location)
 {
+    auto sh_it = pool_shard_settings.find(INODE_POOL(inode));
+    if (sh_it != pool_shard_settings.end() && sh_it->second.no_inode_stats)
+        inode = (INODE_POOL(inode) << POOL_ID_BITS);
     assert(!data_alloc->get(location / dsk->data_block_size));
     data_alloc->set(location / dsk->data_block_size, true);
     inode_space_stats[inode] += dsk->data_block_size;
@@ -1927,6 +1930,9 @@ void blockstore_heap_t::use_data(inode_t inode, uint64_t location)
 
 void blockstore_heap_t::free_data(inode_t inode, uint64_t location)
 {
+    auto sh_it = pool_shard_settings.find(INODE_POOL(inode));
+    if (sh_it != pool_shard_settings.end() && sh_it->second.no_inode_stats)
+        inode = (INODE_POOL(inode) << POOL_ID_BITS);
     assert(data_alloc->get(location / dsk->data_block_size));
     data_alloc->set(location / dsk->data_block_size, false);
     inode_space_stats[inode] -= dsk->data_block_size;
@@ -2154,6 +2160,55 @@ uint64_t blockstore_heap_t::get_completed_lsn()
 uint64_t blockstore_heap_t::get_fsynced_lsn()
 {
     return dsk->disable_meta_fsync && dsk->disable_journal_fsync ? completed_lsn : fsynced_lsn;
+}
+
+void blockstore_heap_t::set_no_inode_stats(const std::vector<uint64_t> & pool_ids)
+{
+    for (auto & ps: pool_shard_settings)
+    {
+        ps.second.no_inode_stats *= 2;
+    }
+    for (auto pool_id: pool_ids)
+    {
+        pool_shard_settings[pool_id].no_inode_stats |= 1;
+    }
+    for (auto & ps: pool_shard_settings)
+    {
+        // Recalculate if changed
+        if (ps.second.no_inode_stats == 2 || ps.second.no_inode_stats == 1)
+            recalc_inode_space_stats(ps.first, ps.second.no_inode_stats == 1);
+        ps.second.no_inode_stats &= 1;
+    }
+}
+
+void blockstore_heap_t::recalc_inode_space_stats(uint64_t pool_id, bool per_inode)
+{
+    auto & ps = pool_shard_settings.at(pool_id);
+    auto sp_begin = inode_space_stats.lower_bound((pool_id << (64-POOL_ID_BITS)));
+    auto sp_end = inode_space_stats.lower_bound(((pool_id+1) << (64-POOL_ID_BITS)));
+    inode_space_stats.erase(sp_begin, sp_end);
+    uint32_t pg_count = ps.pg_count ? ps.pg_count : 1;
+    for (uint32_t pg_num = 1; pg_num <= pg_count; pg_num++)
+    {
+        auto & pg_idx = block_index[(pool_id << (64-POOL_ID_BITS)) | pg_num];
+        for (auto & ip: pg_idx)
+        {
+            uint64_t space_id = per_inode ? ip.first : (pool_id << (64-POOL_ID_BITS));
+            inode_map_iterate(ip.second, [&](heap_list_item_t *li)
+            {
+                uint32_t used_big = UINT32_MAX;
+                for (auto wr = &li->entry; wr && !wr->is_garbage(); wr = prev(wr))
+                {
+                    if ((wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT) &&
+                        wr->big().block_num != used_big)
+                    {
+                        inode_space_stats[space_id] += dsk->data_block_size;
+                        used_big = wr->big().block_num;
+                    }
+                }
+            });
+        }
+    }
 }
 
 // sizeof(robin_hood_map) is 56 bytes which is quite a bit of overhead for us if an inode has, say, only 1 object.
