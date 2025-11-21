@@ -1,8 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "blockstore_impl.h"
-#include "blockstore_internal.h"
+#include "impl.h"
+#include "internal.h"
+
+namespace v1 {
 
 // Stabilize small write:
 // 1) Copy data from the journal to the data device
@@ -560,3 +562,5 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
         unstable_writes.erase(unstab_it);
     }
 }
+
+} // namespace v1

@@ -1,8 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "blockstore_impl.h"
-#include "blockstore_internal.h"
+#include "impl.h"
+#include "internal.h"
+
+namespace v1 {
 
 #define SYNC_HAS_SMALL 1
 #define SYNC_HAS_BIG 2
@@ -232,3 +234,5 @@ void blockstore_impl_t::ack_sync(blockstore_op_t *op)
     op->retval = 0;
     FINISH_OP(op);
 }
+
+} // namespace v1

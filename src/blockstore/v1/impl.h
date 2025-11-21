@@ -26,10 +26,13 @@
 
 #include "malloc_or_die.h"
 #include "allocator.h"
+#include "crc32c.h"
 
 //#define BLOCKSTORE_DEBUG
 
-#include "blockstore_journal.h"
+namespace v1 {
+
+#include "journal.h"
 
 // 32 = 16 + 16 bytes per "clean" entry in memory (object_id => clean_entry)
 struct __attribute__((__packed__)) clean_entry
@@ -80,9 +83,9 @@ struct used_clean_obj_t
 typedef btree::btree_map<object_id, clean_entry> blockstore_clean_db_t;
 typedef std::map<obj_ver_id, dirty_entry> blockstore_dirty_db_t;
 
-#include "blockstore_init.h"
+#include "init.h"
 
-#include "blockstore_flush.h"
+#include "flush.h"
 
 struct blockstore_op_private_t
 {
@@ -176,7 +179,7 @@ class blockstore_impl_t: public blockstore_i
     std::map<uint64_t, used_clean_obj_t> used_clean_objects;
 
     bool live = false, queue_stall = false;
-    ring_loop_t *ringloop;
+    ring_loop_i *ringloop;
     timerfd_manager_t *tfd;
 
     bool stop_sync_submitted;
@@ -279,7 +282,7 @@ class blockstore_impl_t: public blockstore_i
 
 public:
 
-    blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd);
+    blockstore_impl_t(blockstore_config_t & config, ring_loop_i *ringloop, timerfd_manager_t *tfd);
     ~blockstore_impl_t();
 
     void parse_config(blockstore_config_t & config);
@@ -327,3 +330,5 @@ public:
     inline uint32_t get_bitmap_granularity() { return dsk.disk_alignment; }
     inline uint64_t get_journal_size() { return dsk.journal_len; }
 };
+
+} // namespace v1

@@ -1,8 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "blockstore_impl.h"
-#include "blockstore_internal.h"
+#include "impl.h"
+#include "internal.h"
+
+namespace v1 {
 
 #define INIT_META_EMPTY 0
 #define INIT_META_READING 1
@@ -161,6 +163,15 @@ resume_1:
                 printf("Warning: Starting with metadata in the old format without checksums, as stored on disk\n");
             }
         }
+        else if (hdr->version == BLOCKSTORE_META_FORMAT_HEAP)
+        {
+            printf(
+                "OSD is started with meta_format %ju, but actual stored version is %ju on disk."
+                " Please update the OSD superblock or startup options.\n",
+                bs->dsk.meta_format, hdr->version
+            );
+            exit(1);
+        }
         else if (hdr->version > BLOCKSTORE_META_FORMAT_V2)
         {
             printf(
@@ -178,7 +189,7 @@ resume_1:
             printf(
                 "Configuration stored in metadata superblock"
                 " (meta_block_size=%u, data_block_size=%u, bitmap_granularity=%u, data_csum_type=%u, csum_block_size=%u)"
-                " differs from OSD configuration (%ju/%u/%ju, %u/%u).\n",
+                " differs from OSD configuration (%u/%u/%u, %u/%u).\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
                 hdr->data_csum_type, hdr->csum_block_size,
                 bs->dsk.meta_block_size, bs->dsk.data_block_size, bs->dsk.bitmap_granularity,
@@ -193,7 +204,7 @@ resume_1:
     entries_per_block = bs->dsk.meta_block_size / bs->dsk.clean_entry_size;
     // Read the rest of the metadata
 resume_2:
-    if (next_offset < bs->dsk.meta_len && submitted == 0)
+    if (next_offset < bs->dsk.meta_area_size && submitted == 0)
     {
         // Submit one read
         for (int i = 0; i < 2; i++)
@@ -204,8 +215,8 @@ resume_2:
                     ? next_offset-md_offset
                     : i*bs->metadata_buf_size);
                 bufs[i].offset = next_offset;
-                bufs[i].size = bs->dsk.meta_len-next_offset > bs->metadata_buf_size
-                    ? bs->metadata_buf_size : bs->dsk.meta_len-next_offset;
+                bufs[i].size = bs->dsk.meta_area_size-next_offset > bs->metadata_buf_size
+                    ? bs->metadata_buf_size : bs->dsk.meta_area_size-next_offset;
                 bufs[i].state = INIT_META_READING;
                 submitted++;
                 next_offset += bufs[i].size;
@@ -1217,3 +1228,5 @@ void blockstore_init_journal::erase_dirty_object(blockstore_dirty_db_t::iterator
     // Otherwise it may end up referring to a small unstable write after reading the rest of the journal
     bs->flusher->remove_flush(oid);
 }
+
+} // namespace v1

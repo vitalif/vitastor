@@ -1,8 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "blockstore_impl.h"
-#include "blockstore_internal.h"
+#include "impl.h"
+#include "internal.h"
+
+namespace v1 {
 
 blockstore_journal_check_t::blockstore_journal_check_t(blockstore_impl_t *bs)
 {
@@ -327,3 +329,5 @@ void journal_t::dump_diagnostics()
         journal_used_it == used_sectors.end() ? 0 : journal_used_it->second
     );
 }
+
+} // namespace v1

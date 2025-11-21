@@ -2,7 +2,9 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <sys/file.h>
-#include "blockstore_impl.h"
+#include "impl.h"
+
+namespace v1 {
 
 void blockstore_impl_t::parse_config(blockstore_config_t & config)
 {
@@ -148,9 +150,9 @@ void blockstore_impl_t::calc_lengths()
     journal.offset = dsk.journal_offset;
     if (inmemory_meta)
     {
-        metadata_buffer = memalign(MEM_ALIGNMENT, dsk.meta_len);
+        metadata_buffer = memalign(MEM_ALIGNMENT, dsk.meta_area_size);
         if (!metadata_buffer)
-            throw std::runtime_error("Failed to allocate memory for the metadata ("+std::to_string(dsk.meta_len/1024/1024)+" MB)");
+            throw std::runtime_error("Failed to allocate memory for the metadata ("+std::to_string(dsk.meta_area_size/1024/1024)+" MB)");
     }
     else if (dsk.clean_entry_bitmap_size || dsk.data_csum_type)
     {
@@ -180,4 +182,6 @@ void blockstore_impl_t::calc_lengths()
     {
         throw std::bad_alloc();
     }
+}
+
 }

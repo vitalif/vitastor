@@ -1,8 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "blockstore_impl.h"
-#include "blockstore_internal.h"
+#include "impl.h"
+#include "internal.h"
+
+namespace v1 {
 
 bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
@@ -822,3 +824,5 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     }
     return 1;
 }
+
+} // namespace v1

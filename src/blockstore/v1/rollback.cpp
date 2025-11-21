@@ -1,8 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "blockstore_impl.h"
-#include "blockstore_internal.h"
+#include "impl.h"
+#include "internal.h"
+
+namespace v1 {
 
 int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
 {
@@ -257,3 +259,5 @@ void blockstore_impl_t::free_dirty_dyn_data(dirty_entry & e)
         e.dyn_data = NULL;
     }
 }
+
+} // namespace v1

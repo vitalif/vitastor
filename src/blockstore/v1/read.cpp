@@ -2,8 +2,10 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <limits.h>
-#include "blockstore_impl.h"
-#include "blockstore_internal.h"
+#include "impl.h"
+#include "internal.h"
+
+namespace v1 {
 
 int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
     uint32_t item_state, uint64_t item_version)
@@ -1031,3 +1033,5 @@ int blockstore_impl_t::read_bitmap(object_id oid, uint64_t target_version, void 
         memset(bitmap, 0, dsk.clean_entry_bitmap_size);
     return -ENOENT;
 }
+
+} // namespace v1

@@ -1,10 +1,12 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "blockstore_impl.h"
-#include "blockstore_internal.h"
+#include "impl.h"
+#include "internal.h"
 
-blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd)
+namespace v1 {
+
+blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *ringloop, timerfd_manager_t *tfd)
 {
     assert(sizeof(blockstore_op_private_t) <= BS_OP_PRIVATE_DATA_SIZE);
     this->tfd = tfd;
@@ -92,7 +94,7 @@ void blockstore_impl_t::loop()
         if (initialized == 3)
         {
             if (!readonly && dsk.discard_on_start)
-                dsk.trim_data(data_alloc);
+                dsk.trim_data([this](uint64_t block_num){ return data_alloc->get(block_num); });
             if (journal.flush_journal)
                 initialized = 4;
             else
@@ -275,7 +277,7 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
 {
     if (PRIV(op)->wait_for == WAIT_SQE)
     {
-        if (ringloop->sqes_left() < PRIV(op)->wait_detail)
+        if (ringloop->space_left() < PRIV(op)->wait_detail)
         {
             // stop submission if there's still no free space
 #ifdef BLOCKSTORE_DEBUG
@@ -804,3 +806,5 @@ std::string blockstore_impl_t::get_op_diag(blockstore_op_t *op)
         snprintf(buf, sizeof(buf), "state=%d", priv->op_state);
     return std::string(buf);
 }
+
+} // namespace v1

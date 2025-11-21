@@ -1,8 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include "blockstore_impl.h"
-#include "blockstore_internal.h"
+#include "impl.h"
+#include "internal.h"
+
+namespace v1 {
 
 #define META_BLOCK_UNREAD 0
 #define META_BLOCK_READ 1
@@ -1467,3 +1469,5 @@ bool journal_flusher_co::trim_journal(int wait_base)
     }
     return true;
 }
+
+} // namespace v1
