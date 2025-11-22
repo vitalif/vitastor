@@ -4,6 +4,11 @@
 #include <sys/file.h>
 #include "blockstore_impl.h"
 
+void blockstore_impl_t::parse_config(blockstore_config_t & config)
+{
+    return parse_config(config, false);
+}
+
 void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
 {
     // Online-configurable options:

@@ -3,6 +3,8 @@
 
 #pragma once
 
+class blockstore_impl_t;
+
 struct journal_sector_info_t
 {
     uint64_t offset;

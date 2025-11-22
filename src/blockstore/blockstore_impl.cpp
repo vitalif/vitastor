@@ -792,3 +792,14 @@ void blockstore_impl_t::recalc_inode_space_stats(uint64_t pool_id, bool per_inod
         dirty_it++;
     }
 }
+
+std::string blockstore_impl_t::get_op_diag(blockstore_op_t *op)
+{
+    char buf[256];
+    auto priv = PRIV(op);
+    if (priv->wait_for)
+        snprintf(buf, sizeof(buf), "state=%d wait=%d (detail=%ju)", priv->op_state, priv->wait_for, priv->wait_detail);
+    else
+        snprintf(buf, sizeof(buf), "state=%d", priv->op_state);
+    return std::string(buf);
+}

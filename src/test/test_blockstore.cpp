@@ -13,7 +13,7 @@ int main(int narg, char *args[])
     config["data_device"] = "./test_data.bin";
     ring_loop_t *ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     epoll_manager_t *epmgr = new epoll_manager_t(ringloop);
-    blockstore_t *bs = new blockstore_t(config, ringloop, epmgr->tfd);
+    blockstore_i *bs = blockstore_i::create(config, ringloop, epmgr->tfd);
 
     blockstore_op_t op;
     int main_state = 0;

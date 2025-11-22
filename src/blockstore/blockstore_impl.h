@@ -196,7 +196,7 @@ struct pool_shard_settings_t
 #define STAB_SPLIT_SYNC 3
 #define STAB_SPLIT_TODO 4
 
-class blockstore_impl_t
+class blockstore_impl_t: public blockstore_i
 {
     blockstore_disk_t dsk;
 
@@ -361,6 +361,7 @@ public:
     blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd);
     ~blockstore_impl_t();
 
+    void parse_config(blockstore_config_t & config);
     void parse_config(blockstore_config_t & config, bool init);
 
     // Event loop
@@ -395,6 +396,9 @@ public:
 
     // Print diagnostics to stdout
     void dump_diagnostics();
+
+    // Get diagnostic string for an operation
+    std::string get_op_diag(blockstore_op_t *op);
 
     inline uint32_t get_block_size() { return dsk.data_block_size; }
     inline uint64_t get_block_count() { return dsk.block_count; }

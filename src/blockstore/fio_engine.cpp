@@ -32,7 +32,7 @@
 
 struct bs_data
 {
-    blockstore_t *bs;
+    blockstore_i *bs;
     epoll_manager_t *epmgr;
     ring_loop_t *ringloop;
     /* The list of completed io_u structs. */
@@ -162,7 +162,7 @@ static int bs_init(struct thread_data *td)
     }
     bsd->ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     bsd->epmgr = new epoll_manager_t(bsd->ringloop);
-    bsd->bs = new blockstore_t(config, bsd->ringloop, bsd->epmgr->tfd);
+    bsd->bs = blockstore_i::create(config, bsd->ringloop, bsd->epmgr->tfd);
     bsd->imm = config.find("immediate_commit") == config.end() ||
         config["immediate_commit"] == "all";
     while (1)

@@ -173,56 +173,54 @@ struct __attribute__ ((visibility("default"))) blockstore_op_t
 
 typedef std::map<std::string, std::string> blockstore_config_t;
 
-class blockstore_impl_t;
-
-class __attribute__((visibility("default"))) blockstore_t
+class __attribute__((visibility("default"))) blockstore_i
 {
-    blockstore_impl_t *impl;
 public:
-    blockstore_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd);
-    ~blockstore_t();
+    static blockstore_i* create(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd);
+
+    virtual ~blockstore_i() = default;
 
     // Update configuration
-    void parse_config(blockstore_config_t & config);
+    virtual void parse_config(blockstore_config_t & config) = 0;
 
     // Event loop
-    void loop();
+    virtual void loop() = 0;
 
     // Returns true when blockstore is ready to process operations
     // (Although you're free to enqueue them before that)
-    bool is_started();
+    virtual bool is_started() = 0;
 
     // Returns true when blockstore is stalled
-    bool is_stalled();
+    virtual bool is_stalled() = 0;
 
     // Returns true when it's safe to destroy the instance. If destroying the instance
     // requires to purge some queues, starts that process. Should be called in the event
     // loop until it returns true.
-    bool is_safe_to_stop();
+    virtual bool is_safe_to_stop() = 0;
 
     // Submission
-    void enqueue_op(blockstore_op_t *op);
+    virtual void enqueue_op(blockstore_op_t *op) = 0;
 
     // Simplified synchronous operation: get object bitmap & current version
-    int read_bitmap(object_id oid, uint64_t target_version, void *bitmap, uint64_t *result_version = NULL);
+    virtual int read_bitmap(object_id oid, uint64_t target_version, void *bitmap, uint64_t *result_version = NULL) = 0;
 
     // Get per-inode space usage statistics
-    const std::map<uint64_t, uint64_t> & get_inode_space_stats();
+    virtual const std::map<uint64_t, uint64_t> & get_inode_space_stats() = 0;
 
     // Set per-pool no_inode_stats
-    void set_no_inode_stats(const std::vector<uint64_t> & pool_ids);
+    virtual void set_no_inode_stats(const std::vector<uint64_t> & pool_ids) = 0;
 
     // Print diagnostics to stdout
-    void dump_diagnostics();
+    virtual void dump_diagnostics() = 0;
 
     // Get diagnostic string for an operation
-    std::string get_op_diag(blockstore_op_t *op);
+    virtual std::string get_op_diag(blockstore_op_t *op) = 0;
 
-    uint32_t get_block_size();
-    uint64_t get_block_count();
-    uint64_t get_free_block_count();
+    virtual uint32_t get_block_size() = 0;
+    virtual uint64_t get_block_count() = 0;
+    virtual uint64_t get_free_block_count() = 0;
 
-    uint64_t get_journal_size();
+    virtual uint64_t get_journal_size() = 0;
 
-    uint32_t get_bitmap_granularity();
+    virtual uint32_t get_bitmap_granularity() = 0;
 };

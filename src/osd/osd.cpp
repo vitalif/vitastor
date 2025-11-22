@@ -34,7 +34,7 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
     if (!json_is_true(this->config["disable_blockstore"]))
     {
         auto bs_cfg = json_to_string_map(this->config);
-        this->bs = new blockstore_t(bs_cfg, ringloop, tfd);
+        this->bs = blockstore_i::create(bs_cfg, ringloop, tfd);
         // Wait for blockstore initialisation before actually starting OSD logic
         // to prevent peering timeouts during restart with filled databases
         while (!bs->is_started())
