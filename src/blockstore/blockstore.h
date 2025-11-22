@@ -17,11 +17,6 @@
 #include "ringloop.h"
 #include "timerfd_manager.h"
 
-// Memory alignment for direct I/O (usually 512 bytes)
-#ifndef DIRECT_IO_ALIGNMENT
-#define DIRECT_IO_ALIGNMENT 512
-#endif
-
 // Default block size is 128 KB, current allowed range is 4K - 128M
 #define DEFAULT_DATA_BLOCK_ORDER 17
 #define MIN_DATA_BLOCK_SIZE 4*1024
@@ -29,12 +24,6 @@
 #define DEFAULT_BITMAP_GRANULARITY 4096
 
 #define MIN_JOURNAL_SIZE 1024*1024
-
-// "VITAstor"
-#define BLOCKSTORE_META_MAGIC_V1 0x726F747341544956l
-#define BLOCKSTORE_META_FORMAT_V1 1
-#define BLOCKSTORE_META_FORMAT_V2 2
-#define BLOCKSTORE_META_FORMAT_HEAP 3
 
 #define BS_OP_MIN 1
 #define BS_OP_READ 1
@@ -225,6 +214,9 @@ public:
 
     // Print diagnostics to stdout
     void dump_diagnostics();
+
+    // Get diagnostic string for an operation
+    std::string get_op_diag(blockstore_op_t *op);
 
     uint32_t get_block_size();
     uint64_t get_block_count();

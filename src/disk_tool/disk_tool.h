@@ -8,14 +8,17 @@
 #endif
 
 #include <map>
+#include <set>
 #include <vector>
 #include <string>
 #include <functional>
 
 #include "json11/json11.hpp"
 #include "blockstore_disk.h"
-#include "blockstore_impl.h"
+#include "blockstore.h"
+#include "ondisk_formats.h"
 #include "crc32c.h"
+#include "allocator.h"
 
 // vITADisk
 #define VITASTOR_DISK_MAGIC 0x6b73694441544976

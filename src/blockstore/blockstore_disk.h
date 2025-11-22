@@ -8,6 +8,11 @@
 #include <string>
 #include <map>
 
+// Memory alignment for direct I/O (usually 512 bytes)
+#ifndef DIRECT_IO_ALIGNMENT
+#define DIRECT_IO_ALIGNMENT 512
+#endif
+
 #define BLOCKSTORE_CSUM_NONE 0
 // Lower byte of checksum type is its length
 #define BLOCKSTORE_CSUM_CRC32C 0x104

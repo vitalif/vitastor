@@ -9,7 +9,6 @@
 #include <arpa/inet.h>
 
 #include "addr_util.h"
-#include "blockstore_impl.h"
 #include "osd_primary.h"
 #include "osd.h"
 #include "http_client.h"
@@ -650,11 +649,11 @@ void osd_t::print_slow()
                     op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
                 {
                     cur_slow_op_secondary++;
-                    bufprintf(" state=%d", op->bs_op ? PRIV(op->bs_op)->op_state : -1);
-                    int wait_for = op->bs_op ? PRIV(op->bs_op)->wait_for : 0;
-                    if (wait_for)
+                    if (op->bs_op)
                     {
-                        bufprintf(" wait=%d (detail=%ju)", wait_for, PRIV(op->bs_op)->wait_detail);
+                        auto diag = bs->get_op_diag(op->bs_op);
+                        if (diag != "")
+                            bufprintf(" %s", diag.c_str());
                     }
                 }
                 else if (op->req.hdr.opcode == OSD_OP_READ || op->req.hdr.opcode == OSD_OP_WRITE ||

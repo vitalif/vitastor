@@ -5,6 +5,7 @@
 
 #include "blockstore.h"
 #include "blockstore_disk.h"
+#include "ondisk_formats.h"
 
 #include <sys/types.h>
 #include <sys/ioctl.h>
@@ -88,47 +89,6 @@
     }
 
 #include "blockstore_journal.h"
-
-// "VITAstor"
-#define BLOCKSTORE_META_MAGIC_V1 0x726F747341544956l
-#define BLOCKSTORE_META_FORMAT_V1 1
-#define BLOCKSTORE_META_FORMAT_V2 2
-
-// metadata header (superblock)
-struct __attribute__((__packed__)) blockstore_meta_header_v1_t
-{
-    uint64_t zero;
-    uint64_t magic;
-    uint64_t version;
-    uint32_t meta_block_size;
-    uint32_t data_block_size;
-    uint32_t bitmap_granularity;
-};
-
-struct __attribute__((__packed__)) blockstore_meta_header_v2_t
-{
-    uint64_t zero;
-    uint64_t magic;
-    uint64_t version;
-    uint32_t meta_block_size;
-    uint32_t data_block_size;
-    uint32_t bitmap_granularity;
-    uint32_t data_csum_type;
-    uint32_t csum_block_size;
-    uint32_t header_csum;
-};
-
-// 32 bytes = 24 bytes + block bitmap (4 bytes by default) + external attributes (also bitmap, 4 bytes by default)
-// per "clean" entry on disk with fixed metadata tables
-struct __attribute__((__packed__)) clean_disk_entry
-{
-    object_id oid;
-    uint64_t version;
-    uint8_t bitmap[];
-    // Two more fields come after bitmap in metadata version 2:
-    // uint32_t data_csum[];
-    // uint32_t entry_csum;
-};
 
 // 32 = 16 + 16 bytes per "clean" entry in memory (object_id => clean_entry)
 struct __attribute__((__packed__)) clean_entry

@@ -5,6 +5,7 @@
 #include "rw_blocking.h"
 #include "osd_id.h"
 #include "json_util.h"
+#include "malloc_or_die.h"
 
 int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v2_t *)> hdr_fn,
     std::function<void(uint64_t, clean_disk_entry*, uint8_t*)> record_fn, bool do_open)

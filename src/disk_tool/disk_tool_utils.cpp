@@ -2,11 +2,13 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <sys/wait.h>
+#include <sys/ioctl.h>
 #include <dirent.h>
 
 #include "disk_tool.h"
 #include "rw_blocking.h"
 #include "str_util.h"
+#include "malloc_or_die.h"
 
 uint64_t sscanf_json(const char *fmt, const json11::Json & str)
 {

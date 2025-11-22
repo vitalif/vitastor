@@ -4,6 +4,7 @@
 #include "disk_tool.h"
 #include "rw_blocking.h"
 #include "str_util.h"
+#include "malloc_or_die.h"
 
 #define DM_ST_EMPTY 0
 #define DM_ST_TO_READ 1

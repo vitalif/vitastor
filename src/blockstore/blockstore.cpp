@@ -58,6 +58,17 @@ void blockstore_t::dump_diagnostics()
     return impl->dump_diagnostics();
 }
 
+std::string blockstore_t::get_op_diag(blockstore_op_t *op)
+{
+    char buf[256];
+    auto priv = PRIV(op);
+    if (priv->wait_for)
+        snprintf(buf, sizeof(buf), "state=%d wait=%d (detail=%ju)", priv->op_state, priv->wait_for, priv->wait_detail);
+    else
+        snprintf(buf, sizeof(buf), "state=%d", priv->op_state);
+    return std::string(buf);
+}
+
 uint32_t blockstore_t::get_block_size()
 {
     return impl->get_block_size();

@@ -1,7 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#include <unistd.h>
+
 #include "disk_tool.h"
+#include "malloc_or_die.h"
 
 int disk_tool_t::dump_journal()
 {
