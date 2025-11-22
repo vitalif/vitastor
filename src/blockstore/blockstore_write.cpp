@@ -340,7 +340,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         }
         BS_SUBMIT_GET_SQE(sqe, data);
         write_iodepth++;
-        dirty_it->second.location = loc << dsk.block_order;
+        dirty_it->second.location = loc * dsk.data_block_size;
         dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SUBMITTED;
 #ifdef BLOCKSTORE_DEBUG
         printf(
@@ -366,7 +366,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         data->iov.iov_len = op->len + stripe_offset + stripe_end; // to check it in the callback
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         io_uring_prep_writev(
-            sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + (loc << dsk.block_order) + op->offset - stripe_offset
+            sqe, dsk.data_fd, PRIV(op)->iov_zerofill, vcnt, dsk.data_offset + (loc * dsk.data_block_size) + op->offset - stripe_offset
         );
         PRIV(op)->pending_ops = 1;
         if (!(dirty_it->second.state & BS_ST_INSTANT))

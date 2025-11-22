@@ -372,7 +372,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                     // free the previous block
                     // here we have to zero out the previous entry because otherwise we'll hit
                     // "tried to overwrite non-zero metadata entry" later
-                    uint64_t old_clean_loc = clean_it->second.location >> bs->dsk.block_order;
+                    uint64_t old_clean_loc = clean_it->second.location / bs->dsk.data_block_size;
                     if (bs->inmemory_meta)
                     {
                         uint64_t sector = (old_clean_loc / entries_per_block) * bs->dsk.meta_block_size;
@@ -390,7 +390,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                     }
                     else
                     {
-                        entries_to_zero.push_back(clean_it->second.location >> bs->dsk.block_order);
+                        entries_to_zero.push_back(clean_it->second.location / bs->dsk.data_block_size);
                     }
 #ifdef BLOCKSTORE_DEBUG
                     printf("Free block %ju from %jx:%jx v%ju (new location is %ju)\n",
@@ -412,7 +412,7 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
                 bs->data_alloc->set(done_cnt+i, true);
                 clean_db[entry->oid] = (struct clean_entry){
                     .version = entry->version,
-                    .location = (done_cnt+i) << bs->dsk.block_order,
+                    .location = (done_cnt+i) * bs->dsk.data_block_size,
                 };
             }
             else
@@ -1001,7 +1001,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                 printf(
                     "je_big_write%s oid=%jx:%jx ver=%ju loc=%ju\n",
                     je->type == JE_BIG_WRITE_INSTANT ? "_instant" : "",
-                    je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location >> bs->dsk.block_order
+                    je->big_write.oid.inode, je->big_write.oid.stripe, je->big_write.version, je->big_write.location / bs->dsk.data_block_size
                 );
 #endif
                 auto dirty_it = bs->dirty_db.upper_bound((obj_ver_id){
@@ -1064,7 +1064,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         .journal_sector = proc_pos,
                         .dyn_data = dyn,
                     }).first;
-                    if (bs->data_alloc->get(je->big_write.location >> bs->dsk.block_order))
+                    if (bs->data_alloc->get(je->big_write.location / bs->dsk.data_block_size))
                     {
                         // This is probably a big_write that's already flushed and freed, but it may
                         // also indicate a bug. So we remember such entries and recheck them afterwards.
@@ -1077,11 +1077,11 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
 #ifdef BLOCKSTORE_DEBUG
                         printf(
                             "Allocate block (journal) %ju: %jx:%jx v%ju\n",
-                            je->big_write.location >> bs->dsk.block_order,
+                            je->big_write.location / bs->dsk.data_block_size,
                             ov.oid.inode, ov.oid.stripe, ov.version
                         );
 #endif
-                        bs->data_alloc->set(je->big_write.location >> bs->dsk.block_order, true);
+                        bs->data_alloc->set(je->big_write.location / bs->dsk.data_block_size, true);
                     }
                     bs->journal.used_sectors[proc_pos]++;
 #ifdef BLOCKSTORE_DEBUG

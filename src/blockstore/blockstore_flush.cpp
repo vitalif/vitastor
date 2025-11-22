@@ -542,7 +542,7 @@ resume_2:
                 if (old_entry->oid.inode != 0 && old_entry->oid != cur.oid)
                 {
                     printf("Fatal error (metadata corruption or bug): tried to wipe metadata entry %ju (%jx:%jx v%ju) as old location of %jx:%jx\n",
-                        old_clean_loc >> bs->dsk.block_order, old_entry->oid.inode, old_entry->oid.stripe,
+                        old_clean_loc / bs->dsk.data_block_size, old_entry->oid.inode, old_entry->oid.stripe,
                         old_entry->version, cur.oid.inode, cur.oid.stripe);
                     exit(1);
                 }
@@ -645,7 +645,7 @@ void journal_flusher_co::update_metadata_entry()
             has_delete
                 ? "Fatal error (metadata corruption or bug): tried to delete metadata entry %ju (%jx:%jx v%ju) while deleting %jx:%jx v%ju\n"
                 : "Fatal error (metadata corruption or bug): tried to overwrite non-zero metadata entry %ju (%jx:%jx v%ju) with %jx:%jx v%ju\n",
-            clean_loc >> bs->dsk.block_order, new_entry->oid.inode, new_entry->oid.stripe,
+            clean_loc / bs->dsk.data_block_size, new_entry->oid.inode, new_entry->oid.stripe,
             new_entry->version, cur.oid.inode, cur.oid.stripe, cur.version
         );
         exit(1);
@@ -695,7 +695,7 @@ void journal_flusher_co::update_metadata_entry()
         new_entry->version = cur.version;
         if (!bs->inmemory_meta)
         {
-            auto inmem_bmp = (uint8_t*)bs->clean_bitmaps + (clean_loc >> bs->dsk.block_order)*2*bs->dsk.clean_entry_bitmap_size;
+            auto inmem_bmp = (uint8_t*)bs->clean_bitmaps + (clean_loc / bs->dsk.data_block_size)*2*bs->dsk.clean_entry_bitmap_size;
             memcpy(inmem_bmp, new_clean_bitmap, 2*bs->dsk.clean_entry_bitmap_size);
         }
         if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
@@ -848,7 +848,7 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
             {
                 printf(
                     "Fatal error (metadata corruption or bug): tried to make holes in %ju (%jx:%jx v%ju) with %jx:%jx v%ju\n",
-                    clean_loc >> bs->dsk.block_order, new_entry->oid.inode, new_entry->oid.stripe,
+                    clean_loc / bs->dsk.data_block_size, new_entry->oid.inode, new_entry->oid.stripe,
                     new_entry->version, cur.oid.inode, cur.oid.stripe, cur.version
                 );
             }
@@ -864,7 +864,7 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
             calc_block_checksums(new_data_csums, true);
             if (!bs->inmemory_meta)
             {
-                auto inmem_bmp = (uint8_t*)bs->clean_bitmaps + (clean_loc >> bs->dsk.block_order)*2*bs->dsk.clean_entry_bitmap_size;
+                auto inmem_bmp = (uint8_t*)bs->clean_bitmaps + (clean_loc / bs->dsk.data_block_size)*2*bs->dsk.clean_entry_bitmap_size;
                 memcpy(inmem_bmp, new_clean_bitmap, 2*bs->dsk.clean_entry_bitmap_size);
             }
             if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
@@ -1231,8 +1231,8 @@ bool journal_flusher_co::modify_meta_read(uint64_t meta_loc, flusher_meta_write_
     // And yet another option is to use LSM trees for metadata, but it sophisticates everything a lot,
     // so I'll avoid it as long as I can.
     wr.submitted = false;
-    wr.sector = ((meta_loc >> bs->dsk.block_order) / (bs->dsk.meta_block_size / bs->dsk.clean_entry_size)) * bs->dsk.meta_block_size;
-    wr.pos = ((meta_loc >> bs->dsk.block_order) % (bs->dsk.meta_block_size / bs->dsk.clean_entry_size));
+    wr.sector = ((meta_loc / bs->dsk.data_block_size) / (bs->dsk.meta_block_size / bs->dsk.clean_entry_size)) * bs->dsk.meta_block_size;
+    wr.pos = ((meta_loc / bs->dsk.data_block_size) % (bs->dsk.meta_block_size / bs->dsk.clean_entry_size));
     if (bs->inmemory_meta)
     {
         wr.buf = (uint8_t*)bs->metadata_buffer + wr.sector;
@@ -1292,14 +1292,14 @@ void journal_flusher_co::free_data_blocks()
 #ifdef BLOCKSTORE_DEBUG
         printf("%s block %ju from %jx:%jx v%ju (new location is %ju)\n",
             used ? "Postpone free" : "Free",
-            old_clean_loc >> bs->dsk.block_order,
+            old_clean_loc / bs->dsk.data_block_size,
             cur.oid.inode, cur.oid.stripe, cur.version,
-            clean_loc >> bs->dsk.block_order);
+            clean_loc / bs->dsk.data_block_size);
 #endif
         if (used)
             uo_it->second.was_freed = true;
         else
-            bs->data_alloc->set(old_clean_loc >> bs->dsk.block_order, false);
+            bs->data_alloc->set(old_clean_loc / bs->dsk.data_block_size, false);
     }
     if (has_delete)
     {
@@ -1309,13 +1309,13 @@ void journal_flusher_co::free_data_blocks()
 #ifdef BLOCKSTORE_DEBUG
         printf("%s block %ju from %jx:%jx v%ju (delete)\n",
             used ? "Postpone free" : "Free",
-            old_clean_loc >> bs->dsk.block_order,
+            old_clean_loc / bs->dsk.data_block_size,
             cur.oid.inode, cur.oid.stripe, cur.version);
 #endif
         if (used)
             uo_it->second.was_freed = true;
         else
-            bs->data_alloc->set(old_clean_loc >> bs->dsk.block_order, false);
+            bs->data_alloc->set(old_clean_loc / bs->dsk.data_block_size, false);
     }
 }
 

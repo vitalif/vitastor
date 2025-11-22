@@ -210,10 +210,10 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
             dirty_it->second.location != UINT64_MAX)
         {
 #ifdef BLOCKSTORE_DEBUG
-            printf("Free block %ju from %jx:%jx v%ju\n", dirty_it->second.location >> dsk.block_order,
+            printf("Free block %ju from %jx:%jx v%ju\n", dirty_it->second.location / dsk.data_block_size,
                 dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version);
 #endif
-            data_alloc->set(dirty_it->second.location >> dsk.block_order, false);
+            data_alloc->set(dirty_it->second.location / dsk.data_block_size, false);
         }
         auto used = --journal.used_sectors.at(dirty_it->second.journal_sector);
 #ifdef BLOCKSTORE_DEBUG

@@ -151,7 +151,7 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
 uint8_t* blockstore_impl_t::get_clean_entry_bitmap(uint64_t block_loc, int offset)
 {
     uint8_t *clean_entry_bitmap;
-    uint64_t meta_loc = block_loc >> dsk.block_order;
+    uint64_t meta_loc = block_loc / dsk.data_block_size;
     if (inmemory_meta)
     {
         uint64_t sector = (meta_loc / (dsk.meta_block_size / dsk.clean_entry_size)) * dsk.meta_block_size;
@@ -691,8 +691,8 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
 uint8_t* blockstore_impl_t::read_clean_meta_block(blockstore_op_t *op, uint64_t clean_loc, int rv_pos)
 {
     auto & rv = PRIV(op)->read_vec;
-    auto sector = ((clean_loc >> dsk.block_order) / (dsk.meta_block_size / dsk.clean_entry_size)) * dsk.meta_block_size;
-    auto pos = ((clean_loc >> dsk.block_order) % (dsk.meta_block_size / dsk.clean_entry_size)) * dsk.clean_entry_size;
+    auto sector = ((clean_loc / dsk.data_block_size) / (dsk.meta_block_size / dsk.clean_entry_size)) * dsk.meta_block_size;
+    auto pos = ((clean_loc / dsk.data_block_size) % (dsk.meta_block_size / dsk.clean_entry_size)) * dsk.clean_entry_size;
     uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
     rv.insert(rv.begin()+rv_pos, (copy_buffer_t){
         .copy_flags = COPY_BUF_META_BLOCK|COPY_BUF_CSUM_FILL,
@@ -806,7 +806,7 @@ bool blockstore_impl_t::verify_clean_padded_checksums(blockstore_op_t *op, uint6
     uint32_t offset = clean_loc % dsk.data_block_size;
     if (from_journal)
         return verify_padded_checksums(dyn_data, dyn_data + dsk.clean_entry_bitmap_size, offset, iov, n_iov, bad_block_cb);
-    clean_loc = (clean_loc >> dsk.block_order) << dsk.block_order;
+    clean_loc = (clean_loc / dsk.data_block_size) * dsk.data_block_size;
     if (!dyn_data)
     {
         assert(inmemory_meta);
@@ -866,7 +866,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                     {
                         // BIG_WRITE from journal or clean data
                         // Do not verify checksums if the data location is/was mutated by flushers
-                        auto & uo = used_clean_objects.at((rv[i].disk_offset >> dsk.block_order) << dsk.block_order);
+                        auto & uo = used_clean_objects.at((rv[i].disk_offset / dsk.data_block_size) * dsk.data_block_size);
                         if (!uo.was_changed)
                         {
                             verify_clean_padded_checksums(

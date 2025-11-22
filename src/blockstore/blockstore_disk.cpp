@@ -95,7 +95,7 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         data_block_size = (1 << DEFAULT_DATA_BLOCK_ORDER);
     }
-    if ((block_order = is_power_of_two(data_block_size)) >= 64 || data_block_size < MIN_DATA_BLOCK_SIZE || data_block_size >= MAX_DATA_BLOCK_SIZE)
+    if (is_power_of_two(data_block_size) >= 64 || data_block_size < MIN_DATA_BLOCK_SIZE || data_block_size >= MAX_DATA_BLOCK_SIZE)
     {
         throw std::runtime_error("Bad block size");
     }
