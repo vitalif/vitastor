@@ -682,7 +682,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
     free(unstable);
     op->version = stable_count;
     op->retval = stable_count+unstable_count;
-    op->buf = stable;
+    op->buf = (uint8_t*)stable;
     FINISH_OP(op);
 }
 
@@ -703,6 +703,11 @@ void blockstore_impl_t::disk_error_abort(const char *op, int retval, int expecte
     }
     fprintf(stderr, "Disk %s failed: result is %d, expected %d. Can't continue, sorry :-(\n", op, retval, expected);
     exit(1);
+}
+
+const std::map<uint64_t, uint64_t> & blockstore_impl_t::get_inode_space_stats()
+{
+    return inode_space_stats;
 }
 
 void blockstore_impl_t::set_no_inode_stats(const std::vector<uint64_t> & pool_ids)

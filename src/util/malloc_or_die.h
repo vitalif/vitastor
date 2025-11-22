@@ -6,6 +6,11 @@
 #include <malloc.h>
 #include <stdlib.h>
 
+// Memory allocation alignment (page size is usually optimal)
+#ifndef MEM_ALIGNMENT
+#define MEM_ALIGNMENT 4096
+#endif
+
 #pragma GCC visibility push(default)
 
 inline void* memalign_or_die(size_t alignment, size_t size)

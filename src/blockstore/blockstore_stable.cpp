@@ -228,17 +228,17 @@ int blockstore_impl_t::split_stab_op(blockstore_op_t *op, std::function<int(obj_
         // Split part of the request into a separate operation
         split_stab_op = new blockstore_op_t;
         split_stab_op->opcode = op->opcode;
-        split_stab_op->buf = bad_vers.items;
+        split_stab_op->buf = (uint8_t*)bad_vers.items;
         split_stab_op->len = bad_vers.size;
         init_op(split_stab_op);
         submit_queue.push_back(split_stab_op);
     }
     if (sync_op || split_stab_op || good_vers.items)
     {
-        void *orig_buf = op->buf;
+        uint8_t *orig_buf = op->buf;
         if (good_vers.items)
         {
-            op->buf = good_vers.items;
+            op->buf = (uint8_t*)good_vers.items;
             op->len = good_vers.size;
         }
         // Make a wrapped callback

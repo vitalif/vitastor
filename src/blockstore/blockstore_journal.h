@@ -6,7 +6,6 @@
 #include "crc32c.h"
 #include <set>
 
-#define MIN_JOURNAL_SIZE 4*1024*1024
 #define JOURNAL_MAGIC 0x4A33
 #define JOURNAL_VERSION_V1 1
 #define JOURNAL_VERSION_V2 2

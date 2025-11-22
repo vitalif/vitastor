@@ -44,10 +44,6 @@
 
 #define BS_ST_INSTANT 0x100
 
-#define IMMEDIATE_NONE 0
-#define IMMEDIATE_SMALL 1
-#define IMMEDIATE_ALL 2
-
 #define BS_ST_TYPE_MASK 0x0F
 #define BS_ST_WORKFLOW_MASK 0xF0
 #define IS_IN_FLIGHT(st) (((st) & 0xF0) <= BS_ST_SUBMITTED)
@@ -276,6 +272,7 @@ class blockstore_impl_t
     std::map<pool_id_t, pool_shard_settings_t> clean_db_settings;
     std::map<pool_pg_id_t, blockstore_clean_db_t> clean_db_shards;
     std::map<uint64_t, int> no_inode_stats;
+    std::map<uint64_t, uint64_t> inode_space_stats;
     uint8_t *clean_bitmaps = NULL;
     blockstore_dirty_db_t dirty_db;
     std::vector<blockstore_op_t*> submit_queue;
@@ -430,8 +427,8 @@ public:
     // Unstable writes are added here (map of object_id -> version)
     std::unordered_map<object_id, uint64_t> unstable_writes;
 
-    // Space usage statistics
-    std::map<uint64_t, uint64_t> inode_space_stats;
+    // Get space usage statistics
+    const std::map<uint64_t, uint64_t> & get_inode_space_stats();
 
     // Set per-pool no_inode_stats
     void set_no_inode_stats(const std::vector<uint64_t> & pool_ids);

@@ -16,6 +16,7 @@
 
 #include <stdexcept>
 
+#include "malloc_or_die.h"
 #include "addr_util.h"
 #include "osd_ops.h"
 #include "rw_blocking.h"

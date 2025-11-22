@@ -22,16 +22,19 @@
 #define DIRECT_IO_ALIGNMENT 512
 #endif
 
-// Memory allocation alignment (page size is usually optimal)
-#ifndef MEM_ALIGNMENT
-#define MEM_ALIGNMENT 4096
-#endif
-
 // Default block size is 128 KB, current allowed range is 4K - 128M
 #define DEFAULT_DATA_BLOCK_ORDER 17
 #define MIN_DATA_BLOCK_SIZE 4*1024
 #define MAX_DATA_BLOCK_SIZE 128*1024*1024
 #define DEFAULT_BITMAP_GRANULARITY 4096
+
+#define MIN_JOURNAL_SIZE 1024*1024
+
+// "VITAstor"
+#define BLOCKSTORE_META_MAGIC_V1 0x726F747341544956l
+#define BLOCKSTORE_META_FORMAT_V1 1
+#define BLOCKSTORE_META_FORMAT_V2 2
+#define BLOCKSTORE_META_FORMAT_HEAP 3
 
 #define BS_OP_MIN 1
 #define BS_OP_READ 1
@@ -46,7 +49,17 @@
 
 #define BS_OP_PRIVATE_DATA_SIZE 256
 
+#define IMMEDIATE_NONE 0
+#define IMMEDIATE_SMALL 1
+#define IMMEDIATE_ALL 2
+
 /*
+
+All operations may be submitted in any order, because reads only see completed writes,
+syncs only sync completed writes and writes don't depend on each other.
+
+The only restriction is that the external code MUST NOT submit multiple writes for one
+object in parallel. This is a natural restriction because `version` numbers are used though.
 
 Blockstore opcode documentation:
 
@@ -162,8 +175,8 @@ struct __attribute__ ((visibility("default"))) blockstore_op_t
             uint32_t list_stable_limit;
         };
     };
-    void *buf = NULL;
-    void *bitmap = NULL;
+    uint8_t *buf = NULL;
+    uint8_t *bitmap = NULL;
     int retval = 0;
 
     uint8_t private_data[BS_OP_PRIVATE_DATA_SIZE];
@@ -205,7 +218,7 @@ public:
     int read_bitmap(object_id oid, uint64_t target_version, void *bitmap, uint64_t *result_version = NULL);
 
     // Get per-inode space usage statistics
-    std::map<uint64_t, uint64_t> & get_inode_space_stats();
+    const std::map<uint64_t, uint64_t> & get_inode_space_stats();
 
     // Set per-pool no_inode_stats
     void set_no_inode_stats(const std::vector<uint64_t> & pool_ids);

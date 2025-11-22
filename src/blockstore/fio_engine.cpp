@@ -200,7 +200,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
     {
     case DDIR_READ:
         op->opcode = BS_OP_READ;
-        op->buf = io->xfer_buf;
+        op->buf = (uint8_t*)io->xfer_buf;
         op->oid = {
             .inode = 1,
             .stripe = io->offset / bsd->bs->get_block_size(),
@@ -221,7 +221,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
         break;
     case DDIR_WRITE:
         op->opcode = bsd->ec ? BS_OP_WRITE : BS_OP_WRITE_STABLE;
-        op->buf = io->xfer_buf;
+        op->buf = (uint8_t*)io->xfer_buf;
         op->oid = {
             .inode = 1,
             .stripe = io->offset / bsd->bs->get_block_size(),
@@ -247,7 +247,7 @@ static enum fio_q_status bs_queue(struct thread_data *td, struct io_u *io)
                 {
                     auto stab_op = new blockstore_op_t;
                     stab_op->opcode = BS_OP_STABLE;
-                    stab_op->buf = malloc_or_die(sizeof(obj_ver_id));
+                    stab_op->buf = (uint8_t*)malloc_or_die(sizeof(obj_ver_id));
                     obj_ver_id *ver = (obj_ver_id *)stab_op->buf;
                     ver[0].oid = op->oid;
                     ver[0].version = op->version;

@@ -44,11 +44,6 @@
 #define DIRECT_IO_ALIGNMENT 512
 #endif
 
-// Memory allocation alignment (page size is usually optimal)
-#ifndef MEM_ALIGNMENT
-#define MEM_ALIGNMENT 4096
-#endif
-
 // Constants for osd_reply_describe_item_t.loc_bad
 #define LOC_OUTDATED 1
 #define LOC_CORRUPTED 2

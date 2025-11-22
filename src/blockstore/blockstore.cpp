@@ -48,9 +48,9 @@ int blockstore_t::read_bitmap(object_id oid, uint64_t target_version, void *bitm
     return impl->read_bitmap(oid, target_version, bitmap, result_version);
 }
 
-std::map<uint64_t, uint64_t> & blockstore_t::get_inode_space_stats()
+const std::map<uint64_t, uint64_t> & blockstore_t::get_inode_space_stats()
 {
-    return impl->inode_space_stats;
+    return impl->get_inode_space_stats();
 }
 
 void blockstore_t::dump_diagnostics()
