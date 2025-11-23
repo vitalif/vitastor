@@ -16,8 +16,9 @@
 
 #define BS_HEAP_FREE_MVCC 1
 #define BS_HEAP_FREE_MAIN 2
-#define FREE_SPACE_BIT 0x8000
 #define META_ALLOC_LEVELS 8
+
+#define BS_HEAP_FREE_SPACE 0xAB8F
 
 #define HEAP_INFLIGHT_DONE 1
 #define HEAP_INFLIGHT_COMPACTABLE 2
@@ -289,20 +290,11 @@ int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uin
         {
             uint8_t *data = buf + buf_offset + block_offset;
             heap_entry_t *wr = (heap_entry_t*)data;
-            if (!wr->size)
-            {
-                // Block or the rest of block is apparently empty
-                // FIXME: Prevent all-zero blocks
-                if (block_offset > 0)
-                {
-                    wr->size = FREE_SPACE_BIT | (dsk->meta_block_size - block_offset);
-                }
-                break;
-            }
-            if ((wr->size & ~FREE_SPACE_BIT) > dsk->meta_block_size-block_offset)
+            if (wr->size > dsk->meta_block_size-block_offset)
             {
                 fprintf(stderr, "Error: entry is too large in metadata block %u at %u (%u > max %u bytes). ",
-                    block_num, block_offset, (wr->size & ~FREE_SPACE_BIT), dsk->meta_block_size-block_offset);
+                    block_num, block_offset, wr->size, dsk->meta_block_size-block_offset);
+corrupted_block:
                 if (allow_corrupted)
                 {
                     fprintf(stderr, "Metadata block is corrupted, skipping\n");
@@ -314,11 +306,21 @@ int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uin
                     return EDOM;
                 }
             }
-            if (wr->size & FREE_SPACE_BIT)
+            if (dsk->meta_block_size-block_offset < sizeof(heap_entry_t) ||
+                wr->size >= 4 && wr->entry_type == BS_HEAP_FREE_SPACE)
             {
-                // Free space
-                block_offset += (wr->size & ~FREE_SPACE_BIT);
-                continue;
+                // Empty end of the block - required to be filled with heap_empty_pattern
+                if (wr->size != dsk->meta_block_size-block_offset || wr->size >= 4 && wr->entry_type != BS_HEAP_FREE_SPACE)
+                {
+                    goto corrupted_block;
+                }
+                break;
+            }
+            if (wr->size < sizeof(heap_entry_t))
+            {
+                fprintf(stderr, "Error: entry is too small in metadata block %u at %u (%u < min %zu bytes). ",
+                    block_num, block_offset, wr->size, sizeof(heap_entry_t));
+                goto corrupted_block;
             }
             wr->entry_type &= ~BS_HEAP_GARBAGE;
             if ((wr->entry_type & BS_HEAP_TYPE) < BS_HEAP_BIG_WRITE ||
@@ -343,16 +345,20 @@ corrupted_object:
                     return EDOM;
                 }
             }
+            if (((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ||
+                (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE) &&
+                wr->size < sizeof(heap_small_write_t))
+            {
+                // Small writes require accessing offset & len to calculate correct length,
+                // so require at least sizeof(heap_small_write_t) for them
+                fprintf(stderr, "Error: entry %jx:%jx v%ju has invalid size in metadata block %u at %u (%u < min %zu bytes). Metadata is corrupted, aborting\n",
+                    wr->inode, wr->stripe, wr->version, block_num, block_offset, wr->size, sizeof(heap_small_write_t));
+                goto corrupted_object;
+            }
             if (wr->entry_type == BS_HEAP_COMMIT && !wr->version)
             {
                 fprintf(stderr, "Error: commit entry has zero version in metadata block %u at %u. ",
                     block_num, block_offset);
-                goto corrupted_object;
-            }
-            if (wr->size != wr->get_size(this))
-            {
-                fprintf(stderr, "Error: entry %jx:%jx v%ju has invalid size in metadata block %u at %u (%u != expected %u bytes). Metadata is corrupted, aborting\n",
-                    wr->inode, wr->stripe, wr->version, block_num, block_offset, wr->size, wr->get_size(this));
                 goto corrupted_object;
             }
             // Verify crc
@@ -1989,7 +1995,39 @@ void blockstore_heap_t::get_meta_block(uint32_t block_num, uint8_t *buffer)
         pos += li->entry.size;
     }
     assert(pos <= dsk->meta_block_size);
-    memset(buffer+pos, 0, dsk->meta_block_size-pos);
+    if (pos <= dsk->meta_block_size-2)
+    {
+        *((uint16_t*)(buffer+pos)) = dsk->meta_block_size-pos;
+        pos += 2;
+    }
+    if (pos <= dsk->meta_block_size-2)
+    {
+        *((uint16_t*)(buffer+pos)) = BS_HEAP_FREE_SPACE;
+        pos += 2;
+    }
+    if (pos < dsk->meta_block_size)
+    {
+        memset(buffer+pos, 0, dsk->meta_block_size-pos);
+    }
+}
+
+void blockstore_heap_t::fill_block_empty_space(uint8_t *buffer, uint32_t pos)
+{
+    if (pos > dsk->meta_block_size)
+    {
+        buffer += (pos / dsk->meta_block_size) * dsk->meta_block_size;
+        pos = pos % dsk->meta_block_size;
+    }
+    if (pos <= dsk->meta_block_size-2)
+    {
+        *((uint16_t*)(buffer+pos)) = dsk->meta_block_size-pos;
+        pos += 2;
+    }
+    if (pos <= dsk->meta_block_size-2)
+    {
+        *((uint16_t*)(buffer+pos)) = BS_HEAP_FREE_SPACE;
+        pos += 2;
+    }
 }
 
 uint32_t blockstore_heap_t::get_meta_block_used_space(uint32_t block_num)

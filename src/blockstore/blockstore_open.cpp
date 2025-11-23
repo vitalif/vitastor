@@ -96,6 +96,10 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     {
         metadata_buf_size = 4*1024*1024;
     }
+    if (metadata_buf_size % dsk.meta_block_size)
+    {
+        throw std::runtime_error("metadata_buf_size should be a multiple of meta_block_size");
+    }
     if (!meta_write_recheck_parallelism)
     {
         meta_write_recheck_parallelism = 16;

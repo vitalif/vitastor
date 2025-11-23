@@ -211,8 +211,10 @@ resume_4:
                     io_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
                 else
                 {
-                    // Fill metadata with zeroes
-                    memset(data->iov.iov_base, 0, data->iov.iov_len);
+                    // Fill metadata with empty block pattern
+                    memset(bufs[i].buf, 0, bufs[i].size);
+                    for (uint64_t o = 0; o < bufs[i].size; o += bs->dsk.meta_block_size)
+                        bs->heap->fill_block_empty_space(bufs[i].buf + o, 0);
                     io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
                 }
                 bs->ringloop->submit();

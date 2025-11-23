@@ -641,6 +641,21 @@ int disk_tool_t::resize_rebuild_meta()
         },
         [&](blockstore_heap_t *heap, heap_entry_t *obj, uint32_t meta_block_num)
         {
+            if (!obj)
+            {
+                // Finish
+                if (new_meta_format == BLOCKSTORE_META_FORMAT_HEAP)
+                {
+                    heap->fill_block_empty_space(new_meta_buf, new_meta_pos);
+                    new_meta_pos = (new_meta_pos/dsk.meta_block_size + 1) * dsk.meta_block_size;
+                    while (new_meta_pos < new_meta_len)
+                    {
+                        heap->fill_block_empty_space(new_meta_buf, new_meta_pos);
+                        new_meta_pos += dsk.meta_block_size;
+                    }
+                }
+                return;
+            }
             auto handle_write = [&](heap_entry_t *wr, bool stable)
             {
                 if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
@@ -663,6 +678,7 @@ int disk_tool_t::resize_rebuild_meta()
                     // New -> New
                     if ((new_meta_pos % dsk.meta_block_size) + wr->size > dsk.meta_block_size)
                     {
+                        heap->fill_block_empty_space(new_meta_buf, new_meta_pos);
                         new_meta_pos = (new_meta_pos/dsk.meta_block_size + 1) * dsk.meta_block_size;
                         if (new_meta_pos >= new_meta_len)
                         {

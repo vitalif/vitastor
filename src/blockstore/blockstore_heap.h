@@ -333,6 +333,7 @@ public:
 
     // get metadata block data buffer and used space
     void get_meta_block(uint32_t block_num, uint8_t *buffer);
+    void fill_block_empty_space(uint8_t *buffer, uint32_t pos);
     uint32_t get_meta_block_used_space(uint32_t block_num);
 
     // get space usage statistics

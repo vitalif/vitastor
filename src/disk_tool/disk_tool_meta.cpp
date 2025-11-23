@@ -116,6 +116,7 @@ close_error:
         {
             obj_fn(heap, obj, meta_block_num);
         });
+        obj_fn(heap, NULL, 0);
         delete heap;
     }
     else if (hdr->zero == 0 && hdr->magic == BLOCKSTORE_META_MAGIC_V1)
@@ -288,6 +289,8 @@ int disk_tool_t::dump_meta()
         },
         [this](blockstore_heap_t *heap, heap_entry_t *obj, uint32_t meta_block_num)
         {
+            if (!obj)
+                return;
             if (dump_as_old)
                 dump_heap_entry_as_old(heap, obj);
             else
