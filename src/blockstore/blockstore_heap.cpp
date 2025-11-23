@@ -411,7 +411,7 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
         modify_alloc(block_num, [&](heap_block_info_t & inf)
         {
             if (!inf.entries.size())
-                inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t)); // FIXME maybe less
+                inf.entries.reserve(dsk->meta_block_size / max_entry_size);
             inf.entries.push_back(li);
             inf.used_space += wr->size;
         });
@@ -1202,7 +1202,7 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
     auto new_wr = &li->entry;
     auto & inf = block_info.at(block_num);
     if (!inf.entries.size())
-        inf.entries.reserve(dsk->meta_block_size / sizeof(heap_entry_t)); // FIXME Maybe less
+        inf.entries.reserve(dsk->meta_block_size / max_entry_size);
     inf.entries.push_back(li);
     assert(!inf.mod_lsn_to || inf.mod_lsn_to == next_lsn);
     new_wr->lsn = ++next_lsn;
