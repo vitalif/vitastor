@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include "blockstore_impl.h"
+#include "blockstore_internal.h"
 
 #define META_BLOCK_UNREAD 0
 #define META_BLOCK_READ 1

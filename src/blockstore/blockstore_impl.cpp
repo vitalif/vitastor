@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include "blockstore_impl.h"
+#include "blockstore_internal.h"
 
 blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_t *ringloop, timerfd_manager_t *tfd)
 {

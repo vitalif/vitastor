@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include "blockstore_impl.h"
+#include "blockstore_internal.h"
 
 // Stabilize small write:
 // 1) Copy data from the journal to the data device

@@ -3,6 +3,7 @@
 
 #include <limits.h>
 #include "blockstore_impl.h"
+#include "blockstore_internal.h"
 
 int blockstore_impl_t::fulfill_read_push(blockstore_op_t *op, void *buf, uint64_t offset, uint64_t len,
     uint32_t item_state, uint64_t item_version)

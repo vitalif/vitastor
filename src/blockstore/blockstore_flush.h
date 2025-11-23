@@ -1,14 +1,6 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#define COPY_BUF_JOURNAL 1
-#define COPY_BUF_DATA 2
-#define COPY_BUF_ZERO 4
-#define COPY_BUF_CSUM_FILL 8
-#define COPY_BUF_COALESCED 16
-#define COPY_BUF_META_BLOCK 32
-#define COPY_BUF_JOURNALED_BIG 64
-
 struct copy_buffer_t
 {
     int copy_flags;

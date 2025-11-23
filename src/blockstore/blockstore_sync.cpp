@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include "blockstore_impl.h"
+#include "blockstore_internal.h"
 
 #define SYNC_HAS_SMALL 1
 #define SYNC_HAS_BIG 2

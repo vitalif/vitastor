@@ -6,7 +6,19 @@
 #include <stdint.h>
 #include <functional>
 
+#define POOL_SCHEME_REPLICATED 1
+#define POOL_SCHEME_XOR 2
+#define POOL_SCHEME_EC 3
+#define POOL_ID_MAX 0x10000
+#define POOL_ID_BITS 16
+#define INODE_POOL(inode) (pool_id_t)((inode) >> (64 - POOL_ID_BITS))
+#define INODE_NO_POOL(inode) (inode_t)((inode) & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1))
+#define INODE_WITH_POOL(pool_id, inode) (((inode_t)(pool_id) << (64-POOL_ID_BITS)) | INODE_NO_POOL(inode))
+
 typedef uint64_t inode_t;
+
+// Pool ID is 16 bits long
+typedef uint32_t pool_id_t;
 
 // 16 bytes per object/stripe id
 // stripe = (start of the parity stripe + peer role)

@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include "blockstore_impl.h"
+#include "blockstore_internal.h"
 
 bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
