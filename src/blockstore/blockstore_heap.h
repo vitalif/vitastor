@@ -76,7 +76,7 @@ struct __attribute__((__packed__)) heap_small_write_t
 {
     heap_entry_t hdr;
 
-    uint64_t location; // FIXME: change to uint32_t and shift by block size
+    uint64_t location;
     uint32_t offset;
     uint32_t len;
 
