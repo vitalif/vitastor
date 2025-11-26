@@ -370,7 +370,7 @@ int main(int argc, char *argv[])
             self.dsk.meta_device = cmd[1];
             self.dsk.meta_block_size = strtoul(cmd[2], NULL, 10);
             self.dsk.meta_offset = strtoull(cmd[3], NULL, 10);
-            self.dsk.meta_area_size = strtoull(cmd[4], NULL, 10);
+            self.dsk.min_meta_len = self.dsk.meta_area_size = strtoull(cmd[4], NULL, 10);
         }
         else if (cmd.size() == 2)
         {

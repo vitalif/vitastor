@@ -121,9 +121,6 @@ close_error:
     }
     else if (hdr->zero == 0 && hdr->magic == BLOCKSTORE_META_MAGIC_V1)
     {
-        dsk.meta_format = hdr->version;
-        dsk.calc_lengths();
-        dsk.check_lengths();
         if (hdr->version == BLOCKSTORE_META_FORMAT_V1)
         {
             // Vitastor 0.6-0.8 - static array of clean_disk_entry with bitmaps
@@ -207,9 +204,9 @@ csum_unknown:
         uint64_t meta_pos = 0;
         uint64_t block_num = 0;
         hdr_fn(NULL);
-        while (meta_pos < dsk.meta_area_size)
+        while (meta_pos < dsk.min_meta_len)
         {
-            uint64_t read_len = buf_size < dsk.meta_area_size-meta_pos ? buf_size : dsk.meta_area_size-meta_pos;
+            uint64_t read_len = buf_size < dsk.min_meta_len-meta_pos ? buf_size : dsk.min_meta_len-meta_pos;
             read_blocking(dsk.meta_fd, data, read_len);
             meta_pos += read_len;
             for (uint64_t blk = 0; blk < read_len; blk += dsk.meta_block_size)
