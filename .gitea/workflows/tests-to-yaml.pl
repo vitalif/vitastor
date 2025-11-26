@@ -38,6 +38,10 @@ for my $line (<>)
             {
                 $test_name .= '_antietcd';
             }
+            elsif ($1 eq 'OLD')
+            {
+                $test_name =~ s/^test_/test_old_/s;
+            }
             else
             {
                 $test_name .= '_'.lc($1).'_'.$2;

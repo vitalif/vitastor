@@ -43,6 +43,11 @@ if [[ -z "$KEEP_DATA" ]]; then
     fi
 fi
 
+if [[ -n "$OLD" ]]; then
+    OSD_ARGS="$OSD_ARGS --meta_format 2"
+    OFFSET_ARGS="$OFFSET_ARGS --meta_format 2"
+fi
+
 ETCD_URL="http://$ETCD_IP:$ETCD_PORT"
 for i in $(seq 2 $ETCD_COUNT); do
     ETCD_URL="$ETCD_URL,http://$ETCD_IP:$((ETCD_PORT+2*i-2))"
