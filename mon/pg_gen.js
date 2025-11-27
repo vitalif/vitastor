@@ -9,7 +9,6 @@ const LPOptimizer = require('./lp_optimizer/lp_optimizer.js');
 const { scale_pg_count } = require('./pg_utils.js');
 const { make_hier_tree, filter_osds_by_root_node,
     filter_osds_by_tags, filter_osds_by_block_layout, get_affinity_osds } = require('./osd_tree.js');
-const { select_murmur3 } = require('./lp_optimizer/murmur3.js');
 
 function pick_primary(pool_id, pg_num, pool_config, osd_set, up_osds, aff_osds)
 {
@@ -39,7 +38,7 @@ function pick_primary(pool_id, pg_num, pool_config, osd_set, up_osds, aff_osds)
     {
         return 0;
     }
-    return alive_set[select_murmur3(alive_set.length, osd_num => pool_id+'/'+pg_num+'/'+osd_num)];
+    return alive_set[pg_num % alive_set.length];
 }
 
 function recheck_primary(state, global_config, up_osds, osd_tree)
