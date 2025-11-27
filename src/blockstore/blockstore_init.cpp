@@ -86,6 +86,10 @@ resume_1:
                 hdr->data_csum_type = bs->dsk.data_csum_type;
                 hdr->csum_block_size = bs->dsk.csum_block_size;
             }
+            if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_HEAP)
+            {
+                hdr->meta_area_size = bs->dsk.meta_area_size;
+            }
             hdr->set_crc32c();
         }
         if (bs->readonly)
@@ -136,19 +140,21 @@ resume_1:
             hdr->data_block_size != bs->dsk.data_block_size ||
             hdr->bitmap_granularity != bs->dsk.bitmap_granularity ||
             hdr->data_csum_type != bs->dsk.data_csum_type ||
-            hdr->csum_block_size != bs->dsk.csum_block_size)
+            hdr->csum_block_size != bs->dsk.csum_block_size ||
+            hdr->meta_area_size > bs->dsk.meta_area_size)
         {
             printf(
                 "Configuration stored in metadata superblock"
-                " (meta_block_size=%u, data_block_size=%u, bitmap_granularity=%u, data_csum_type=%u, csum_block_size=%u)"
-                " differs from OSD configuration (%u/%u/%u, %u/%u).\n",
+                " (meta_block_size=%u, data_block_size=%u, bitmap_granularity=%u, data_csum_type=%u, csum_block_size=%u, meta_area_size=%ju)"
+                " differs from OSD configuration (%u/%u/%u, %u/%u, %ju).\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
-                hdr->data_csum_type, hdr->csum_block_size,
+                hdr->data_csum_type, hdr->csum_block_size, hdr->meta_area_size,
                 bs->dsk.meta_block_size, bs->dsk.data_block_size, bs->dsk.bitmap_granularity,
-                bs->dsk.data_csum_type, bs->dsk.csum_block_size
+                bs->dsk.data_csum_type, bs->dsk.csum_block_size, bs->dsk.meta_area_size
             );
             exit(1);
         }
+        bs->dsk.meta_area_size = hdr->meta_area_size;
         if (bs->dsk.meta_format != hdr->version)
         {
             bs->dsk.meta_format = hdr->version;

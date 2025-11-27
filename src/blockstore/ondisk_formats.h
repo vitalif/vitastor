@@ -185,6 +185,7 @@ struct __attribute__((__packed__)) blockstore_meta_header_v3_t
     uint32_t data_csum_type;
     uint32_t csum_block_size;
     uint32_t header_csum;
+    uint64_t meta_area_size;
     uint64_t completed_lsn;
 
     void set_crc32c();

@@ -6,6 +6,25 @@
 #include "json_util.h"
 #include "osd_id.h"
 
+void disk_tool_t::parse_meta_reserve()
+{
+    meta_reserve_multiple = 2;
+    meta_reserve_min_size = (uint64_t)1024*1024*1024;
+    if (options.find("meta_reserve") != options.end())
+    {
+        int p1 = options["meta_reserve"].find("x"), p2 = options["meta_reserve"].find(",");
+        if (p1 >= 0 && p2 >= 0)
+        {
+            sscanf(options["meta_reserve"].c_str()+(p1 < p2 ? 0 : p2), "%lf", &meta_reserve_multiple);
+            meta_reserve_min_size = parse_size(options["meta_reserve"].substr(p1 < p2 ? p2 : 0, p1 < p2 ? options["meta_reserve"].size()-p2 : p2));
+        }
+        else if (p1 >= 0)
+            sscanf(options["meta_reserve"].c_str(), "%lf", &meta_reserve_multiple);
+        else
+            meta_reserve_min_size = parse_size(options["meta_reserve"]);
+    }
+}
+
 int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_hdd, json11::Json::object & result)
 {
     static const char *allow_additional_params[] = {
@@ -144,7 +163,17 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         dsk.open_journal();
         dsk.calc_lengths();
         if (dsk.data_device == dsk.meta_device && !new_meta_len)
-            dsk.data_offset += (dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP ? dsk.min_meta_len*2 : dsk.min_meta_len);
+        {
+            uint64_t new_meta_len = dsk.min_meta_len;
+            if (dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP)
+            {
+                new_meta_len = dsk.min_meta_len*meta_reserve_multiple;
+                if (new_meta_len < meta_reserve_min_size)
+                    new_meta_len = meta_reserve_min_size;
+                new_meta_len = (new_meta_len + dsk.meta_block_size-1) & ~((uint64_t)dsk.meta_block_size-1);
+            }
+            dsk.data_offset += new_meta_len;
+        }
         dsk.meta_area_size = (dsk.data_device == dsk.meta_device ? dsk.data_offset : dsk.meta_device_size) - dsk.meta_offset;
         sb = json11::Json::object {
             { "meta_format", options["meta_format"] },
@@ -562,24 +591,10 @@ int disk_tool_t::get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std
         return 1;
     }
     // Leave some extra space for future metadata formats and round metadata area size to multiples of 1 MB
-    uint64_t meta_reserve_multiple = 2, min_meta_size = (uint64_t)1024*1024*1024;
-    if (options.find("meta_reserve") != options.end())
-    {
-        int p1 = options["meta_reserve"].find("x"), p2 = options["meta_reserve"].find(",");
-        if (p1 >= 0 && p2 >= 0)
-        {
-            meta_reserve_multiple = stoull_full(options["meta_reserve"].substr(p1 < p2 ? 0 : p2, p1 - (p1 < p2 ? 0 : p2)));
-            min_meta_size = parse_size(options["meta_reserve"].substr(p1 < p2 ? p2 : 0, p1 < p2 ? options["meta_reserve"].size()-p2 : p2));
-        }
-        else if (p1 >= 0)
-            meta_reserve_multiple = stoull_full(options["meta_reserve"].substr(0, p1));
-        else
-            min_meta_size = parse_size(options["meta_reserve"]);
-    }
     meta_size = ((meta_size+1024*1024-1)/1024/1024)*1024*1024;
     meta_size *= meta_reserve_multiple;
-    if (meta_size < min_meta_size)
-        meta_size = min_meta_size;
+    if (meta_size < meta_reserve_min_size)
+        meta_size = meta_reserve_min_size;
     // Pick an SSD for journal&meta, balancing the number of serviced OSDs across SSDs
     int sel = -1;
     for (int i = 0; i < ssds.size(); i++)
@@ -610,6 +625,7 @@ int disk_tool_t::get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std
 
 int disk_tool_t::prepare(std::vector<std::string> devices)
 {
+    parse_meta_reserve();
     if (options.find("data_device") != options.end() && options["data_device"] != "")
     {
         if (options.find("hybrid") != options.end() ||

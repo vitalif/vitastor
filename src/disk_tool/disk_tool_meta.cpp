@@ -7,8 +7,6 @@
 #include "json_util.h"
 #include "malloc_or_die.h"
 
-#define FREE_SPACE_BIT 0x8000
-
 int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v3_t *)> hdr_fn,
     std::function<void(blockstore_heap_t *heap, heap_entry_t *obj, uint32_t meta_block_num)> obj_fn,
     std::function<void(uint64_t block_num, clean_disk_entry *entry_v1, uint8_t *bitmap)> record_fn,
@@ -25,7 +23,7 @@ int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v3_t *)>
         buf_size = 8*dsk.meta_block_size;
     uint8_t *data = NULL;
     data = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, buf_size);
-    blockstore_meta_header_v3_t *hdr = (blockstore_meta_header_v3_t *)data;
+    blockstore_meta_header_v3_t *hdr = (blockstore_meta_header_v3_t *)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
     if (do_open)
     {
         if (dsk.meta_fd >= 0)
@@ -101,13 +99,12 @@ close_error:
         blockstore_heap_t *heap = new blockstore_heap_t(&dsk, buffer_area, log_level);
         // Load heap and just iterate it in memory
         hdr_fn(hdr);
-        hdr = NULL;
         uint64_t meta_pos = dsk.meta_block_size;
         lseek64(dsk.meta_fd, dsk.meta_offset+meta_pos, 0);
         uint64_t entries_loaded = 0;
-        while (meta_pos < dsk.meta_area_size)
+        while (meta_pos < hdr->meta_area_size)
         {
-            uint64_t read_len = buf_size < dsk.meta_area_size-meta_pos ? buf_size : dsk.meta_area_size-meta_pos;
+            uint64_t read_len = buf_size < hdr->meta_area_size-meta_pos ? buf_size : hdr->meta_area_size-meta_pos;
             read_blocking(dsk.meta_fd, data, read_len);
             r = heap->load_blocks(meta_pos-dsk.meta_block_size, read_len, data, true, entries_loaded);
             meta_pos += read_len;
@@ -165,7 +162,6 @@ csum_unknown:
         // Read
         uint64_t block_num = 0;
         hdr_fn(hdr);
-        hdr = NULL;
         uint64_t meta_pos = dsk.meta_block_size;
         lseek64(dsk.meta_fd, dsk.meta_offset+meta_pos, 0);
         while (meta_pos < dsk.min_meta_len)
@@ -224,6 +220,7 @@ csum_unknown:
     }
 close_free:
     free(data);
+    free(hdr);
     if (buffer_area)
     {
         free(buffer_area);
@@ -308,7 +305,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v3_t *hdr)
         if (hdr->version == BLOCKSTORE_META_FORMAT_V1)
         {
             printf(
-                "{\"version\":\"0.6\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
+                "{\"version\":\"" VITASTOR_META_FORMAT_NAME_V1 "\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
                 "\"entries\":[\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity
             );
@@ -316,7 +313,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v3_t *hdr)
         else if (hdr->version == BLOCKSTORE_META_FORMAT_V2)
         {
             printf(
-                "{\"version\":\"0.9\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
+                "{\"version\":\"" VITASTOR_META_FORMAT_NAME_V2 "\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
                 "\"data_csum_type\":\"%s\",\"csum_block_size\":%u,\"entries\":[\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
                 csum_type_str(hdr->data_csum_type).c_str(), hdr->csum_block_size
@@ -325,7 +322,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v3_t *hdr)
         else if (hdr->version == BLOCKSTORE_META_FORMAT_HEAP)
         {
             printf(
-                "{\"version\":\"3.0\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
+                "{\"version\":\"" VITASTOR_META_FORMAT_NAME_HEAP "\",\"meta_block_size\":%u,\"data_block_size\":%u,\"bitmap_granularity\":%u,"
                 "\"data_csum_type\":\"%s\",\"csum_block_size\":%u,\"entries\":[\n",
                 hdr->meta_block_size, hdr->data_block_size, hdr->bitmap_granularity,
                 csum_type_str(hdr->data_csum_type).c_str(), hdr->csum_block_size
@@ -517,12 +514,16 @@ void disk_tool_t::dump_meta_entry(uint64_t block_num, clean_disk_entry *entry, u
 
 int disk_tool_t::write_json_meta(json11::Json meta)
 {
+    if (meta["version"].string_value() == VITASTOR_META_FORMAT_NAME_HEAP)
+    {
+        return write_json_heap(meta, meta["journal"]);
+    }
     new_meta_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_meta_len);
     memset(new_meta_buf, 0, new_meta_len);
     blockstore_meta_header_v2_t *new_hdr = (blockstore_meta_header_v2_t *)new_meta_buf;
     new_hdr->zero = 0;
     new_hdr->magic = BLOCKSTORE_META_MAGIC_V1;
-    new_hdr->version = meta["version"].uint64_value() == BLOCKSTORE_META_FORMAT_V1
+    new_hdr->version = meta["version"].string_value() == VITASTOR_META_FORMAT_NAME_V1
         ? BLOCKSTORE_META_FORMAT_V1 : BLOCKSTORE_META_FORMAT_V2;
     new_hdr->meta_block_size = meta["meta_block_size"].uint64_value()
         ? meta["meta_block_size"].uint64_value() : 4096;
@@ -588,6 +589,9 @@ int disk_tool_t::write_json_meta(json11::Json meta)
 
 int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
 {
+    new_meta_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, new_meta_len);
+    memset(new_meta_buf, 0, new_meta_len);
+    new_meta_hdr = (blockstore_meta_header_v3_t *)new_meta_buf;
     new_meta_hdr->zero = 0;
     new_meta_hdr->magic = BLOCKSTORE_META_MAGIC_V1;
     new_meta_hdr->version = BLOCKSTORE_META_FORMAT_HEAP;
@@ -604,41 +608,29 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
             : BLOCKSTORE_CSUM_NONE);
     new_meta_hdr->csum_block_size = meta["csum_block_size"].uint64_value();
     new_meta_hdr->header_csum = crc32c(0, new_meta_hdr, sizeof(blockstore_meta_header_v3_t));
+    new_meta_hdr->meta_area_size = new_meta_len;
     new_clean_entry_bitmap_size = (new_meta_hdr->data_block_size / new_meta_hdr->bitmap_granularity + 7) / 8;
     new_clean_entry_size = 0;
     new_entries_per_block = 0;
     new_data_csum_size = (new_meta_hdr->data_csum_type
         ? ((new_meta_hdr->data_block_size+new_meta_hdr->csum_block_size-1)/new_meta_hdr->csum_block_size*(new_meta_hdr->data_csum_type & 0xFF))
         : 0);
-    new_journal_buf = new_journal_len ? (uint8_t*)memalign(MEM_ALIGNMENT, new_journal_len) : NULL;
+    new_journal_buf = NULL;
     if (new_journal_len)
     {
+        new_journal_buf = (uint8_t*)memalign(MEM_ALIGNMENT, new_journal_len);
         memset(new_journal_buf, 0, new_journal_len);
     }
     uint64_t total_used_space = 0;
     uint32_t used_space = 0;
-    uint64_t meta_offset = 0;
-    // FIXME: Rather ugly. Remove the dependency on dsk from heap?
-    blockstore_disk_t dsk;
-    dsk.bitmap_granularity = new_meta_hdr->bitmap_granularity;
-    dsk.block_count = 16;
-    dsk.data_block_size = new_meta_hdr->data_block_size;
-    dsk.clean_entry_bitmap_size = new_clean_entry_bitmap_size;
-    dsk.csum_block_size = new_meta_hdr->csum_block_size;
-    dsk.data_csum_type = new_meta_hdr->data_csum_type;
-    dsk.journal_len = 4096;
-    dsk.meta_area_size = new_meta_len;
-    dsk.meta_block_size = new_meta_hdr->meta_block_size;
+    uint64_t meta_offset = dsk.meta_block_size;
     blockstore_heap_t heap(&dsk, NULL, 0);
     heap_entry_t *wr = NULL;
     auto get_wr = [&](uint32_t entry_size)
     {
         if (used_space > new_meta_hdr->meta_block_size-entry_size)
         {
-            if (used_space < new_meta_hdr->meta_block_size-2)
-            {
-                *((uint16_t*)(new_meta_buf + meta_offset + used_space)) = FREE_SPACE_BIT | (uint16_t)(new_meta_hdr->meta_block_size-used_space);
-            }
+            heap.fill_block_empty_space(new_meta_buf + meta_offset, used_space);
             meta_offset += new_meta_hdr->meta_block_size;
             used_space = 0;
             if (meta_offset >= new_meta_len)
@@ -652,7 +644,7 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
         return wr;
     };
     // FIXME: Use a streaming json parser
-    if (meta["version"] == "3.0")
+    if (meta["version"].string_value() == VITASTOR_META_FORMAT_NAME_HEAP)
     {
         // New format
         for (const auto & meta_entry: meta["entries"].array_items())
@@ -680,7 +672,8 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
                     wr_type = BS_HEAP_ROLLBACK;
                 else
                 {
-                    fprintf(stderr, "Write entry in %s has invalid type: %s, skipping\n", write_entry.dump().c_str(), write_entry["type"].dump().c_str());
+                    fprintf(stderr, "Write entry %s has invalid type: %s, aborting\n",
+                        write_entry.dump().c_str(), write_entry["type"].dump().c_str());
 close_err0:
                     free(new_meta_buf);
                     new_meta_buf = NULL;
@@ -723,8 +716,13 @@ close_err0:
                 else if (wr_type == BS_HEAP_BIG_WRITE)
                 {
                     uint64_t loc = write_entry["location"].uint64_value();
-                    assert(!(loc % dsk.data_block_size));
-                    assert((loc / dsk.data_block_size) < 0xFFFF0000);
+                    if ((loc % dsk.data_block_size) || (loc / dsk.data_block_size) >= 0xFFFF0000)
+                    {
+                        fprintf(stderr, "Write entry %s has invalid location: 0x%jx, aborting\n",
+                            write_entry.dump().c_str(), loc);
+                        free_new_meta();
+                        return 1;
+                    }
                     wr->set_big_location(&heap, loc);
                 }
                 else if (wr_type == BS_HEAP_BIG_INTENT)
@@ -867,13 +865,15 @@ close_err:
                 }
             }
         }
-        if (used_space > 0 && used_space < new_meta_hdr->meta_block_size-2)
-        {
-            *((uint16_t*)(new_meta_buf + meta_offset + used_space)) = FREE_SPACE_BIT | (uint16_t)(new_meta_hdr->meta_block_size-used_space);
-        }
+    }
+    while (meta_offset < new_meta_len)
+    {
+        heap.fill_block_empty_space(new_meta_buf + meta_offset, used_space);
+        meta_offset += dsk.meta_block_size;
+        used_space = 0;
     }
     int r = resize_write_new_meta();
-    if (r == 0)
+    if (new_journal_buf && r == 0)
     {
         r = resize_write_new_journal();
     }

@@ -8,6 +8,7 @@
 
 int disk_tool_t::resize_data(std::string device)
 {
+    parse_meta_reserve();
     if (options.find("move_journal") == options.end() &&
         options.find("move_data") == options.end() &&
         options.find("journal_size") == options.end() &&
@@ -83,7 +84,8 @@ int disk_tool_t::resize_data(std::string device)
         ? move_options["new_meta_device"] : dsk.meta_device;
     // Calculate new data & meta offsets
     if (!new_meta_len)
-        new_meta_len = (dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP ? dsk.min_meta_len*2 : dsk.min_meta_len);
+        new_meta_len = (dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP ? dsk.meta_area_size : dsk.min_meta_len);
+    move_options["new_meta_len"] = std::to_string(new_meta_len);
     new_data_offset = 4096 + (new_journal_device == dsk.data_device ? new_journal_len : 0) +
         (new_meta_device == dsk.data_device ? new_meta_len : 0);
     new_data_offset += ((dsk.data_offset-new_data_offset) % dsk.data_block_size);

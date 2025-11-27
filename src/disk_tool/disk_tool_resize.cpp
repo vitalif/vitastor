@@ -25,6 +25,7 @@ struct resizer_data_moving_t
 int disk_tool_t::raw_resize()
 {
     int r;
+    parse_meta_reserve();
     // Parse parameters
     r = resize_parse_params();
     if (r != 0)
@@ -225,17 +226,28 @@ void disk_tool_t::resize_init(blockstore_meta_header_v3_t *hdr)
     new_data_csum_size = (dsk.data_csum_type
         ? ((dsk.data_block_size+dsk.csum_block_size-1)/dsk.csum_block_size*(dsk.data_csum_type & 0xFF))
         : 0);
-    new_clean_entry_size = new_clean_entry_header_size + 2*new_clean_entry_bitmap_size + new_data_csum_size;
-    new_entries_per_block = dsk.meta_block_size/new_clean_entry_size;
-    uint64_t new_meta_blocks = 1 + (new_data_len/dsk.data_block_size + new_entries_per_block-1) / new_entries_per_block;
-    if (!new_meta_len)
+    if (new_meta_format != BLOCKSTORE_META_FORMAT_HEAP)
     {
-        new_meta_len = dsk.meta_block_size*new_meta_blocks;
+        new_clean_entry_size = new_clean_entry_header_size + 2*new_clean_entry_bitmap_size + new_data_csum_size;
+        new_entries_per_block = dsk.meta_block_size/new_clean_entry_size;
+        uint64_t new_meta_blocks = 1 + (new_data_len/dsk.data_block_size + new_entries_per_block-1) / new_entries_per_block;
+        if (!new_meta_len)
+        {
+            new_meta_len = dsk.meta_block_size*new_meta_blocks;
+        }
+        if (new_meta_len < dsk.meta_block_size*new_meta_blocks)
+        {
+            fprintf(stderr, "New metadata area size is too small, should be at least %ju bytes\n", dsk.meta_block_size*new_meta_blocks);
+            exit(1);
+        }
     }
-    if (new_meta_len < dsk.meta_block_size*new_meta_blocks)
+    else
     {
-        fprintf(stderr, "New metadata area size is too small, should be at least %ju bytes\n", dsk.meta_block_size*new_meta_blocks);
-        exit(1);
+        new_clean_entry_size = new_entries_per_block = 0;
+        if (!new_meta_len)
+        {
+            new_meta_len = dsk.meta_area_size;
+        }
     }
     // Check that new metadata, journal and data areas don't overlap
     if (new_meta_device == dsk.data_device && new_meta_offset < new_data_offset+new_data_len &&
@@ -631,6 +643,7 @@ int disk_tool_t::resize_rebuild_meta()
             new_meta_hdr->data_csum_type = dsk.data_csum_type;
             new_meta_hdr->csum_block_size = dsk.csum_block_size;
             new_meta_hdr->completed_lsn = hdr->completed_lsn;
+            new_meta_hdr->meta_area_size = new_meta_len;
             new_meta_hdr->header_csum = 0;
             new_meta_hdr->header_csum = crc32c(0, new_meta_hdr, new_meta_hdr->version == BLOCKSTORE_META_FORMAT_HEAP
                 ? sizeof(blockstore_meta_header_v3_t) : sizeof(blockstore_meta_header_v2_t));

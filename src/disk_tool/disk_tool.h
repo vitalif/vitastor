@@ -27,6 +27,9 @@
 #define VITASTOR_PART_TYPE "e7009fac-a5a1-4d72-af72-53de13059903"
 #define DEFAULT_HYBRID_JOURNAL "1G"
 #define DEFAULT_HYBRID_SSD_JOURNAL "128M"
+#define VITASTOR_META_FORMAT_NAME_V1 "0.6"
+#define VITASTOR_META_FORMAT_NAME_V2 "0.9"
+#define VITASTOR_META_FORMAT_NAME_HEAP "3.0"
 
 struct resizer_data_moving_t;
 
@@ -51,18 +54,20 @@ struct disk_tool_t
     bool dump_as_old = false;
     bool skip_obsolete = false;
     int log_level = 1;
+    double meta_reserve_multiple = 2;
+    uint64_t meta_reserve_min_size = (uint64_t)1024*1024*1024;
     blockstore_disk_t dsk;
 
     // resize data and/or move metadata and journal
     int iodepth;
     std::string new_meta_device, new_journal_device;
-    uint64_t new_data_offset, new_data_len;
-    uint64_t new_journal_offset, new_journal_len;
-    uint64_t new_meta_offset, new_meta_len;
+    uint64_t new_data_offset = 0, new_data_len = 0;
+    uint64_t new_journal_offset = 0, new_journal_len = 0;
+    uint64_t new_meta_offset = 0, new_meta_len = 0;
 
     /**** State ****/
 
-    uint64_t journal_pos, journal_calc_data_pos;
+    uint64_t journal_pos = 0, journal_calc_data_pos = 0;
 
     uint8_t *buffer_area = NULL;
     bool first_block, first_entry;
@@ -72,24 +77,24 @@ struct disk_tool_t
     std::map<uint64_t, uint64_t>::iterator remap_it;
     ring_loop_t *ringloop = NULL;
     ring_consumer_t ring_consumer;
-    int remap_active;
+    int remap_active = 0;
     journal_entry_start je_start;
     uint8_t *new_journal_buf = NULL, *new_meta_buf = NULL, *new_journal_ptr = NULL, *new_journal_data = NULL;
     blockstore_meta_header_v3_t *new_meta_hdr = NULL;
-    uint64_t new_journal_in_pos;
-    int64_t data_idx_diff;
-    uint64_t total_blocks, free_first, free_last;
-    uint64_t new_clean_entry_bitmap_size, new_data_csum_size, new_clean_entry_size, new_entries_per_block;
+    uint64_t new_journal_in_pos = 0;
+    int64_t data_idx_diff = 0;
+    uint64_t total_blocks = 0, free_first = 0, free_last = 0;
+    uint64_t new_clean_entry_bitmap_size = 0, new_data_csum_size = 0, new_clean_entry_size = 0, new_entries_per_block = 0;
     uint32_t new_meta_format = 0;
     int new_journal_fd = -1, new_meta_fd = -1;
     resizer_data_moving_t *moving_blocks = NULL;
 
-    bool started;
+    bool started = false;
     void *small_write_data = NULL;
-    uint32_t data_crc32;
-    bool data_csum_valid;
-    uint32_t crc32_last;
-    uint32_t new_crc32_prev;
+    uint32_t data_crc32 = 0;
+    bool data_csum_valid = false;
+    uint32_t crc32_last = 0;
+    uint32_t new_crc32_prev = 0;
 
     ~disk_tool_t();
 
@@ -152,6 +157,7 @@ struct disk_tool_t
     json11::Json read_osd_superblock(std::string device, bool expect_exist = true, bool ignore_nonref = false);
     uint32_t write_osd_superblock(std::string device, json11::Json params);
 
+    void parse_meta_reserve();
     int prepare_one(std::map<std::string, std::string> options, int is_hdd, json11::Json::object & result);
     int check_existing_partition(std::string & dev_by_uuid);
     int fix_partition_type(std::string & dev_by_uuid);
