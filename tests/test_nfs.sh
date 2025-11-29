@@ -179,7 +179,7 @@ build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta set d11/settings.jsonLG
 sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
 ls -l ./testdata/nfs
 ls -l ./testdata/nfs/settings.jsonLGNmGn
-rm ./testdata/nfs/settings.jsonLGNmGn
+sudo rm ./testdata/nfs/settings.jsonLGNmGn
 build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta get d11/settings.jsonLGNmGn 2>&1 | grep '(code -2)'
 ls -l ./testdata/nfs
 
@@ -189,7 +189,7 @@ build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta set d11/settings.jsonLG
 sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
 ls -l ./testdata/nfs
 ls -l ./testdata/nfs/settings.jsonLGNmGn
-rm ./testdata/nfs/settings.jsonLGNmGn
+sudo rm ./testdata/nfs/settings.jsonLGNmGn
 build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta get d11/settings.jsonLGNmGn 2>&1 | grep '(code -2)'
 ls -l ./testdata/nfs
 

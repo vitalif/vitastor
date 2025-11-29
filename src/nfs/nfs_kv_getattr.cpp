@@ -166,7 +166,20 @@ int kv_nfs3_access_proc(void *opaque, rpc_op_t *rop)
             fprintf(stderr, "[%d] ACCESS %ju -> %s\n", self->nfs_fd, ino, value.c_str());
         if (res < 0)
         {
-            *reply = (ACCESS3res){ .status = vitastor_nfs_map_err(-res) };
+            // Broken inode (non-existing), allow only root access
+            if (!rop->auth_sys.uid)
+            {
+                *reply = (ACCESS3res){
+                    .status = NFS3_OK,
+                    .resok = (ACCESS3resok){
+                        .access = args->access,
+                    },
+                };
+            }
+            else
+            {
+                *reply = (ACCESS3res){ .status = vitastor_nfs_map_err(-res) };
+            }
         }
         else
         {
