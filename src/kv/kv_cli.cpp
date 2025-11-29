@@ -298,6 +298,50 @@ struct kv_cli_list_t
     int n = 0;
     std::function<void(int)> cb;
 
+    void handle_key(int res, const std::string & key, const std::string & value)
+    {
+        if (res < 0)
+        {
+            if (res != -ENOENT)
+                fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);
+            if (format == 2)
+                write("\n}\n");
+            if (handle)
+                db->list_close(handle);
+            flush();
+            cb(res == -ENOENT ? 0 : res);
+            delete this;
+        }
+        else
+        {
+            if (format == 2)
+            {
+                write(n ? ",\n  " : "{\n  ");
+                write(addslashes(key));
+                write(": ");
+                write(addslashes(value));
+            }
+            else if (format == 1)
+            {
+                write("set ");
+                write(auto_addslashes(key));
+                write(" ");
+                write(value);
+                write("\n");
+            }
+            else
+            {
+                write(key);
+                write(" = ");
+                write(value);
+                write("\n");
+            }
+            n++;
+            if (handle)
+                db->list_next(handle, NULL);
+        }
+    }
+
     void write(const std::string & str)
     {
         if (buf.capacity() < KV_LIST_BUF_SIZE)
@@ -316,6 +360,7 @@ struct kv_cli_list_t
             if (res > 0)
                 done += res;
         }
+        buf.clear();
     }
 };
 
@@ -624,44 +669,7 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
         lst->cb = std::move(cb);
         db->list_next(lst->handle, [lst](int res, const std::string & key, const std::string & value)
         {
-            if (res < 0)
-            {
-                if (res != -ENOENT)
-                    fprintf(stderr, "Error: %s (code %d)\n", strerror(-res), res);
-                if (lst->format == 2)
-                    lst->write("\n}\n");
-                lst->flush();
-                lst->db->list_close(lst->handle);
-                lst->cb(res == -ENOENT ? 0 : res);
-                delete lst;
-            }
-            else
-            {
-                if (lst->format == 2)
-                {
-                    lst->write(lst->n ? ",\n  " : "{\n  ");
-                    lst->write(addslashes(key));
-                    lst->write(": ");
-                    lst->write(addslashes(value));
-                }
-                else if (lst->format == 1)
-                {
-                    lst->write("set ");
-                    lst->write(auto_addslashes(key));
-                    lst->write(" ");
-                    lst->write(value);
-                    lst->write("\n");
-                }
-                else
-                {
-                    lst->write(key);
-                    lst->write(" = ");
-                    lst->write(value);
-                    lst->write("\n");
-                }
-                lst->n++;
-                lst->db->list_next(lst->handle, NULL);
-            }
+            lst->handle_key(res, key, value);
         });
     }
     else if (opname == "loadjson")

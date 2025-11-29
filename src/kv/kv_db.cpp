@@ -389,6 +389,10 @@ bool kv_block_t::serialize(uint8_t *buf, int size)
             return false;
         blk->items++;
     }
+    if (pos < size)
+    {
+        memset(buf+pos, 0, size-pos);
+    }
     return true;
 }
 
