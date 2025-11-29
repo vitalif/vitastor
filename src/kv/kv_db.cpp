@@ -530,6 +530,12 @@ void kv_db_t::open(inode_t inode_id, json11::Json cfg, std::function<void(int)> 
     }
     this->inode_id = inode_id;
     this->immediate_commit = cli->get_immediate_commit(inode_id);
+    if (!this->immediate_commit)
+    {
+        // FIXME: CAS is unusable without immediate_commit at the moment. Fix it
+        cb(-EINVAL);
+        return;
+    }
     this->ino_block_size = pool_cfg.data_block_size * pg_data_size;
     this->kv_block_size = kv_block_size;
     this->next_free = 0;
