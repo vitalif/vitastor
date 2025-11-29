@@ -82,6 +82,7 @@ public:
     uint64_t total_prob = 0;
     uint64_t ops_sent = 0, ops_done = 0;
     int stat_timer_id = -1;
+    int run_timer_id = -1;
     int in_progress = 0;
     bool reopening = false;
     std::set<kv_test_listing_t*> listings;
@@ -299,9 +300,11 @@ void kv_test_t::run(json11::Json cfg)
     ringloop->register_consumer(&consumer);
     if (print_stats_interval)
         stat_timer_id = epmgr->tfd->set_timer(print_stats_interval*1000, true, [this](int) { print_stats(prev_stat, prev_stat_time); });
+    if (runtime_sec)
+        run_timer_id = epmgr->tfd->set_timer(runtime_sec*1000, false, [this](int) { run_timer_id = -1; op_count = 0; });
     clock_gettime(CLOCK_REALTIME, &start_stat_time);
     prev_stat_time = start_stat_time;
-    while (!finished)
+    while (!finished || in_progress > 0)
     {
         ringloop->loop();
         if (!finished)
@@ -309,6 +312,8 @@ void kv_test_t::run(json11::Json cfg)
     }
     if (stat_timer_id >= 0)
         epmgr->tfd->clear_timer(stat_timer_id);
+    if (run_timer_id >= 0)
+        epmgr->tfd->clear_timer(run_timer_id);
     ringloop->unregister_consumer(&consumer);
     // Print total stats
     print_total_stats();
