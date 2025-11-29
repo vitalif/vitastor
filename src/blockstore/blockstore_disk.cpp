@@ -147,6 +147,12 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         throw std::runtime_error("Data block size must be a multiple of sparse write tracking granularity");
     }
+    if (data_block_size / bitmap_granularity < 8)
+    {
+        fprintf(stderr, "Warning: block_size (%ju) / bitmap_granularity (%ju) = %ju bits. "
+                "Consider using larger block_size or bitmap_granularity for better performance.\n",
+                data_block_size, bitmap_granularity, data_block_size / bitmap_granularity);
+    }
     if (!data_csum_type)
     {
         csum_block_size = 0;
@@ -227,7 +233,7 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
     }
     // required metadata size
     block_count = data_len / data_block_size;
-    clean_entry_bitmap_size = data_block_size / bitmap_granularity / 8;
+    clean_entry_bitmap_size = (data_block_size / bitmap_granularity + 7) / 8;
     clean_dyn_size = clean_entry_bitmap_size*2 + (csum_block_size
         ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
     clean_entry_size = sizeof(clean_disk_entry) + clean_dyn_size + 4 /*entry_csum*/;
