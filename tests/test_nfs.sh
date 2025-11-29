@@ -1,5 +1,7 @@
 #!/bin/bash -ex
 
+GLOBAL_CONFIG=',"client_enable_writeback":false'
+IMMEDIATE_COMMIT=1
 PG_COUNT=16
 . `dirname $0`/run_3osds.sh
 
