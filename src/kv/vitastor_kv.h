@@ -28,6 +28,7 @@ struct __attribute__((visibility("default"))) vitastorkv_dbw_t
     void open(uint64_t inode_id, std::map<std::string, std::string> cfg, std::function<void(int)> cb);
     void set_config(std::map<std::string, std::string> cfg);
     void close(std::function<void()> cb);
+    void rescue(std::function<void(int res, const std::string & key, const std::string & value)> cb);
 
     uint64_t get_size();
 

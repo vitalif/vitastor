@@ -96,7 +96,7 @@ struct kv_block_t
 
     void set_data_size();
     static int kv_size(const std::string & key, const std::string & value);
-    int parse(uint64_t offset, uint8_t *data, int size);
+    int parse(uint64_t offset, uint8_t *data, int size, bool allow_empty = false);
     bool serialize(uint8_t *data, int size);
     void apply_change();
     void cancel_change();
@@ -173,6 +173,7 @@ struct kv_db_t
     void open(inode_t inode_id, json11::Json cfg, std::function<void(int)> cb);
     void set_config(json11::Json cfg);
     void close(std::function<void()> cb);
+    void rescue(std::function<void(int res, const std::string & key, const std::string & value)> cb);
 
     void find_size(uint64_t min, uint64_t max, int phase, std::function<void(int, uint64_t)> cb);
     void run_continue_update(uint64_t offset);
@@ -243,13 +244,13 @@ static std::string read_string(uint8_t *data, int size, int *pos)
     return key;
 }
 
-int kv_block_t::parse(uint64_t offset, uint8_t *data, int size)
+int kv_block_t::parse(uint64_t offset, uint8_t *data, int size, bool allow_empty)
 {
     kv_stored_block_t *blk = (kv_stored_block_t *)data;
     if (blk->magic == 0 || blk->type == KV_EMPTY)
     {
         // empty block
-        if (offset != 0)
+        if (!allow_empty)
             fprintf(stderr, "K/V: Block %ju is %s\n", offset, blk->magic == 0 ? "empty" : "cleared");
         return -ENOTBLK;
     }
@@ -543,6 +544,127 @@ void kv_db_t::open(inode_t inode_id, json11::Json cfg, std::function<void(int)> 
         }
         this->next_free = size;
         cb(res);
+    });
+}
+
+struct kv_rescue_t
+{
+    kv_db_t *db = NULL;
+    uint64_t size = 0;
+    uint64_t pos = 0;
+    uint64_t cur_size = 0;
+    uint64_t cur_offset = 0;
+    int state = 0;
+    kv_block_t blk;
+    std::vector<uint8_t> buf;
+    std::function<void(int res, const std::string & key, const std::string & value)> cb;
+
+    void finish(int retval)
+    {
+        auto cb = std::move(this->cb);
+        cb(retval, "", "");
+        delete this;
+    }
+
+    void send_read()
+    {
+        if (pos >= size)
+        {
+            finish(-ENOENT);
+            return;
+        }
+        if (!buf.size())
+        {
+            buf.resize(1048576);
+        }
+        cluster_op_t *op = new cluster_op_t;
+        op->opcode = OSD_OP_READ;
+        op->inode = db->inode_id;
+        op->offset = pos;
+        cur_size = op->len = pos+buf.size() < size ? buf.size() : size-pos;
+        op->iov.push_back(buf.data(), cur_size);
+        op->callback = [=](cluster_op_t *op)
+        {
+            if (op->retval != op->len)
+            {
+                // error
+                finish(op->retval >= 0 ? -EIO : op->retval);
+                return;
+            }
+            state = 2;
+            cur_offset = 0;
+            run();
+            delete op;
+        };
+        db->cli->execute(op);
+        state = 1;
+    }
+
+    void parse_block()
+    {
+        if (cur_offset < cur_size)
+        {
+            blk = {};
+            int err = blk.parse(pos+cur_offset, buf.data()+cur_offset, db->kv_block_size, true);
+            if (err != 0)
+            {
+            }
+            else if (blk.type == KV_LEAF || blk.type == KV_LEAF_SPLIT)
+            {
+                for (auto it = blk.data.begin(); it != blk.data.end(); it++)
+                {
+                    cb(0, it->first, it->second);
+                }
+            }
+            cur_offset += db->kv_block_size;
+        }
+        else
+        {
+            pos += cur_size;
+            state = 0;
+        }
+    }
+
+    void run()
+    {
+        while (true)
+        {
+            if (state == 0)
+            {
+                send_read();
+                return;
+            }
+            else if (state == 1)
+            {
+                return;
+            }
+            else if (state == 2)
+            {
+                parse_block();
+            }
+        }
+    }
+};
+
+void kv_db_t::rescue(std::function<void(int res, const std::string & key, const std::string & value)> cb)
+{
+    if (!inode_id || closing)
+    {
+        cb(-EINVAL, "", "");
+        return;
+    }
+    find_size(0, 0, 1, [=](int res, uint64_t size)
+    {
+        if (res < 0)
+        {
+            cb(res, "", "");
+            return;
+        }
+        kv_rescue_t *st = new kv_rescue_t();
+        st->db = this;
+        st->size = size;
+        st->cb = cb;
+        st->run();
     });
 }
 
@@ -943,7 +1065,7 @@ static void get_block(kv_db_t *db, uint64_t offset, int cur_level, int recheck_p
                 del_block_level(db, blk);
                 *blk = {};
             }
-            int err = blk->parse(op->offset, (uint8_t*)op->iov.buf[0].iov_base, op->len);
+            int err = blk->parse(op->offset, (uint8_t*)op->iov.buf[0].iov_base, op->len, op->offset == 0);
             if (err == 0)
             {
                 blk->level = cur_level;
@@ -1983,6 +2105,11 @@ uint64_t vitastorkv_dbw_t::get_size()
 void vitastorkv_dbw_t::close(std::function<void()> cb)
 {
     db->close(cb);
+}
+
+void vitastorkv_dbw_t::rescue(std::function<void(int res, const std::string & key, const std::string & value)> cb)
+{
+    db->rescue(cb);
 }
 
 void vitastorkv_dbw_t::get(const std::string & key, std::function<void(int res, const std::string & value)> cb, bool cached)

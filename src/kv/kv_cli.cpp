@@ -97,6 +97,7 @@ void kv_cli_t::parse_args(int narg, const char *args[])
                 "  dump [<start> [end]]\n"
                 "  dumpjson [<start> [end]]\n"
                 "  loadjson\n"
+                "  rescue\n"
                 "\n"
                 "<IMAGE> should be the name of Vitastor image with the DB.\n"
                 "Without <COMMAND>, you get an interactive DB shell.\n"
@@ -668,6 +669,17 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
         lst->format = opname == "dump" ? 1 : (opname == "dumpjson" ? 2 : 0);
         lst->cb = std::move(cb);
         db->list_next(lst->handle, [lst](int res, const std::string & key, const std::string & value)
+        {
+            lst->handle_key(res, key, value);
+        });
+    }
+    else if (opname == "rescue")
+    {
+        kv_cli_list_t *lst = new kv_cli_list_t;
+        lst->db = db;
+        lst->format = 2;
+        lst->cb = std::move(cb);
+        db->rescue([lst](int res, const std::string & key, const std::string & value)
         {
             lst->handle_key(res, key, value);
         });
