@@ -1794,6 +1794,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
         {
             if (res < 0)
             {
+                blk->cancel_change();
                 auto blk_offset = blk->offset;
                 del_block_level(db, blk);
                 db->block_cache.erase(blk_offset);
@@ -1926,6 +1927,7 @@ void kv_op_t::update_block(int path_pos, bool is_delete, const std::string & key
             {
                 if (write_res < 0)
                 {
+                    blk->cancel_change();
                     auto blk_offset = blk->offset;
                     del_block_level(db, blk);
                     db->block_cache.erase(blk_offset);
