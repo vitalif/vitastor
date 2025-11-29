@@ -48,6 +48,8 @@ SCHEME=ec ./test_snapshot_chain.sh
 ./test_snapshot_down.sh
 SCHEME=ec ./test_snapshot_down.sh
 
+./test_kv_stress.sh
+
 ./test_splitbrain.sh
 
 ./test_rebalance_verify.sh
