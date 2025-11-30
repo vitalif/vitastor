@@ -65,6 +65,8 @@ with an OSD restart or, for some of them, even without restarting by updating co
 - [allow_net_split](#allow_net_split)
 - [enable_pg_locks](#enable_pg_locks)
 - [pg_lock_retry_interval_ms](#pg_lock_retry_interval_ms)
+- [atomic_write_size](#atomic_write_size)
+- [use_atomic_flag](#use_atomic_flag)
 
 ## bind_address
 
@@ -666,3 +668,33 @@ Use this parameter to enable or disable this function for all pools.
 - Default: 100
 
 Retry interval for failed PG lock attempts.
+
+## atomic_write_size
+
+- Type: integer
+- Default: 4096
+
+Maximum data device atomic write size allowed for OSD to use.
+
+Only affects the new metadata store ([meta_format](layout-osd.en.md#meta_format)=3).
+
+Default value is auto-detected during OSD initialization from
+`/sys/block/xx/queue/atomic_write_max_bytes` or assumed to be 4096 bytes
+because all known disks support 4 KB atomic writes.
+
+Atomic writes allow to skip double data writes in replicated pools, thus
+reducing Write Amplification and improving write performance up to 2 times.
+
+## use_atomic_flag
+
+- Type: boolean
+
+This option controls whether the Vitastor OSD uses RWF_ATOMIC write flag with atomic
+writes. This flag is only supported on Linux kernel since 6.11. Atomic writes are
+generally only safe to use with this flag because it tells the kernel to never fragment
+write requests and also to check the write against the actual atomic write capabilities
+of the device.
+
+This option is enabled by default when atomic_write_size is set to a value larger than 4 KB.
+You can disable it if you're sure that your disks support atomic writes and you want to
+bypass the Linux atomic write checks.

@@ -51,6 +51,9 @@ Options (automatic mode):
 ```
 --osd_per_disk <N>
   Create <N> OSDs on each disk (default 1)
+--meta_format 3
+  Metadata store version. 3 is the new log-structured store, 2 is the stable store
+  from Vitastor 0.9-2.x, 1 is the legacy store from Vitastor 0.6-0.8.
 --hybrid
   Prepare hybrid (HDD+SSD, NVMe+SATA or etc) OSDs using provided devices. By default,
   any passed SSDs will be used for journals and metadata, HDDs will be used for data,

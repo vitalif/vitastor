@@ -91,6 +91,12 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             options["use_atomic_flag"] = "1";
         }
     }
+    else if (options.find("use_atomic_flag") == options.end() &&
+        parse_size(options["atomic_write_size"]) > 4096)
+    {
+        fprintf(stderr, "Atomic writes larger than 4 KB are enabled manually, enabling use_atomic_flag too.\n");
+        options["use_atomic_flag"] = "1";
+    }
     for (auto dev: std::vector<std::string>{"data", "meta", "journal"})
     {
         if (options[dev+"_device"] != "" && options["disable_"+dev+"_fsync"] == "auto")

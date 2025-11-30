@@ -9,6 +9,7 @@
 These parameters apply to OSDs, are fixed at the moment of OSD drive
 initialization and can't be changed after it without losing data.
 
+- [meta_format](#meta_format)
 - [data_device](#data_device)
 - [meta_device](#meta_device)
 - [journal_device](#journal_device)
@@ -26,6 +27,21 @@ initialization and can't be changed after it without losing data.
 - [disk_alignment](#disk_alignment)
 - [data_csum_type](#data_csum_type)
 - [csum_block_size](#csum_block_size)
+
+## meta_format
+
+- Type: integer
+- Default: 3
+
+OSD store implementation version and on-disk metadata format.
+
+Three versions are currently supported: 3, 2 and 1.
+- 3 the new log-structured store, it's overall faster, has lower Write
+  Amplification, which may be even close to 1 (i.e. almost no extra writes)
+  if your SSDs support atomic writes (see [atomic_write_size](osd.en.md#atomic_write_size)).
+- 2 is the old stable store from Vitastor 0.9-2.x.
+- 1 is the same old store but with a legacy metadata format from Vitastor
+  versions to up 0.8.x, without any support for checksums.
 
 ## data_device
 
