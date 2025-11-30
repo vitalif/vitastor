@@ -1125,6 +1125,8 @@ kv_op_t::~kv_op_t()
     {
         done = true;
         db->active_ops--;
+        if (!db->active_ops && db->closing)
+            db->close(db->on_close);
     }
 }
 
