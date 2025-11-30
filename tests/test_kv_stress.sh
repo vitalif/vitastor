@@ -1,6 +1,5 @@
 #!/bin/bash -ex
 
-IMMEDIATE_COMMIT=1
 PG_COUNT=16
 . `dirname $0`/run_3osds.sh
 

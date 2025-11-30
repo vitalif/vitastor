@@ -175,12 +175,13 @@ protected:
     void on_change_node_placement_hook();
 
     void execute_internal(cluster_op_t *op);
+    void execute_cas(cluster_op_t *op);
     void unshift_op(cluster_op_t *op);
     int continue_rw(cluster_op_t *op);
     bool check_rw(cluster_op_t *op);
     void slice_rw(cluster_op_t *op);
     void reset_retry_timer(int new_duration);
-    int try_send(cluster_op_t *op, int i);
+    int try_send(cluster_op_t *op, int i, std::function<void(osd_op_t *op_part)> cb = nullptr);
     int continue_sync(cluster_op_t *op);
     void send_sync(cluster_op_t *op, cluster_op_part_t *part);
     void handle_op_part(cluster_op_part_t *part);

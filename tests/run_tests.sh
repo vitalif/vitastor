@@ -49,6 +49,7 @@ SCHEME=ec ./test_snapshot_chain.sh
 SCHEME=ec ./test_snapshot_down.sh
 
 ./test_kv_stress.sh
+IMMEDIATE_COMMIT=1 ./test_kv_stress.sh
 
 ./test_splitbrain.sh
 

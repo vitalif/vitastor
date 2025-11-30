@@ -765,8 +765,13 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
     {
         return;
     }
-    if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && enable_writeback && !(op->flags & OP_FLUSH_BUFFER) &&
-        !op->version /* no CAS writeback */)
+    // CAS writes are simplified: they're not cached, not resliced, not retried, and not part of the regular write queue at all
+    if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && op->version)
+    {
+        execute_cas(op);
+        return;
+    }
+    if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && enable_writeback && !(op->flags & OP_FLUSH_BUFFER))
     {
         if (wb->writebacks_active >= client_max_writeback_iodepth)
         {
@@ -788,7 +793,7 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
     }
     if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && !(op->flags & OP_IMMEDIATE_COMMIT))
     {
-        if (!(op->flags & OP_FLUSH_BUFFER) && !op->version /* no CAS write-repeat */)
+        if (!(op->flags & OP_FLUSH_BUFFER))
         {
             uint64_t flush_id = ++wb->last_flush_id;
             wb->copy_write(op, CACHE_REPEATING, flush_id);
@@ -844,6 +849,72 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
             continue_sync(op);
         else
             continue_rw(op);
+    }
+}
+
+void cluster_client_t::execute_cas(cluster_op_t *op)
+{
+    slice_rw(op);
+    op->needs_reslice = false;
+    if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && op->version && op->parts.size() > 1)
+    {
+        // Atomic writes to multiple stripes are unsupported
+        op->retval = -EINVAL;
+        auto cb = std::move(op->callback);
+        cb(op);
+        return;
+    }
+    int res = try_send(op, 0, [this, op](osd_op_t *part)
+    {
+        int expected = part->req.hdr.opcode == OSD_OP_DELETE ? 0 : part->req.rw.len;
+        op->retval = part->reply.hdr.retval;
+        op->retval = op->retval == expected ? 0 : (op->retval >= 0 ? -EIO : op->retval);
+        op->retval = op->retval == -EPIPE ? -EINTR : op->retval;
+        auto peer_it = msgr.osd_peer_fds.find(op->parts[0].osd_num);
+        if (op->retval != 0 || (op->flags & OP_IMMEDIATE_COMMIT))
+        {
+            auto cb = std::move(op->callback);
+            cb(op);
+        }
+        else if (peer_it == msgr.osd_peer_fds.end())
+        {
+            // Care must be taken to make sure that the client doesn't reconnect to the OSD
+            // before executing the previously completed operation callback (!)
+            op->retval = -EINTR;
+            auto cb = std::move(op->callback);
+            cb(op);
+        }
+        else
+        {
+            // CAS writes have a built-in sync
+            auto peer_fd = peer_it->second;
+            *part = (osd_op_t){
+                .op_type = OSD_OP_OUT,
+                .peer_fd = peer_fd,
+                .req = {
+                    .hdr = {
+                        .magic = SECONDARY_OSD_OP_MAGIC,
+                        .opcode = OSD_OP_SYNC,
+                    },
+                },
+                .callback = [this, op](osd_op_t *part)
+                {
+                    op->retval = part->reply.hdr.retval;
+                    op->retval = op->retval == -EPIPE ? -EINTR : op->retval;
+                    auto cb = std::move(op->callback);
+                    cb(op);
+                },
+            };
+            msgr.outbox_push(part);
+        }
+    });
+    if (res == TRY_SEND_CONNECTING || res == TRY_SEND_OFFLINE)
+    {
+        // In theory, CAS writes could wait for the PG to come up, but it's easier to just fail it
+        op->retval = -EINTR;
+        auto cb = std::move(op->callback);
+        cb(op);
+        return;
     }
 }
 
@@ -956,13 +1027,6 @@ resume_0:
     // Slice the operation into parts
     slice_rw(op);
     op->needs_reslice = false;
-    if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && op->version && op->parts.size() > 1)
-    {
-        // Atomic writes to multiple stripes are unsupported
-        op->retval = -EINVAL;
-        erase_op(op);
-        return 1;
-    }
 resume_1:
     // Send unsent parts, if they're not subject to change
     op->state = 2;
@@ -1307,7 +1371,7 @@ bool cluster_client_t::affects_osd(uint64_t inode, uint64_t offset, uint64_t len
     return false;
 }
 
-int cluster_client_t::try_send(cluster_op_t *op, int i)
+int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_op_t *op_part)> cb)
 {
     if (!msgr_initialized)
     {
@@ -1367,7 +1431,7 @@ int cluster_client_t::try_send(cluster_op_t *op, int i)
                     ? (uint8_t*)op->part_bitmaps + pg_bitmap_size*i : NULL),
                 .bitmap_len = (unsigned)(op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP
                     ? pg_bitmap_size : 0),
-                .callback = [this, part](osd_op_t *op_part)
+                .callback = cb ? cb : [this, part](osd_op_t *op_part)
                 {
                     handle_op_part(part);
                 },

@@ -262,7 +262,10 @@ struct __attribute__((__packed__)) osd_reply_del_t
     uint32_t left_on_dead_count;
 };
 
-// sync to the primary OSD
+// sync to the primary OSD. semantics:
+// 1) any non-synced write may disappear on OSD restart. even if it's a CAS write.
+// 2) sync only guarantees to commit completed writes, not in-progress ones.
+// 3) sync is a no-op when immediate_commit is active.
 struct __attribute__((__packed__)) osd_op_sync_t
 {
     osd_op_header_t header;

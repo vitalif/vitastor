@@ -139,7 +139,6 @@ struct kv_db_t
     uint64_t next_free = 0;
     uint32_t kv_block_size = 0;
     uint32_t ino_block_size = 0;
-    bool immediate_commit = false;
     uint64_t memory_limit = 128*1024*1024;
     uint64_t evict_unused_age = 1000;
     uint64_t evict_max_misses = 10;
@@ -529,13 +528,6 @@ void kv_db_t::open(inode_t inode_id, json11::Json cfg, std::function<void(int)> 
         return;
     }
     this->inode_id = inode_id;
-    this->immediate_commit = cli->get_immediate_commit(inode_id);
-    if (!this->immediate_commit)
-    {
-        // FIXME: CAS is unusable without immediate_commit at the moment. Fix it
-        cb(-EINVAL);
-        return;
-    }
     this->ino_block_size = pool_cfg.data_block_size * pg_data_size;
     this->kv_block_size = kv_block_size;
     this->next_free = 0;
@@ -695,7 +687,6 @@ void kv_db_t::close(std::function<void()> cb)
         next_free = 0;
         kv_block_size = 0;
         ino_block_size = 0;
-        immediate_commit = false;
         block_cache.clear();
         known_versions.clear();
         cb();
@@ -1404,22 +1395,7 @@ static void write_block(kv_db_t *db, kv_block_t *blk, std::function<void(int)> c
             }
         }
         delete op;
-        if (res < 0 || db->immediate_commit)
-        {
-            cb(res);
-        }
-        else
-        {
-            op = new cluster_op_t;
-            op->opcode = OSD_OP_SYNC;
-            op->callback = [cb](cluster_op_t *op)
-            {
-                auto res = op->retval;
-                delete op;
-                cb(res);
-            };
-            db->cli->execute(op);
-        }
+        cb(res);
     };
     db->cli->execute(op);
 }
