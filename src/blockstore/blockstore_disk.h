@@ -61,9 +61,10 @@ struct blockstore_disk_t
     uint64_t discard_granularity = 0;
 
     int meta_fd = -1, data_fd = -1, journal_fd = -1;
-    uint64_t meta_offset, meta_device_sect, meta_device_size, meta_area_size, min_meta_len, meta_format = 0;
-    uint64_t data_offset, data_device_sect, data_device_size, data_len;
-    uint64_t journal_offset, journal_device_sect, journal_device_size, journal_len;
+    uint64_t meta_offset = 0, meta_device_sect = 0, meta_device_size = 0, meta_area_size = 0, min_meta_len = 0;
+    uint64_t data_offset = 0, data_device_sect = 0, data_device_size = 0, data_len = 0;
+    uint64_t journal_offset = 0, journal_device_sect = 0, journal_device_size = 0, journal_len = 0;
+    uint64_t meta_format = 0;
 
     uint64_t block_count = 0;
     uint32_t clean_entry_bitmap_size = 0;
@@ -75,7 +76,7 @@ struct blockstore_disk_t
     void open_data();
     void open_meta();
     void open_journal();
-    void calc_lengths();
+    void calc_lengths(bool skip_meta_check = false);
     void check_lengths();
     void close_all();
     int trim_data(std::function<bool(uint64_t)> is_free);

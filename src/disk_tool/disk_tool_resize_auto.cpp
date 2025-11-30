@@ -62,7 +62,7 @@ int disk_tool_t::resize_data(std::string device)
         dsk.journal_fd = old_journal_fd;
         dsk.meta_fd = old_meta_fd;
         dsk.data_fd = old_data_fd;
-        dsk.calc_lengths();
+        dsk.calc_lengths(true);
         dsk.journal_fd = -1;
         dsk.meta_fd = -1;
         dsk.data_fd = -1;

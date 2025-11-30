@@ -167,7 +167,7 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
-        dsk.calc_lengths();
+        dsk.calc_lengths(true);
         if (dsk.data_device == dsk.meta_device && !new_meta_len)
         {
             uint64_t new_meta_len = dsk.min_meta_len;
@@ -586,7 +586,7 @@ int disk_tool_t::get_meta_partition(std::vector<vitastor_dev_info_t> & ssds, std
         dsk.open_data();
         dsk.open_meta();
         dsk.open_journal();
-        dsk.calc_lengths();
+        dsk.calc_lengths(true);
         dsk.close_all();
         meta_size = dsk.min_meta_len;
     }
@@ -679,6 +679,8 @@ int disk_tool_t::prepare(std::vector<std::string> devices)
     std::vector<vitastor_dev_info_t> ssds;
     if (options.find("disable_data_fsync") == options.end())
         options["disable_data_fsync"] = "auto";
+    if (options["meta_format"] == "")
+        options["meta_format"] = std::to_string(BLOCKSTORE_META_FORMAT_HEAP);
     if (hybrid)
     {
         if (options.find("disable_meta_fsync") == options.end())

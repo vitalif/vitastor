@@ -122,7 +122,7 @@ void _test_init(blockstore_disk_t & dsk, bool csum, std::function<void(std::map<
     dsk.meta_fd = 1;
     dsk.journal_fd = 2;
     dsk.disable_journal_fsync = dsk.disable_meta_fsync = true;
-    dsk.calc_lengths();
+    dsk.calc_lengths(true);
 }
 
 void test_mvcc(bool csum)
@@ -1169,7 +1169,7 @@ void test_full_alloc()
     dsk.data_device = "data";
     dsk.meta_device = "meta";
     dsk.journal_device = "journal";
-    dsk.calc_lengths();
+    dsk.calc_lengths(true);
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
 
     blockstore_heap_t heap(&dsk, buffer_area.data());

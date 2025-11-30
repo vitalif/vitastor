@@ -70,6 +70,7 @@ struct bs_test_t
         config["log_level"] = "10";
         config["data_csum_type"] = "crc32c";
         config["csum_block_size"] = "4096";
+        config["meta_format"] = "3";
     }
 
     void init()

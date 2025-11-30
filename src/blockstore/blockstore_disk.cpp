@@ -203,10 +203,6 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         throw std::runtime_error("journal_offset must be a multiple of journal_block_size = "+std::to_string(journal_block_size));
     }
-    if (!meta_format)
-    {
-        meta_format = BLOCKSTORE_META_FORMAT_HEAP;
-    }
     if (meta_device == data_device)
     {
         disable_meta_fsync = disable_data_fsync;
@@ -217,7 +213,7 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     }
 }
 
-void blockstore_disk_t::calc_lengths()
+void blockstore_disk_t::calc_lengths(bool skip_meta_check)
 {
     // data
     data_len = data_device_size - data_offset;
@@ -266,6 +262,7 @@ void blockstore_disk_t::calc_lengths()
     clean_entry_bitmap_size = data_block_size / bitmap_granularity / 8;
     clean_dyn_size = clean_entry_bitmap_size*2 + (csum_block_size
         ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
+recalc:
     if (meta_format == BLOCKSTORE_META_FORMAT_HEAP)
     {
         uint32_t entries_per_block = meta_block_size / (sizeof(heap_big_write_t) + clean_dyn_size);
@@ -276,11 +273,32 @@ void blockstore_disk_t::calc_lengths()
         clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + 2*clean_entry_bitmap_size;
         min_meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size)
             / (meta_block_size / clean_entry_size)) * meta_block_size;
+        if (!skip_meta_check && meta_area_size < min_meta_len)
+        {
+too_small:
+            throw std::runtime_error("Metadata area is too small, need at least "+std::to_string(min_meta_len)+
+                " bytes, have only "+std::to_string(meta_area_size)+" bytes");
+        }
     }
-    else if (meta_format == BLOCKSTORE_META_FORMAT_V2)
+    else if (meta_format == BLOCKSTORE_META_FORMAT_V2 || !meta_format)
     {
+        meta_format = BLOCKSTORE_META_FORMAT_V2;
         clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + clean_dyn_size + 4 /*entry_csum*/;
         min_meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
+        if (!skip_meta_check && meta_area_size < min_meta_len)
+        {
+            if (!data_csum_type)
+            {
+                printf("Warning: Using old metadata format without checksums because the new format"
+                    " doesn't fit into provided area (%ju bytes required, %ju bytes available)\n", min_meta_len, meta_area_size);
+                meta_format = BLOCKSTORE_META_FORMAT_V1;
+                goto recalc;
+            }
+            else
+            {
+                goto too_small;
+            }
+        }
     }
     else
     {

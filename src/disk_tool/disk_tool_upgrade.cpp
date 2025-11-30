@@ -107,7 +107,7 @@ int disk_tool_t::upgrade_simple_unit(std::string unit)
                 dsk.open_data();
                 dsk.open_meta();
                 dsk.open_journal();
-                dsk.calc_lengths();
+                dsk.calc_lengths(true);
                 dsk.close_all();
             }
             catch (std::exception & e)
