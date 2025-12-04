@@ -807,22 +807,40 @@
   info: |
     Maximum data device atomic write size allowed for OSD to use.
 
-    Only affects the new metadata store ([meta_format](layout-osd.en.md#meta_format)=3).
+    Atomic writes allow to reduce the Write Amplification factor with the new store
+    ([meta_format](layout-osd.en.md#meta_format)=3) to almost 1 (i.e. almost no extra writes)
+    with replicated pools and reach the best possible write performance.
 
     Default value is auto-detected during OSD initialization from
     `/sys/block/xx/queue/atomic_write_max_bytes` or assumed to be 4096 bytes
     because all known disks support 4 KB atomic writes.
+
+    You can also check if your NVMe drives support atomic writes by running
+    the command `nvme id-ctrl /dev/nvme0n1 | grep awupf`. If the reported value,
+    plus 1, multiplied by the currently selected block size of the NVMe,
+    is more than 4 KB, then the new store can utilize it for better performance.
+    The only drives known to support it currently are [Micron and Kioxia](../intro/quickstart.en.md).
 
     Atomic writes allow to skip double data writes in replicated pools, thus
     reducing Write Amplification and improving write performance up to 2 times.
   info_ru: |
     Максимальный размер атомарной записи на диск данных, который OSD разрешено использовать.
 
-    Затрагивает только новое хранилище ([meta_format](layout-osd.ru.md#meta_format)=3).
+    Поддержка атомарной записи позволяет снизить мультипликатор записи (Write Amplification)
+    на диск с новым хранилищем ([meta_format](layout-osd.ru.md#meta_format)=3)
+    практически до 1 (то есть, почти до нулевого объёма лишней записи) в реплицированных
+    пулах и достигнуть наилучшей возможной производительности записи.
 
     Значение по умолчанию авто-определяется во время инициализации OSD из
     `/sys/block/xx/queue/atomic_write_max_bytes` либо принимается равным 4096,
     так как все известные диски поддерживают атомарную запись 4 КБ блоков.
+
+    Вы также можете проверить, поддерживают ли ваши NVMe-диски атомарную запись,
+    с помощью команды `nvme id-ctrl /dev/nvme0n1 | grep awupf`. Если значение awupf
+    плюс 1, умноженное на текущий выбранный размер блока NVMe-диска, больше 4 КБ,
+    то новое хранилище может использовать атомарные записи для достижения лучшей
+    производительности. Единственные известные диски, которые поддерживают это сейчас -
+    [Micron и Kioxia](../intro/quickstart.ru.md).
 
     Атомарная запись позволяет не использовать двойную запись данных (в журнал и на
     устройство данных) в реплицированных пулах и таким образом снижает амплификацию

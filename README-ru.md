@@ -26,11 +26,15 @@ Vitastor поддерживает QEMU-драйвер, протоколы UBLK, 
 
 ## Презентации и записи докладов
 
+- KuberConf'2025: [видео](https://vitastor.io/presentation/kuberconf.webm)
+- Highload'2025: [видео](https://vitastor.io/presentation/hl2025/hl2025.webm),
+  [на youtube](https://www.youtube.com/watch?v=0R8MLjFtz7g), презентация
+  ([на русском](https://vitastor.io/presentation/hl2025/), [на английском](https://vitastor.io/presentation/hl2025/en.html))
+- Highload'2022: презентация ([на русском](https://vitastor.io/presentation/highload/highload.html)),
+  [видео](https://vitastor.io/presentation/highload/talk.webm)
 - DevOpsConf'2021: презентация ([на русском](https://vitastor.io/presentation/devopsconf/devopsconf.html),
   [на английском](https://vitastor.io/presentation/devopsconf/devopsconf_en.html)),
   [видео](https://vitastor.io/presentation/devopsconf/talk.webm)
-- Highload'2022: презентация ([на русском](https://vitastor.io/presentation/highload/highload.html)),
-  [видео](https://vitastor.io/presentation/highload/talk.webm)
 
 ## Документация
 

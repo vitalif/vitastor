@@ -676,11 +676,19 @@ Retry interval for failed PG lock attempts.
 
 Maximum data device atomic write size allowed for OSD to use.
 
-Only affects the new metadata store ([meta_format](layout-osd.en.md#meta_format)=3).
+Atomic writes allow to reduce the Write Amplification factor with the new store
+([meta_format](layout-osd.en.md#meta_format)=3) to almost 1 (i.e. almost no extra writes)
+with replicated pools and reach the best possible write performance.
 
 Default value is auto-detected during OSD initialization from
 `/sys/block/xx/queue/atomic_write_max_bytes` or assumed to be 4096 bytes
 because all known disks support 4 KB atomic writes.
+
+You can also check if your NVMe drives support atomic writes by running
+the command `nvme id-ctrl /dev/nvme0n1 | grep awupf`. If the reported value,
+plus 1, multiplied by the currently selected block size of the NVMe,
+is more than 4 KB, then the new store can utilize it for better performance.
+The only drives known to support it currently are [Micron and Kioxia](../intro/quickstart.en.md).
 
 Atomic writes allow to skip double data writes in replicated pools, thus
 reducing Write Amplification and improving write performance up to 2 times.

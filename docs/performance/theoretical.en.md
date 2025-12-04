@@ -14,7 +14,7 @@ Replicated setups:
 - Linear read: `min(total network bandwidth, sum(disk read MB/s))`.
 - Linear write: `min(total network bandwidth, sum(disk write MB/s / number of replicas))`.
 - Saturated parallel read iops: `min(total network bandwidth, sum(disk read iops))`.
-- Saturated parallel write iops: `min(total network bandwidth / number of replicas, sum(disk write iops / number of replicas / (write amplification = 4)))`.
+- Saturated parallel write iops: `min(total network bandwidth / number of replicas, sum(disk write iops / number of replicas / write amplification))`.
 
 EC/XOR setups (EC N+K):
 - Single-threaded (T1Q1) read latency: 1.5 network roundtrips + 1 disk read.
@@ -26,28 +26,36 @@ EC/XOR setups (EC N+K):
 - Linear read: `min(total network bandwidth, sum(disk read MB/s))`.
 - Linear write: `min(total network bandwidth, sum(disk write MB/s * N/(N+K)))`.
 - Saturated parallel read iops: `min(total network bandwidth, sum(disk read iops))`.
-- Saturated parallel write iops: roughly `total iops / (N+K) / WA`. More exactly,
-  `min(total network bandwidth * N/(N+K), sum(disk randrw iops / (N*4 + K*5 + 1)))` with
-  random read/write mix corresponding to `(N-1)/(N*4 + K*5 + 1)*100 % reads`.
-  - For example, with EC 2+1 it is: `(7% randrw iops) / 14`.
-  - With EC 6+3 it is: `(12.5% randrw iops) / 40`.
+- Saturated parallel write iops: roughly `total iops / (N+K) / WA`. More exactly:
+  - With the new store: `min(total network bandwidth * N/(N+K), sum(disk randrw iops / (2 + N-1 + K*2)))`,
+    with random read/write mix corresponding to `(N-1)/(2 + N-1 + K*2)*100 % reads`.
+    - For example, with EC 2+1 it is: `(20% randrw iops) / 5`.
+    - With EC 6+3 it is: `(38% randrw iops) / 13`.
+  - With the old store: `min(total network bandwidth * N/(N+K), sum(disk randrw iops / (3 + N-1 + K*3)))`,
+    with random read/write mix corresponding to `(N-1)/(3 + N-1 + K*3)*100 % reads`.
+    - For example, with EC 2+1 it is: `(14% randrw iops) / 7`.
+    - With EC 6+3 it is: `(30% randrw iops) / 17`.
 
-Write amplification for 4 KB blocks is usually 3-5 in Vitastor:
-1. Journal block write
-2. Journal data write
-3. Metadata block write
-4. Another journal block write for EC/XOR setups
-5. Data block write
+Write Amplification factor:
+- For the new store and for 4 KB writes: WA is always 1 unless you set [atomic_write_size](../config/osd.en.md#atomic_write_size) to 0 manually.
+- For the new store and for 8-124 KB writes: WA is 1 if you use NVMe drives with atomic write support, or roughly 2 if you use other drives.
+- For the old store, WA is roughly `(2 * write size + 4 KB) / (write size)`. So, for 4 KB writes it's 3, and for 8-124 KB writes it's closer to 2.
+- For both the new and the old store and for writes of [block_size](../config/layout-cluster.en.md#block_size): WA is almost 1.
 
-If you manage to get an SSD which handles 512 byte blocks well (Optane?) you may
-lower 1, 3 and 4 to 512 bytes (1/8 of data size) and get WA as low as 2.375.
+Write Amplification consists of:
+- For the new store:
+  - Buffer block write if non-atomic
+  - Data block write
+  - Metadata write(s) (amortized)
+- For the old store:
+  - Journal block write (amortized)
+  - Journal data write
+  - Metadata block write
+  - Another journal block write for EC/XOR setups (amortized)
+  - Data block write
 
-Implemented NVDIMM support can basically eliminate WA at all - all extra writes will
-go to DRAM memory. But this requires a test cluster with NVDIMM - please contact me
-if you want to provide me with such cluster for tests.
-
-Lazy fsync also reduces WA for parallel workloads because journal blocks are only
-written when they fill up or fsync is requested.
+Other possibilities to reduce WA would be to use SSDs with internal 512-byte blocks
+or NVDIMM, but both options seem unavailable on the market at the moment.
 
 ## In Practice
 

@@ -18,8 +18,9 @@
 
 ## Подготовка
 
-- Возьмите серверы с SSD (SATA или NVMe), желательно с конденсаторами (серверные SSD). Можно
-  использовать и десктопные SSD, включив режим отложенного fsync, но производительность будет хуже.
+- Возьмите серверы с SSD (SATA или NVMe), желательно с конденсаторами (серверные SSD). Наилучшая
+  производительность достигается на дисках Micron и Kioxia с поддержкой атомарной записи (см. ниже).
+  Можно использовать и десктопные SSD, включив режим отложенного fsync, но производительность будет хуже.
   О конденсаторах читайте [здесь](../config/layout-cluster.ru.md#immediate_commit).
 - Если хотите использовать HDD, берите современные модели с Media или SSD кэшем - HGST Ultrastar,
   Toshiba MG, Seagate EXOS или что-то похожее. Если такого кэша у ваших дисков нет,
@@ -30,9 +31,11 @@
 
 ## Рекомендуемые диски
 
-- SATA SSD: Micron 5100/5200/5300/5400, Samsung PM863/PM883/PM893, Intel D3-S4510/4520/4610/4620, Kingston DC500M
-- NVMe: Micron 9100/9200/9300/9400, Micron 7300/7450, Samsung PM983/PM9A3, Samsung PM1723/1735/1743,
-  Intel DC-P3700/P4500/P4600, Intel D5-P4320/P5530, Intel D7-P5500/P5600, Intel Optane, Kingston DC1000B/DC1500M
+- NVMe с поддержкой атомарной записи (идеально!): Micron 7450/7500/7550, Kioxia CD6/CD7/CD8/CD9
+- Другие NVMe: Micron 9100/9200/9300/9400/9550, Micron 7300, Samsung PM983/PM9A3, Samsung PM1723/1735/1743,
+  Intel DC-P3700/P4500/P4600, Intel/Solidigm D5-P4320/P5530, Intel/Solidigm D7-P5500/P5600, Solidigm D7-PS1010/PS1030/P5810,
+  Intel Optane, Kingston DC1000B/DC1500M, Kioxia CD6/CD7/CD8/CD9
+- SATA SSD: Micron 5100/5200/5300/5400, Samsung PM863/PM883/PM893, Intel/Solidigm D3-S4510/4520/4610/4620, Kingston DC500M
 - HDD: HGST Ultrastar, Toshiba MG, Seagate EXOS
 
 ## Настройте мониторы

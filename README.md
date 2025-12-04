@@ -26,11 +26,15 @@ Read more details in the documentation. You can start from here: [Quick Start](d
 
 ## Talks and presentations
 
+- KuberConf'2025: [video](https://vitastor.io/presentation/kuberconf.webm)
+- Highload'2025: [video](https://vitastor.io/presentation/hl2025/hl2025.webm),
+  [youtube](https://www.youtube.com/watch?v=0R8MLjFtz7g), presentation
+  ([in Russian](https://vitastor.io/presentation/hl2025/), [in English](https://vitastor.io/presentation/hl2025/en.html))
+- Highload'2022: presentation ([in Russian](https://vitastor.io/presentation/highload/highload.html)),
+  [video](https://vitastor.io/presentation/highload/talk.webm)
 - DevOpsConf'2021: presentation ([in Russian](https://vitastor.io/presentation/devopsconf/devopsconf.html),
   [in English](https://vitastor.io/presentation/devopsconf/devopsconf_en.html)),
   [video](https://vitastor.io/presentation/devopsconf/talk.webm)
-- Highload'2022: presentation ([in Russian](https://vitastor.io/presentation/highload/highload.html)),
-  [video](https://vitastor.io/presentation/highload/talk.webm)
 
 ## Documentation
 

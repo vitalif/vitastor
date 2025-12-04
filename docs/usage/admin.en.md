@@ -231,6 +231,18 @@ Upgrading from <= 0.5.x to >= 0.6.x is not supported.
 
 Downgrade are also allowed freely, except the following specific instructions:
 
+### 3.x -> 2.x
+
+Versions 3.0.0 and newer contain two store implementations - an old one and a new
+one, unsupported in 2.x and previous versions. So you should check your OSD store
+versions before downgrading to 2.x with the following command:
+
+`vitastor-disk read-sb /dev/vitastor/osdXX-data | jq -r .meta_format`
+
+If it prints 3 then OSD uses the new store and you can't downgrade it to 2.x.
+
+If it prints 2 or nothing then OSD uses the old store and the downgrade is allowed.
+
 ### 1.8.0 to 1.7.1
 
 Before downgrading from version >= 1.8.0 to version <= 1.7.1

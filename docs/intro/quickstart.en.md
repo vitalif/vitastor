@@ -18,9 +18,10 @@
 
 ## Preparation
 
-- Get some SATA or NVMe SSDs with capacitors (server-grade drives). You can use desktop SSDs
-  with lazy fsync, but prepare for inferior single-thread latency. Read more about capacitors
-  [here](../config/layout-cluster.en.md#immediate_commit).
+- Get some SATA or NVMe SSDs with capacitors (server-grade drives). The best performance
+  is achieved with Micron or Kioxia NVMes with atomic write support (see below). You can use desktop
+  SSDs with lazy fsync, but prepare for inferior single-thread latency. Read more about
+  capacitors [here](../config/layout-cluster.en.md#immediate_commit).
 - If you want to use HDDs, get modern HDDs with Media Cache or SSD Cache: HGST Ultrastar,
   Toshiba MG, Seagate EXOS or something similar. If your drives don't have such cache then
   you also need small SSDs for journal and metadata (even 2 GB per 1 TB of HDD space is enough).
@@ -30,9 +31,11 @@
 
 ## Recommended drives
 
-- SATA SSD: Micron 5100/5200/5300/5400, Samsung PM863/PM883/PM893, Intel D3-S4510/4520/4610/4620, Kingston DC500M
-- NVMe: Micron 9100/9200/9300/9400, Micron 7300/7450, Samsung PM983/PM9A3, Samsung PM1723/1735/1743,
-  Intel DC-P3700/P4500/P4600, Intel D5-P4320/P5530, Intel D7-P5500/P5600, Intel Optane, Kingston DC1000B/DC1500M
+- NVMe with atomic write support (ideal!): Micron 7450/7500/7550, Kioxia CD6/CD7/CD8/CD9
+- Other NVMe: Micron 9100/9200/9300/9400/9550, Micron 7300, Samsung PM983/PM9A3, Samsung PM1723/1735/1743,
+  Intel DC-P3700/P4500/P4600, Intel/Solidigm D5-P4320/P5530, Intel/Solidigm D7-P5500/P5600, Solidigm D7-PS1010/PS1030/P5810,
+  Intel Optane, Kingston DC1000B/DC1500M, Kioxia CD6/CD7/CD8/CD9
+- SATA SSD: Micron 5100/5200/5300/5400, Samsung PM863/PM883/PM893, Intel/Solidigm D3-S4510/4520/4610/4620, Kingston DC500M
 - HDD: HGST Ultrastar, Toshiba MG, Seagate EXOS
 
 ## Configure monitors
