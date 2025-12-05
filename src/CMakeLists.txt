@@ -21,7 +21,7 @@ if("${CMAKE_INSTALL_PREFIX}" MATCHES "^/usr/local/?$")
 endif()
 set(ENABLE_COVERAGE false CACHE BOOL "Enable code coverage")
 
-add_definitions(-DVITASTOR_VERSION="2.4.4")
+add_definitions(-DVITASTOR_VERSION="3.0.0")
 add_definitions(-D_GNU_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Wall -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fdiagnostics-color=always -fno-omit-frame-pointer -fvisibility=hidden -I ${CMAKE_SOURCE_DIR}/src)
 add_link_options(-fno-omit-frame-pointer)
 if (${WITH_ASAN})

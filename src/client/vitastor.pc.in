@@ -6,7 +6,7 @@ includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
 
 Name: Vitastor
 Description: Vitastor client library
-Version: 2.4.4
+Version: 3.0.0
 Libs: -L${libdir} -lvitastor_client
 Cflags: -I${includedir}
 
