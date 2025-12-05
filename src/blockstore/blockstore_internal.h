@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.1 (see README.md for details)
+
 #pragma once
 
 #define BS_SUBMIT_CHECK_SQES(n) \
@@ -51,4 +54,8 @@
 
 #ifndef RWF_ATOMIC
 #define RWF_ATOMIC 0x40
+#endif
+
+#ifndef RWF_DSYNC
+#define RWF_DSYNC 0x02
 #endif

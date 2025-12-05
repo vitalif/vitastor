@@ -1,3 +1,6 @@
+// Copyright (c) Vitaliy Filippov, 2019+
+// License: VNPL-1.1 (see README.md for details)
+
 #pragma once
 
 // States are not stored on disk. Instead, they're deduced from the journal
