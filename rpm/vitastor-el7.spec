@@ -171,7 +171,6 @@ chown vitastor:vitastor /var/lib/vitastor
 %_bindir/vitastor-kv
 %_bindir/vitastor-kv-stress
 %_bindir/vita
-%_libdir/libvitastor_blk.so*
 %_libdir/libvitastor_client.so*
 %_libdir/libvitastor_kv.so*
 
