@@ -54,8 +54,10 @@ struct msgr_rdma_context_t
 
 struct msgr_rdma_buf_t
 {
-    void *buf = NULL;
+    uint8_t *buf = NULL;
     ibv_mr *mr = NULL;
+
+    ~msgr_rdma_buf_t();
 };
 
 struct msgr_rdma_connection_t
@@ -72,7 +74,8 @@ struct msgr_rdma_connection_t
     int cur_send = 0, cur_recv = 0;
     int send_pos = 0, send_buf_pos = 0;
     int next_recv_buf = 0;
-    std::vector<msgr_rdma_buf_t> recv_buffers;
+    std::vector<void*> recv_buffers;
+    msgr_rdma_buf_t recv_buf;
     std::vector<uint64_t> send_sizes;
     msgr_rdma_buf_t send_out;
     int send_out_pos = 0, send_done_pos = 0, send_out_size = 0;
