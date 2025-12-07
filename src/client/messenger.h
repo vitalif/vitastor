@@ -289,7 +289,7 @@ protected:
     void try_send_rdma(osd_client_t *cl);
     void try_send_rdma_odp(osd_client_t *cl);
     void try_send_rdma_nodp(osd_client_t *cl);
-    bool try_recv_rdma(osd_client_t *cl);
+    bool init_recv_rdma(osd_client_t *cl);
     void handle_rdma_events(msgr_rdma_context_t *rdma_context);
     msgr_rdma_context_t* choose_rdma_context(osd_client_t *cl);
 #endif

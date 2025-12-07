@@ -749,7 +749,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
                     }
                 });
                 // Add the initial receive request
-                try_recv_rdma(cl);
+                init_recv_rdma(cl);
             }
         }
 #endif

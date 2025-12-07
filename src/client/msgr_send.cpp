@@ -363,7 +363,7 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
                 }
             });
             // Add the initial receive request
-            try_recv_rdma(cl);
+            init_recv_rdma(cl);
         }
 #endif
     }

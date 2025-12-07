@@ -734,7 +734,7 @@ static void try_recv_rdma_wr(osd_client_t *cl, msgr_rdma_buf_t b)
     cl->rdma_conn->cur_recv++;
 }
 
-bool osd_messenger_t::try_recv_rdma(osd_client_t *cl)
+bool osd_messenger_t::init_recv_rdma(osd_client_t *cl)
 {
     auto rc = cl->rdma_conn;
     while (rc->cur_recv < rc->max_recv)
