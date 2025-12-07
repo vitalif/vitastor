@@ -487,12 +487,12 @@ int msgr_rdma_connection_t::connect(msgr_rdma_address_t *dest)
             .grh        = {
                 .dgid = dest->gid,
                 .sgid_index = conn->ctx->gid_index,
-                .hop_limit = 1, // FIXME can it vary?
+                .hop_limit = 64, // FIXME can it vary?
             },
             .dlid       = dest->lid,
             .sl         = 0, // service level
             .src_path_bits = 0,
-            .is_global  = (uint8_t)(dest->gid.global.interface_id ? 1 : 0),
+            .is_global  = (uint8_t)(dest->gid.global.subnet_prefix || dest->gid.global.interface_id ? 1 : 0),
             .port_num   = conn->ctx->ib_port,
         },
         .max_rd_atomic  = 1,
