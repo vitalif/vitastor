@@ -23,7 +23,7 @@
 #define READ_BUFFER_SIZE 9000
 
 static std::string ws_format_frame(int type, uint64_t size);
-static bool ws_parse_frame(std::string & buf, int & type, std::string & res);
+static bool ws_parse_frame(std::string & buf, uint8_t & type, std::string & res);
 static void parse_http_headers(std::string & res, http_response_t *parsed);
 
 struct http_co_t
@@ -70,7 +70,7 @@ struct http_co_t
     void submit_read(bool check_timeout);
     void submit_send();
     bool handle_read();
-    void post_message(int type, const std::string & msg);
+    void post_message(uint8_t type, const std::string & msg);
     void send_request(const std::string & host, const std::string & request,
         const http_options_t & options, std::function<void(const http_response_t *response)> response_callback);
 };
@@ -199,12 +199,12 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
     stackout();
 }
 
-void http_post_message(http_co_t *handler, int type, const std::string & msg)
+void http_post_message(http_co_t *handler, uint8_t type, const std::string & msg)
 {
     handler->post_message(type, msg);
 }
 
-void http_co_t::post_message(int type, const std::string & msg)
+void http_co_t::post_message(uint8_t type, const std::string & msg)
 {
     stackin();
     if (state == HTTP_CO_WEBSOCKET)
@@ -608,7 +608,13 @@ bool http_co_t::handle_read()
     {
         while (ws_parse_frame(response, parsed.ws_msg_type, parsed.body))
         {
-            response_callback(&parsed);
+            if (parsed.ws_msg_type == WS_PING)
+            {
+                // Reply with WS_PONG
+                post_message(WS_PONG, "");
+            }
+            else
+                response_callback(&parsed);
             parsed.body = "";
         }
     }
@@ -698,7 +704,7 @@ static std::string ws_format_frame(int type, uint64_t size)
     return res;
 }
 
-static bool ws_parse_frame(std::string & buf, int & type, std::string & res)
+static bool ws_parse_frame(std::string & buf, uint8_t & type, std::string & res)
 {
     uint64_t hdr = 2;
     if (buf.size() < hdr)
