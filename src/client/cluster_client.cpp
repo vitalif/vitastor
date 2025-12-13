@@ -1253,9 +1253,9 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
         {
             op->bitmap_buf = realloc_or_die(op->bitmap_buf, bitmap_mem);
             op->part_bitmaps = (uint8_t*)op->bitmap_buf + object_bitmap_size;
+            memset(op->bitmap_buf+op->bitmap_buf_size, 0, bitmap_mem-op->bitmap_buf_size);
             op->bitmap_buf_size = bitmap_mem;
         }
-        memset(op->bitmap_buf, 0, bitmap_mem);
     }
     int iov_idx = 0;
     size_t iov_pos = 0;
@@ -1401,7 +1401,7 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
         if (peer_it != msgr.osd_peer_fds.end())
         {
             int peer_fd = peer_it->second;
-            part->flags |= PART_SENT;
+            part->flags |= PART_SENT|PART_VALID;
             op->inflight_count++;
             uint64_t pg_bitmap_size = (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8) * (
                 pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks
@@ -1614,14 +1614,11 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             dirty_osds.insert(part->osd_num);
         part->flags |= PART_DONE;
         op->done_count++;
-        if (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP)
+        if ((op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP)
+            && op->inode == op->cur_inode)
         {
-            copy_part_bitmap(op, part);
-            if (op->inode == op->cur_inode)
-            {
-                // Read only returns the version of the uppermost layer
-                op->version = op->parts.size() == 1 ? part->op.reply.rw.version : 0;
-            }
+            // Read only returns the version of the uppermost layer
+            op->version = op->parts.size() == 1 ? part->op.reply.rw.version : 0;
         }
         else if (op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE)
         {
@@ -1629,6 +1626,13 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         }
         if (op->inflight_count == 0 && !op->retry_after)
         {
+            // Copy part bitmaps only after finishing all part reads
+            if (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP)
+            {
+                for (auto & part: op->parts)
+                    if (part.flags == (PART_SENT|PART_VALID|PART_DONE))
+                        copy_part_bitmap(op, &part);
+            }
             if (op->opcode == OSD_OP_SYNC)
                 continue_sync(op);
             else

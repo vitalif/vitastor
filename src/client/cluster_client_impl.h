@@ -10,6 +10,7 @@
 #define PART_DONE 2
 #define PART_ERROR 4
 #define PART_RETRY 8
+#define PART_VALID 16
 #define CACHE_DIRTY 1
 #define CACHE_WRITTEN 2
 #define CACHE_FLUSHING 3

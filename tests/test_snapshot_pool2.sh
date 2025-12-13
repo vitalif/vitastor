@@ -13,13 +13,18 @@ build/src/cmd/vitastor-cli --etcd_address $ETCD_URL create -s 128M testchain -p 
 
 LD_PRELOAD="build/src/client/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 -fsync=1 -rw=write \
-        -etcd=$ETCD_URL -image=testchain -mirror_file=./testdata/bin/mirror.bin -buffer_pattern=0xabcd
+        -etcd=$ETCD_URL -image=testchain -mirror_file=./testdata/bin/mirror.bin -randrepeat=0
 
 build/src/cmd/vitastor-cli --etcd_address $ETCD_URL snap-create testchain@snap1 -p testpool2
 
 LD_PRELOAD="build/src/client/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4k -direct=1 -iodepth=4 -end_fsync=1 -rw=randwrite -number_ios=32 \
-        -etcd=$ETCD_URL -image=testchain -mirror_file=./testdata/bin/mirror.bin -buffer_pattern=0xabcd
+        -etcd=$ETCD_URL -image=testchain -mirror_file=./testdata/bin/mirror.bin -randrepeat=0
+
+# Read from the first snapshot
+
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd iimg=testchain of=./testdata/bin/res.bin bs=128k iodepth=4 --log_level 10
+cmp ./testdata/bin/res.bin ./testdata/bin/mirror.bin
 
 # Create a second snapshot - there was a bug where snapshotted reads from another pool
 # were working only when the image and the snapshot were modified in the same revision
@@ -28,7 +33,7 @@ build/src/cmd/vitastor-cli --etcd_address $ETCD_URL snap-create testchain@snap2 
 
 LD_PRELOAD="build/src/client/libfio_vitastor.so" \
     fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4k -direct=1 -iodepth=4 -end_fsync=1 -rw=randwrite -number_ios=32 \
-        -etcd=$ETCD_URL -image=testchain -mirror_file=./testdata/bin/mirror.bin -buffer_pattern=0xabcd
+        -etcd=$ETCD_URL -image=testchain -mirror_file=./testdata/bin/mirror.bin -randrepeat=0
 
 build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd iimg=testchain of=./testdata/bin/res.bin bs=128k iodepth=4 --log_level 10
 
