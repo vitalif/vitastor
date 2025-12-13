@@ -6,7 +6,7 @@
 
 # Proxmox VE
 
-To enable Vitastor support in Proxmox Virtual Environment (6.4-8.x are supported):
+To enable Vitastor support in Proxmox Virtual Environment (6.4-9.x are supported):
 
 - Add the corresponding Vitastor Debian repository into sources.list on Proxmox hosts:
   trixie for 9.0+, bookworm for 8.1+, pve8.0 for 8.0, bullseye for 7.4, pve7.3 for 7.3, pve7.2 for 7.2, pve7.1 for 7.1, buster for 6.4
