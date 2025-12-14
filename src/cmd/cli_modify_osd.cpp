@@ -120,12 +120,23 @@ resume_1:
                 else
                     osd_cfg.erase("noout");
             }
-            compare.push_back(json11::Json::object {
-                { "target", "MOD" },
-                { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
-                { "result", "LESS" },
-                { "mod_revision", osd_cfg_mod_rev+1 },
-            });
+            if (osd_cfg_mod_rev)
+            {
+                compare.push_back(json11::Json::object {
+                    { "target", "MOD" },
+                    { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
+                    { "result", "LESS" },
+                    { "mod_revision", osd_cfg_mod_rev+1 },
+                });
+            }
+            else
+            {
+                compare.push_back(json11::Json::object {
+                    { "target", "VERSION" },
+                    { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
+                    { "version", 0 },
+                });
+            }
             if (!osd_cfg.size())
             {
                 success.push_back(json11::Json::object {
