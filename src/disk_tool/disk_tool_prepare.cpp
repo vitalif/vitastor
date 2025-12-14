@@ -78,6 +78,15 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             if (check_existing_partition(dev) != 0)
                 return 1;
         }
+        if (options.find("weight") != options.end())
+        {
+            double reweight = json11::Json(options["weight"]).number_value();
+            if (reweight < 0 || reweight > 1)
+            {
+                fprintf(stderr, "OSD weight must be between 0 and 1\n");
+                return 1;
+            }
+        }
     }
     if (options.find("atomic_write_size") == options.end())
     {
@@ -238,6 +247,25 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
         return 1;
     }
     sb["osd_num"] = osd_num;
+    if (options.find("weight") != options.end() || options.find("tags") != options.end())
+    {
+        std::vector<std::string> cmd = { "vitastor-cli", "modify-osd", std::to_string(osd_num) };
+        if (options.find("weight") != options.end())
+        {
+            cmd.push_back("--reweight");
+            cmd.push_back(options["weight"]);
+        }
+        if (options.find("tags") != options.end())
+        {
+            cmd.push_back("--tags");
+            cmd.push_back(options["tags"]);
+        }
+        if (shell_exec(cmd, "", NULL, NULL) != 0)
+        {
+            fprintf(stderr, "Failed to modify OSD %ju tags and/or reweight\n", osd_num);
+            return 1;
+        }
+    }
     // Zero out metadata and journal
     if (write_zero(dsk.meta_fd, sb["meta_offset"].uint64_value(), dsk.meta_area_size) != 0 ||
         write_zero(dsk.journal_fd, sb["journal_offset"].uint64_value(), dsk.journal_len) != 0)

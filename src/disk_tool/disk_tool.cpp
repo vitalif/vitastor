@@ -65,6 +65,8 @@ static const char *help_text =
     "    --force                    Bypass partition safety checks (for emptiness and so on)\n"
     "  \n"
     "  Options (both modes):\n"
+    "    --tags tag1,tag2           Set new OSD tag(s)\n"
+    "    --weight <number>          Set new OSD weight (between 0 and 1)\n"
     "    --journal_size 32M/1G      Set journal size (area or partition size)\n"
     "    --block_size 128k/1M       Set blockstore object size\n"
     "    --bitmap_granularity 4k    Set bitmap granularity\n"

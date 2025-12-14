@@ -95,6 +95,8 @@ Options (single-device mode):
 Options (both modes):
 
 ```
+--tags tag1,tag2           Set new OSD tag(s)
+--weight <number>          Set new OSD weight (between 0 to 1)
 --journal_size 1G/32M      Set journal size (area or partition size)
 --block_size 1M/128k       Set blockstore object size
 --bitmap_granularity 4k    Set bitmap granularity
