@@ -266,9 +266,9 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
             return 1;
         }
     }
-    // Zero out metadata and journal
-    if (write_zero(dsk.meta_fd, sb["meta_offset"].uint64_value(), dsk.meta_area_size) != 0 ||
-        write_zero(dsk.journal_fd, sb["journal_offset"].uint64_value(), dsk.journal_len) != 0)
+    // Zero out the first block of metadata and journal - OSD will zero the rest on the first run
+    if (write_zero(dsk.meta_fd, sb["meta_offset"].uint64_value(), 4096) != 0 ||
+        write_zero(dsk.journal_fd, sb["journal_offset"].uint64_value(), 4096) != 0)
     {
         fprintf(stderr, "Failed to zero out metadata or journal: %s\n", strerror(errno));
         dsk.close_all();
