@@ -158,6 +158,13 @@ osd_client_t::~osd_client_t()
     }
     // Cancel outbound ops
     cancel_ops();
+    for (osd_op_t *op: zc_free_list)
+    {
+        if (op)
+        {
+            delete op;
+        }
+    }
 #ifndef __MOCK__
 #ifdef WITH_RDMA
     if (rdma_conn)

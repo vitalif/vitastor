@@ -326,8 +326,10 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
             int expected = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
             if (done != expected)
             {
-                fprintf(stderr, "BUG (maybe kernel): Expected to send %d iovecs with MSG_WAITALL but sent %d\n", expected, done);
-                exit(1);
+                fprintf(stderr, "Client %d socket write error: expected to send "
+                    "%d iovecs with MSG_WAITALL but sent %d. Disconnecting client\n", cl->peer_fd, expected, done);
+                stop_client(cl->peer_fd);
+                return;
             }
             cl->zc_free_list.push_back(NULL); // end marker
         }
