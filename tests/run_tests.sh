@@ -33,6 +33,8 @@ OLD=1 SCHEME=ec IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
 
 ./test_failure_domain.sh
 
+./test_level_placement.sh
+
 ./test_snapshot.sh
 SCHEME=ec ./test_snapshot.sh
 OLD=1 ./test_snapshot.sh

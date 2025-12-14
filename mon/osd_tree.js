@@ -87,7 +87,7 @@ function make_hier_tree(global_config, tree)
     tree[''] = { children: [] };
     for (const node_id in tree)
     {
-        if (node_id === '' || !(tree[node_id].children||[]).length && (tree[node_id].size||0) <= 0)
+        if (node_id === '')
         {
             continue;
         }

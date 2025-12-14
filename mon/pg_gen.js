@@ -178,7 +178,7 @@ async function generate_pool_pgs(state, global_config, pool_id, osd_tree, levels
     const rules = use_rules ? get_pg_rules(pool_id, pool_cfg, global_config.placement_levels) : null;
     const folded = fold_failure_domains(Object.values(pool_tree), use_rules ? rules : [ [ [ pool_cfg.failure_domain ] ] ]);
     // FIXME: Remove/merge make_hier_tree() step somewhere, however it's needed to remove empty nodes
-    const folded_tree = make_hier_tree(global_config, folded.nodes);
+    const folded_tree = make_hier_tree(global_config, folded.nodes.reduce((a, c) => { a[c.id] = c; return a; }, {}));
     const old_pg_count = prev_pgs.length;
     const optimize_cfg = {
         osd_weights: folded.nodes.reduce((a, c) => { if (Number(c.id)) { a[c.id] = c.size; } return a; }, {}),
