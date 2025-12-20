@@ -15,11 +15,20 @@ sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft
 MNT=$(pwd)/testdata/nfs
 trap "sudo umount -f $MNT"' || true; kill -9 $(jobs -p)' EXIT
 
+# big file
 build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd if=/dev/urandom of=./testdata/ref_data.bin bs=1M count=32 seek=1024B
 build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd if=./testdata/ref_data.bin of=$MNT/testfile oflag=direct bs=1M iodepth=4 seek=1024B skip=1024B
 cp $MNT/testfile ./testdata/nfs_data.bin
 if ! diff -q ./testdata/ref_data.bin $MNT/testfile; then
     format_error 'Data lost during parallel unaligned writes to VitastorFS'
+fi
+
+# small shared file
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd if=/dev/urandom of=./testdata/ref_small.bin bs=10 count=500 seek=15B
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd if=./testdata/ref_small.bin of=$MNT/smallfile oflag=direct bs=10 iodepth=4 seek=15B skip=15B
+cp $MNT/smallfile ./testdata/nfs_small.bin
+if ! diff -q ./testdata/ref_small.bin $MNT/smallfile; then
+    format_error 'Data lost during parallel unaligned writes to a small file in VitastorFS'
 fi
 
 format_green OK
