@@ -453,7 +453,6 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
     uint64_t good_offset = offset;
     uint64_t good_size = st->size;
     bool begin_shdr = false;
-    uint64_t end_pad = 0;
     st->waiting++;
     st->rmw[0].buf1 = st->rmw[1].buf1 = NULL;
     st->rmw[0].buf2 = st->rmw[1].buf2 = NULL;
@@ -554,16 +553,14 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
         st->waiting++;
         nfs_do_rmw(&st->rmw[1]);
     }
-    if (good_size > 0 || end_pad > 0 || begin_shdr)
+    if (good_size > 0 || begin_shdr)
     {
         // Normal write
-        nfs_do_write(ino, good_offset, (begin_shdr ? sizeof(shared_file_header_t) : 0)+good_size+end_pad, [&](cluster_op_t *op)
+        nfs_do_write(ino, good_offset, (begin_shdr ? sizeof(shared_file_header_t) : 0)+good_size, [&](cluster_op_t *op)
         {
             if (begin_shdr)
                 op->iov.push_back(&st->shdr, sizeof(shared_file_header_t));
             op->iov.push_back(good_buf, good_size);
-            if (end_pad)
-                op->iov.push_back(st->proxy->kvfs->zero_block.data(), end_pad);
         }, st, state);
     }
     st->waiting--;
