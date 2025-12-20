@@ -111,7 +111,7 @@ struct dd_in_info_t
             {
                 in_granularity = 512;
             }
-            if (lseek(ifd, 1, SEEK_SET) == (off_t)-1)
+            if (lseek(ifd, 1, SEEK_SET) != (off_t)1)
             {
                 in_seekable = false;
             }
@@ -389,7 +389,7 @@ struct cli_dd_t
     int state = 0;
     int copy_error = 0;
     int in_waiting = 0, out_waiting = 0;
-    cli_result_t result;
+    cli_result_t result = {};
 
     bool is_done()
     {
@@ -931,7 +931,8 @@ close_end:
         oinfo.close_output(parent);
         iinfo.close_input(parent);
         // Done
-        result.err = copy_error;
+        if (copy_error)
+            result.err = copy_error;
         state = 100;
     }
 };
