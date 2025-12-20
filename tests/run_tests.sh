@@ -147,3 +147,4 @@ TEST_NAME=old_csum_4k_dj   OLD=1 OSD_ARGS="--data_csum_type crc32c --inmemory_jo
 TEST_NAME=old_csum_4k      OLD=1 OSD_ARGS="--data_csum_type crc32c" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh
 
 ./test_nfs.sh
+./test_nfs_unaligned_append.sh
