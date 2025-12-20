@@ -104,8 +104,10 @@ struct nfs_rmw_t
     nfs_proxy_t *parent = NULL;
     uint64_t ino = 0;
     uint64_t offset = 0;
-    uint8_t *buf = NULL;
-    uint64_t size = 0;
+    uint8_t *buf1 = NULL;
+    uint64_t size1 = 0;
+    uint8_t *buf2 = NULL;
+    uint64_t size2 = 0;
     uint8_t *part_buf = NULL;
     uint64_t version = 0;
     nfs_rmw_t *other = NULL;

@@ -15,7 +15,7 @@ sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft
 MNT=$(pwd)/testdata/nfs
 trap "sudo umount -f $MNT"' || true; kill -9 $(jobs -p)' EXIT
 
-dd if=/dev/urandom of=./testdata/ref_data.bin bs=1M count=32 seek=1024B
+build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd if=/dev/urandom of=./testdata/ref_data.bin bs=1M count=32 seek=1024B
 build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd if=./testdata/ref_data.bin of=$MNT/testfile oflag=direct bs=1M iodepth=4 seek=1024B skip=1024B
 cp $MNT/testfile ./testdata/nfs_data.bin
 if ! diff -q ./testdata/ref_data.bin $MNT/testfile; then

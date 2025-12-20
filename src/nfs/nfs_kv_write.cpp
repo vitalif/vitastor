@@ -185,8 +185,8 @@ void nfs_do_rmw(nfs_rmw_t *rmw)
 {
     auto parent = rmw->parent;
     auto align = parent->kvfs->pool_alignment;
-    assert(rmw->size < align);
-    assert((rmw->offset/parent->kvfs->pool_block_size) == ((rmw->offset+rmw->size-1)/parent->kvfs->pool_block_size));
+    assert(rmw->size1+rmw->size2 < align);
+    assert((rmw->offset/parent->kvfs->pool_block_size) == ((rmw->offset+rmw->size1+rmw->size2-1)/parent->kvfs->pool_block_size));
     if (!rmw->part_buf)
     {
         rmw->part_buf = (uint8_t*)malloc_or_die(align);
@@ -221,7 +221,7 @@ void nfs_do_rmw(nfs_rmw_t *rmw)
             }
             auto align = parent->kvfs->pool_alignment;
             bool is_begin = (rmw->offset % align);
-            bool is_end = ((rmw->offset+rmw->size) % align);
+            bool is_end = ((rmw->offset+rmw->size1+rmw->size2) % align);
             auto op = new cluster_op_t;
             op->opcode = OSD_OP_WRITE;
             op->inode = rmw->ino;
@@ -232,10 +232,17 @@ void nfs_do_rmw(nfs_rmw_t *rmw)
             {
                 op->iov.push_back(rmw->part_buf, rmw->offset % align);
             }
-            op->iov.push_back(rmw->buf, rmw->size);
+            if (rmw->buf1)
+            {
+                op->iov.push_back(rmw->buf1, rmw->size1);
+            }
+            if (rmw->buf2)
+            {
+                op->iov.push_back(rmw->buf2, rmw->size2);
+            }
             if (is_end)
             {
-                op->iov.push_back(rmw->part_buf + (rmw->offset % align) + rmw->size, align - (rmw->offset % align) - rmw->size);
+                op->iov.push_back(rmw->part_buf + (rmw->offset % align) + rmw->size1 + rmw->size2, align - (rmw->offset % align) - rmw->size1 - rmw->size2);
             }
             op->callback = [rmw](cluster_op_t *op)
             {
@@ -448,7 +455,8 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
     bool begin_shdr = false;
     uint64_t end_pad = 0;
     st->waiting++;
-    st->rmw[0].buf = st->rmw[1].buf = NULL;
+    st->rmw[0].buf1 = st->rmw[1].buf1 = NULL;
+    st->rmw[0].buf2 = st->rmw[1].buf2 = NULL;
     auto make_rmw_cb = [st, state]()
     {
         return [st, state](nfs_rmw_t *rmw)
@@ -492,8 +500,8 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
                 .parent = st->proxy,
                 .ino = ino,
                 .offset = offset,
-                .buf = st->buf,
-                .size = s,
+                .buf1 = st->buf,
+                .size1 = s,
                 .cb = make_rmw_cb(),
             };
             st->waiting++;
@@ -501,24 +509,44 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
         }
     }
     if ((end % alignment) &&
-        (offset == 0 || end/alignment > (offset-1)/alignment))
+        (offset == 0 || (end-1)/alignment > offset/alignment))
     {
         // Requires read-modify-write in the end
         assert(st->offset+st->size <= st->new_size);
-        auto s = (end % alignment);
-        if (good_size > s)
-            good_size -= s;
-        else
+        if ((end-1)/alignment == 0 && begin_shdr)
+        {
+            // end is at the same moment the beginning with a shared header
+            assert(offset == 0 && good_size == end-sizeof(shared_file_header_t));
+            st->rmw[1] = (nfs_rmw_t){
+                .parent = st->proxy,
+                .ino = ino,
+                .offset = 0,
+                .buf1 = (uint8_t*)&st->shdr,
+                .size1 = sizeof(shared_file_header_t),
+                .buf2 = st->buf,
+                .size2 = st->size,
+                .cb = make_rmw_cb(),
+            };
             good_size = 0;
-        st->rmw[1] = (nfs_rmw_t){
-            .parent = st->proxy,
-            .ino = ino,
-            .offset = end - s,
-            .buf = st->buf + st->size - s,
-            .size = s,
-            .cb = make_rmw_cb(),
-        };
-        if (st->rmw[0].buf)
+            begin_shdr = false;
+        }
+        else
+        {
+            auto s = (end % alignment);
+            if (good_size > s)
+                good_size -= s;
+            else
+                good_size = 0;
+            st->rmw[1] = (nfs_rmw_t){
+                .parent = st->proxy,
+                .ino = ino,
+                .offset = end - s,
+                .buf2 = st->buf + st->size - s,
+                .size2 = s,
+                .cb = make_rmw_cb(),
+            };
+        }
+        if (st->rmw[0].buf1)
         {
             st->rmw[0].other = &st->rmw[1];
             st->rmw[1].other = &st->rmw[0];
