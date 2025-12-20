@@ -868,7 +868,8 @@ void cluster_client_t::execute_cas(cluster_op_t *op)
     {
         int expected = part->req.hdr.opcode == OSD_OP_DELETE ? 0 : part->req.rw.len;
         op->retval = part->reply.hdr.retval;
-        op->retval = op->retval == expected ? 0 : (op->retval >= 0 ? -EIO : op->retval);
+        if (op->retval != expected && op->retval >= 0)
+            op->retval = -EIO;
         op->retval = op->retval == -EPIPE ? -EINTR : op->retval;
         auto peer_it = msgr.osd_peer_fds.find(op->parts[0].osd_num);
         if (op->retval != 0 || (op->flags & OP_IMMEDIATE_COMMIT))
@@ -899,8 +900,11 @@ void cluster_client_t::execute_cas(cluster_op_t *op)
                 },
                 .callback = [this, op](osd_op_t *part)
                 {
-                    op->retval = part->reply.hdr.retval;
-                    op->retval = op->retval == -EPIPE ? -EINTR : op->retval;
+                    if (part->reply.hdr.retval != 0)
+                    {
+                        op->retval = part->reply.hdr.retval;
+                        op->retval = op->retval == -EPIPE ? -EINTR : op->retval;
+                    }
                     auto cb = std::move(op->callback);
                     cb(op);
                 },
