@@ -505,34 +505,26 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
     {
         // Requires read-modify-write in the end
         assert(st->offset+st->size <= st->new_size);
-        if (st->offset+st->size == st->new_size)
-        {
-            // rmw can be skipped at end - we can just zero pad the request
-            end_pad = alignment - (end % alignment);
-        }
+        auto s = (end % alignment);
+        if (good_size > s)
+            good_size -= s;
         else
+            good_size = 0;
+        st->rmw[1] = (nfs_rmw_t){
+            .parent = st->proxy,
+            .ino = ino,
+            .offset = end - s,
+            .buf = st->buf + st->size - s,
+            .size = s,
+            .cb = make_rmw_cb(),
+        };
+        if (st->rmw[0].buf)
         {
-            auto s = (end % alignment);
-            if (good_size > s)
-                good_size -= s;
-            else
-                good_size = 0;
-            st->rmw[1] = (nfs_rmw_t){
-                .parent = st->proxy,
-                .ino = ino,
-                .offset = end - s,
-                .buf = st->buf + st->size - s,
-                .size = s,
-                .cb = make_rmw_cb(),
-            };
-            if (st->rmw[0].buf)
-            {
-                st->rmw[0].other = &st->rmw[1];
-                st->rmw[1].other = &st->rmw[0];
-            }
-            st->waiting++;
-            nfs_do_rmw(&st->rmw[1]);
+            st->rmw[0].other = &st->rmw[1];
+            st->rmw[1].other = &st->rmw[0];
         }
+        st->waiting++;
+        nfs_do_rmw(&st->rmw[1]);
     }
     if (good_size > 0 || end_pad > 0 || begin_shdr)
     {
