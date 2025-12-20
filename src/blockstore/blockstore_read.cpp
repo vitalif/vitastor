@@ -22,7 +22,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     uint64_t result_version = 0;
     bool found = false;
     uint32_t skip_csum = 0;
-    uint32_t blk_start = 0, blk_end = 0;
+    uint32_t blk_start = op->offset, blk_end = op->offset+op->len;
     bool need_skip = dsk.csum_block_size > dsk.bitmap_granularity && !perfect_csum_update;
     if (need_skip)
     {
@@ -32,11 +32,27 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
         if (blk_end % dsk.csum_block_size)
             blk_end += dsk.csum_block_size - (blk_end % dsk.csum_block_size);
     }
+    bool need_wait = false;
     heap->iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *wr, bool stable)
     {
         if (wr->type() == BS_HEAP_DELETE)
         {
             return false;
+        }
+        if (!heap->is_lsn_completed(wr->lsn))
+        {
+            if (wr->type() == BS_HEAP_BIG_INTENT && wr->big_intent().offset < blk_end && wr->big_intent().offset+wr->big_intent().len > blk_start ||
+                wr->type() == BS_HEAP_INTENT_WRITE && wr->small().offset < blk_end && wr->small().offset+wr->small().len > blk_start)
+            {
+                // Wait until intent write is completed
+                need_wait = true;
+                return false;
+            }
+            else if (wr->type() == BS_HEAP_SMALL_WRITE && wr->small().offset < blk_end && wr->small().offset+wr->small().len > blk_start)
+            {
+                // Skip entry and read the previous one
+                return true;
+            }
         }
         if (op->version >= wr->version && !found)
         {
@@ -46,12 +62,6 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
             {
                 memcpy(op->bitmap, wr->get_ext_bitmap(heap), dsk.clean_entry_bitmap_size);
             }
-        }
-        if (need_skip && wr->lsn < heap->get_completed_lsn() &&
-            (wr->type() == BS_HEAP_BIG_INTENT && wr->big_intent().offset < blk_end && wr->big_intent().offset+wr->big_intent().len > blk_start ||
-            wr->type() == BS_HEAP_INTENT_WRITE && wr->small().offset < blk_end && wr->small().offset+wr->small().len > blk_start))
-        {
-            skip_csum = COPY_BUF_SKIP_CSUM;
         }
         if (op->version >= wr->version)
         {
@@ -65,13 +75,23 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
                 return false;
             }
         }
-        if (need_skip && (wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE) &&
+        if (need_skip && wr->type() == BS_HEAP_SMALL_WRITE &&
             wr->small().offset < blk_end && wr->small().offset+wr->small().len > blk_start)
         {
+            // Small write may mutate big write checksums during flush
             skip_csum = COPY_BUF_SKIP_CSUM;
         }
         return true;
     });
+    if (need_wait)
+    {
+undo_wait:
+        // Need to wait. undo added requests, unlock lsn
+        heap->unlock_entry(op->oid);
+        free_read_buffers(rv);
+        rv.clear();
+        return 0;
+    }
     if (!found)
     {
         // May happen if there are entries but all of them are > requested version
@@ -84,11 +104,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
     assert(fulfilled == op->len);
     if (!fulfill_read(op))
     {
-        // Need to wait. undo added requests, unlock lsn
-        heap->unlock_entry(op->oid);
-        free_read_buffers(rv);
-        rv.clear();
-        return 0;
+        goto undo_wait;
     }
     op->version = result_version;
     if (!PRIV(op)->pending_ops)

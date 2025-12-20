@@ -2190,6 +2190,15 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
     }
 }
 
+bool blockstore_heap_t::is_lsn_completed(uint64_t lsn)
+{
+    if (lsn <= completed_lsn)
+        return true;
+    assert(lsn-first_inflight_lsn < inflight_lsn.size());
+    auto it = inflight_lsn.begin() + (lsn-first_inflight_lsn);
+    return (it->flags & HEAP_INFLIGHT_DONE);
+}
+
 uint64_t blockstore_heap_t::get_completed_lsn()
 {
     return completed_lsn;

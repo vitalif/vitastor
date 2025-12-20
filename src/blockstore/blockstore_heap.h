@@ -314,6 +314,7 @@ public:
     void start_block_write(uint32_t block_num);
     void complete_block_write(uint32_t block_num);
     void complete_lsn_write(uint64_t lsn);
+    bool is_lsn_completed(uint64_t lsn);
     uint64_t get_completed_lsn();
     uint64_t get_fsynced_lsn();
     void mark_lsn_fsynced(uint64_t lsn);
