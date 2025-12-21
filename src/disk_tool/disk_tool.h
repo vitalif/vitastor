@@ -88,6 +88,7 @@ struct disk_tool_t
     uint32_t new_meta_format = 0;
     int new_journal_fd = -1, new_meta_fd = -1;
     resizer_data_moving_t *moving_blocks = NULL;
+    bool atomic_warned = false;
 
     bool started = false;
     void *small_write_data = NULL;

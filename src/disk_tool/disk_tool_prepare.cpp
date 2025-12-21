@@ -91,20 +91,23 @@ int disk_tool_t::prepare_one(std::map<std::string, std::string> options, int is_
     if (options.find("atomic_write_size") == options.end())
     {
         auto data_dev = realpath_str(options["data_device"], false);
-        uint64_t atomic_write_size = get_atomic_write_size(data_dev);
-        if (atomic_write_size > 4096)
+        if (data_dev.substr(0, 9) == "/dev/nvme")
         {
-            fprintf(stderr, "Data device %s supports atomic writes up to %ju bytes, enabling. Enjoy faster writes!\n",
-                data_dev.c_str(), atomic_write_size);
-            options["atomic_write_size"] = std::to_string(atomic_write_size);
-            options["use_atomic_flag"] = "1";
+            uint64_t atomic_write_size = get_atomic_write_size(data_dev);
+            if (atomic_write_size > 4096)
+            {
+                // FIXME: Enable use_atomic_flag when the kernel does checks correctly
+                fprintf(stderr, "Data device %s supports atomic writes up to %ju bytes, enabling. Enjoy faster writes!\n",
+                    data_dev.c_str(), atomic_write_size);
+                options["atomic_write_size"] = std::to_string(atomic_write_size);
+                if (!atomic_warned)
+                {
+                    fprintf(stderr, "WARNING: RWF_ATOMIC can't be used because Linux checks atomic writes incorrectly.\n"
+                        " Please don't change scheduler from default 'none' and check use_atomic_flag documentation for more details.\n");
+                    atomic_warned = true;
+                }
+            }
         }
-    }
-    else if (options.find("use_atomic_flag") == options.end() &&
-        parse_size(options["atomic_write_size"]) > 4096)
-    {
-        fprintf(stderr, "Atomic writes larger than 4 KB are enabled manually, enabling use_atomic_flag too.\n");
-        options["use_atomic_flag"] = "1";
     }
     for (auto dev: std::vector<std::string>{"data", "meta", "journal"})
     {

@@ -1,0 +1,39 @@
+From 98d3f68a40130c438854f61db6025f9e9b099cb6 Mon Sep 17 00:00:00 2001
+From: Vitaliy Filippov <vitalifster@gmail.com>
+Date: Sat, 20 Dec 2025 14:44:35 +0300
+Subject: [PATCH] Do not require atomic writes to be power of 2 sized and
+ aligned on length boundary
+
+It contradicts NVMe specification where alignment is only required when atomic
+write boundary (NABSPF/NABO) is set and highly limits usage of NVMe atomic writes
+
+Signed-off-by: Vitaliy Filippov <vitalifster@gmail.com>
+---
+ fs/read_write.c | 8 --------
+ 1 file changed, 8 deletions(-)
+
+diff --git a/fs/read_write.c b/fs/read_write.c
+index 833bae068770..5467d710108d 100644
+--- a/fs/read_write.c
++++ b/fs/read_write.c
+@@ -1802,17 +1802,9 @@ int generic_file_rw_checks(struct file *file_in, struct file *file_out)
+ 
+ int generic_atomic_write_valid(struct kiocb *iocb, struct iov_iter *iter)
+ {
+-	size_t len = iov_iter_count(iter);
+-
+ 	if (!iter_is_ubuf(iter))
+ 		return -EINVAL;
+ 
+-	if (!is_power_of_2(len))
+-		return -EINVAL;
+-
+-	if (!IS_ALIGNED(iocb->ki_pos, len))
+-		return -EINVAL;
+-
+ 	if (!(iocb->ki_flags & IOCB_DIRECT))
+ 		return -EOPNOTSUPP;
+ 
+-- 
+2.51.0
+

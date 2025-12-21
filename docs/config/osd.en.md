@@ -682,7 +682,10 @@ with replicated pools and reach the best possible write performance.
 
 Default value is auto-detected during OSD initialization from
 `/sys/block/xx/queue/atomic_write_max_bytes` or assumed to be 4096 bytes
-because all known disks support 4 KB atomic writes.
+because all known disks support 4 KB atomic writes. Auto-detection is only used for
+NVMe disks because SAS disks require the explicit WRITE ATOMIC command which requires
+RWF_ATOMIC (see below [#use_atomic_flag]) but that flag works incorrectly in current
+Linux versions.
 
 You can also check if your NVMe drives support atomic writes by running
 the command `nvme id-ctrl /dev/nvme0n1 | grep awupf`. If the reported value,
@@ -697,12 +700,16 @@ reducing Write Amplification and improving write performance up to 2 times.
 
 - Type: boolean
 
-This option controls whether the Vitastor OSD uses RWF_ATOMIC write flag with atomic
-writes. This flag is only supported on Linux kernel since 6.11. Atomic writes are
-generally only safe to use with this flag because it tells the kernel to never fragment
-write requests and also to check the write against the actual atomic write capabilities
-of the device.
+This option controls whether Vitastor OSDs use RWF_ATOMIC write flag with atomic writes.
+This flag is supported since Linux 6.11 and adds some safety to atomic writes - the kernel
+guarantees to not fragment write requests with it and also to check them against the actual
+device atomic write capabilities.
 
-This option is enabled by default when atomic_write_size is set to a value larger than 4 KB.
-You can disable it if you're sure that your disks support atomic writes and you want to
-bypass the Linux atomic write checks.
+However, the option is disabled by default because the flag is currently UNUSABLE - Linux
+incorrectly requires writes with that flag to be of power-of-2 length and length-aligned.
+I.e., for example, 12 KB writes and not-8-KB aligned 8 KB writes are forbidden by the kernel,
+even though the NVMe specification allows them.
+
+For NVMe disks with `scheduler=none` writes aren't fragmented anyway so it's not a big deal.
+However, you can rebuild your kernel with [this patch](../../patches/linux-fix-atomic-write-checks.diff)
+and turn this option on. It will make your atomic writes a bit safer.
