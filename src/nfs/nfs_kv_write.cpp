@@ -480,7 +480,7 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
             };
             begin_shdr = true;
             good_offset -= sizeof(shared_file_header_t);
-            offset = 0;
+            offset -= sizeof(shared_file_header_t);
         }
         else
         {
@@ -508,18 +508,18 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
         }
     }
     if ((end % alignment) &&
-        (offset == 0 || (end-1)/alignment > offset/alignment))
+        ((end-1)/alignment > offset/alignment || offset == ((end-1) & ~(alignment-1))))
     {
         // Requires read-modify-write in the end
         assert(st->offset+st->size <= st->new_size);
-        if ((end-1)/alignment == 0 && begin_shdr)
+        if ((end-1)/alignment == offset/alignment && begin_shdr)
         {
             // end is at the same moment the beginning with a shared header
-            assert(offset == 0 && good_size == end-sizeof(shared_file_header_t));
+            assert(!(offset % alignment) && good_size == st->size);
             st->rmw[1] = (nfs_rmw_t){
                 .parent = st->proxy,
                 .ino = ino,
-                .offset = 0,
+                .offset = offset,
                 .buf1 = (uint8_t*)&st->shdr,
                 .size1 = sizeof(shared_file_header_t),
                 .buf2 = st->buf,
@@ -553,7 +553,8 @@ static void nfs_do_align_write(nfs_kv_write_state *st, uint64_t ino, uint64_t of
         st->waiting++;
         nfs_do_rmw(&st->rmw[1]);
     }
-    if (good_size > 0 || begin_shdr)
+    assert(!begin_shdr || good_size > 0);
+    if (good_size > 0)
     {
         // Normal write
         nfs_do_write(ino, good_offset, (begin_shdr ? sizeof(shared_file_header_t) : 0)+good_size, [&](cluster_op_t *op)
