@@ -5,7 +5,7 @@ package vitastor
 
 const (
     vitastorCSIDriverName    = "csi.vitastor.io"
-    vitastorCSIDriverVersion = "3.0.0"
+    vitastorCSIDriverVersion = "3.0.1"
 )
 
 // Config struct fills the parameters of request or user input

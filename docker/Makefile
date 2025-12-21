@@ -1,4 +1,4 @@
-VITASTOR_VERSION ?= v3.0.0
+VITASTOR_VERSION ?= v3.0.1
 
 all: build push
 

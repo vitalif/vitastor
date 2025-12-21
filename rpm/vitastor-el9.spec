@@ -1,11 +1,11 @@
 Name:           vitastor
-Version:        3.0.0
+Version:        3.0.1
 Release:        1%{?dist}
 Summary:        Vitastor, a fast software-defined clustered block storage
 
 License:        Vitastor Network Public License 1.1
 URL:            https://vitastor.io/
-Source0:        vitastor-3.0.0.el9.tar.gz
+Source0:        vitastor-3.0.1.el9.tar.gz
 
 BuildRequires:  gperftools-devel
 BuildRequires:  gcc-c++
