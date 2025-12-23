@@ -436,12 +436,13 @@ void test_compact(bool csum, bool stable)
 
     bitmap_set(ref_int_bitmap, 8192, 4096, 4096);
     {
-        uint32_t csums[dsk.data_block_size/(dsk.csum_block_size ? dsk.csum_block_size : 4096)] = {};
+        size_t csum_count = dsk.data_block_size/(dsk.csum_block_size ? dsk.csum_block_size : 4096);
+        std::vector<uint32_t> csums(csum_count);
         csums[0] = crc32c(0, buffer_area.data(), 4096);
         csums[2] = crc32c(0, buffer_area.data()+8192, 4096);
         res = heap.add_compact(obj, compact_info.compact_version, compact_info.compact_lsn,
             compact_info.clean_wr->big_location(&heap), compact_info.do_delete,
-            &mblock, ref_int_bitmap, ref_int_bitmap, (uint8_t*)csums);
+            &mblock, ref_int_bitmap, ref_int_bitmap, (uint8_t*)csums.data());
         assert(res == 0);
     }
     assert(mblock == 0);
@@ -461,10 +462,11 @@ void test_compact(bool csum, bool stable)
     if (csum)
     {
         assert(heap.calc_checksums(obj, buffer_area.data(), false));
-        uint32_t csums[dsk.data_block_size/(dsk.csum_block_size ? dsk.csum_block_size : 4096)] = {};
+        size_t csum_count = dsk.data_block_size/(dsk.csum_block_size ? dsk.csum_block_size : 4096);
+        std::vector<uint32_t> csums(csum_count);
         csums[0] = crc32c(0, buffer_area.data(), 4096);
         csums[2] = crc32c(0, buffer_area.data()+8192, 4096);
-        assert(!memcmp(obj->get_checksums(&heap), csums, dsk.data_block_size/dsk.csum_block_size*4));
+        assert(!memcmp(obj->get_checksums(&heap), csums.data(), dsk.data_block_size/dsk.csum_block_size*4));
     }
 
     obj = heap.read_entry({ .inode = INODE_WITH_POOL(1, 2), .stripe = 0 });
