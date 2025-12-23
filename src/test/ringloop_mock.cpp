@@ -199,7 +199,7 @@ void disk_mock_t::erase_buffers(uint64_t begin, uint64_t end)
         {
             // Cut beginning & end & stop
             uint8_t *ce = (uint8_t*)malloc_or_die(be-end);
-            memcpy(ce, it->second.iov_base + (end-bs), be-end);
+            memcpy(ce, (uint8_t*)it->second.iov_base + (end-bs), be-end);
             uint8_t *cs = (uint8_t*)realloc(it->second.iov_base, begin-bs);
             if (!cs)
                 throw std::bad_alloc();
@@ -221,7 +221,7 @@ void disk_mock_t::erase_buffers(uint64_t begin, uint64_t end)
             // Cut end & stop
             assert(be > end);
             uint8_t *ce = (uint8_t*)malloc_or_die(be-end);
-            memcpy(ce, it->second.iov_base + (end-bs), be-end);
+            memcpy(ce, (uint8_t*)it->second.iov_base + (end-bs), be-end);
             buffers[be] = (iovec){ .iov_base = ce, .iov_len = be-end };
             buffers.erase(it);
             break;
@@ -308,7 +308,7 @@ void disk_mock_t::read_item(uint8_t *to, uint64_t offset, uint64_t len)
             last = offset;
         }
         uint64_t cur_end = be < offset+len ? be : offset+len;
-        memcpy(to+last-offset, it->second.iov_base+last-bs, cur_end-last);
+        memcpy(to+last-offset, (uint8_t*)it->second.iov_base+last-bs, cur_end-last);
         last = be;
     }
     if (last < offset+len)
