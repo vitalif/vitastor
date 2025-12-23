@@ -1257,7 +1257,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
         {
             op->bitmap_buf = realloc_or_die(op->bitmap_buf, bitmap_mem);
             op->part_bitmaps = (uint8_t*)op->bitmap_buf + object_bitmap_size;
-            memset(op->bitmap_buf+op->bitmap_buf_size, 0, bitmap_mem-op->bitmap_buf_size);
+            memset((uint8_t*)op->bitmap_buf+op->bitmap_buf_size, 0, bitmap_mem-op->bitmap_buf_size);
             op->bitmap_buf_size = bitmap_mem;
         }
     }
