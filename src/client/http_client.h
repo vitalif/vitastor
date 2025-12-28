@@ -23,6 +23,8 @@ struct http_options_t
     bool want_streaming;
     bool keepalive;
     bool ssl;
+    std::string ssl_cert;
+    std::string ssl_key;
     std::string ssl_ca;
 };
 

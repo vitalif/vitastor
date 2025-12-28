@@ -47,6 +47,8 @@ struct http_co_t
 
     int request_timeout = 0;
     bool ssl = false;
+    std::string ssl_cert;
+    std::string ssl_key;
     std::string ssl_ca;
     std::string host;
     std::string request;
@@ -391,6 +393,10 @@ void http_co_t::start_connection()
             if ((ssl_ca != "")
                 ? !SSL_CTX_load_verify_locations(ssl_ctx, ssl_ca.c_str(), NULL)
                 : !SSL_CTX_set_default_verify_paths(ssl_ctx))
+                goto init_err;
+            if (ssl_cert != "" && ssl_key != "" &&
+                (!SSL_CTX_use_certificate_file(ssl_ctx, ssl_cert.c_str(), SSL_FILETYPE_PEM) ||
+                !SSL_CTX_use_PrivateKey_file(ssl_ctx, ssl_key.c_str(), SSL_FILETYPE_PEM)))
                 goto init_err;
         }
         ssl_bio = BIO_new(BIO_s_socket());

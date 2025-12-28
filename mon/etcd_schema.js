@@ -45,7 +45,10 @@ const etcd_tree = {
             config_path: "/etc/vitastor/vitastor.conf",
             etcd_prefix: "/vitastor",
             // etcd connection - configurable online
-            etcd_address: "10.0.115.10:2379/v3",
+            etcd_address: "http://10.0.115.10:2379/v3",
+            etcd_client_cert: "",
+            etcd_client_key: "",
+            etcd_ca: "",
             // mon
             etcd_mon_ttl: 5, // min: 1
             etcd_mon_timeout: 1000, // ms. min: 0

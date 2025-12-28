@@ -174,6 +174,7 @@ void osd_t::parse_config(bool init)
         if (!osd_num)
             throw std::runtime_error("osd_num is required in the configuration");
         msgr.osd_num = osd_num;
+        st_cli->osd_num = osd_num;
     }
     if (bs)
     {

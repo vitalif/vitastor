@@ -121,7 +121,11 @@ public:
     uint64_t global_block_size = DEFAULT_BLOCK_SIZE;
     uint32_t global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     uint32_t global_immediate_commit = IMMEDIATE_NONE;
+
+    uint64_t osd_num = 0;
     std::string etcd_prefix;
+    std::string etcd_client_cert;
+    std::string etcd_client_key;
     std::string etcd_ca;
     int log_level = 0;
 

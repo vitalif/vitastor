@@ -122,6 +122,16 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
             add_etcd_url(ea.string_value());
         }
     }
+    if (this->osd_num)
+    {
+        this->etcd_client_cert = config["osd_etcd_client_cert"].string_value();
+        this->etcd_client_key = config["osd_etcd_client_key"].string_value();
+    }
+    else
+    {
+        this->etcd_client_cert = config["etcd_client_cert"].string_value();
+        this->etcd_client_key = config["etcd_client_key"].string_value();
+    }
     this->etcd_ca = config["etcd_ca"].string_value();
     this->etcd_prefix = config["etcd_prefix"].string_value();
     if (this->etcd_prefix == "")

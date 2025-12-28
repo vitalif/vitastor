@@ -23,6 +23,10 @@ class EtcdAdapter
     parse_config(config)
     {
         this.parse_etcd_addresses(config.etcd_address||config.etcd_url);
+        if (config.mon_etcd_client_cert || config.etcd_client_cert)
+            this.opts.cert = fs.readFileSync(config.mon_etcd_client_cert || config.etcd_client_cert, { encoding: 'utf-8' });
+        if (config.mon_etcd_client_key || config.etcd_client_key)
+            this.opts.key = fs.readFileSync(config.mon_etcd_client_key || config.etcd_client_key, { encoding: 'utf-8' });
         if (config.etcd_ca)
             this.opts.ca = fs.readFileSync(config.etcd_ca, { encoding: 'utf-8' });
     }
