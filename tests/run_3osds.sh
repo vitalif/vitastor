@@ -23,7 +23,7 @@ if [[ -n "$ANTIETCD" ]]; then
         start_etcd $i
     done
 else
-    node mon/mon-main.js $MON_PARAMS --etcd_address $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 >>./testdata/mon.log 2>&1 &
+    node mon/mon-main.js $MON_PARAMS --verbose 1 >>./testdata/mon.log 2>&1 &
     MON_PID=$!
 fi
 wait_etcd
@@ -40,7 +40,7 @@ start_osd_on()
 {
     local i=$1
     local dev=$2
-    build/src/osd/vitastor-osd --osd_num $i --bind_address $ETCD_IP $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL \
+    build/src/osd/vitastor-osd --osd_num $i --bind_address $ETCD_IP $NO_SAME $OSD_ARGS \
         $(build/src/disk_tool/vitastor-disk simple-offsets --format options $OFFSET_ARGS $dev $OFFSET_ARGS 2>/dev/null) \
         >>./testdata/osd$i.log 2>&1 &
     eval OSD${i}_PID=$!

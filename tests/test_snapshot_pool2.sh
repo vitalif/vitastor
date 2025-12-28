@@ -5,46 +5,43 @@ check_qemu
 
 # snapshot in another pool
 
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL create-pool testpool2 -s 3 -n 4 --failure_domain osd
+$VITASTOR_CLI create-pool testpool2 -s 3 -n 4 --failure_domain osd
 
 wait_pool_up 30 2 3 4
 
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL create -s 128M testchain -p testpool
+$VITASTOR_CLI create -s 128M testchain -p testpool
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 -fsync=1 -rw=write \
-        -etcd=$ETCD_URL -image=testchain -mirror_file=./testdata/bin/mirror.bin -randrepeat=0
+$VITASTOR_FIO -bs=1M -direct=1 -iodepth=4 -fsync=1 -rw=write \
+    -image=testchain -mirror_file=./testdata/bin/mirror.bin -randrepeat=0
 
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL snap-create testchain@snap1 -p testpool2
+$VITASTOR_CLI snap-create testchain@snap1 -p testpool2
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4k -direct=1 -iodepth=4 -end_fsync=1 -rw=randwrite -number_ios=32 \
-        -etcd=$ETCD_URL -image=testchain -mirror_file=./testdata/bin/mirror.bin -randrepeat=0
+$VITASTOR_FIO -bs=4k -direct=1 -iodepth=4 -end_fsync=1 -rw=randwrite -number_ios=32 \
+    -image=testchain -mirror_file=./testdata/bin/mirror.bin -randrepeat=0
 
 # Read from the first snapshot
 
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd iimg=testchain of=./testdata/bin/res.bin bs=128k iodepth=4 --log_level 10
+$VITASTOR_CLI dd iimg=testchain of=./testdata/bin/res.bin bs=128k iodepth=4 --log_level 10
 cmp ./testdata/bin/res.bin ./testdata/bin/mirror.bin
 
 # Create a second snapshot - there was a bug where snapshotted reads from another pool
 # were working only when the image and the snapshot were modified in the same revision
 # (i.e. there was only one snapshot)
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL snap-create testchain@snap2 -p testpool2
+$VITASTOR_CLI snap-create testchain@snap2 -p testpool2
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4k -direct=1 -iodepth=4 -end_fsync=1 -rw=randwrite -number_ios=32 \
-        -etcd=$ETCD_URL -image=testchain -mirror_file=./testdata/bin/mirror.bin -randrepeat=0
+$VITASTOR_FIO -bs=4k -direct=1 -iodepth=4 -end_fsync=1 -rw=randwrite -number_ios=32 \
+    -image=testchain -mirror_file=./testdata/bin/mirror.bin -randrepeat=0
 
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd iimg=testchain of=./testdata/bin/res.bin bs=128k iodepth=4 --log_level 10
+$VITASTOR_CLI dd iimg=testchain of=./testdata/bin/res.bin bs=128k iodepth=4 --log_level 10
 
 cmp ./testdata/bin/res.bin ./testdata/bin/mirror.bin
 
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL dd iimg=testchain of=./testdata/bin/res.bin bs=32k iodepth=4 conv=nosparse
+$VITASTOR_CLI dd iimg=testchain of=./testdata/bin/res.bin bs=32k iodepth=4 conv=nosparse
 
 cmp ./testdata/bin/res.bin ./testdata/bin/mirror.bin
 
 qemu-img convert -p \
-    -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testchain" \
+    -f raw "vitastor:config_path=$VITASTOR_CFG:image=testchain" \
     -O raw ./testdata/bin/res.bin
 
 cmp ./testdata/bin/res.bin ./testdata/bin/mirror.bin

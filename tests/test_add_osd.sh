@@ -4,9 +4,8 @@ PG_COUNT=2048
 GLOBAL_CONFIG=',"osd_out_time":1'
 . `dirname $0`/run_3osds.sh
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -end_fsync=1 \
-        -rw=write -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -cluster_log_level=10
+$VITASTOR_FIO -bs=4M -direct=1 -iodepth=1 -end_fsync=1 \
+    -rw=write -pool=1 -inode=1 -size=128M -cluster_log_level=10
 
 start_osd 4
 
@@ -30,7 +29,7 @@ wait_finish_rebalance 60
 sleep 1
 kill -9 $OSD4_PID
 sleep 1
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL rm-osd --force 4
+$VITASTOR_CLI rm-osd --force 4
 
 sleep 2
 

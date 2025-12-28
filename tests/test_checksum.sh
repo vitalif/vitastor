@@ -11,9 +11,8 @@ IMG_SIZE=128
 $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1024*1024))'}'
 
 # Write
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 \
-        -mirror_file=./testdata/bin/mirror.bin -end_fsync=1 -rw=write -etcd=$ETCD_URL -image=testimg -runtime=10
+$VITASTOR_FIO -bs=1M -direct=1 -iodepth=4 \
+    -mirror_file=./testdata/bin/mirror.bin -end_fsync=1 -rw=write -image=testimg -runtime=10
 
 # Intentionally corrupt OSD data and restart it
 kill $OSD1_PID
@@ -29,7 +28,7 @@ wait_up 10
 
 # Read everything back
 qemu-img convert -S 4096 -p \
-    -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \
+    -f raw "vitastor:config_path=$VITASTOR_CFG:image=testimg" \
     -O raw ./testdata/bin/read.bin
 
 diff ./testdata/bin/read.bin ./testdata/bin/mirror.bin

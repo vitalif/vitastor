@@ -39,9 +39,7 @@ try_change()
     fi
 }
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 \
-        -rw=write -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -runtime=10
+$VITASTOR_FIO -bs=1M -direct=1 -iodepth=4 -rw=write -pool=1 -inode=1 -size=128M -runtime=10
 
 PG_SIZE=7
 POOLCFG='"name":"testpool","failure_domain":"osd","scheme":"ec","parity_chunks":'$((PG_SIZE-PG_DATA_SIZE))

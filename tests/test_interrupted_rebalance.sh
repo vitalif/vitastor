@@ -6,9 +6,8 @@ PG_COUNT=32
 
 IMG_SIZE=960
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=16 -fsync=16 -rw=write \
-    -etcd=$ETCD_URL -pool=1 -inode=2 -size=${IMG_SIZE}M -cluster_log_level=10
+$VITASTOR_FIO -bs=4M -direct=1 -iodepth=16 -fsync=16 -rw=write \
+    -pool=1 -inode=2 -size=${IMG_SIZE}M -cluster_log_level=10
 
 try_reweight 1 0
 

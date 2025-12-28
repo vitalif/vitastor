@@ -6,7 +6,7 @@
 
 $ETCDCTL put /vitastor/config/inode/1/120 '{"name":"testimg","size":'$((1024*1024*1024))'}'
 
-build/src/cmd/vitastor-cli create --etcd_address $ETCD_URL -s 1G testimg2
+$VITASTOR_CLI create -s 1G testimg2
 
 t=$($ETCDCTL get --print-value-only /vitastor/config/inode/1/121 | jq -r .name)
 if [[ "$t" != "testimg2" ]]; then

@@ -2,7 +2,7 @@
 
 . `dirname $0`/common.sh
 
-node mon/mon-main.js $MON_PARAMS --etcd_address $ETCD_URL --etcd_prefix "/vitastor" >>./testdata/mon.log 2>&1 &
+node mon/mon-main.js $MON_PARAMS >>./testdata/mon.log 2>&1 &
 MON_PID=$!
 wait_etcd
 
@@ -29,7 +29,7 @@ $ETCDCTL put /vitastor/osd/stats/13 '{"host":"host7","size":1073741824,"time":"'
 $ETCDCTL put /vitastor/osd/stats/14 '{"host":"host7","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/15 '{"host":"host8","size":1073741824,"time":"'$TIME'"}'
 $ETCDCTL put /vitastor/osd/stats/16 '{"host":"host8","size":1073741824,"time":"'$TIME'"}'
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL create-pool testpool --failure_domain host --level_placement rack=112233 --ec 4+2 -n 32
+$VITASTOR_CLI create-pool testpool --failure_domain host --level_placement rack=112233 --ec 4+2 -n 32
 sleep 2
 $ETCDCTL get --prefix /vitastor/pg/config --print-value-only | \
     jq -s -e '([ .[0].items["1"] | .[].osd_set | map_values(. | tonumber) | select(

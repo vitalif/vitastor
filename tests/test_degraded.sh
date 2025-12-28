@@ -15,9 +15,8 @@ for i in $(seq 1 $OSD_COUNT); do
 done
 wait_up 120
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4k -direct=1 -iodepth=4 -rw=randwrite -loops=1000 \
-    -etcd=$ETCD_URL -pool=1 -inode=2 -size=256M -cluster_log_level=10 -runtime=5 &
+$VITASTOR_FIO -bs=4k -direct=1 -iodepth=4 -rw=randwrite -loops=1000 \
+    -pool=1 -inode=2 -size=256M -cluster_log_level=10 -runtime=5 &
 FIO_PID=$!
 
 sleep 15

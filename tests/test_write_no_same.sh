@@ -11,7 +11,6 @@ GLOBAL_CONF='{"immediate_commit":"all"}'
 
 # Test basic write
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -rw=write -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -cluster_log_level=10
+$VITASTOR_FIO -bs=4M -direct=1 -iodepth=1 -rw=write -pool=1 -inode=1 -size=128M -cluster_log_level=10
 
 format_green OK

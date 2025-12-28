@@ -5,9 +5,9 @@ IMMEDIATE_COMMIT=1
 PG_COUNT=16
 . `dirname $0`/run_3osds.sh
 
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL create -s 10G fsmeta
-build/src/cmd/vitastor-cli --etcd_address $ETCD_URL modify-pool --used-for-app fs:fsmeta testpool
-build/src/nfs/vitastor-nfs start --fs fsmeta --etcd_address $ETCD_URL --portmap 0 --port 2050 --foreground 1 --trace 1 >>./testdata/nfs.log 2>&1 &
+$VITASTOR_CLI create -s 10G fsmeta
+$VITASTOR_CLI modify-pool --used-for-app fs:fsmeta testpool
+build/src/nfs/vitastor-nfs --config_path $VITASTOR_CFG start --fs fsmeta --portmap 0 --port 2050 --foreground 1 --trace 1 >>./testdata/nfs.log 2>&1 &
 NFS_PID=$!
 
 mkdir -p testdata/nfs
@@ -175,22 +175,22 @@ format_green "rename over existing file ok"
 
 # check listing and removal of a bad direntry
 sudo umount ./testdata/nfs/
-build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta set d11/settings.jsonLGNmGn '{"ino": 123}'
+build/src/kv/vitastor-kv --config_path $VITASTOR_CFG fsmeta set d11/settings.jsonLGNmGn '{"ino": 123}'
 sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
 ls -l ./testdata/nfs
 ls -l ./testdata/nfs/settings.jsonLGNmGn
 sudo rm ./testdata/nfs/settings.jsonLGNmGn
-build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta get d11/settings.jsonLGNmGn 2>&1 | grep '(code -2)'
+build/src/kv/vitastor-kv --config_path $VITASTOR_CFG fsmeta get d11/settings.jsonLGNmGn 2>&1 | grep '(code -2)'
 ls -l ./testdata/nfs
 
 # repeat with ino=0
 sudo umount ./testdata/nfs/
-build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta set d11/settings.jsonLGNmGn '{"ino": 0}'
+build/src/kv/vitastor-kv --config_path $VITASTOR_CFG fsmeta set d11/settings.jsonLGNmGn '{"ino": 0}'
 sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
 ls -l ./testdata/nfs
 ls -l ./testdata/nfs/settings.jsonLGNmGn
 sudo rm ./testdata/nfs/settings.jsonLGNmGn
-build/src/kv/vitastor-kv --etcd_address $ETCD_URL fsmeta get d11/settings.jsonLGNmGn 2>&1 | grep '(code -2)'
+build/src/kv/vitastor-kv --config_path $VITASTOR_CFG fsmeta get d11/settings.jsonLGNmGn 2>&1 | grep '(code -2)'
 ls -l ./testdata/nfs
 
 format_green OK

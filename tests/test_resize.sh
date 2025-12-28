@@ -5,16 +5,14 @@ PG_COUNT=${PG_COUNT:-32}
 . `dirname $0`/run_3osds.sh
 check_qemu
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=4 \
-        -rw=write -etcd=$ETCD_URL -end_fsync=1 -pool=1 -inode=1 -size=256M -runtime=10
+$VITASTOR_FIO -bs=4M -direct=1 -iodepth=4 \
+    -rw=write -end_fsync=1 -pool=1 -inode=1 -size=256M -runtime=10
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4k -direct=1 -iodepth=32 \
-        -rw=randwrite -etcd=$ETCD_URL -end_fsync=1 -pool=1 -inode=1 -size=256M -runtime=10 -number_ios=1024
+$VITASTOR_FIO -bs=4k -direct=1 -iodepth=32 \
+    -rw=randwrite -end_fsync=1 -pool=1 -inode=1 -size=256M -runtime=10 -number_ios=1024
 
 qemu-img convert -S 4096 -p \
-    -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:pool=1:inode=1:size=$((256*1024*1024))" \
+    -f raw "vitastor:config_path=$VITASTOR_CFG:pool=1:inode=1:size=$((256*1024*1024))" \
     -O raw ./testdata/bin/before.bin
 
 for i in $(seq 1 $OSD_COUNT); do
@@ -72,7 +70,7 @@ done
 $ETCDCTL del --prefix /vitastor/osd/state/
 
 for i in $(seq 1 $OSD_COUNT); do
-    build/src/osd/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS --etcd_address $ETCD_URL \
+    build/src/osd/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS \
         --meta_format $meta_format \
         --data_device ./testdata/bin/test_osd$i.bin \
         --meta_offset 0 \
@@ -82,7 +80,7 @@ for i in $(seq 1 $OSD_COUNT); do
 done
 
 qemu-img convert -S 4096 -p \
-    -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:pool=1:inode=1:size=$((256*1024*1024))" \
+    -f raw "vitastor:config_path=$VITASTOR_CFG:pool=1:inode=1:size=$((256*1024*1024))" \
     -O raw ./testdata/bin/after.bin
 
 if ! cmp ./testdata/bin/before.bin ./testdata/bin/after.bin; then

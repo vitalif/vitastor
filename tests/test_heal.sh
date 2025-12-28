@@ -18,9 +18,8 @@ IMG_SIZE=960
 
 $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1024*1024))'}'
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
-        -mirror_file=./testdata/bin/mirror.bin -etcd=$ETCD_URL -image=testimg -cluster_log_level=10
+$VITASTOR_FIO -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
+    -mirror_file=./testdata/bin/mirror.bin -image=testimg -cluster_log_level=10
 
 kill_osds()
 {
@@ -51,12 +50,11 @@ kill_osds()
 
 kill_osds &
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bsrange=4k-128k -blockalign=4k -direct=1 -iodepth=32 -fsync=256 -rw=randrw \
-        -serialize_overlap=1 -randrepeat=0 -refill_buffers=1 -mirror_file=./testdata/bin/mirror.bin -etcd=$ETCD_URL -image=testimg -loops=10 -runtime=120
+$VITASTOR_FIO -bsrange=4k-128k -blockalign=4k -direct=1 -iodepth=32 -fsync=256 -rw=randrw \
+    -serialize_overlap=1 -randrepeat=0 -refill_buffers=1 -mirror_file=./testdata/bin/mirror.bin -image=testimg -loops=10 -runtime=120
 
 qemu-img convert -S 4096 -p \
-    -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \
+    -f raw "vitastor:config_path=$VITASTOR_CFG:image=testimg" \
     -O raw ./testdata/bin/read.bin
 
 if ! diff -q ./testdata/bin/read.bin ./testdata/bin/mirror.bin; then

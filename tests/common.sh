@@ -65,7 +65,7 @@ start_etcd()
             --max-txn-ops=100000 --auto-compaction-retention=10 --auto-compaction-mode=revision &>./testdata/etcd$i.log &
         eval ETCD${i}_PID=$!
     else
-        node mon/mon-main.js $MON_PARAMS --antietcd_port $((ETCD_PORT+2*i-2)) --etcd_address $ETCD_URL --etcd_prefix "/vitastor" --verbose 1 >>./testdata/mon$i.log 2>&1 &
+        node mon/mon-main.js $MON_PARAMS --antietcd_port $((ETCD_PORT+2*i-2)) --verbose 1 >>./testdata/mon$i.log 2>&1 &
         eval ETCD${i}_PID=$!
     fi
 }
@@ -108,12 +108,20 @@ wait_condition()
     done
 }
 
+VITASTOR_CFG='"etcd_address":"'$ETCD_URL'"'
+echo "{$VITASTOR_CFG}" > ./testdata/vitastor.conf
+VITASTOR_CFG=./testdata/vitastor.conf
+VITASTOR_CLI="build/src/cmd/vitastor-cli --config_path $VITASTOR_CFG"
+# Preload build/src/client/libfio_vitastor.so so libasan detects all symbols
+VITASTOR_FIO="env LD_PRELOAD=build/src/client/libfio_vitastor.so fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -conf $VITASTOR_CFG"
+OSD_ARGS="$OSD_ARGS --config_path $VITASTOR_CFG"
+MON_PARAMS="$MON_PARAMS --config_path $VITASTOR_CFG"
+
 if [[ -n "$ANTIETCD" ]]; then
     ETCDCTL="node mon/node_modules/.bin/anticli -e $ETCD_URL"
     MON_PARAMS="--use_antietcd 1 --antietcd_data_dir ./testdata --antietcd_persist_interval 500 $MON_PARAMS"
 else
     ETCDCTL="${ETCD}ctl --endpoints=$ETCD_URL --dial-timeout=5s --command-timeout=10s"
-    MON_PARAMS="$MON_PARAMS"
     start_etcd_cluster
 fi
 

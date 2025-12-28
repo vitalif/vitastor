@@ -6,13 +6,10 @@ GLOBAL_CONFIG=',"client_retry_interval":1000'
 
 . `dirname $0`/run_3osds.sh
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
-    -etcd=$ETCD_URL -pool=1 -inode=2 -size=128M
+$VITASTOR_FIO -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write -pool=1 -inode=2 -size=128M
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4k -direct=1 -iodepth=4 -rw=randrw \
-    -etcd=$ETCD_URL -pool=1 -inode=2 -size=128M -loops=100 -cluster_log_level=3 -runtime=60 &>./testdata/fio.log &
+$VITASTOR_FIO -bs=4k -direct=1 -iodepth=4 -rw=randrw -pool=1 -inode=2 -size=128M -loops=100 \
+    -cluster_log_level=3 -runtime=60 &>./testdata/fio.log &
 FIO_PID=$!
 
 try_change()

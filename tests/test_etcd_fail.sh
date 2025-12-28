@@ -5,9 +5,8 @@ ETCD_COUNT=5
 
 . `dirname $0`/run_3osds.sh
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=randwrite \
-        -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -cluster_log_level=10
+$VITASTOR_FIO -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=randwrite \
+    -pool=1 -inode=1 -size=128M -cluster_log_level=10
 
 kill_etcds()
 {
@@ -26,8 +25,7 @@ kill_etcds()
 
 kill_etcds &
 
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=4k -direct=1 -iodepth=1 -fsync=1 -rw=randwrite \
-        -etcd=$ETCD_URL -pool=1 -inode=1 -size=128M -cluster_log_level=10 -runtime=30
+$VITASTOR_FIO -bs=4k -direct=1 -iodepth=1 -fsync=1 -rw=randwrite \
+    -pool=1 -inode=1 -size=128M -cluster_log_level=10 -runtime=30
 
 format_green OK

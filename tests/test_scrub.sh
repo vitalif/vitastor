@@ -20,9 +20,8 @@ check_qemu
 $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testimg","size":'$((IMG_SIZE*1024*1024))'}'
 
 # Write
-LD_PRELOAD="build/src/client/libfio_vitastor.so" \
-    fio -thread -name=test -ioengine=build/src/client/libfio_vitastor.so -bs=1M -direct=1 -iodepth=4 \
-        -mirror_file=./testdata/bin/mirror.bin -end_fsync=1 -rw=write -etcd=$ETCD_URL -image=testimg
+$VITASTOR_FIO -bs=1M -direct=1 -iodepth=4 \
+    -mirror_file=./testdata/bin/mirror.bin -end_fsync=1 -rw=write -image=testimg
 
 sleep 1
 
@@ -55,23 +54,23 @@ wait_condition 300 "$ETCDCTL get --prefix /vitastor/pg/history/ --print-value-on
 
 if [[ ($SCHEME = replicated && $PG_SIZE < 3) || ($SCHEME != replicated && $((PG_SIZE-PG_DATA_SIZE)) < 2) ]]; then
     # Check that objects are marked as inconsistent if 2 replicas or EC/XOR 2+1
-    build/src/cmd/vitastor-cli describe --etcd_address $ETCD_URL --json &>./testdata/describe.log
-    build/src/cmd/vitastor-cli describe --etcd_address $ETCD_URL --json | jq -e '[ .[] | select(.inconsistent) ] | length == '$((IMG_SIZE * 8 * PG_SIZE / (SCHEME = replicated ? 1 : PG_DATA_SIZE)))
+    $VITASTOR_CLI describe --json &>./testdata/describe.log
+    $VITASTOR_CLI describe --json | jq -e '[ .[] | select(.inconsistent) ] | length == '$((IMG_SIZE * 8 * PG_SIZE / (SCHEME = replicated ? 1 : PG_DATA_SIZE)))
 
     # Fix objects using vitastor-cli fix
-    build/src/cmd/vitastor-cli describe --etcd_address $ETCD_URL --json | \
+    $VITASTOR_CLI describe --json | \
         jq -s '[ .[0][] | select(.inconsistent and .osd_num == '$ZERO_OSD') ]' | \
-        build/src/cmd/vitastor-cli fix --etcd_address $ETCD_URL --bad_osds $ZERO_OSD
+        $VITASTOR_CLI fix --bad_osds $ZERO_OSD
 elif [[ ($SCHEME = replicated && $PG_SIZE > 2) || ($SCHEME != replicated && $((PG_SIZE-PG_DATA_SIZE)) > 1) ]]; then
     # Check that everything heals
     wait_finish_rebalance 300
 
-    build/src/cmd/vitastor-cli describe --etcd_address $ETCD_URL --json | jq -e '. | length == 0'
+    $VITASTOR_CLI describe --json | jq -e '. | length == 0'
 fi
 
 # Read everything back
 qemu-img convert -S 4096 -p \
-    -f raw "vitastor:etcd_host=127.0.0.1\:$ETCD_PORT/v3:image=testimg" \
+    -f raw "vitastor:config_path=$VITASTOR_CFG:image=testimg" \
     -O raw ./testdata/bin/read.bin
 
 diff ./testdata/bin/read.bin ./testdata/bin/mirror.bin

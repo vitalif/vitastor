@@ -2,7 +2,7 @@
 
 . `dirname $0`/common.sh
 
-node mon/mon-main.js $MON_PARAMS --etcd_address $ETCD_URL --etcd_prefix "/vitastor" >>./testdata/mon.log 2>&1 &
+node mon/mon-main.js $MON_PARAMS >>./testdata/mon.log 2>&1 &
 MON_PID=$!
 wait_etcd
 
