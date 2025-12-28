@@ -114,9 +114,13 @@ http_co_t *http_init(timerfd_manager_t *tfd)
     return handler;
 }
 
-http_co_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, const std::string & path,
+void open_websocket(http_co_t *handler, const std::string & host, const std::string & path,
     const http_options_t & options, std::function<void(const http_response_t *msg)> response_callback)
 {
+    if (handler->state == HTTP_CO_KEEPALIVE && (handler->connected_host != host || handler->ssl != options.ssl))
+        handler->close_connection();
+    if (handler->state != HTTP_CO_KEEPALIVE && handler->state != HTTP_CO_CLOSED)
+        throw std::runtime_error("Attempt to open websocket on a keepalive stream");
     std::string request = "GET "+path+" HTTP/1.1\r\n"
         "Host: "+host+"\r\n"
         "Upgrade: websocket\r\n"
@@ -124,9 +128,6 @@ http_co_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, cons
         "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==\r\n"
         "Sec-WebSocket-Version: 13\r\n"
         "\r\n";
-    http_co_t *handler = new http_co_t();
-    handler->tfd = tfd;
-    handler->state = HTTP_CO_CLOSED;
     handler->host = host;
     handler->request_timeout = options.timeout < 0 ? -1 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
     handler->want_streaming = false;
@@ -135,8 +136,11 @@ http_co_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, cons
     handler->ssl_ca = options.ssl_ca;
     handler->request = request;
     handler->response_callback = response_callback;
+    handler->ws_outbox = "";
+    handler->response = "";
+    handler->sent = 0;
+    handler->parsed = {};
     handler->start_ws_connection();
-    return handler;
 }
 
 void http_request(http_co_t *handler, const std::string & host, const std::string & request,
@@ -249,9 +253,14 @@ void http_co_t::post_message(uint8_t type, const std::string & msg)
     stackout();
 }
 
-void http_close(http_co_t *handler)
+void http_destroy(http_co_t *handler)
 {
     handler->end();
+}
+
+void http_close(http_co_t *handler)
+{
+    handler->close_connection();
 }
 
 void http_response_t::parse_json_response(std::string & error, json11::Json & r) const
@@ -285,20 +294,14 @@ void http_response_t::parse_json_response(std::string & error, json11::Json & r)
 
 http_co_t::~http_co_t()
 {
+    close_connection();
 #ifdef WITH_OPENSSL
-    ssl_bio = NULL;
-    if (ssl_cli)
-    {
-        SSL_free(ssl_cli);
-        ssl_cli = NULL;
-    }
     if (ssl_ctx)
     {
         SSL_CTX_free(ssl_ctx);
         ssl_ctx = NULL;
     }
 #endif
-    close_connection();
 }
 
 void http_co_t::close_connection()
@@ -319,9 +322,9 @@ void http_co_t::close_connection()
     {
         // Frees client and bios at once
         SSL_free(ssl_cli);
-        ssl_bio = NULL;
         ssl_cli = NULL;
     }
+    ssl_bio = NULL;
 #endif
     state = HTTP_CO_CLOSED;
     connected_host = "";
@@ -377,16 +380,19 @@ void http_co_t::start_connection()
     // https://wiki.openssl.org/index.php/Hostname_validation
     if (ssl)
     {
-        ssl_ctx = SSL_CTX_new(TLS_method());
         if (!ssl_ctx)
-            goto init_err;
-        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
-        if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
-            goto init_err;
-        if ((ssl_ca != "")
-            ? !SSL_CTX_load_verify_locations(ssl_ctx, ssl_ca.c_str(), NULL)
-            : !SSL_CTX_set_default_verify_paths(ssl_ctx))
-            goto init_err;
+        {
+            ssl_ctx = SSL_CTX_new(TLS_method());
+            if (!ssl_ctx)
+                goto init_err;
+            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
+            if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
+                goto init_err;
+            if ((ssl_ca != "")
+                ? !SSL_CTX_load_verify_locations(ssl_ctx, ssl_ca.c_str(), NULL)
+                : !SSL_CTX_set_default_verify_paths(ssl_ctx))
+                goto init_err;
+        }
         ssl_bio = BIO_new(BIO_s_socket());
         if (!ssl_bio)
             goto init_err;
