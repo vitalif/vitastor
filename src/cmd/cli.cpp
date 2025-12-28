@@ -245,7 +245,7 @@ static json11::Json::object parse_args(int narg, const char *args[])
     cfg["progress"] = "1";
     for (int i = 1; i < narg; i++)
     {
-        bool argHasValue = (!(i == narg-1) && (args[i+1][0] != '-'));
+        bool argHasValue = (i < narg-1);
         if (args[i][0] == '-' && args[i][1] == 'h' && args[i][2] == 0)
         {
             cfg["help"] = "1";
