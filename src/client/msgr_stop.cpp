@@ -85,6 +85,16 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
             osd_peer_fds.erase(osd_it);
         }
     }
+#ifdef WITH_RDMA
+    if (cl->rdma_conn && cl->rdma_conn->cmid)
+    {
+        auto rdma_it = rdmacm_connections.find(cl->rdma_conn->cmid);
+        if (rdma_it != rdmacm_connections.end() && rdma_it->second == cl)
+        {
+            rdmacm_connections.erase(rdma_it);
+        }
+    }
+#endif
 #ifndef __MOCK__
     // Then remove FD from the eventloop so we don't accidentally read something
     tfd->set_fd_handler(peer_fd, false, NULL);
