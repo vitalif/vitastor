@@ -526,7 +526,7 @@ int disk_tool_t::resize_write_new_journal()
     return 0;
 }
 
-void disk_tool_t::remap_big_write(heap_entry_t *wr)
+void disk_tool_t::remap_big_write(blockstore_heap_t *heap, heap_entry_t *wr)
 {
     uint64_t block_num = wr->big().block_num;
     auto remap_it = data_remap.find(block_num);
@@ -539,10 +539,10 @@ void disk_tool_t::remap_big_write(heap_entry_t *wr)
     }
     block_num += data_idx_diff;
     wr->big().block_num = block_num;
-    wr->crc32c = wr->calc_crc32c();
+    wr->checksum = wr->calc_checksum(heap);
 }
 
-void disk_tool_t::remap_small_write(heap_entry_t *wr)
+void disk_tool_t::remap_small_write(blockstore_heap_t *heap, heap_entry_t *wr)
 {
     if (new_meta_format == BLOCKSTORE_META_FORMAT_HEAP && wr->small().len > 0)
     {
@@ -554,7 +554,7 @@ void disk_tool_t::remap_small_write(heap_entry_t *wr)
         memcpy(new_journal_ptr, buffer_area+wr->small().location, wr->small().len);
         wr->small().location = new_journal_ptr-new_journal_buf;
         new_journal_ptr += wr->small().len;
-        wr->crc32c = wr->calc_crc32c();
+        wr->checksum = wr->calc_checksum(heap);
     }
 }
 
@@ -601,11 +601,11 @@ int disk_tool_t::resize_rebuild_meta()
             {
                 if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
                 {
-                    remap_big_write(wr);
+                    remap_big_write(heap, wr);
                 }
                 else if (wr->type() == BS_HEAP_SMALL_WRITE)
                 {
-                    remap_small_write(wr);
+                    remap_small_write(heap, wr);
                 }
                 // New -> New
                 if ((new_meta_pos % dsk.meta_block_size) + wr->size > dsk.meta_block_size)
@@ -666,7 +666,7 @@ int disk_tool_t::resize_rebuild_meta()
                     memcpy(((uint8_t*)wr) + sizeof(heap_big_write_t) + new_clean_entry_bitmap_size, bitmap+new_clean_entry_bitmap_size, new_clean_entry_bitmap_size);
                     memcpy(((uint8_t*)wr) + sizeof(heap_big_write_t) + 2*new_clean_entry_bitmap_size, bitmap+2*new_clean_entry_bitmap_size, new_data_csum_size);
                 }
-                wr->crc32c = wr->calc_crc32c();
+                wr->checksum = wr->calc_checksum(&dsk);
                 new_meta_pos += wr->size;
             }
             else

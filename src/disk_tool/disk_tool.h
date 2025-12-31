@@ -135,8 +135,8 @@ struct disk_tool_t
     void choose_journal_block(uint32_t je_size);
     int resize_rebuild_journal();
     int resize_write_new_journal();
-    void remap_big_write(heap_entry_t *wr);
-    void remap_small_write(heap_entry_t *wr);
+    void remap_big_write(blockstore_heap_t *heap, heap_entry_t *wr);
+    void remap_small_write(blockstore_heap_t *heap, heap_entry_t *wr);
     int resize_rebuild_meta();
     int resize_write_new_meta();
     void free_new_meta();

@@ -1358,7 +1358,7 @@ void test_corruption()
         blockstore_heap_t heap(&dsk, buffer_area.data());
         auto entry = ((heap_entry_t*)tmp.data());
         entry->size++;
-        entry->crc32c = entry->calc_crc32c();
+        entry->checksum = entry->calc_checksum(&heap);
         uint64_t entries_loaded;
         assert(heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded) == EDOM);
     }
@@ -2423,7 +2423,7 @@ void test_skip_double_claim()
         wr1->stripe = 0;
         wr1->version = 1;
         wr1->set_big_location(&heap, 0x40000); // <-- overwritten
-        wr1->crc32c = wr1->calc_crc32c();
+        wr1->checksum = wr1->calc_checksum(&heap);
         total_size += wr1->size;
 
         wr2 = (heap_entry_t*)(tmp.data() + total_size);
@@ -2434,7 +2434,7 @@ void test_skip_double_claim()
         wr2->stripe = 0;
         wr2->version = 2;
         wr2->set_big_location(&heap, 0); // <-- double claimed
-        wr2->crc32c = wr2->calc_crc32c();
+        wr2->checksum = wr2->calc_checksum(&heap);
         total_size += wr2->size;
 
         wr3 = (heap_entry_t*)(tmp.data() + total_size);
@@ -2445,7 +2445,7 @@ void test_skip_double_claim()
         wr3->stripe = 0x20000;
         wr3->version = 1;
         wr3->set_big_location(&heap, 0); // <-- double claimed
-        wr3->crc32c = wr3->calc_crc32c();
+        wr3->checksum = wr3->calc_checksum(&heap);
         total_size += wr3->size;
 
         wr4 = (heap_entry_t*)(tmp.data() + total_size);
@@ -2456,7 +2456,7 @@ void test_skip_double_claim()
         wr4->stripe = 0x20000;
         wr4->version = 2;
         wr4->set_big_location(&heap, 0x20000);
-        wr4->crc32c = wr4->calc_crc32c();
+        wr4->checksum = wr4->calc_checksum(&heap);
         total_size += wr4->size;
 
         *(uint16_t*)(tmp.data() + total_size) = dsk.meta_block_size - total_size;
@@ -2495,13 +2495,13 @@ void test_skip_double_claim()
         blockstore_heap_t heap(&dsk, buffer_area.data());
 
         wr1->lsn = 1;
-        wr1->crc32c = wr1->calc_crc32c();
+        wr1->checksum = wr1->calc_checksum(&heap);
         wr2->lsn = 3;
-        wr2->crc32c = wr2->calc_crc32c();
+        wr2->checksum = wr2->calc_checksum(&heap);
         wr3->lsn = 2;
-        wr3->crc32c = wr3->calc_crc32c();
+        wr3->checksum = wr3->calc_checksum(&heap);
         wr4->lsn = 4;
-        wr4->crc32c = wr4->calc_crc32c();
+        wr4->checksum = wr4->calc_checksum(&heap);
 
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
@@ -2538,13 +2538,13 @@ void test_skip_double_claim()
         // [3 4] [1 2] - should erase second
 
         wr1->lsn = 3;
-        wr1->crc32c = wr1->calc_crc32c();
+        wr1->checksum = wr1->calc_checksum(&heap);
         wr2->lsn = 4;
-        wr2->crc32c = wr2->calc_crc32c();
+        wr2->checksum = wr2->calc_checksum(&heap);
         wr3->lsn = 1;
-        wr3->crc32c = wr3->calc_crc32c();
+        wr3->checksum = wr3->calc_checksum(&heap);
         wr4->lsn = 2;
-        wr4->crc32c = wr4->calc_crc32c();
+        wr4->checksum = wr4->calc_checksum(&heap);
 
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
@@ -2609,7 +2609,7 @@ void test_postpone_load()
         wr1->version = 1;
         wr1->set_big_location(&heap, 0x20000);
         memset(wr1->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
-        wr1->crc32c = wr1->calc_crc32c();
+        wr1->checksum = wr1->calc_checksum(&heap);
         total_size += wr1->size;
 
         assert(total_size+heap.get_big_entry_size() <= dsk.meta_block_size);
@@ -2622,7 +2622,7 @@ void test_postpone_load()
         wr1->version = 1;
         wr1->set_big_location(&heap, 0x20000);
         memset(wr1->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
-        wr1->crc32c = wr1->calc_crc32c();
+        wr1->checksum = wr1->calc_checksum(&heap);
         total_size += wr1->size;
 
         uint32_t small_size = heap.get_small_entry_size(0, 4096);
@@ -2641,7 +2641,7 @@ void test_postpone_load()
             wr2->small().location = lsn*4096;
             memset(wr2->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
             *((uint32_t*)wr2->get_checksum(&heap)) = crc32c(0, buffer_area.data()+wr2->small().location, 4096);
-            wr2->crc32c = wr2->calc_crc32c();
+            wr2->checksum = wr2->calc_checksum(&heap);
             total_size += small_size;
         };
         for (int i = 0; i < 10; i++)
@@ -2661,7 +2661,7 @@ void test_postpone_load()
         wr1->version = 1;
         wr1->set_big_location(&heap, 0x20000);
         memset(wr1->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
-        wr1->crc32c = wr1->calc_crc32c();
+        wr1->checksum = wr1->calc_checksum(&heap);
         total_size += wr1->size;
 
         *(uint16_t*)(tmp.data() + total_size) = dsk.meta_block_size - total_size;

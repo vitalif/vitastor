@@ -83,13 +83,17 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         data_csum_type = BLOCKSTORE_CSUM_CRC32C;
     }
+    else if (config["data_csum_type"] == "xxh3_32")
+    {
+        data_csum_type = BLOCKSTORE_CSUM_XXH3_32;
+    }
     else if (config["data_csum_type"] == "" || config["data_csum_type"] == "none")
     {
         data_csum_type = BLOCKSTORE_CSUM_NONE;
     }
     else
     {
-        throw std::runtime_error("data_csum_type="+config["data_csum_type"]+" is unsupported, only \"crc32c\" and \"none\" are supported");
+        throw std::runtime_error("data_csum_type="+config["data_csum_type"]+" is unsupported, only \"crc32c\", \"xxh3_32\" and \"none\" are supported");
     }
     csum_block_size = parse_size(config["csum_block_size"]);
     discard_on_start = config.find("discard_on_start") != config.end() &&

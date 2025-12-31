@@ -16,6 +16,7 @@
 #define BLOCKSTORE_CSUM_NONE 0
 // Lower byte of checksum type is its length
 #define BLOCKSTORE_CSUM_CRC32C 0x104
+#define BLOCKSTORE_CSUM_XXH3_32 0x204
 
 #define MOCK_DATA_FD 1000
 #define MOCK_META_FD 1001

@@ -12,6 +12,7 @@
 #include "blockstore_heap.h"
 #include "../util/allocator.h"
 #include "../util/crc32c.h"
+#include "../util/xxhash.h"
 #include "../util/malloc_or_die.h"
 
 #define BS_HEAP_FREE_MVCC 1
@@ -217,13 +218,22 @@ void heap_entry_t::set_big_location(blockstore_heap_t *heap, uint64_t location)
     big().block_num = location / heap->dsk->data_block_size;
 }
 
-uint32_t heap_entry_t::calc_crc32c()
+uint32_t heap_entry_t::calc_checksum(blockstore_disk_t *dsk)
 {
-    auto old_crc32c = crc32c;
-    crc32c = 0;
-    uint32_t res = ::crc32c(0, (uint8_t*)this, size);
-    crc32c = old_crc32c;
+    auto old_checksum = checksum;
+    checksum = 0;
+    uint32_t res = 0;
+    if (dsk->data_csum_type == BLOCKSTORE_CSUM_XXH3_32)
+        res = (uint32_t)XXH3_64bits(this, size);
+    else
+        res = ::crc32c(0, (uint8_t*)this, size);
+    checksum = old_checksum;
     return res;
+}
+
+uint32_t heap_entry_t::calc_checksum(blockstore_heap_t *heap)
+{
+    return calc_checksum(heap->dsk);
 }
 
 uint64_t blockstore_heap_t::get_pg_id(inode_t inode, uint64_t stripe)
@@ -380,12 +390,12 @@ corrupted_object:
                 goto corrupted_object;
             }
             // Verify crc
-            uint32_t expected_crc32c = wr->calc_crc32c();
-            if (wr->crc32c != expected_crc32c)
+            uint32_t expected_checksum = wr->calc_checksum(this);
+            if (wr->checksum != expected_checksum)
             {
-                fprintf(stderr, "Error: entry %jx:%jx v%ju l%ju in metadata block %u at %u is corrupt (crc32c mismatch: expected %08x, got %08x). ",
+                fprintf(stderr, "Error: entry %jx:%jx v%ju l%ju in metadata block %u at %u is corrupt (checksum mismatch: expected %08x, got %08x). ",
                     wr->inode, wr->stripe, wr->version, wr->lsn,
-                    block_num, block_offset, expected_crc32c, wr->crc32c);
+                    block_num, block_offset, expected_checksum, wr->checksum);
                 goto corrupted_object;
             }
             // Verify offset & len
@@ -1083,7 +1093,11 @@ bool blockstore_heap_t::calc_checksums(heap_entry_t *wr, uint8_t *data, bool set
             len = wr->big_intent().len;
         else
             assert(0);
-        uint32_t real_csum = crc32c(0, data, len);
+        uint32_t real_csum = 0;
+        if (dsk->data_csum_type == BLOCKSTORE_CSUM_XXH3_32)
+            real_csum = (uint32_t)XXH3_64bits(data, len);
+        else
+            real_csum = crc32c(0, data, len);
         if (set)
         {
             *wr_csum = real_csum;
@@ -1133,11 +1147,26 @@ static uint32_t crc32c_iter(uint32_t prev_crc, const std::function<uint8_t*(uint
     return prev_crc;
 }
 
+static void xxh3_iter(XXH3_state_t* xxh3_state, const std::function<uint8_t*(uint32_t start, uint32_t & len)> & next, uint32_t pos, uint32_t size)
+{
+    uint32_t cur_len = 0;
+    while (size > 0)
+    {
+        uint8_t *data = next(pos, cur_len);
+        assert(data);
+        cur_len = (cur_len < size ? cur_len : size);
+        XXH3_64bits_update(xxh3_state, data, cur_len);
+        pos += cur_len;
+        size -= cur_len;
+    }
+}
+
 bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *bitmap,
     uint32_t start, uint32_t end, std::function<uint8_t*(uint32_t start, uint32_t & len)> next,
     bool set, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb)
 {
     bool res = true;
+    XXH3_state_t* xxh3_state = NULL;
     uint32_t pos = start;
     uint32_t block_end = (start/dsk->csum_block_size + 1)*dsk->csum_block_size;
     uint32_t block_crc = 0;
@@ -1154,23 +1183,66 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *bit
                     pos += dsk->bitmap_granularity;
                 // zero padding at the beginning or at the end of the block is not counted
                 if (pos > prev && prev > blk_start && pos < block_end)
-                    block_crc = crc32c_pad(block_crc, NULL, 0, pos-prev, 0);
+                {
+                    if (dsk->data_csum_type == BLOCKSTORE_CSUM_XXH3_32)
+                    {
+                        if (!xxh3_state)
+                        {
+                            xxh3_state = XXH3_createState();
+                            XXH3_64bits_reset(xxh3_state);
+                        }
+                        uint32_t zeropad = pos-prev;
+                        while (zeropad > 0)
+                        {
+                            uint32_t zerolen = zeropad > 4096 ? 4096 : zeropad;
+                            XXH3_64bits_update(xxh3_state, zero_page, zerolen);
+                            zeropad -= zerolen;
+                        }
+                    }
+                    else
+                        block_crc = crc32c_pad(block_crc, NULL, 0, pos-prev, 0);
+                }
                 prev = pos;
                 while (pos < end && pos < block_end && (bitmap[pos/dsk->bitmap_granularity/8] & (1 << ((pos/dsk->bitmap_granularity) % 8))))
                     pos += dsk->bitmap_granularity;
                 if (pos > prev)
                 {
                     isset = true;
-                    block_crc = crc32c_iter(block_crc, next, prev, pos-prev);
+                    if (dsk->data_csum_type == BLOCKSTORE_CSUM_XXH3_32)
+                    {
+                        if (!xxh3_state)
+                        {
+                            xxh3_state = XXH3_createState();
+                            XXH3_64bits_reset(xxh3_state);
+                        }
+                        xxh3_iter(xxh3_state, next, prev, pos-prev);
+                    }
+                    else
+                        block_crc = crc32c_iter(block_crc, next, prev, pos-prev);
                 }
                 prev = pos;
             }
         }
         else
         {
-            block_crc = crc32c_iter(block_crc, next, pos, (end > block_end ? block_end : end)-pos);
+            if (dsk->data_csum_type == BLOCKSTORE_CSUM_XXH3_32)
+            {
+                if (!xxh3_state)
+                {
+                    xxh3_state = XXH3_createState();
+                    XXH3_64bits_reset(xxh3_state);
+                }
+                xxh3_iter(xxh3_state, next, pos, (end > block_end ? block_end : end)-pos);
+            }
+            else
+                block_crc = crc32c_iter(block_crc, next, pos, (end > block_end ? block_end : end)-pos);
             pos = (end > block_end ? block_end : end);
             isset = true;
+        }
+        if (dsk->data_csum_type == BLOCKSTORE_CSUM_XXH3_32 && xxh3_state)
+        {
+            block_crc = (uint32_t)XXH3_64bits_digest(xxh3_state);
+            XXH3_64bits_reset(xxh3_state);
         }
         if (set)
         {
@@ -1178,17 +1250,21 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *bit
         }
         else if (isset && block_crc != *block_csums)
         {
+            res = false;
             if (bad_block_cb)
-            {
                 bad_block_cb(blk_start, *block_csums, block_crc);
-                res = false;
-            }
             else
-                return false;
+                break;
         }
         block_end += dsk->csum_block_size;
         block_crc = 0;
         block_csums++;
+    }
+    if (dsk->data_csum_type == BLOCKSTORE_CSUM_XXH3_32 && xxh3_state)
+    {
+        block_crc = (uint32_t)XXH3_64bits_digest(xxh3_state);
+        XXH3_freeState(xxh3_state);
+        xxh3_state = NULL;
     }
     return res;
 }
@@ -1556,7 +1632,7 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
     insert_list_items(&li, 1, false);
     li->block_num = block_num;
     new_wr->size = wr_size;
-    new_wr->crc32c = new_wr->calc_crc32c();
+    new_wr->checksum = new_wr->calc_checksum(this);
     return 0;
 }
 
@@ -1761,7 +1837,7 @@ int blockstore_heap_t::punch_holes(heap_entry_t *wr, uint8_t *new_bitmap, uint8_
     *modified_block = block_num;
     memcpy(wr->get_int_bitmap(this), new_bitmap, dsk->clean_entry_bitmap_size);
     memcpy(wr->get_checksums(this), new_csums, dsk->data_block_size/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
-    wr->crc32c = wr->calc_crc32c();
+    wr->checksum = wr->calc_checksum(dsk);
     return 0;
 }
 

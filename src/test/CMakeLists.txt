@@ -37,6 +37,7 @@ add_executable(test_heap
 	../blockstore/multilist.cpp
 	../blockstore/blockstore_heap.cpp
 	../util/crc32c.c
+	../util/xxhash.c
 	../util/allocator.cpp
 	../blockstore/blockstore_disk.cpp
 	../util/str_util.cpp

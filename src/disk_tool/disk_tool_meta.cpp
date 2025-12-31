@@ -765,7 +765,7 @@ close_err0:
                 {
                     *wr->get_checksum(&heap) = sscanf_json("%jx", write_entry["data_crc32c"]);
                 }
-                wr->crc32c = wr->calc_crc32c();
+                wr->checksum = wr->calc_checksum(&heap);
                 assert((uint8_t*)wr + wr->size == new_meta_buf + meta_offset + used_space);
             }
         }
@@ -808,7 +808,7 @@ close_err:
             fromhexstr(meta_entry["ext_bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
             if (new_data_csum_size)
                 fromhexstr(meta_entry["block_csums"].string_value(), new_data_csum_size, wr->get_checksums(&heap));
-            wr->crc32c = wr->calc_crc32c();
+            wr->checksum = wr->calc_checksum(&heap);
             assert((uint8_t*)wr + wr->size == new_meta_buf + meta_offset + used_space);
             auto j_it = journal_by_object.find(oid);
             if (j_it != journal_by_object.end())
@@ -874,7 +874,7 @@ close_err:
                         assert(0);
                     }
                     wr->size = wr->get_size(&heap);
-                    wr->crc32c = wr->calc_crc32c();
+                    wr->checksum = wr->calc_checksum(&heap);
                     assert((uint8_t*)wr + wr->size == new_meta_buf + meta_offset + used_space);
                 }
             }

@@ -43,7 +43,7 @@ struct __attribute__((__packed__)) heap_entry_t
 {
     uint16_t size;
     uint16_t entry_type;
-    uint32_t crc32c;
+    uint32_t checksum;
     uint64_t lsn;
     uint64_t inode;
     uint64_t stripe;
@@ -69,7 +69,8 @@ struct __attribute__((__packed__)) heap_entry_t
     uint32_t *get_checksum(blockstore_heap_t *heap);
     uint64_t big_location(blockstore_heap_t *heap);
     void set_big_location(blockstore_heap_t *heap, uint64_t location);
-    uint32_t calc_crc32c();
+    uint32_t calc_checksum(blockstore_heap_t *heap);
+    uint32_t calc_checksum(blockstore_disk_t *dsk);
 };
 
 struct __attribute__((__packed__)) heap_small_write_t
@@ -80,7 +81,7 @@ struct __attribute__((__packed__)) heap_small_write_t
     uint32_t offset;
     uint32_t len;
 
-    // Also includes 1 bitmap and 1 crc32c after the bitmap if checksums are disabled
+    // Also includes 1 bitmap and 1 checksum after the bitmap if block checksums are disabled
 };
 
 struct __attribute__((__packed__)) heap_big_write_t
@@ -98,7 +99,7 @@ struct __attribute__((__packed__)) heap_big_intent_t
     uint32_t offset;
     uint32_t len;
 
-    // Also includes 2 bitmaps and 1 crc32c if checksums are disabled
+    // Also includes 2 bitmaps and 1 checksums if block checksums are disabled
 };
 
 struct __attribute__((__packed__)) heap_list_item_t

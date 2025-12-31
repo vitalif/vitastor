@@ -120,7 +120,7 @@ wait_condition()
     done
 }
 
-VITASTOR_CFG='"etcd_address":"'$ETCD_URL'"'
+VITASTOR_CFG='"etcd_address":"'$ETCD_URL'"'"$VITASTOR_CFG"
 if [[ "$ETCD_SCHEME" = "https" ]]; then
     VITASTOR_CFG="$VITASTOR_CFG"',"etcd_ca":"'$(pwd)'/testdata/etcd.crt"'
 fi

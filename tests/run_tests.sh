@@ -106,6 +106,7 @@ SCHEME=ec ./test_heal.sh
 ANTIETCD=1 ./test_heal.sh
 
 ./test_checksum.sh
+TEST_NAME=xxhash OSD_ARGS="--data_csum_type xxh3_32" ./test_checksum.sh
 OLD=1 ./test_checksum.sh
 ./test_corrupt_all.sh
 OLD=1 ./test_corrupt_all.sh
