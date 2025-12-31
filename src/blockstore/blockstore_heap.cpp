@@ -65,19 +65,19 @@ uint32_t blockstore_heap_t::get_simple_entry_size()
 uint32_t blockstore_heap_t::get_big_entry_size()
 {
     return sizeof(heap_big_write_t) + dsk->clean_entry_bitmap_size*2 +
-        (!dsk->data_csum_type ? 0 : dsk->data_block_size/dsk->csum_block_size * (dsk->data_csum_type & 0xFF));
+        (!dsk->csum_block_size ? 0 : dsk->data_block_size/dsk->csum_block_size * (dsk->data_csum_type & 0xFF));
 }
 
 uint32_t blockstore_heap_t::get_big_intent_entry_size()
 {
     return sizeof(heap_big_intent_t) + dsk->clean_entry_bitmap_size*2 +
-        (!dsk->data_csum_type ? 4 : dsk->data_block_size/dsk->csum_block_size * (dsk->data_csum_type & 0xFF));
+        (!dsk->csum_block_size ? 4 : dsk->data_block_size/dsk->csum_block_size * (dsk->data_csum_type & 0xFF));
 }
 
 uint32_t blockstore_heap_t::get_small_entry_size(uint32_t offset, uint32_t len)
 {
     return sizeof(heap_small_write_t) + dsk->clean_entry_bitmap_size +
-        (!dsk->data_csum_type ? 4 : (dsk->data_csum_type & 0xFF) *
+        (!dsk->csum_block_size ? 4 : (dsk->data_csum_type & 0xFF) *
             ((offset+len+dsk->csum_block_size-1)/dsk->csum_block_size - offset/dsk->csum_block_size));
 }
 
@@ -92,7 +92,7 @@ uint32_t blockstore_heap_t::get_csum_size(heap_entry_t *wr)
 
 uint32_t blockstore_heap_t::get_csum_size(uint32_t entry_type, uint32_t offset, uint32_t len)
 {
-    if (!dsk->data_csum_type)
+    if (!dsk->csum_block_size)
     {
         return 0;
     }
@@ -1628,7 +1628,7 @@ int blockstore_heap_t::add_big_write(object_id oid, heap_entry_t *old_head, bool
             memset(wr->get_ext_bitmap(this), 0, dsk->clean_entry_bitmap_size);
         memset(wr->get_int_bitmap(this), 0, dsk->clean_entry_bitmap_size);
         bitmap_set(wr->get_int_bitmap(this), offset, len, dsk->bitmap_granularity);
-        if (dsk->data_csum_type)
+        if (dsk->csum_block_size)
         {
             memset(wr->get_checksums(this), 0, get_csum_size(wr));
             calc_checksums(wr, (uint8_t*)data, true, offset, len);
@@ -1657,7 +1657,7 @@ int blockstore_heap_t::add_redirect_intent(object_id oid, heap_entry_t **obj_ptr
             memset(wr->get_ext_bitmap(this), 0, dsk->clean_entry_bitmap_size);
         memset(wr->get_int_bitmap(this), 0, dsk->clean_entry_bitmap_size);
         bitmap_set(wr->get_int_bitmap(this), offset, len, dsk->bitmap_granularity);
-        if (dsk->data_csum_type)
+        if (dsk->csum_block_size)
             memset(wr->get_checksums(this), 0, get_csum_size(wr));
         calc_checksums(wr, (uint8_t*)data, true);
         *obj_ptr = wr;
@@ -1695,7 +1695,7 @@ int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t **obj_ptr, uin
             memcpy(wr->get_ext_bitmap(this), obj->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
         memcpy(wr->get_int_bitmap(this), obj->get_int_bitmap(this), dsk->clean_entry_bitmap_size);
         bitmap_set(wr->get_int_bitmap(this), offset, len, dsk->bitmap_granularity);
-        if (dsk->data_csum_type)
+        if (dsk->csum_block_size)
         {
             if (checksums)
                 memcpy(wr->get_checksums(this), checksums, get_csum_size(wr));
@@ -1742,7 +1742,7 @@ int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t compact_version, 
         new_wr->set_big_location(this, compact_location);
         memcpy(new_wr->get_int_bitmap(this), new_int_bitmap, dsk->clean_entry_bitmap_size);
         memcpy(new_wr->get_ext_bitmap(this), new_ext_bitmap, dsk->clean_entry_bitmap_size);
-        if (dsk->data_csum_type && new_csums)
+        if (dsk->csum_block_size && new_csums)
             memcpy(new_wr->get_checksums(this), new_csums, dsk->data_block_size/dsk->csum_block_size*(dsk->data_csum_type & 0xFF));
     });
 }
