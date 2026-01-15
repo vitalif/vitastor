@@ -138,6 +138,7 @@ OLD=1 SCHEME=xor ./test_scrub.sh
 OLD=1 PG_SIZE=3 ./test_scrub.sh
 OLD=1 PG_SIZE=6 PG_MINSIZE=4 OSD_COUNT=6 SCHEME=ec ./test_scrub.sh
 OLD=1 SCHEME=ec ./test_scrub.sh
+OLD=1 ./test_partwr_csum.sh
 
 TEST_NAME=old_csum_32k_dmj OLD=1 OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_metadata false --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh
 TEST_NAME=old_csum_32k_dj  OLD=1 OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh
