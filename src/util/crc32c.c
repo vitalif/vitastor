@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <unistd.h>
+#include <assert.h>
 #include "crc32c.h"
 
 #ifdef WITH_ISAL
@@ -394,6 +395,7 @@ static uint8_t zero_page[4096] = {};
 
 uint32_t crc32c_pad(uint32_t prev_crc, const void *buf, size_t len, size_t left_pad, size_t right_pad)
 {
+    assert(left_pad < 0x10000000 && right_pad < 0x10000000);
     uint32_t r = prev_crc;
     while (left_pad >= 4096)
     {

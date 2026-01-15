@@ -183,7 +183,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         uint32_t end = (op->offset+op->len-1) / dsk.csum_block_size;
         auto fn = state & BS_ST_BIG_WRITE ? crc32c_pad : crc32c_nopad;
         if (start == end)
-            data_csums[0] = fn(0, op->buf, op->len, op->offset - start*dsk.csum_block_size, end*dsk.csum_block_size - (op->offset+op->len));
+            data_csums[0] = fn(0, op->buf, op->len, op->offset - start*dsk.csum_block_size, (end+1)*dsk.csum_block_size - (op->offset+op->len));
         else
         {
             // First block
