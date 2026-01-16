@@ -44,6 +44,8 @@ void etcd_state_client_http_t::etcd_call_oneshot(std::string etcd_address, std::
     int timeout, std::function<void(std::string, json11::Json)> callback)
 {
     std::string etcd_api_path;
+    bool ssl = etcd_address.substr(0, 8) == "https://";
+    etcd_address = etcd_address.substr(ssl ? 8 : 7);
     int pos = etcd_address.find('/');
     if (pos >= 0)
     {
@@ -66,7 +68,7 @@ void etcd_state_client_http_t::etcd_call_oneshot(std::string etcd_address, std::
         callback(err, data);
         http_close(http_cli);
     };
-    http_request(http_cli, etcd_address, req, { .timeout = timeout }, cb);
+    http_request(http_cli, etcd_address, req, { .timeout = timeout, .ssl = ssl, .ssl_ca = etcd_ca }, cb);
 }
 
 void etcd_state_client_http_t::etcd_call(std::string api, json11::Json payload, int timeout,
@@ -80,6 +82,8 @@ void etcd_state_client_http_t::etcd_call(std::string api, json11::Json payload, 
     pick_next_etcd();
     std::string etcd_address = selected_etcd_address;
     std::string etcd_api_path;
+    bool ssl = etcd_address.substr(0, 8) == "https://";
+    etcd_address = etcd_address.substr(ssl ? 8 : 7);
     int pos = etcd_address.find('/');
     if (pos >= 0)
     {
@@ -135,7 +139,7 @@ void etcd_state_client_http_t::etcd_call(std::string api, json11::Json payload, 
     {
         keepalive_client = http_init(tfd);
     }
-    http_request(keepalive_client, etcd_address, req, { .timeout = timeout, .keepalive = true }, cb);
+    http_request(keepalive_client, etcd_address, req, { .timeout = timeout, .keepalive = true, .ssl = ssl, .ssl_ca = etcd_ca }, cb);
 }
 
 void etcd_state_client_http_t::parse_config(const json11::Json & config)
@@ -189,6 +193,8 @@ void etcd_state_client_http_t::start_etcd_watcher()
     pick_next_etcd();
     std::string etcd_address = selected_etcd_address;
     std::string etcd_api_path;
+    bool ssl = etcd_address.substr(0, 8) == "https://";
+    etcd_address = etcd_address.substr(ssl ? 8 : 7);
     int pos = etcd_address.find('/');
     if (pos >= 0)
     {
@@ -207,7 +213,7 @@ void etcd_state_client_http_t::start_etcd_watcher()
         fprintf(stderr, "Trying to connect to etcd websocket at %s, watch from revision %ju/%ju/%ju\n", etcd_address.c_str(),
             etcd_watch_revision_config, etcd_watch_revision_osd, etcd_watch_revision_pg);
     }
-    etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", etcd_slow_timeout,
+    etcd_watch_ws = open_websocket(tfd, etcd_address, etcd_api_path+"/watch", { .timeout = etcd_slow_timeout, .ssl = ssl, .ssl_ca = etcd_ca },
         [this, cur_addr = selected_etcd_address](const http_response_t *msg)
     {
         if (msg->body.length())

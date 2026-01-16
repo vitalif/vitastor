@@ -22,6 +22,8 @@ struct http_options_t
     int timeout;
     bool want_streaming;
     bool keepalive;
+    bool ssl;
+    std::string ssl_ca;
 };
 
 struct http_response_t
@@ -43,7 +45,7 @@ struct http_co_t;
 
 http_co_t* http_init(timerfd_manager_t *tfd);
 http_co_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, const std::string & path,
-    int timeout, std::function<void(const http_response_t *msg)> on_message);
+    const http_options_t & options, std::function<void(const http_response_t *msg)> on_message);
 void http_request(http_co_t *handler, const std::string & host, const std::string & request,
     const http_options_t & options, std::function<void(const http_response_t *response)> response_callback);
 void http_post_message(http_co_t *handler, uint8_t type, const std::string & msg);

@@ -55,12 +55,13 @@ void etcd_state_client_t::add_etcd_url(std::string addr)
 {
     if (addr.length() > 0)
     {
+        bool ssl = false;
         if (strtolower(addr.substr(0, 7)) == "http://")
             addr = addr.substr(7);
         else if (strtolower(addr.substr(0, 8)) == "https://")
         {
-            fprintf(stderr, "HTTPS is unsupported for etcd. Either use plain HTTP or setup a local proxy for etcd interaction\n");
-            exit(1);
+            addr = addr.substr(8);
+            ssl = true;
         }
         if (!local_ips.size())
             local_ips = getifaddr_list(std::vector<addr_mask_t>(), true);
@@ -75,6 +76,7 @@ void etcd_state_client_t::add_etcd_url(std::string addr)
             check_addr = addr;
         if (pos == std::string::npos)
             addr += "/v3";
+        addr = (ssl ? "https://" : "http://") + addr;
         bool local = false;
         int i;
         for (i = 0; i < local_ips.size(); i++)
@@ -120,6 +122,7 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
             add_etcd_url(ea.string_value());
         }
     }
+    this->etcd_ca = config["etcd_ca"].string_value();
     this->etcd_prefix = config["etcd_prefix"].string_value();
     if (this->etcd_prefix == "")
     {

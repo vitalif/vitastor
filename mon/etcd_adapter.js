@@ -1,7 +1,9 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const WebSocket = require('ws');
 const { b64, local_ips } = require('./utils.js');
 
@@ -15,11 +17,14 @@ class EtcdAdapter
         this.ws = null;
         this.ws_alive = false;
         this.ws_keepalive_timer = null;
+        this.opts = {};
     }
 
     parse_config(config)
     {
         this.parse_etcd_addresses(config.etcd_address||config.etcd_url);
+        if (config.etcd_ca)
+            this.opts.ca = fs.readFileSync(config.etcd_ca, { encoding: 'utf-8' });
     }
 
     parse_etcd_addresses(addrs)
@@ -39,7 +44,7 @@ class EtcdAdapter
         for (let url of addrs)
         {
             let scheme = 'http';
-            url = url.trim().replace(/^(https?):\/\//, (m, m1) => { scheme = m1; return ''; });
+            url = url.trim().replace(/^(https?):\/\//i, (m, m1) => { scheme = m1.toLowerCase(); return ''; });
             const slash = url.indexOf('/');
             const colon = url.indexOf(':');
             const is_local = is_local_ip[colon >= 0 ? url.substr(0, colon) : (slash >= 0 ? url.substr(0, slash) : url)];
@@ -130,7 +135,7 @@ class EtcdAdapter
                     }
                     ok(false);
                 }, this.mon.config.etcd_mon_timeout);
-                this.ws = new WebSocket(base+'/watch');
+                this.ws = new WebSocket(base+'/watch', this.opts);
                 this.ws_used_url = cur_addr;
                 const fail = () =>
                 {
@@ -272,7 +277,7 @@ class EtcdAdapter
             {
                 throw new Error(MON_STOPPED);
             }
-            const res = await POST(base+path, body, timeout);
+            const res = await POST(base+path, body, timeout, this.opts);
             if (this.mon.stopped)
             {
                 throw new Error(MON_STOPPED);
@@ -298,7 +303,7 @@ class EtcdAdapter
     }
 }
 
-function POST(url, body, timeout)
+function POST(url, body, timeout, opts)
 {
     return new Promise(ok =>
     {
@@ -310,10 +315,10 @@ function POST(url, body, timeout)
             req = null;
             ok({ error: 'timeout' });
         }, timeout) : null;
-        let req = http.request(url, { method: 'POST', headers: {
+        let req = (url.substr(0, 5) == 'https' ? https : http).request(url, { method: 'POST', headers: {
             'Content-Type': 'application/json',
             'Content-Length': body_text.length,
-        } }, (res) =>
+        }, ...(opts||{}) }, (res) =>
         {
             if (!req)
             {

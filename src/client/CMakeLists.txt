@@ -57,6 +57,7 @@ target_link_libraries(vitastor_client
 	${LIBURING_LIBRARIES}
 	${IBVERBS_LIBRARIES}
 	${RDMACM_LIBRARIES}
+	${OPENSSL_LIBRARIES}
 )
 set_target_properties(vitastor_client PROPERTIES VERSION ${VITASTOR_VERSION} SOVERSION 0)
 configure_file(vitastor.pc.in vitastor.pc @ONLY)

@@ -74,6 +74,11 @@ if (RDMACM_LIBRARIES)
 	add_definitions(-DWITH_RDMACM)
 endif (RDMACM_LIBRARIES)
 
+find_package(OpenSSL)
+if (OPENSSL_FOUND)
+	add_definitions(-DWITH_OPENSSL)
+endif (OPENSSL_FOUND)
+
 if (${WITH_SYSTEM_LIBURING})
 	pkg_check_modules(LIBURING REQUIRED liburing>=2.10)
 	include_directories(${LIBURING_INCLUDE_DIRS})

@@ -38,6 +38,10 @@ for my $line (<>)
             {
                 $test_name .= '_antietcd';
             }
+            elsif ($1 eq 'ETCD_SCHEME' && $2 eq 'https')
+            {
+                $test_name .= '_https';
+            }
             elsif ($1 eq 'OLD')
             {
                 $test_name =~ s/^test_/test_old_/s;

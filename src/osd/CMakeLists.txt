@@ -23,6 +23,7 @@ target_link_libraries(vitastor-osd
 	${ISAL_LIBRARIES}
 	${IBVERBS_LIBRARIES}
 	${RDMACM_LIBRARIES}
+	${OPENSSL_LIBRARIES}
 )
 
 # osd_test

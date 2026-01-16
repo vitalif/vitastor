@@ -26,6 +26,7 @@ ETCD_PORT=${ETCD_PORT:-12379}
 ETCD_COUNT=${ETCD_COUNT:-1}
 ANTIETCD=${ANTIETCD}
 USE_RAMDISK=${USE_RAMDISK}
+ETCD_SCHEME=${ETCD_SCHEME:-http}
 
 RAMDISK=/run/user/$(id -u)
 findmnt $RAMDISK >/dev/null || (sudo mkdir -p $RAMDISK && sudo mount -t tmpfs tmpfs $RAMDISK)
@@ -48,17 +49,28 @@ if [[ -n "$OLD" ]]; then
     OFFSET_ARGS="$OFFSET_ARGS --meta_format 2"
 fi
 
-ETCD_URL="http://$ETCD_IP:$ETCD_PORT"
+ETCD_URL="$ETCD_SCHEME://$ETCD_IP:$ETCD_PORT"
 for i in $(seq 2 $ETCD_COUNT); do
-    ETCD_URL="$ETCD_URL,http://$ETCD_IP:$((ETCD_PORT+2*i-2))"
+    ETCD_URL="$ETCD_URL,$ETCD_SCHEME://$ETCD_IP:$((ETCD_PORT+2*i-2))"
 done
+
+if [[ "$ETCD_SCHEME" = "https" ]]; then
+    openssl req -days 3650 -x509 -new -newkey rsa:4096 -nodes -keyout ./testdata/etcd.key -out ./testdata/etcd.crt \
+        -subj '/C=RU/ST=Russia/L=Moscow/O=Vitastor/CN=etcd.local' \
+        -addext 'subjectAltName = IP:'$ETCD_IP
+fi
 
 start_etcd()
 {
     local i=$1
     if [[ -z "$ANTIETCD" ]]; then
+        ETCD_CERT=
+        if [[ "$ETCD_SCHEME" = "https" ]]; then
+            ETCD_CERT="--cert-file ./testdata/etcd.crt --key-file=./testdata/etcd.key"
+        fi
         ionice -c2 -n0 $ETCD -name etcd$i --data-dir $RAMDISK/testdata_etcd$i \
-            --advertise-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) --listen-client-urls http://$ETCD_IP:$((ETCD_PORT+2*i-2)) \
+            --advertise-client-urls $ETCD_SCHEME://$ETCD_IP:$((ETCD_PORT+2*i-2)) --listen-client-urls $ETCD_SCHEME://$ETCD_IP:$((ETCD_PORT+2*i-2)) \
+            $ETCD_CERT \
             --initial-advertise-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) --listen-peer-urls http://$ETCD_IP:$((ETCD_PORT+2*i-1)) \
             --initial-cluster-token vitastor-tests-etcd --initial-cluster-state new \
             --initial-cluster "$ETCD_CLUSTER" --max-request-bytes=104857600 \
@@ -109,6 +121,9 @@ wait_condition()
 }
 
 VITASTOR_CFG='"etcd_address":"'$ETCD_URL'"'
+if [[ "$ETCD_SCHEME" = "https" ]]; then
+    VITASTOR_CFG="$VITASTOR_CFG"',"etcd_ca":"'$(pwd)'/testdata/etcd.crt"'
+fi
 echo "{$VITASTOR_CFG}" > ./testdata/vitastor.conf
 VITASTOR_CFG=./testdata/vitastor.conf
 VITASTOR_CLI="build/src/cmd/vitastor-cli --config_path $VITASTOR_CFG"
@@ -120,8 +135,15 @@ MON_PARAMS="$MON_PARAMS --config_path $VITASTOR_CFG"
 if [[ -n "$ANTIETCD" ]]; then
     ETCDCTL="node mon/node_modules/.bin/anticli -e $ETCD_URL"
     MON_PARAMS="--use_antietcd 1 --antietcd_data_dir ./testdata --antietcd_persist_interval 500 $MON_PARAMS"
+    if [[ "$ETCD_SCHEME" = "https" ]]; then
+        ETCDCTL="$ETCDCTL --ca ./testdata/etcd.crt"
+        MON_PARAMS="--antietcd_cert ./testdata/etcd.crt --antietcd_key ./testdata/etcd.key $MON_PARAMS"
+    fi
 else
     ETCDCTL="${ETCD}ctl --endpoints=$ETCD_URL --dial-timeout=5s --command-timeout=10s"
+    if [[ "$ETCD_SCHEME" = "https" ]]; then
+        ETCDCTL="$ETCDCTL --cacert=./testdata/etcd.crt"
+    fi
     start_etcd_cluster
 fi
 

@@ -122,6 +122,7 @@ public:
     uint32_t global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     uint32_t global_immediate_commit = IMMEDIATE_NONE;
     std::string etcd_prefix;
+    std::string etcd_ca;
     int log_level = 0;
 
     uint64_t etcd_watch_revision_config = 0;

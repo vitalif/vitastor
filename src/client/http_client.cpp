@@ -10,8 +10,16 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
+#include <assert.h>
 
 #include <stdexcept>
+
+#ifdef WITH_OPENSSL
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/ssl.h>
+#endif
 
 #include "addr_util.h"
 #include "str_util.h"
@@ -28,10 +36,18 @@ static void parse_http_headers(std::string & res, http_response_t *parsed);
 
 struct http_co_t
 {
+#ifdef WITH_OPENSSL
+    SSL_CTX *ssl_ctx = NULL;
+    SSL *ssl_cli = NULL;
+    BIO *ssl_bio = NULL;
+#endif
+
     timerfd_manager_t *tfd;
     std::function<void(const http_response_t*)> response_callback;
 
     int request_timeout = 0;
+    bool ssl = false;
+    std::string ssl_ca;
     std::string host;
     std::string request;
     std::string ws_outbox;
@@ -47,7 +63,7 @@ struct http_co_t
     int timeout_id = -1;
     int epoll_events = 0;
     int sent = 0;
-    std::vector<char> rbuf;
+    std::vector<uint8_t> rbuf;
     iovec read_iov, send_iov;
     msghdr read_msg = { 0 }, send_msg = { 0 };
     http_response_t parsed;
@@ -70,6 +86,10 @@ struct http_co_t
     void submit_read(bool check_timeout);
     void submit_send();
     bool handle_read();
+#ifdef WITH_OPENSSL
+    bool do_ssl_handshake(bool init_send);
+    void on_ssl_error(int res);
+#endif
     void post_message(uint8_t type, const std::string & msg);
     void send_request(const std::string & host, const std::string & request,
         const http_options_t & options, std::function<void(const http_response_t *response)> response_callback);
@@ -95,7 +115,7 @@ http_co_t *http_init(timerfd_manager_t *tfd)
 }
 
 http_co_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, const std::string & path,
-    int timeout, std::function<void(const http_response_t *msg)> response_callback)
+    const http_options_t & options, std::function<void(const http_response_t *msg)> response_callback)
 {
     std::string request = "GET "+path+" HTTP/1.1\r\n"
         "Host: "+host+"\r\n"
@@ -108,9 +128,11 @@ http_co_t* open_websocket(timerfd_manager_t *tfd, const std::string & host, cons
     handler->tfd = tfd;
     handler->state = HTTP_CO_CLOSED;
     handler->host = host;
-    handler->request_timeout = timeout < 0 ? -1 : (timeout == 0 ? DEFAULT_TIMEOUT : timeout);
+    handler->request_timeout = options.timeout < 0 ? -1 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
     handler->want_streaming = false;
     handler->keepalive = false;
+    handler->ssl = options.ssl;
+    handler->ssl_ca = options.ssl_ca;
     handler->request = request;
     handler->response_callback = response_callback;
     handler->start_ws_connection();
@@ -152,13 +174,15 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
         stackout();
         return;
     }
-    if (state == HTTP_CO_KEEPALIVE && connected_host != host)
+    if (state == HTTP_CO_KEEPALIVE && (connected_host != host || ssl != options.ssl))
     {
         close_connection();
     }
     this->request_timeout = options.timeout < 0 ? 0 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
     this->want_streaming = options.want_streaming;
     this->keepalive = options.keepalive;
+    this->ssl = options.ssl;
+    this->ssl_ca = options.ssl_ca;
     this->host = host;
     this->request = request;
     this->response = "";
@@ -261,6 +285,19 @@ void http_response_t::parse_json_response(std::string & error, json11::Json & r)
 
 http_co_t::~http_co_t()
 {
+#ifdef WITH_OPENSSL
+    ssl_bio = NULL;
+    if (ssl_cli)
+    {
+        SSL_free(ssl_cli);
+        ssl_cli = NULL;
+    }
+    if (ssl_ctx)
+    {
+        SSL_CTX_free(ssl_ctx);
+        ssl_ctx = NULL;
+    }
+#endif
     close_connection();
 }
 
@@ -277,6 +314,15 @@ void http_co_t::close_connection()
         close(peer_fd);
         peer_fd = -1;
     }
+#ifdef WITH_OPENSSL
+    if (ssl_cli)
+    {
+        // Frees client and bios at once
+        SSL_free(ssl_cli);
+        ssl_bio = NULL;
+        ssl_cli = NULL;
+    }
+#endif
     state = HTTP_CO_CLOSED;
     connected_host = "";
     response = "";
@@ -327,6 +373,56 @@ void http_co_t::start_connection()
     }
     fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
     epoll_events = 0;
+#ifdef WITH_OPENSSL
+    // https://wiki.openssl.org/index.php/Hostname_validation
+    if (ssl)
+    {
+        ssl_ctx = SSL_CTX_new(TLS_method());
+        if (!ssl_ctx)
+            goto init_err;
+        SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
+        if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
+            goto init_err;
+        if ((ssl_ca != "")
+            ? !SSL_CTX_load_verify_locations(ssl_ctx, ssl_ca.c_str(), NULL)
+            : !SSL_CTX_set_default_verify_paths(ssl_ctx))
+            goto init_err;
+        ssl_bio = BIO_new(BIO_s_socket());
+        if (!ssl_bio)
+            goto init_err;
+        if (!BIO_set_fd(ssl_bio, peer_fd, BIO_NOCLOSE))
+            goto init_err;
+        ssl_cli = SSL_new(ssl_ctx);
+        if (!ssl_cli)
+            goto init_err;
+        SSL_set_bio(ssl_cli, ssl_bio, ssl_bio);
+        if (!SSL_set_tlsext_host_name(ssl_cli, host.c_str()))
+        {
+init_err:
+            if (ssl_cli)
+            {
+                SSL_free(ssl_cli);
+                ssl_cli = NULL;
+            }
+            else if (ssl_bio)
+            {
+                BIO_free(ssl_bio);
+                ssl_bio = NULL;
+            }
+            if (ssl_ctx)
+            {
+                SSL_CTX_free(ssl_ctx);
+                ssl_ctx = NULL;
+            }
+            parsed = { .error = std::string("openssl initialization failed: ")+ERR_error_string(ERR_get_error(), NULL) };
+            response_callback(&parsed);
+            response_callback = NULL;
+            stackout();
+            return;
+        }
+        SSL_set_connect_state(ssl_cli);
+    }
+#endif
     // Finally call connect
     int r = ::connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
     if (r < 0 && errno != EINPROGRESS)
@@ -418,18 +514,44 @@ void http_co_t::handle_connect_result()
 void http_co_t::submit_send()
 {
     stackin();
-    int res;
+    ssize_t res = 0;
 again:
     if (sent < request.size())
     {
-        send_iov = (iovec){ .iov_base = (void*)(request.c_str()+sent), .iov_len = request.size()-sent };
-        send_msg.msg_iov = &send_iov;
-        send_msg.msg_iovlen = 1;
-        res = sendmsg(peer_fd, &send_msg, MSG_NOSIGNAL);
-        if (res < 0)
+        send_iov = (iovec){ .iov_base = (void*)(request.data()+sent), .iov_len = request.size()-sent };
+#ifdef WITH_OPENSSL
+        if (!ssl)
+#endif
         {
-            res = -errno;
+            send_msg.msg_iov = &send_iov;
+            send_msg.msg_iovlen = 1;
+            res = sendmsg(peer_fd, &send_msg, MSG_NOSIGNAL);
+            if (res < 0)
+                res = -errno;
         }
+#ifdef WITH_OPENSSL
+        else
+        {
+            if (!do_ssl_handshake(false))
+                goto out;
+            int ok = SSL_write_ex(ssl_cli, send_iov.iov_base, send_iov.iov_len, (size_t*)&res);
+            if (!ok)
+            {
+                res = SSL_get_error(ssl_cli, ok);
+                if (res == SSL_ERROR_WANT_WRITE || res == 0)
+                    res = 0;
+                else if (res == SSL_ERROR_WANT_READ)
+                    goto out;
+                else if (res == SSL_ERROR_SYSCALL)
+                    res = -errno;
+                else
+                {
+                    on_ssl_error(res);
+                    goto out;
+                }
+            }
+        }
+#endif
         if (res == -EAGAIN || res == -EINTR)
         {
             res = 0;
@@ -457,26 +579,53 @@ again:
             goto again;
         }
     }
+out:
     stackout();
 }
 
 void http_co_t::submit_read(bool check_timeout)
 {
     stackin();
-    int res;
+    ssize_t res = 0;
 again:
     if (rbuf.size() != READ_BUFFER_SIZE)
     {
         rbuf.resize(READ_BUFFER_SIZE);
     }
     read_iov = { .iov_base = rbuf.data(), .iov_len = READ_BUFFER_SIZE };
-    read_msg.msg_iov = &read_iov;
-    read_msg.msg_iovlen = 1;
-    res = recvmsg(peer_fd, &read_msg, 0);
-    if (res < 0)
+#ifdef WITH_OPENSSL
+    if (!ssl)
+#endif
     {
-        res = -errno;
+        read_msg.msg_iov = &read_iov;
+        read_msg.msg_iovlen = 1;
+        res = recvmsg(peer_fd, &read_msg, 0);
+        if (res < 0)
+            res = -errno;
     }
+#ifdef WITH_OPENSSL
+    else
+    {
+        if (!do_ssl_handshake(true))
+            goto out;
+        int ok = SSL_read_ex(ssl_cli, read_iov.iov_base, read_iov.iov_len, (size_t*)&res);
+        if (!ok)
+        {
+            res = SSL_get_error(ssl_cli, ok);
+            if (res == SSL_ERROR_WANT_READ)
+                res = -EAGAIN;
+            else if (res == SSL_ERROR_SYSCALL)
+                res = -errno;
+            else if (res == SSL_ERROR_ZERO_RETURN)
+                res = 0;
+            else
+            {
+                on_ssl_error(res);
+                goto out;
+            }
+        }
+    }
+#endif
     if (res == -EAGAIN || res == -EINTR)
     {
         if (check_timeout)
@@ -509,11 +658,59 @@ again:
     }
     else
     {
-        response += std::string(rbuf.data(), res);
+        response += std::string((char*)rbuf.data(), res);
         handle_read();
     }
+out:
     stackout();
 }
+
+#ifdef WITH_OPENSSL
+void http_co_t::on_ssl_error(int res)
+{
+    close_connection();
+    if (res == SSL_ERROR_ZERO_RETURN)
+    {
+        // Client closed the connection
+        parsed = { .error = "peer closed the SSL connection" };
+    }
+    else
+        parsed = { .error = std::string("SSL error: ")+ERR_error_string(ERR_get_error(), NULL) };
+    run_cb_and_clear();
+}
+
+bool http_co_t::do_ssl_handshake(bool init_send)
+{
+    if (SSL_is_init_finished(ssl_cli))
+        return true;
+    int r;
+    while (1)
+    {
+        r = SSL_do_handshake(ssl_cli);
+        if (r > 0)
+        {
+            // OK
+            if (init_send)
+                submit_send();
+            return true;
+        }
+        r = SSL_get_error(ssl_cli, r);
+        if (r == SSL_ERROR_WANT_READ)
+        {
+            break;
+        }
+        else
+        {
+            int errcode = ERR_get_error();
+            parsed = { .error = ERR_error_string(errcode, NULL) };
+            close_connection();
+            run_cb_and_clear();
+            return false;
+        }
+    }
+    return false;
+}
+#endif
 
 bool http_co_t::handle_read()
 {
