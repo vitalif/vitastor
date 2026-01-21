@@ -183,6 +183,9 @@ public:
     // Update configuration
     virtual void parse_config(blockstore_config_t & config) = 0;
 
+    // Reshard database for a pool
+    virtual void reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size) = 0;
+
     // Event loop
     virtual void loop() = 0;
 

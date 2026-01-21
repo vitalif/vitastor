@@ -568,9 +568,19 @@ void etcd_state_client_t::start_ws_keepalive()
 
 void etcd_state_client_t::load_global_config()
 {
-    etcd_call("/kv/range", json11::Json::object {
-        { "key", base64_encode(etcd_prefix+"/config/global") }
-    }, etcd_quick_timeout, max_etcd_attempts, 0, [this](std::string err, json11::Json data)
+    json11::Json::object req = { { "success", json11::Json::array {
+        json11::Json::object {
+            { "request_range", json11::Json::object {
+                { "key", base64_encode(etcd_prefix+"/config/global") },
+            } }
+        },
+        json11::Json::object {
+            { "request_range", json11::Json::object {
+                { "key", base64_encode(etcd_prefix+"/config/pools") },
+            } }
+        },
+    } } };
+    etcd_txn(req, etcd_quick_timeout, max_etcd_attempts, 0, [this](std::string err, json11::Json data)
     {
         if (err != "")
         {
@@ -588,10 +598,12 @@ void etcd_state_client_t::load_global_config()
             }
             return;
         }
+        json11::Json config_kv = data["responses"][0]["response_range"]["kvs"][0];
+        json11::Json pools_kv = data["responses"][1]["response_range"]["kvs"][0];
         json11::Json::object global_config;
-        if (data["kvs"].array_items().size() > 0)
+        if (!config_kv.is_null())
         {
-            auto kv = parse_etcd_kv(data["kvs"][0]);
+            auto kv = parse_etcd_kv(config_kv);
             if (kv.value.is_object())
             {
                 global_config = kv.value.object_items();
@@ -608,6 +620,11 @@ void etcd_state_client_t::load_global_config()
             global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
         }
         global_immediate_commit = parse_immediate_commit(global_config["immediate_commit"].string_value(), IMMEDIATE_ALL);
+        if (!pools_kv.is_null())
+        {
+            auto kv = parse_etcd_kv(pools_kv);
+            parse_state(kv);
+        }
         on_load_config_hook(global_config);
     });
 }

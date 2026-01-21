@@ -31,25 +31,6 @@ osd_t::osd_t(const json11::Json & config, ring_loop_t *ringloop)
     // FIXME: Use timerfd_interval based directly on io_uring
     this->tfd = epmgr->tfd;
 
-    if (!json_is_true(this->config["disable_blockstore"]))
-    {
-        auto bs_cfg = json_to_string_map(this->config);
-        this->bs = blockstore_i::create(bs_cfg, ringloop, tfd);
-        // Wait for blockstore initialisation before actually starting OSD logic
-        // to prevent peering timeouts during restart with filled databases
-        while (!bs->is_started())
-        {
-            ringloop->loop();
-            if (bs->is_started())
-                break;
-            ringloop->wait();
-        }
-        // Autosync based on the number of unstable writes to prevent stalls due to insufficient journal space
-        uint64_t max_autosync = bs->get_journal_size() / bs->get_block_size() / 2;
-        if (autosync_writes > max_autosync)
-            autosync_writes = max_autosync;
-    }
-
     if (json_is_true(this->config["osd_memlock"]))
     {
         // Lock all OSD memory if requested
@@ -117,6 +98,7 @@ osd_t::~osd_t()
         autosync_timer_id = -1;
     }
     ringloop->unregister_consumer(&consumer);
+    ringloop->unregister_consumer(&init_consumer);
     delete epmgr;
     if (bs)
         delete bs;
@@ -129,6 +111,42 @@ osd_t::~osd_t()
         close(listen_fd);
     listen_fds.clear();
     free(zero_buffer);
+}
+
+void osd_t::init_blockstore(std::function<void()> on_init)
+{
+    if (!json_is_true(this->config["disable_blockstore"]))
+    {
+        auto bs_cfg = json_to_string_map(this->config);
+        this->bs = blockstore_i::create(bs_cfg, ringloop, tfd);
+        // Pre-configure pool PG shards
+        for (auto & pool_item: st_cli.pool_config)
+        {
+            bs->reshard(pool_item.first, pool_item.second.pg_count, pool_item.second.pg_stripe_size);
+        }
+        // Autosync based on the number of unstable writes to prevent stalls due to insufficient journal space
+        uint64_t max_autosync = bs->get_journal_size() / bs->get_block_size() / 2;
+        if (autosync_writes > max_autosync)
+            autosync_writes = max_autosync;
+        if (on_init)
+        {
+            init_consumer.loop = [this, on_init]()
+            {
+                // Wait for blockstore initialisation before actually starting OSD logic
+                // to prevent peering timeouts during restart with filled databases
+                if (bs->is_started())
+                {
+                    ringloop->set_immediate([this, on_init] { init_consumer.loop = NULL; on_init(); });
+                    ringloop->unregister_consumer(&init_consumer);
+                }
+            };
+            ringloop->register_consumer(&init_consumer);
+        }
+    }
+    else if (on_init)
+    {
+        on_init();
+    }
 }
 
 void osd_t::parse_config(bool init)

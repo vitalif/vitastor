@@ -807,4 +807,9 @@ std::string blockstore_impl_t::get_op_diag(blockstore_op_t *op)
     return std::string(buf);
 }
 
+void blockstore_impl_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size)
+{
+    reshard_clean_db(pool, pg_count, pg_stripe_size);
+}
+
 } // namespace v1

@@ -72,7 +72,6 @@ resume_1:
     }
     if (is_zero((uint64_t*)bs->meta_superblock, bs->dsk.meta_block_size))
     {
-        bs->dsk.check_lengths();
         {
             blockstore_meta_header_v3_t *hdr = (blockstore_meta_header_v3_t *)bs->meta_superblock;
             hdr->zero = 0;
@@ -141,7 +140,7 @@ resume_1:
             hdr->bitmap_granularity != bs->dsk.bitmap_granularity ||
             hdr->data_csum_type != bs->dsk.data_csum_type ||
             hdr->csum_block_size != bs->dsk.csum_block_size ||
-            hdr->meta_area_size > bs->dsk.meta_area_size)
+            hdr->meta_area_size != bs->dsk.meta_area_size)
         {
             printf(
                 "Configuration stored in metadata superblock"
@@ -154,15 +153,7 @@ resume_1:
             );
             exit(1);
         }
-        bs->dsk.meta_area_size = hdr->meta_area_size;
-        if (bs->dsk.meta_format != hdr->version)
-        {
-            bs->dsk.meta_format = hdr->version;
-            bs->dsk.calc_lengths();
-        }
-        bs->dsk.check_lengths();
     }
-    bs->init();
     bs->heap->start_load(((blockstore_meta_header_v3_t *)bs->meta_superblock)->completed_lsn);
     if (bs->dsk.inmemory_journal)
     {

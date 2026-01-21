@@ -142,7 +142,6 @@ public:
     int metadata_buf_size;
     blockstore_init_meta* metadata_init_reader;
 
-    void init();
     void check_wait(blockstore_op_t *op);
     void init_op(blockstore_op_t *op);
 
@@ -189,6 +188,8 @@ public:
 
     void parse_config(blockstore_config_t & config);
     void parse_config(blockstore_config_t & config, bool init);
+
+    void reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size);
 
     // Event loop
     void loop();

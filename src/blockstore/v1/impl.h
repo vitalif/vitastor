@@ -288,6 +288,9 @@ public:
     void parse_config(blockstore_config_t & config);
     void parse_config(blockstore_config_t & config, bool init);
 
+    // Reshard database for a pool
+    void reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size);
+
     // Event loop
     void loop();
 

@@ -158,6 +158,7 @@ class osd_t
     json11::Json self_state;
     bool loading_peer_config = false;
     std::set<pool_pg_num_t> pg_state_dirty;
+    bool etcd_global_config_loaded = false;
     bool pg_config_applied = false;
     bool etcd_reporting_pg_state = false;
     bool etcd_reporting_stats = false;
@@ -206,7 +207,7 @@ class osd_t
     void *zero_buffer = NULL;
     uint64_t zero_buffer_size = 0;
     uint32_t bs_block_size, bs_bitmap_granularity, clean_entry_bitmap_size;
-    ring_loop_t *ringloop;
+    ring_loop_t *ringloop = NULL;
     timerfd_manager_t *tfd = NULL;
     epoll_manager_t *epmgr = NULL;
 
@@ -218,6 +219,7 @@ class osd_t
     int rdmacm_port = 0;
 #endif
     ring_consumer_t consumer;
+    ring_consumer_t init_consumer;
 
     // op statistics
     osd_op_stats_t prev_stats, prev_report_stats;
@@ -241,6 +243,7 @@ class osd_t
 
     // cluster connection
     void parse_config(bool init);
+    void init_blockstore(std::function<void()> on_init);
     void init_cluster();
     void on_change_osd_state_hook(osd_num_t peer_osd);
     void on_change_backfillfull_hook(pool_id_t pool_id);

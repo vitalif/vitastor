@@ -23,6 +23,7 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
         dsk.open_meta();
         dsk.open_journal();
         dsk.calc_lengths();
+        dsk.check_lengths();
     }
     catch (std::exception & e)
     {
@@ -31,16 +32,13 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
     }
     meta_superblock = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
     memset(meta_superblock, 0, dsk.meta_block_size);
-}
-
-void blockstore_impl_t::init()
-{
     flusher = new journal_flusher_t(this);
     if (dsk.inmemory_journal)
     {
         buffer_area = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.journal_len);
     }
     heap = new blockstore_heap_t(&dsk, buffer_area, log_level);
+    ringloop->wakeup();
 }
 
 blockstore_impl_t::~blockstore_impl_t()
@@ -393,4 +391,9 @@ std::string blockstore_impl_t::get_op_diag(blockstore_op_t *op)
     else
         snprintf(buf, sizeof(buf), "state=%d", priv->op_state);
     return std::string(buf);
+}
+
+void blockstore_impl_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size)
+{
+    heap->reshard(pool, pg_count, pg_stripe_size);
 }

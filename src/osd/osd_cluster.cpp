@@ -18,6 +18,7 @@ void osd_t::init_cluster()
 {
     if (!st_cli.address_count())
     {
+        init_blockstore(NULL);
         if (run_primary)
         {
             // Test version of clustering code with 1 pool, 1 PG and 2 peers
@@ -422,7 +423,10 @@ void osd_t::on_change_osd_state_hook(osd_num_t peer_osd)
 
 void osd_t::on_change_pool_config_hook()
 {
-    apply_pg_locks_localize_only();
+    if (etcd_global_config_loaded)
+    {
+        apply_pg_locks_localize_only();
+    }
 }
 
 void osd_t::apply_pg_locks_localize_only()
@@ -484,9 +488,13 @@ void osd_t::on_load_config_hook(json11::Json::object & global_config)
 {
     etcd_global_config = global_config;
     parse_config(true);
-    bind_socket();
-    acquire_lease();
     st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_reload_config_hook(cfg); };
+    etcd_global_config_loaded = true;
+    init_blockstore([this]()
+    {
+        bind_socket();
+        acquire_lease();
+    });
 }
 
 void osd_t::on_reload_config_hook(json11::Json::object & global_config)
