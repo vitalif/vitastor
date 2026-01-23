@@ -137,6 +137,8 @@ struct heap_compact_t
     bool do_delete;
 };
 
+struct heap_reshard_state_t;
+
 struct heap_li_hash
 {
     size_t operator()(const heap_list_item_t* li) const noexcept
@@ -205,19 +207,13 @@ class blockstore_heap_t
     std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> recheck_cb;
     int recheck_queue_depth = 0;
 
-    void inode_map_put(void* & inode_idx, heap_list_item_t* li);
-    void inode_map_get(void *inode_idx, heap_inode_map_t::iterator & li_it, heap_list_item_t* & li, uint64_t stripe);
-    void inode_map_free(void* inode_idx);
-    void inode_map_iterate(void* & inode_idx, std::function<void(heap_list_item_t*)> cb);
-    void inode_map_replace(void* & inode_idx, const heap_inode_map_t::iterator & li_it, heap_list_item_t* new_li);
-    void inode_map_erase(void* & inode_idx, const heap_inode_map_t::iterator & li_it, heap_list_item_t* li);
-
     uint64_t get_pg_id(inode_t inode, uint64_t stripe);
     bool validate_object(heap_entry_t *obj);
     void fill_recheck_queue();
     int mark_used_blocks();
     void recheck_buffer(heap_entry_t *cwr, uint8_t *buf);
     void defragment_block(uint32_t block_num);
+    void reshard_add(heap_reshard_state_t *st, heap_list_item_t *li);
 
     int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free);
     void insert_list_item(heap_list_item_t *li);
@@ -249,7 +245,10 @@ public:
     // recheck small write data after reading the database from disk
     bool recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> read_buffer, int queue_depth);
     // reshard database according to the pool's PG count
-    void reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size);
+    void* reshard_start(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size, uint64_t chunk_limit);
+    bool reshard_continue(void* reshard_state, uint64_t chunk_limit);
+    bool reshard_check(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size);
+    void reshard_abort(void* reshard_state);
     void set_no_inode_stats(const std::vector<uint64_t> & pool_ids);
     void recalc_inode_space_stats(uint64_t pool_id, bool per_inode);
     // read an object entry and lock it against removal

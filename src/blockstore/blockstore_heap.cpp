@@ -29,6 +29,15 @@
 #define IMAP_MALLOC_LOW_BITS ((size_t)0x0F)
 #define IMAP_MAX_LOW 16
 
+void inode_map_put(void* & inode_idx, heap_list_item_t* li);
+void inode_map_get(void *inode_idx, heap_inode_map_t::iterator & li_it, heap_list_item_t* & li, uint64_t stripe);
+void inode_map_free(void* inode_idx);
+bool inode_map_is_big(void* & inode_idx);
+void inode_map_iterate(void* & inode_idx, std::function<void(heap_list_item_t*)> cb);
+void inode_map_replace(void* & inode_idx, const heap_inode_map_t::iterator & li_it, heap_list_item_t* new_li);
+void inode_map_erase(robin_hood::unordered_flat_map<inode_t, void*, i64hash_t> & pg_idx, void* & inode_idx,
+    const heap_inode_map_t::iterator & li_it, heap_list_item_t* li);
+
 static inline heap_list_item_t *list_item(heap_entry_t *wr)
 {
     return (heap_list_item_t*)((uint8_t*)wr - offsetof(struct heap_list_item_t, entry));
@@ -658,7 +667,8 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
     else if (!calc_checksums(cwr, buf, false))
     {
         // write entry is invalid, erase it and mark newer entries with garbage bit
-        auto & inode_idx = block_index[get_pg_id(cwr->inode, cwr->stripe)][cwr->inode];
+        auto & pg_idx = block_index[get_pg_id(cwr->inode, cwr->stripe)];
+        auto & inode_idx = pg_idx[cwr->inode];
         heap_inode_map_t::iterator li_it;
         heap_list_item_t *li = NULL;
         inode_map_get(inode_idx, li_it, li, cwr->stripe);
@@ -684,7 +694,7 @@ void blockstore_heap_t::recheck_buffer(heap_entry_t *cwr, uint8_t *buf)
         {
             fprintf(stderr, "Notice: the whole object %jx:%jx only has unfinished writes, rolling back\n",
                 cwr->inode, cwr->stripe);
-            inode_map_erase(inode_idx, li_it, li);
+            inode_map_erase(pg_idx, inode_idx, li_it, li);
         }
         free_entry(li);
     }
@@ -943,44 +953,138 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *bit
     return res;
 }
 
-void blockstore_heap_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size)
+struct heap_reshard_state_t
+{
+    int state = 0;
+    uint64_t pool_id = 0;
+    uint32_t old_pg_count = 0;
+    uint32_t pg_count = 0;
+    uint32_t pg_stripe_size = 0;
+    uint64_t chunk_size = 0;
+    heap_block_index_t new_shards;
+    heap_block_index_t old_shards;
+    heap_block_index_t::iterator sh_it;
+    robin_hood::unordered_flat_map<inode_t, void*, i64hash_t>::iterator inode_it;
+    heap_inode_map_t *stripe_map = NULL;
+    heap_inode_map_t::iterator stripe_it;
+
+    void add(heap_list_item_t *li);
+    bool run(uint64_t chunk_limit);
+};
+
+void heap_reshard_state_t::add(heap_list_item_t *li)
+{
+    // like map_to_pg()
+    uint64_t pg_num = (li->entry.stripe / pg_stripe_size) % pg_count + 1;
+    uint64_t shard_id = (pool_id << (64-POOL_ID_BITS)) | pg_num;
+    inode_map_put(new_shards[shard_id][li->entry.inode], li);
+    chunk_size++;
+}
+
+bool heap_reshard_state_t::run(uint64_t chunk_limit)
+{
+    chunk_size = 0;
+    if (state == 1)
+        goto resume_1;
+    else if (state == 2)
+        goto resume_2;
+    sh_it = old_shards.begin();
+    for (; sh_it != old_shards.end(); sh_it++)
+    {
+        inode_it = sh_it->second.begin();
+        for (; inode_it != sh_it->second.end(); inode_it++)
+        {
+            if (!inode_map_is_big(inode_it->second))
+            {
+                if (chunk_limit > 0 && chunk_size >= chunk_limit)
+                {
+                    state = 1;
+                    return false;
+                }
+resume_1:
+                inode_map_iterate(inode_it->second, [&](heap_list_item_t *li) { add(li); });
+            }
+            else
+            {
+                stripe_map = (heap_inode_map_t*)inode_it->second;
+                stripe_it = stripe_map->begin();
+                for (; stripe_it != stripe_map->end(); stripe_it++)
+                {
+                    if (chunk_limit > 0 && chunk_size >= chunk_limit)
+                    {
+                        state = 2;
+                        return false;
+                    }
+resume_2:
+                    add(*stripe_it);
+                }
+            }
+            inode_map_free(inode_it->second);
+        }
+    }
+    return true;
+}
+
+void* blockstore_heap_t::reshard_start(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size, uint64_t chunk_limit)
 {
     auto & pool_settings = pool_shard_settings[pool];
     if (pool_settings.pg_count == pg_count && pool_settings.pg_stripe_size == pg_stripe_size)
     {
-        return;
+        return NULL;
     }
-    uint32_t old_pg_count = !pool_settings.pg_count ? 1 : pool_settings.pg_count;
-    uint64_t pool_id = (uint64_t)pool;
-    heap_block_index_t new_shards;
-    for (uint32_t pg_num = 0; pg_num <= old_pg_count; pg_num++)
+    heap_reshard_state_t *st = new heap_reshard_state_t;
+    st->pool_id = (uint64_t)pool;
+    st->pg_count = pg_count;
+    st->pg_stripe_size = pg_stripe_size;
+    st->old_pg_count = !pool_settings.pg_count ? 1 : pool_settings.pg_count;
+    for (uint32_t pg_num = 0; pg_num <= st->old_pg_count; pg_num++)
     {
-        auto sh_it = block_index.find((pool_id << (64-POOL_ID_BITS)) | pg_num);
-        if (sh_it == block_index.end())
+        auto sh_it = block_index.find((st->pool_id << (64-POOL_ID_BITS)) | pg_num);
+        if (sh_it != block_index.end())
         {
-            continue;
+            st->old_shards[pg_num] = std::move(sh_it->second);
+            block_index.erase(sh_it);
         }
-        for (auto & inode_pair: sh_it->second)
-        {
-            inode_map_iterate(inode_pair.second, [&](heap_list_item_t *li)
-            {
-                // like map_to_pg()
-                uint64_t pg_num = (li->entry.stripe / pg_stripe_size) % pg_count + 1;
-                uint64_t shard_id = (pool_id << (64-POOL_ID_BITS)) | pg_num;
-                inode_map_put(new_shards[shard_id][li->entry.inode], li);
-            });
-            inode_map_free(inode_pair.second);
-        }
-        block_index.erase(sh_it);
     }
-    for (auto sh_it = new_shards.begin(); sh_it != new_shards.end(); sh_it++)
+    bool finished = reshard_continue(st, chunk_limit);
+    return finished ? NULL : st;
+}
+
+bool blockstore_heap_t::reshard_continue(void *reshard_state, uint64_t chunk_limit)
+{
+    heap_reshard_state_t *st = (heap_reshard_state_t*)reshard_state;
+    if (!st->run(chunk_limit))
+    {
+        return false;
+    }
+    for (auto sh_it = st->new_shards.begin(); sh_it != st->new_shards.end(); sh_it++)
     {
         block_index[sh_it->first] = std::move(sh_it->second);
     }
-    pool_settings = (pool_shard_settings_t){
-        .pg_count = pg_count,
-        .pg_stripe_size = pg_stripe_size,
+    pool_shard_settings[st->pool_id] = (pool_shard_settings_t){
+        .pg_count = st->pg_count,
+        .pg_stripe_size = st->pg_stripe_size,
     };
+    delete st;
+    return true;
+}
+
+bool blockstore_heap_t::reshard_check(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size)
+{
+    auto set_it = pool_shard_settings.find(pool);
+    return (set_it != pool_shard_settings.end() &&
+        set_it->second.pg_count == pg_count &&
+        set_it->second.pg_stripe_size == pg_stripe_size);
+}
+
+void blockstore_heap_t::reshard_abort(void* reshard_state)
+{
+    heap_reshard_state_t *st = (heap_reshard_state_t*)reshard_state;
+    for (auto sh_it = st->old_shards.begin(); sh_it != st->old_shards.end(); sh_it++)
+    {
+        block_index[sh_it->first] = std::move(sh_it->second);
+    }
+    delete st;
 }
 
 heap_entry_t *blockstore_heap_t::lock_and_read_entry(object_id oid)
@@ -2171,11 +2275,12 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
         if (!next)
         {
             assert(!prev);
-            auto & inode_idx = block_index[get_pg_id(wr->inode, wr->stripe)][wr->inode];
+            auto & pg_idx = block_index[get_pg_id(wr->inode, wr->stripe)];
+            auto & inode_idx = pg_idx[wr->inode];
             heap_inode_map_t::iterator li_it;
             heap_list_item_t *old_li = NULL;
             inode_map_get(inode_idx, li_it, old_li, wr->stripe);
-            inode_map_erase(inode_idx, li_it, old_li);
+            inode_map_erase(pg_idx, inode_idx, li_it, old_li);
         }
         else
         {
@@ -2268,7 +2373,7 @@ void blockstore_heap_t::recalc_inode_space_stats(uint64_t pool_id, bool per_inod
 // This is some really crazy shit but it seems to work well :)
 // At the same time it has almost zero overhead and works just as fast for fat inodes.
 
-void blockstore_heap_t::inode_map_get(void *inode_idx, heap_inode_map_t::iterator & li_it, heap_list_item_t* & li, uint64_t stripe)
+void inode_map_get(void *inode_idx, heap_inode_map_t::iterator & li_it, heap_list_item_t* & li, uint64_t stripe)
 {
     size_t map_n = ((size_t)inode_idx & IMAP_MALLOC_LOW_BITS);
     if (!map_n)
@@ -2295,7 +2400,7 @@ void blockstore_heap_t::inode_map_get(void *inode_idx, heap_inode_map_t::iterato
     }
 }
 
-void blockstore_heap_t::inode_map_free(void* inode_idx)
+void inode_map_free(void* inode_idx)
 {
     size_t n = ((size_t)inode_idx & IMAP_MALLOC_LOW_BITS);
     if (!n)
@@ -2308,7 +2413,12 @@ void blockstore_heap_t::inode_map_free(void* inode_idx)
     }
 }
 
-void blockstore_heap_t::inode_map_iterate(void* & inode_idx, std::function<void(heap_list_item_t*)> cb)
+bool inode_map_is_big(void* & inode_idx)
+{
+    return !((size_t)inode_idx & IMAP_MALLOC_LOW_BITS);
+}
+
+void inode_map_iterate(void* & inode_idx, std::function<void(heap_list_item_t*)> cb)
 {
     size_t n = ((size_t)inode_idx & IMAP_MALLOC_LOW_BITS);
     if (!n)
@@ -2335,7 +2445,7 @@ void blockstore_heap_t::inode_map_iterate(void* & inode_idx, std::function<void(
     }
 }
 
-void blockstore_heap_t::inode_map_put(void* & inode_idx, heap_list_item_t* li)
+void inode_map_put(void* & inode_idx, heap_list_item_t* li)
 {
     if (!inode_idx)
     {
@@ -2404,7 +2514,7 @@ void blockstore_heap_t::inode_map_put(void* & inode_idx, heap_list_item_t* li)
     }
 }
 
-void blockstore_heap_t::inode_map_replace(void* & inode_idx, const heap_inode_map_t::iterator & li_it, heap_list_item_t* new_li)
+void inode_map_replace(void* & inode_idx, const heap_inode_map_t::iterator & li_it, heap_list_item_t* new_li)
 {
     size_t map_n = ((size_t)inode_idx & IMAP_MALLOC_LOW_BITS);
     if (!map_n)
@@ -2430,7 +2540,8 @@ void blockstore_heap_t::inode_map_replace(void* & inode_idx, const heap_inode_ma
     }
 }
 
-void blockstore_heap_t::inode_map_erase(void* & inode_idx, const heap_inode_map_t::iterator & li_it, heap_list_item_t* li)
+void inode_map_erase(robin_hood::unordered_flat_map<inode_t, void*, i64hash_t> & pg_idx, void* & inode_idx,
+    const heap_inode_map_t::iterator & li_it, heap_list_item_t* li)
 {
     size_t map_n = ((size_t)inode_idx & IMAP_MALLOC_LOW_BITS);
     if (!map_n)
@@ -2455,7 +2566,7 @@ void blockstore_heap_t::inode_map_erase(void* & inode_idx, const heap_inode_map_
     else if (map_n == 1)
     {
         // Erase
-        block_index[get_pg_id(li->entry.inode, li->entry.stripe)].erase(li->entry.inode);
+        pg_idx.erase(li->entry.inode);
     }
     else
     {

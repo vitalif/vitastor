@@ -323,9 +323,13 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
         FINISH_OP(op);
         return;
     }
-    // Check if the DB needs resharding
-    // (we don't know about PGs from the beginning, we only create "shards" here)
-    heap->reshard(INODE_POOL(min_inode), pg_count, pg_stripe_size);
+    // Check if the DB is sharded correctly
+    if (!heap->reshard_check(INODE_POOL(min_inode), pg_count, pg_stripe_size))
+    {
+        op->retval = -EAGAIN;
+        FINISH_OP(op);
+        return;
+    }
     obj_ver_id *result = NULL;
     size_t stable_count = 0, unstable_count = 0;
     int res = heap->list_objects(list_pg, op->min_oid, op->max_oid, &result, &stable_count, &unstable_count);
@@ -393,7 +397,17 @@ std::string blockstore_impl_t::get_op_diag(blockstore_op_t *op)
     return std::string(buf);
 }
 
-void blockstore_impl_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size)
+void* blockstore_impl_t::reshard_start(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size, uint64_t chunk_limit)
 {
-    heap->reshard(pool, pg_count, pg_stripe_size);
+    return heap->reshard_start(pool, pg_count, pg_stripe_size, chunk_limit);
+}
+
+bool blockstore_impl_t::reshard_continue(void *reshard_state, uint64_t chunk_limit)
+{
+    return heap->reshard_continue(reshard_state, chunk_limit);
+}
+
+void blockstore_impl_t::reshard_abort(void *reshard_state)
+{
+    return heap->reshard_abort(reshard_state);
 }

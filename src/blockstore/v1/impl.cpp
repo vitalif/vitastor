@@ -407,32 +407,88 @@ blockstore_clean_db_t& blockstore_impl_t::clean_db_shard(object_id oid)
     return clean_db_shards[(pool_id << (64-POOL_ID_BITS)) | pg_num];
 }
 
-void blockstore_impl_t::reshard_clean_db(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size)
+struct bs_reshard_state_t
 {
-    uint64_t pool_id = (uint64_t)pool;
+    int state = 0;
+    uint64_t pool_id = 0;
+    uint32_t pg_count = 0;
+    uint32_t pg_stripe_size = 0;
+    uint64_t chunk_size = 0;
+    std::map<pool_pg_id_t, blockstore_clean_db_t> old_shards;
     std::map<pool_pg_id_t, blockstore_clean_db_t> new_shards;
-    auto sh_it = clean_db_shards.lower_bound((pool_id << (64-POOL_ID_BITS)));
-    while (sh_it != clean_db_shards.end() &&
-        (sh_it->first >> (64-POOL_ID_BITS)) == pool_id)
+    std::map<pool_pg_id_t, blockstore_clean_db_t>::iterator sh_it;
+    blockstore_clean_db_t::iterator obj_it;
+};
+
+void* blockstore_impl_t::reshard_start(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size, uint64_t chunk_limit)
+{
+    auto & settings = clean_db_settings[pool];
+    if (settings.pg_count == pg_count && settings.pg_stripe_size == pg_stripe_size)
     {
-        for (auto & pair: sh_it->second)
-        {
-            // like map_to_pg()
-            uint64_t pg_num = (pair.first.stripe / pg_stripe_size) % pg_count + 1;
-            uint64_t shard_id = (pool_id << (64-POOL_ID_BITS)) | pg_num;
-            new_shards[shard_id][pair.first] = pair.second;
-        }
+        return NULL;
+    }
+    bs_reshard_state_t *st = new bs_reshard_state_t;
+    st->state = 0;
+    st->pool_id = pool;
+    st->pg_count = pg_count;
+    st->pg_stripe_size = pg_stripe_size;
+    auto sh_it = clean_db_shards.lower_bound((st->pool_id << (64-POOL_ID_BITS)));
+    while (sh_it != clean_db_shards.end() &&
+        (sh_it->first >> (64-POOL_ID_BITS)) == st->pool_id)
+    {
+        st->old_shards[sh_it->first] = std::move(sh_it->second);
         clean_db_shards.erase(sh_it++);
     }
-    for (sh_it = new_shards.begin(); sh_it != new_shards.end(); sh_it++)
+    bool finished = reshard_continue(st, chunk_limit);
+    return finished ? NULL : st;
+}
+
+bool blockstore_impl_t::reshard_continue(void *reshard_state, uint64_t chunk_limit)
+{
+    bs_reshard_state_t *st = (bs_reshard_state_t*)reshard_state;
+    uint64_t chunk_size = 0;
+    if (st->state == 1)
+        goto resume_1;
+    for (st->sh_it = st->old_shards.begin(); st->sh_it != st->old_shards.end(); )
+    {
+        for (st->obj_it = st->sh_it->second.begin(); st->obj_it != st->sh_it->second.end(); st->obj_it++)
+        {
+            if (chunk_limit > 0 && chunk_size >= chunk_limit)
+            {
+                st->state = 1;
+                return false;
+            }
+resume_1:
+            // like map_to_pg()
+            uint64_t pg_num = (st->obj_it->first.stripe / st->pg_stripe_size) % st->pg_count + 1;
+            uint64_t shard_id = (st->pool_id << (64-POOL_ID_BITS)) | pg_num;
+            st->new_shards[shard_id][st->obj_it->first] = st->obj_it->second;
+            chunk_size++;
+        }
+        st->old_shards.erase(st->sh_it++);
+    }
+    for (auto sh_it = st->new_shards.begin(); sh_it != st->new_shards.end(); sh_it++)
     {
         auto & to = clean_db_shards[sh_it->first];
         to.swap(sh_it->second);
     }
-    clean_db_settings[pool_id] = (pool_shard_settings_t){
-        .pg_count = pg_count,
-        .pg_stripe_size = pg_stripe_size,
+    clean_db_settings[st->pool_id] = (pool_shard_settings_t){
+        .pg_count = st->pg_count,
+        .pg_stripe_size = st->pg_stripe_size,
     };
+    delete st;
+    return true;
+}
+
+void blockstore_impl_t::reshard_abort(void *reshard_state)
+{
+    bs_reshard_state_t *st = (bs_reshard_state_t*)reshard_state;
+    for (auto sh_it = st->old_shards.begin(); sh_it != st->old_shards.end(); sh_it++)
+    {
+        auto & to = clean_db_shards[sh_it->first];
+        to.swap(sh_it->second);
+    }
+    delete st;
 }
 
 void blockstore_impl_t::process_list(blockstore_op_t *op)
@@ -465,7 +521,10 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
                 sh_it->second.pg_count != pg_count ||
                 sh_it->second.pg_stripe_size != pg_stripe_size)
             {
-                reshard_clean_db(pool_id, pg_count, pg_stripe_size);
+                // Sharding mismatch
+                op->retval = -EAGAIN;
+                FINISH_OP(op);
+                return;
             }
             first_shard = last_shard = ((uint64_t)pool_id << (64-POOL_ID_BITS)) | list_pg;
         }
@@ -805,11 +864,6 @@ std::string blockstore_impl_t::get_op_diag(blockstore_op_t *op)
     else
         snprintf(buf, sizeof(buf), "state=%d", priv->op_state);
     return std::string(buf);
-}
-
-void blockstore_impl_t::reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size)
-{
-    reshard_clean_db(pool, pg_count, pg_stripe_size);
 }
 
 } // namespace v1

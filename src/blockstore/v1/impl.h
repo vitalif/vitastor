@@ -202,7 +202,6 @@ class blockstore_impl_t: public blockstore_i
     uint8_t* get_clean_entry_bitmap(uint64_t block_loc, int offset);
 
     blockstore_clean_db_t& clean_db_shard(object_id oid);
-    void reshard_clean_db(pool_id_t pool_id, uint32_t pg_count, uint32_t pg_stripe_size);
     void recalc_inode_space_stats(uint64_t pool_id, bool per_inode);
 
     // Journaling
@@ -289,7 +288,9 @@ public:
     void parse_config(blockstore_config_t & config, bool init);
 
     // Reshard database for a pool
-    void reshard(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size);
+    void* reshard_start(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size, uint64_t chunk_limit);
+    bool reshard_continue(void *reshard_state, uint64_t chunk_limit);
+    void reshard_abort(void *reshard_state);
 
     // Event loop
     void loop();

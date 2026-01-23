@@ -122,7 +122,8 @@ void osd_t::init_blockstore(std::function<void()> on_init)
         // Pre-configure pool PG shards
         for (auto & pool_item: st_cli.pool_config)
         {
-            bs->reshard(pool_item.first, pool_item.second.pg_count, pool_item.second.pg_stripe_size);
+            auto st = bs->reshard_start(pool_item.first, pool_item.second.pg_count, pool_item.second.pg_stripe_size, 0);
+            assert(!st);
         }
         // Autosync based on the number of unstable writes to prevent stalls due to insufficient journal space
         uint64_t max_autosync = bs->get_journal_size() / bs->get_block_size() / 2;
