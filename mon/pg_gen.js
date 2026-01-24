@@ -52,6 +52,7 @@ function recheck_primary(state, global_config, up_osds, osd_tree)
             continue;
         }
         const aff_osds = get_affinity_osds(pool_cfg, up_osds, osd_tree);
+        let paused = false;
         for (let pg_num = 1; pg_num <= pool_cfg.pg_count; pg_num++)
         {
             if (!state.pg.config.items[pool_id])
@@ -74,6 +75,19 @@ function recheck_primary(state, global_config, up_osds, osd_tree)
                     );
                     new_pg_config.items[pool_id][pg_num].primary = new_primary;
                 }
+                paused = paused || !!pg_cfg.pause;
+            }
+        }
+        if (paused)
+        {
+            if (!new_pg_config)
+            {
+                new_pg_config = JSON.parse(JSON.stringify(state.pg.config));
+            }
+            console.log(`Resuming paused pool ${pool_id}`);
+            for (const pg in new_pg_config.items[pool_id])
+            {
+                delete new_pg_config.items[pool_id][pg].pause;
             }
         }
     }
