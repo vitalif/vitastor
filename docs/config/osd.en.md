@@ -67,6 +67,8 @@ with an OSD restart or, for some of them, even without restarting by updating co
 - [pg_lock_retry_interval_ms](#pg_lock_retry_interval_ms)
 - [atomic_write_size](#atomic_write_size)
 - [use_atomic_flag](#use_atomic_flag)
+- [pg_reshard_chunk_size](#pg_reshard_chunk_size)
+- [pg_reshard_chunk_pause_ms](#pg_reshard_chunk_pause_ms)
 
 ## bind_address
 
@@ -713,3 +715,21 @@ even though the NVMe specification allows them.
 For NVMe disks with `scheduler=none` writes aren't fragmented anyway so it's not a big deal.
 However, you can rebuild your kernel with [this patch](../../patches/linux-fix-atomic-write-checks.diff)
 and turn this option on. It will make your atomic writes a bit safer.
+
+## pg_reshard_chunk_size
+
+- Type: integer
+- Default: 100000
+
+Pool PG count change is a CPU-intensive operation because OSDs store the full object database
+in memory and have to move all entries between old and new PGs. Thus it's performed in chunks,
+with pauses between chunks to prevent blocking OSD's event loop and other clients' operations.
+This option sets the maximum number of object is a chunk. Moving 100k objects usually takes
+50-100ms. Chunk size equal to 0 means unlimited.
+
+## pg_reshard_chunk_pause_ms
+
+- Type: milliseconds
+- Default: 100
+
+This option sets the interval between handling two PG count change chunks.

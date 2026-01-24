@@ -727,8 +727,9 @@ void osd_t::apply_pg_count()
 {
     for (auto & pool_item: st_cli.pool_config)
     {
-        if (pool_item.second.real_pg_count != 0 &&
-            pool_item.second.real_pg_count != pg_counts[pool_item.first])
+        auto & pool_cfg = pool_item.second;
+        if (pool_cfg.real_pg_count != 0 &&
+            pool_cfg.real_pg_count != pg_counts[pool_item.first])
         {
             // Check that all pool PGs are offline. It is not allowed to change PG count when any PGs are online
             // The external tool must wait for all PGs to come down before changing PG count
@@ -753,14 +754,79 @@ void osd_t::apply_pg_count()
                 printf(
                     "[OSD %ju] PG count change detected for pool %u (new is %ju, old is %u),"
                     " but %u PG(s) are still active as primary and %u as secondary. This is not allowed. Exiting\n",
-                    this->osd_num, pool_item.first, pool_item.second.real_pg_count, pg_counts[pool_item.first],
+                    this->osd_num, pool_item.first, pool_cfg.real_pg_count, pg_counts[pool_item.first],
                     still_active_primary, still_active_secondary
                 );
                 force_stop(1);
                 return;
             }
         }
-        this->pg_counts[pool_item.first] = pool_item.second.real_pg_count;
+        if (bs && (pool_cfg.real_pg_count != pool_cfg.applied_pg_count ||
+            pool_cfg.pg_stripe_size != pool_cfg.applied_pg_stripe_size) &&
+            !pool_cfg.reshard_state)
+        {
+            pool_cfg.applied_pg_count = pool_cfg.real_pg_count;
+            pool_cfg.applied_pg_stripe_size = pool_cfg.pg_stripe_size;
+            pool_cfg.reshard_state = bs->reshard_start(pool_item.first, pool_cfg.real_pg_count, pool_cfg.pg_stripe_size, pg_reshard_chunk_size);
+            if (pool_cfg.reshard_state)
+            {
+                reshard_pools.push_back(pool_item.first);
+            }
+        }
+        this->pg_counts[pool_item.first] = pool_cfg.real_pg_count;
+    }
+    if (reshard_pools.size() && reshard_timer_id < 0)
+    {
+        reshard_timer_id = tfd->set_timer(pg_reshard_chunk_pause_ms, false, [this](int)
+        {
+            reshard_continue();
+        });
+    }
+}
+
+void osd_t::reshard_continue()
+{
+again:
+    auto pool_id = reshard_pools[0];
+    auto pool_it = st_cli.pool_config.find(pool_id);
+    if (pool_it == st_cli.pool_config.end() || !pool_it->second.reshard_state)
+    {
+        reshard_pools.erase(reshard_pools.begin());
+        goto again;
+    }
+    auto & pool_cfg = pool_it->second;
+    bool done = false;
+    if (pool_cfg.real_pg_count != pool_cfg.applied_pg_count ||
+        pool_cfg.pg_stripe_size != pool_cfg.applied_pg_stripe_size)
+    {
+        // PG count changed again, reshard again
+        bs->reshard_abort(pool_cfg.reshard_state);
+        pool_cfg.applied_pg_count = pool_cfg.real_pg_count;
+        pool_cfg.applied_pg_stripe_size = pool_cfg.pg_stripe_size;
+        pool_cfg.reshard_state = bs->reshard_start(pool_id, pool_cfg.real_pg_count, pool_cfg.pg_stripe_size, pg_reshard_chunk_size);
+        done = !pool_cfg.reshard_state;
+    }
+    else
+    {
+        done = bs->reshard_continue(pool_cfg.reshard_state, pg_reshard_chunk_size);
+    }
+    if (done)
+    {
+        // Pool is resharded
+        pool_cfg.reshard_state = NULL;
+        reshard_pools.erase(reshard_pools.begin());
+        apply_pg_config();
+    }
+    if (reshard_pools.size())
+    {
+        reshard_timer_id = tfd->set_timer(pg_reshard_chunk_pause_ms, false, [this](int)
+        {
+            reshard_continue();
+        });
+    }
+    else
+    {
+        reshard_timer_id = -1;
     }
 }
 
@@ -769,9 +835,15 @@ void osd_t::apply_pg_config()
     bool all_applied = true;
     for (auto & pool_item: st_cli.pool_config)
     {
+        auto & pool_cfg = pool_item.second;
+        if (pool_cfg.reshard_state)
+        {
+            // Can't apply anything for pools being resharded
+            continue;
+        }
         bool warned_block_size = false;
         auto pool_id = pool_item.first;
-        for (auto & kv: pool_item.second.pg_config)
+        for (auto & kv: pool_cfg.pg_config)
         {
             pg_num_t pg_num = kv.first;
             auto & pg_cfg = kv.second;
@@ -780,8 +852,8 @@ void osd_t::apply_pg_config()
             auto pg_it = this->pgs.find({ .pool_id = pool_id, .pg_num = pg_num });
             bool currently_taken = pg_it != this->pgs.end() && pg_it->second.state != PG_OFFLINE;
             // Check pool block size and bitmap granularity
-            if (take && this->bs_block_size != pool_item.second.data_block_size ||
-                this->bs_bitmap_granularity != pool_item.second.bitmap_granularity)
+            if (take && this->bs_block_size != pool_cfg.data_block_size ||
+                this->bs_bitmap_granularity != pool_cfg.bitmap_granularity)
             {
                 if (!warned_block_size)
                 {
@@ -789,7 +861,7 @@ void osd_t::apply_pg_config()
                         "[OSD %ju] My block_size and bitmap_granularity are %u/%u"
                         ", but pool %u has %u/%u. Refusing to start PGs of this pool\n",
                         this->osd_num, bs_block_size, bs_bitmap_granularity,
-                        pool_id, pool_item.second.data_block_size, pool_item.second.bitmap_granularity
+                        pool_id, pool_cfg.data_block_size, pool_cfg.bitmap_granularity
                     );
                 }
                 warned_block_size = true;
@@ -882,12 +954,12 @@ void osd_t::apply_pg_config()
                 }
                 auto & pg = this->pgs[{ .pool_id = pool_id, .pg_num = pg_num }];
                 pg.state = pg_cfg.cur_primary == this->osd_num ? PG_PEERING : PG_STARTING;
-                pg.scheme = pool_item.second.scheme;
+                pg.scheme = pool_cfg.scheme;
                 pg.pg_cursize = 0;
-                pg.pg_size = pool_item.second.pg_size;
-                pg.pg_minsize = pool_item.second.pg_minsize;
-                pg.pg_data_size = pool_item.second.scheme == POOL_SCHEME_REPLICATED
-                     ? 1 : pool_item.second.pg_size - pool_item.second.parity_chunks;
+                pg.pg_size = pool_cfg.pg_size;
+                pg.pg_minsize = pool_cfg.pg_minsize;
+                pg.pg_data_size = pool_cfg.scheme == POOL_SCHEME_REPLICATED
+                     ? 1 : pool_cfg.pg_size - pool_cfg.parity_chunks;
                 pg.pool_id = pool_id;
                 pg.pg_num = pg_num;
                 pg.reported_epoch = pg_cfg.epoch;
@@ -896,8 +968,8 @@ void osd_t::apply_pg_config()
                 pg.next_scrub = pg_cfg.next_scrub;
                 pg.target_set = pg_cfg.target_set;
                 pg.disable_pg_locks = pg_locks_localize_only &&
-                    (pool_item.second.scheme != POOL_SCHEME_REPLICATED ||
-                    pool_item.second.local_reads == POOL_LOCAL_READ_PRIMARY);
+                    (pool_cfg.scheme != POOL_SCHEME_REPLICATED ||
+                    pool_cfg.local_reads == POOL_LOCAL_READ_PRIMARY);
                 if (pg.scheme == POOL_SCHEME_EC)
                 {
                     use_ec(pg.pg_size, pg.pg_data_size, true);

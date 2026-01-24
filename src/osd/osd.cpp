@@ -311,6 +311,12 @@ void osd_t::parse_config(bool init)
     scrub_list_limit = config["scrub_list_limit"].uint64_value();
     if (!scrub_list_limit)
         scrub_list_limit = 262144;
+    pg_reshard_chunk_size = config["pg_reshard_chunk_size"].uint64_value();
+    if (!pg_reshard_chunk_size)
+        pg_reshard_chunk_size = 100000;
+    pg_reshard_chunk_pause_ms = config["pg_reshard_chunk_pause_ms"].uint64_value();
+    if (!pg_reshard_chunk_pause_ms)
+        pg_reshard_chunk_pause_ms = 100;
     if (!old_auto_scrub && auto_scrub)
     {
         // Schedule scrubbing

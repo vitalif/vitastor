@@ -2,7 +2,7 @@
 # Test the `no_same_sector_overwrites` mode
 
 OSD_ARGS="--journal_no_same_sector_overwrites true --journal_sector_buffer_count 1024 --disable_data_fsync 1 --immediate_commit all $OSD_ARGS"
-GLOBAL_CONF='{"immediate_commit":"all"}'
+GLOBAL_CONFIG='{"immediate_commit":"all"}'
 
 . `dirname $0`/run_3osds.sh
 

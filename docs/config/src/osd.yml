@@ -883,3 +883,26 @@
     Для NVMe-дисков с `scheduler=none` запросы записи и так не фрагментируются, так что это не так
     уж и важно, однако вы можете пересобрать своё ядро с [этим патчем](../../patches/linux-fix-atomic-write-checks.diff)
     и включить данную опцию. Это сделает вашу атомарную запись капельку безопаснее.
+- name: pg_reshard_chunk_size
+  type: int
+  default: 100000
+  info: |
+    Pool PG count change is a CPU-intensive operation because OSDs store the full object database
+    in memory and have to move all entries between old and new PGs. Thus it's performed in chunks,
+    with pauses between chunks to prevent blocking OSD's event loop and other clients' operations.
+    This option sets the maximum number of object is a chunk. Moving 100k objects usually takes
+    50-100ms. Chunk size equal to 0 means unlimited.
+  info_ru: |
+    Изменение числа PG в пуле заметно загружает процессор, так как OSD хранят полную базу данных
+    объектов в памяти и им приходится перемещать все записи объектов между старыми и новыми PG.
+    Поэтому изменение применяется порциями, с паузами между порциями, чтобы не блокировать обработку
+    событий OSD и операции остальных клиентов. Данная опция задаёт максимальное число объектов
+    в порции. Перемещение 100 тысяч объектов (значение по умолчанию) обычно занимает порядка
+    50-100 миллисекунд. Значение опции 0 отключает лимит размера порции.
+- name: pg_reshard_chunk_pause_ms
+  type: ms
+  default: 100
+  info: |
+    This option sets the interval between handling two PG count change chunks.
+  info_ru: |
+    Данная опция задаёт интервал между обработкой двух порций изменения числа PG пулов.

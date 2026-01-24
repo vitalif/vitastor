@@ -148,6 +148,8 @@ class osd_t
     bool enable_pg_locks = false;
     bool pg_locks_localize_only = false;
     uint64_t pg_lock_retry_interval_ms = 100;
+    uint64_t pg_reshard_chunk_size = 100000;
+    uint64_t pg_reshard_chunk_pause_ms = 100;
 
     // cluster state
 
@@ -173,6 +175,8 @@ class osd_t
     std::map<pool_pg_num_t, pg_t> pgs;
     std::set<pool_pg_num_t> dirty_pgs;
     std::set<osd_num_t> dirty_osds;
+    std::vector<pool_id_t> reshard_pools;
+    int reshard_timer_id = -1;
     int copies_to_delete_after_sync_count = 0;
     uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0, inconsistent_objects = 0, corrupted_objects = 0;
     int peering_state = 0;
@@ -271,6 +275,7 @@ class osd_t
     void apply_no_inode_stats();
     void apply_pg_count();
     void apply_pg_config();
+    void reshard_continue();
 
     // event loop, socket read/write
     void loop();

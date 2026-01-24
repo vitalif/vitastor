@@ -899,7 +899,8 @@ void test_reshard_list()
         free(listing);
         listing = NULL;
 
-        heap.reshard(1, 2, 0x20000);
+        void *st = heap.reshard_start(1, 2, 0x20000, 0);
+        assert(st == NULL);
 
         assert(heap.read_entry((object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = 0 }));
         assert(heap.read_entry((object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 }));

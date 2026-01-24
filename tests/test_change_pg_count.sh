@@ -1,5 +1,6 @@
 #!/bin/bash -ex
 
+GLOBAL_CONFIG=',"pg_reshard_chunk_size":100'
 OSD_COUNT=${OSD_COUNT:-6}
 PG_COUNT=16
 

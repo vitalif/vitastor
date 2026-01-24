@@ -68,6 +68,11 @@ struct pool_config_t
     std::string used_for_app;
     int backfillfull = 0;
     int local_reads = 0;
+
+    // runtime data, used only by OSD:
+    uint64_t applied_pg_count = 0;
+    uint64_t applied_pg_stripe_size = 0;
+    void *reshard_state = NULL;
 };
 
 struct inode_config_t
