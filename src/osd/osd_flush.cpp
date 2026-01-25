@@ -318,8 +318,7 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
                 // EPIPE is totally harmless (peer is gone), others like EIO/EDOM may be not
                 printf(
                     "[PG %u/%u] Recovery operation failed with object %jx:%jx: error %jd\n",
-                    INODE_POOL(op->oid.inode),
-                    map_to_pg(op->oid, st_cli.pool_config.at(INODE_POOL(op->oid.inode)).pg_stripe_size),
+                    INODE_POOL(op->oid.inode), map_to_pg(op->oid),
                     op->oid.inode, op->oid.stripe, op->osd_op->reply.hdr.retval
                 );
             }

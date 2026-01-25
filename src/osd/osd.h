@@ -171,7 +171,6 @@ class osd_t
     // peers and PGs
 
     std::map<pool_pg_num_t, osd_pg_lock_t> pg_locks;
-    std::map<pool_id_t, pg_num_t> pg_counts;
     std::map<pool_pg_num_t, pg_t> pgs;
     std::set<pool_pg_num_t> dirty_pgs;
     std::set<osd_num_t> dirty_osds;
@@ -384,12 +383,12 @@ class osd_t
     int submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg);
     int read_bitmaps(osd_op_t *cur_op, pg_t *pg, int base_state);
 
-    inline pg_num_t map_to_pg(object_id oid, uint64_t pg_stripe_size)
+    inline pg_num_t map_to_pg(object_id oid)
     {
-        uint64_t pg_count = pg_counts[INODE_POOL(oid.inode)];
-        if (!pg_count)
-            pg_count = 1;
-        return (oid.stripe / pg_stripe_size) % pg_count + 1;
+        auto pool_it = st_cli.pool_config.find(INODE_POOL(oid.inode));
+        if (pool_it == st_cli.pool_config.end())
+            return 1;
+        return (oid.stripe / pool_it->second.applied_pg_stripe_size) % pool_it->second.applied_pg_count + 1;
     }
 
 public:

@@ -962,8 +962,12 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             if (pc.pg_stripe_size < min_stripe_size)
                 pc.pg_stripe_size = min_stripe_size;
             // Save
-            pc.real_pg_count = this->pool_config[pool_id].real_pg_count;
-            std::swap(pc.pg_config, this->pool_config[pool_id].pg_config);
+            auto & old_pc = this->pool_config[pool_id];
+            pc.real_pg_count = old_pc.real_pg_count;
+            pc.applied_pg_count = old_pc.applied_pg_count;
+            pc.applied_pg_stripe_size = old_pc.applied_pg_stripe_size;
+            pc.reshard_state = old_pc.reshard_state;
+            std::swap(pc.pg_config, old_pc.pg_config);
             std::swap(this->pool_config[pool_id], pc);
             auto & parsed_cfg = this->pool_config[pool_id];
             parsed_cfg.exists = true;

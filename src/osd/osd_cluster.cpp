@@ -55,9 +55,10 @@ void osd_t::init_cluster()
                 .pg_minsize = 2,
                 .pg_count = 1,
                 .real_pg_count = 1,
+                .applied_pg_count = 1,
+                .applied_pg_stripe_size = bs_block_size*2,
             };
             report_pg_state(pgs[{ 1, 1 }]);
-            pg_counts[1] = 1;
         }
         bind_socket();
     }
@@ -728,8 +729,12 @@ void osd_t::apply_pg_count()
     for (auto & pool_item: st_cli.pool_config)
     {
         auto & pool_cfg = pool_item.second;
-        if (pool_cfg.real_pg_count != 0 &&
-            pool_cfg.real_pg_count != pg_counts[pool_item.first])
+        if (pool_cfg.real_pg_count == 0)
+        {
+            continue;
+        }
+        if (pool_cfg.real_pg_count != pool_cfg.applied_pg_count ||
+            pool_cfg.pg_stripe_size != pool_cfg.applied_pg_stripe_size)
         {
             // Check that all pool PGs are offline. It is not allowed to change PG count when any PGs are online
             // The external tool must wait for all PGs to come down before changing PG count
@@ -751,29 +756,38 @@ void osd_t::apply_pg_count()
             }
             if (still_active_primary > 0 || still_active_secondary > 0)
             {
-                printf(
-                    "[OSD %ju] PG count change detected for pool %u (new is %ju, old is %u),"
-                    " but %u PG(s) are still active as primary and %u as secondary. This is not allowed. Exiting\n",
-                    this->osd_num, pool_item.first, pool_cfg.real_pg_count, pg_counts[pool_item.first],
-                    still_active_primary, still_active_secondary
-                );
+                if (pool_cfg.real_pg_count != pool_cfg.applied_pg_count)
+                {
+                    printf(
+                        "[OSD %ju] PG count change detected for pool %u (new is %ju, old is %ju),"
+                        " but %u PG(s) are still active as primary and %u as secondary. This is not allowed. Exiting\n",
+                        this->osd_num, pool_item.first, pool_cfg.real_pg_count, pool_cfg.applied_pg_count,
+                        still_active_primary, still_active_secondary
+                    );
+                }
+                else
+                {
+                    printf(
+                        "[OSD %ju] PG stripe change detected for pool %u (new is %ju, old is %ju),"
+                        " but %u PG(s) are still active as primary and %u as secondary. This is not allowed. Exiting\n",
+                        this->osd_num, pool_item.first, pool_cfg.pg_stripe_size, pool_cfg.applied_pg_stripe_size,
+                        still_active_primary, still_active_secondary
+                    );
+                }
                 force_stop(1);
                 return;
             }
-        }
-        if (bs && (pool_cfg.real_pg_count != pool_cfg.applied_pg_count ||
-            pool_cfg.pg_stripe_size != pool_cfg.applied_pg_stripe_size) &&
-            !pool_cfg.reshard_state)
-        {
             pool_cfg.applied_pg_count = pool_cfg.real_pg_count;
             pool_cfg.applied_pg_stripe_size = pool_cfg.pg_stripe_size;
-            pool_cfg.reshard_state = bs->reshard_start(pool_item.first, pool_cfg.real_pg_count, pool_cfg.pg_stripe_size, pg_reshard_chunk_size);
-            if (pool_cfg.reshard_state)
+            if (bs && !pool_cfg.reshard_state)
             {
-                reshard_pools.push_back(pool_item.first);
+                pool_cfg.reshard_state = bs->reshard_start(pool_item.first, pool_cfg.real_pg_count, pool_cfg.pg_stripe_size, pg_reshard_chunk_size);
+                if (pool_cfg.reshard_state)
+                {
+                    reshard_pools.push_back(pool_item.first);
+                }
             }
         }
-        this->pg_counts[pool_item.first] = pool_cfg.real_pg_count;
     }
     if (reshard_pools.size() && reshard_timer_id < 0)
     {

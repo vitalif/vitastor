@@ -96,7 +96,7 @@ bool osd_t::sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid)
     {
         return true;
     }
-    auto ppg = (pool_pg_num_t){ .pool_id = pool_id, .pg_num = map_to_pg(oid, pool_cfg_it->second.pg_stripe_size) };
+    auto ppg = (pool_pg_num_t){ .pool_id = pool_id, .pg_num = map_to_pg(oid) };
     auto pg_it = pgs.find(ppg);
     if (pg_it != pgs.end() && pg_it->second.state != PG_OFFLINE)
     {

@@ -159,11 +159,10 @@ void osd_t::reset_pg(pg_t & pg)
         cancel_primary_write(p.second);
     }
     pg.write_queue.clear();
-    uint64_t pg_stripe_size = st_cli.pool_config[pg.pool_id].pg_stripe_size;
     for (auto it = unstable_writes.begin(); it != unstable_writes.end(); )
     {
         // Forget this PG's unstable writes
-        if (INODE_POOL(it->first.oid.inode) == pg.pool_id && map_to_pg(it->first.oid, pg_stripe_size) == pg.pg_num)
+        if (INODE_POOL(it->first.oid.inode) == pg.pool_id && map_to_pg(it->first.oid) == pg.pg_num)
             unstable_writes.erase(it++);
         else
             it++;
@@ -524,6 +523,7 @@ void osd_t::relock_pg(pg_t & pg)
 
 void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
 {
+    auto & pool_cfg = st_cli.pool_config.at(ps->pool_id);
     if (role_osd == this->osd_num)
     {
         // Self
@@ -533,11 +533,11 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_LIST;
-        op->bs_op->pg_alignment = st_cli.pool_config[ps->pool_id].pg_stripe_size;
+        op->bs_op->pg_alignment = pool_cfg.applied_pg_stripe_size;
         op->bs_op->min_oid.inode = ((uint64_t)ps->pool_id << (64 - POOL_ID_BITS));
         op->bs_op->max_oid.inode = ((uint64_t)(ps->pool_id+1) << (64 - POOL_ID_BITS)) - 1;
         op->bs_op->max_oid.stripe = UINT64_MAX;
-        op->bs_op->pg_count = pg_counts[ps->pool_id];
+        op->bs_op->pg_count = pool_cfg.applied_pg_count;
         op->bs_op->pg_number = ps->pg_num-1;
         op->bs_op->callback = [this, ps, op, role_osd](blockstore_op_t *bs_op)
         {
@@ -584,8 +584,8 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
                     .opcode = OSD_OP_SEC_LIST,
                 },
                 .list_pg = ps->pg_num,
-                .pg_count = pg_counts[ps->pool_id],
-                .pg_stripe_size = st_cli.pool_config[ps->pool_id].pg_stripe_size,
+                .pg_count = pool_cfg.applied_pg_count,
+                .pg_stripe_size = pool_cfg.applied_pg_stripe_size,
                 .min_inode = ((uint64_t)(ps->pool_id) << (64 - POOL_ID_BITS)),
                 .max_inode = ((uint64_t)(ps->pool_id+1) << (64 - POOL_ID_BITS)) - 1,
             },

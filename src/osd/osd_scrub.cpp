@@ -9,6 +9,7 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
 {
     pool_id_t pool_id = pg_id.pool_id;
     pg_num_t pg_num = pg_id.pg_num;
+    auto & pool_cfg = st_cli.pool_config.at(pool_id);
     assert(!scrub_list_op);
     if (role_osd == this->osd_num)
     {
@@ -19,7 +20,7 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_LIST;
-        op->bs_op->pg_alignment = st_cli.pool_config[pool_id].pg_stripe_size;
+        op->bs_op->pg_alignment = pool_cfg.applied_pg_stripe_size;
         if (min_oid.inode != 0 || min_oid.stripe != 0)
             op->bs_op->min_oid = min_oid;
         else
@@ -30,7 +31,7 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
         op->bs_op->max_oid.inode = ((uint64_t)(pool_id+1) << (64 - POOL_ID_BITS)) - 1;
         op->bs_op->max_oid.stripe = UINT64_MAX;
         op->bs_op->list_stable_limit = scrub_list_limit;
-        op->bs_op->pg_count = pg_counts[pool_id];
+        op->bs_op->pg_count = pool_cfg.applied_pg_count;
         op->bs_op->pg_number = pg_num-1;
         op->bs_op->callback = [this, op](blockstore_op_t *bs_op)
         {
@@ -68,8 +69,8 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
                     .opcode = OSD_OP_SEC_LIST,
                 },
                 .list_pg = pg_num,
-                .pg_count = pg_counts[pool_id],
-                .pg_stripe_size = st_cli.pool_config[pool_id].pg_stripe_size,
+                .pg_count = (uint32_t)pool_cfg.applied_pg_count,
+                .pg_stripe_size = pool_cfg.applied_pg_stripe_size,
                 .min_inode = min_oid.inode ? min_oid.inode : ((uint64_t)(pool_id) << (64 - POOL_ID_BITS)),
                 .max_inode = ((uint64_t)(pool_id+1) << (64 - POOL_ID_BITS)) - 1,
                 .min_stripe = min_oid.stripe,
@@ -249,7 +250,7 @@ void osd_t::submit_scrub_op(object_id oid)
             printf(
                 "Scrub failed with object %jx:%jx (PG %u/%u): error %jd\n",
                 oid.inode, oid.stripe, INODE_POOL(oid.inode),
-                map_to_pg(oid, st_cli.pool_config.at(INODE_POOL(oid.inode)).pg_stripe_size),
+                map_to_pg(oid),
                 osd_op->reply.hdr.retval
             );
         }
