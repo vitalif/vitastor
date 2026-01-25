@@ -79,12 +79,8 @@ void osd_t::exec_secondary(osd_op_t *op)
     }
 }
 
-bool osd_t::sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid)
+bool osd_t::sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid, uint32_t flags)
 {
-    if (!enable_pg_locks)
-    {
-        return true;
-    }
     pool_id_t pool_id = INODE_POOL(oid.inode);
     auto pool_cfg_it = st_cli.pool_config.find(pool_id);
     if (pool_cfg_it == st_cli.pool_config.end())
@@ -92,6 +88,14 @@ bool osd_t::sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid)
         return false;
     }
     auto & pool_cfg = pool_cfg_it->second;
+    if (pool_cfg.reshard_state)
+    {
+        return false;
+    }
+    if (!enable_pg_locks || (flags & OSD_OP_IGNORE_PG_LOCK))
+    {
+        return true;
+    }
     if (pg_locks_localize_only && (pool_cfg.scheme != POOL_SCHEME_REPLICATED || pool_cfg.local_reads == POOL_LOCAL_READ_PRIMARY))
     {
         return true;
@@ -140,8 +144,7 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
-        if (!(cur_op->req.sec_rw.flags & OSD_OP_IGNORE_PG_LOCK) &&
-            !sec_check_pg_lock(cl->in_osd_num, cur_op->req.sec_rw.oid))
+        if (!sec_check_pg_lock(cl->in_osd_num, cur_op->req.sec_rw.oid, cur_op->req.sec_rw.flags))
         {
             cur_op->bs_op->retval = -EPIPE;
             secondary_op_callback(cur_op);
@@ -169,8 +172,7 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_DELETE)
     {
-        if (!(cur_op->req.sec_del.flags & OSD_OP_IGNORE_PG_LOCK) &&
-            !sec_check_pg_lock(cl->in_osd_num, cur_op->req.sec_del.oid))
+        if (!sec_check_pg_lock(cl->in_osd_num, cur_op->req.sec_del.oid, cur_op->req.sec_del.flags))
         {
             cur_op->bs_op->retval = -EPIPE;
             secondary_op_callback(cur_op);
@@ -190,11 +192,11 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
 #ifdef OSD_STUB
         cur_op->bs_op->retval = 0;
 #endif
-        if (enable_pg_locks && !(cur_op->req.sec_stab.flags & OSD_OP_IGNORE_PG_LOCK))
+        if (enable_pg_locks)
         {
             for (int i = 0; i < cur_op->bs_op->len; i++)
             {
-                if (!sec_check_pg_lock(cl->in_osd_num, ((obj_ver_id*)cur_op->buf)[i].oid))
+                if (!sec_check_pg_lock(cl->in_osd_num, ((obj_ver_id*)cur_op->buf)[i].oid, cur_op->req.sec_stab.flags))
                 {
                     cur_op->bs_op->retval = -EPIPE;
                     secondary_op_callback(cur_op);
@@ -210,6 +212,14 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
             // requested pg number is greater than total pg count
             printf("Invalid LIST request: pg count %u < pg number %u\n", cur_op->req.sec_list.pg_count, cur_op->req.sec_list.list_pg);
             cur_op->bs_op->retval = -EINVAL;
+            secondary_op_callback(cur_op);
+            return;
+        }
+        auto pool_id = INODE_POOL(cur_op->bs_op->min_oid.inode);
+        if (pool_id && !sec_check_pg_lock(0, (object_id){ .inode = cur_op->bs_op->min_oid.inode }, OSD_OP_IGNORE_PG_LOCK))
+        {
+            // Check resharding state of the pool
+            cur_op->bs_op->retval = -EPIPE;
             secondary_op_callback(cur_op);
             return;
         }
@@ -248,8 +258,7 @@ void osd_t::exec_sec_read_bmp(osd_op_t *cur_op)
         void *cur_buf = reply_buf;
         for (int i = 0; i < n; i++)
         {
-            if (!sec_check_pg_lock(cl->in_osd_num, ov[i].oid) &&
-                !(cur_op->req.sec_read_bmp.flags & OSD_OP_IGNORE_PG_LOCK))
+            if (!sec_check_pg_lock(cl->in_osd_num, ov[i].oid, cur_op->req.sec_read_bmp.flags))
             {
                 free(reply_buf);
                 cur_op->bs_op->retval = -EPIPE;

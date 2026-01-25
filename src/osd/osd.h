@@ -324,7 +324,7 @@ class osd_t
     void finish_op(osd_op_t *cur_op, int retval);
 
     // secondary ops
-    bool sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid);
+    bool sec_check_pg_lock(osd_num_t primary_osd, const object_id & oid, uint32_t flags);
     void exec_show_config(osd_op_t *cur_op);
     void exec_secondary(osd_op_t *cur_op);
     void exec_secondary_real(osd_op_t *cur_op);
