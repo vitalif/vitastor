@@ -42,6 +42,7 @@ void osd_messenger_t::read_requests()
             }
             if (!sqe)
             {
+                cl->refs--;
                 cl->read_msg.msg_iovlen = 0;
                 read_ready_clients.erase(read_ready_clients.begin(), read_ready_clients.begin() + i);
                 return;
