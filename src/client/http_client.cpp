@@ -34,10 +34,32 @@ static std::string ws_format_frame(int type, uint64_t size);
 static bool ws_parse_frame(std::string & buf, uint8_t & type, std::string & res);
 static void parse_http_headers(std::string & res, http_response_t *parsed);
 
-struct http_co_t
+struct http_context_t
 {
+    std::string ssl_cert;
+    std::string ssl_key;
+    std::string ssl_ca;
+
 #ifdef WITH_OPENSSL
     SSL_CTX *ssl_ctx = NULL;
+#endif
+
+    ~http_context_t()
+    {
+#ifdef WITH_OPENSSL
+        if (ssl_ctx)
+        {
+            SSL_CTX_free(ssl_ctx);
+            ssl_ctx = NULL;
+        }
+#endif
+    }
+};
+
+struct http_co_t
+{
+    http_context_t *ctx = NULL;
+#ifdef WITH_OPENSSL
     SSL *ssl_cli = NULL;
     BIO *ssl_bio = NULL;
 #endif
@@ -47,9 +69,6 @@ struct http_co_t
 
     int request_timeout = 0;
     bool ssl = false;
-    std::string ssl_cert;
-    std::string ssl_key;
-    std::string ssl_ca;
     std::string host;
     std::string request;
     std::string ws_outbox;
@@ -108,11 +127,47 @@ struct http_co_t
 
 #define DEFAULT_TIMEOUT 5000
 
-http_co_t *http_init(timerfd_manager_t *tfd)
+http_context_t* http_context_init(const std::string & ssl_cert, const std::string & ssl_key, const std::string & ssl_ca, std::string & error)
+{
+    http_context_t *ctx = new http_context_t;
+#ifdef WITH_OPENSSL
+    SSL_CTX *ssl_ctx = SSL_CTX_new(TLS_method());
+    ctx->ssl_cert = ssl_cert;
+    ctx->ssl_key = ssl_key;
+    ctx->ssl_ca = ssl_ca;
+    ctx->ssl_ctx = ssl_ctx;
+    if (!ssl_ctx)
+        goto init_err;
+    SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
+    if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
+        goto init_err;
+    if ((ssl_ca != "")
+        ? !SSL_CTX_load_verify_locations(ssl_ctx, ssl_ca.c_str(), NULL)
+        : !SSL_CTX_set_default_verify_paths(ssl_ctx))
+        goto init_err;
+    if (ssl_cert != "" && ssl_key != "" &&
+        (!SSL_CTX_use_certificate_file(ssl_ctx, ssl_cert.c_str(), SSL_FILETYPE_PEM) ||
+        !SSL_CTX_use_PrivateKey_file(ssl_ctx, ssl_key.c_str(), SSL_FILETYPE_PEM)))
+        goto init_err;
+#endif
+    return ctx;
+init_err:
+    error = std::string("openssl initialization failed: ")+ERR_error_string(ERR_get_error(), NULL);
+    delete ctx;
+    return NULL;
+}
+
+void http_context_destroy(http_context_t *ctx)
+{
+    delete ctx;
+}
+
+http_co_t *http_init(timerfd_manager_t *tfd, http_context_t *ctx)
 {
     http_co_t *handler = new http_co_t();
     handler->tfd = tfd;
     handler->state = HTTP_CO_CLOSED;
+    handler->ctx = ctx;
     return handler;
 }
 
@@ -135,7 +190,6 @@ void open_websocket(http_co_t *handler, const std::string & host, const std::str
     handler->want_streaming = false;
     handler->keepalive = false;
     handler->ssl = options.ssl;
-    handler->ssl_ca = options.ssl_ca;
     handler->request = request;
     handler->response_callback = response_callback;
     handler->ws_outbox = "";
@@ -188,7 +242,6 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
     this->want_streaming = options.want_streaming;
     this->keepalive = options.keepalive;
     this->ssl = options.ssl;
-    this->ssl_ca = options.ssl_ca;
     this->host = host;
     this->request = request;
     this->response = "";
@@ -297,13 +350,6 @@ void http_response_t::parse_json_response(std::string & error, json11::Json & r)
 http_co_t::~http_co_t()
 {
     close_connection();
-#ifdef WITH_OPENSSL
-    if (ssl_ctx)
-    {
-        SSL_CTX_free(ssl_ctx);
-        ssl_ctx = NULL;
-    }
-#endif
 }
 
 void http_co_t::close_connection()
@@ -382,29 +428,14 @@ void http_co_t::start_connection()
     // https://wiki.openssl.org/index.php/Hostname_validation
     if (ssl)
     {
-        if (!ssl_ctx)
-        {
-            ssl_ctx = SSL_CTX_new(TLS_method());
-            if (!ssl_ctx)
-                goto init_err;
-            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
-            if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
-                goto init_err;
-            if ((ssl_ca != "")
-                ? !SSL_CTX_load_verify_locations(ssl_ctx, ssl_ca.c_str(), NULL)
-                : !SSL_CTX_set_default_verify_paths(ssl_ctx))
-                goto init_err;
-            if (ssl_cert != "" && ssl_key != "" &&
-                (!SSL_CTX_use_certificate_file(ssl_ctx, ssl_cert.c_str(), SSL_FILETYPE_PEM) ||
-                !SSL_CTX_use_PrivateKey_file(ssl_ctx, ssl_key.c_str(), SSL_FILETYPE_PEM)))
-                goto init_err;
-        }
+        if (!ctx)
+            goto init_err;
         ssl_bio = BIO_new(BIO_s_socket());
         if (!ssl_bio)
             goto init_err;
         if (!BIO_set_fd(ssl_bio, peer_fd, BIO_NOCLOSE))
             goto init_err;
-        ssl_cli = SSL_new(ssl_ctx);
+        ssl_cli = SSL_new(ctx->ssl_ctx);
         if (!ssl_cli)
             goto init_err;
         SSL_set_bio(ssl_cli, ssl_bio, ssl_bio);
@@ -420,11 +451,6 @@ init_err:
             {
                 BIO_free(ssl_bio);
                 ssl_bio = NULL;
-            }
-            if (ssl_ctx)
-            {
-                SSL_CTX_free(ssl_ctx);
-                ssl_ctx = NULL;
             }
             parsed = { .error = std::string("openssl initialization failed: ")+ERR_error_string(ERR_get_error(), NULL) };
             response_callback(&parsed);

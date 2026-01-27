@@ -23,10 +23,9 @@ struct http_options_t
     bool want_streaming;
     bool keepalive;
     bool ssl;
-    std::string ssl_cert;
-    std::string ssl_key;
-    std::string ssl_ca;
 };
+
+struct http_context_t;
 
 struct http_response_t
 {
@@ -45,7 +44,9 @@ struct http_response_t
 // Opened websocket or keepalive HTTP connection
 struct http_co_t;
 
-http_co_t* http_init(timerfd_manager_t *tfd);
+http_context_t* http_context_init(const std::string & ssl_cert, const std::string & ssl_key, const std::string & ssl_ca, std::string & error);
+void http_context_destroy(http_context_t *ctx);
+http_co_t* http_init(timerfd_manager_t *tfd, http_context_t *ctx = NULL);
 void open_websocket(http_co_t *handler, const std::string & host, const std::string & path,
     const http_options_t & options, std::function<void(const http_response_t *msg)> on_message);
 void http_request(http_co_t *handler, const std::string & host, const std::string & request,

@@ -29,6 +29,11 @@ etcd_state_client_http_t::~etcd_state_client_http_t()
         tfd->clear_timer(load_pgs_timer_id);
         load_pgs_timer_id = -1;
     }
+    if (http_ctx)
+    {
+        http_context_destroy(http_ctx);
+        http_ctx = NULL;
+    }
     etcd_watches_initialised = -1;
 }
 
@@ -38,6 +43,21 @@ void etcd_state_client_http_t::etcd_add_watch(json11::Json watch)
     {
         http_post_message(etcd_watch_ws, WS_TEXT, watch.dump());
     }
+}
+
+http_context_t *etcd_state_client_http_t::get_http_ctx()
+{
+    if (!http_ctx)
+    {
+        std::string error;
+        http_ctx = http_context_init(etcd_client_cert, etcd_client_key, etcd_ca, error);
+        if (!http_ctx)
+        {
+            fprintf(stderr, "Failed to initialize HTTP context: %s\n", error.c_str());
+            exit(1);
+        }
+    }
+    return http_ctx;
 }
 
 void etcd_state_client_http_t::etcd_call_oneshot(std::string etcd_address, std::string api, json11::Json payload,
@@ -59,7 +79,7 @@ void etcd_state_client_http_t::etcd_call_oneshot(std::string etcd_address, std::
         "Content-Length: "+std::to_string(req.size())+"\r\n"
         "Connection: close\r\n"
         "\r\n"+req;
-    auto http_cli = http_init(tfd);
+    auto http_cli = http_init(tfd, get_http_ctx());
     auto cb = [http_cli, callback](const http_response_t *response)
     {
         std::string err;
@@ -68,7 +88,7 @@ void etcd_state_client_http_t::etcd_call_oneshot(std::string etcd_address, std::
         callback(err, data);
         http_destroy(http_cli);
     };
-    http_request(http_cli, etcd_address, req, { .timeout = timeout, .ssl = ssl, .ssl_ca = etcd_ca }, cb);
+    http_request(http_cli, etcd_address, req, { .timeout = timeout, .ssl = ssl }, cb);
 }
 
 void etcd_state_client_http_t::etcd_call(std::string api, json11::Json payload, int timeout,
@@ -136,10 +156,8 @@ void etcd_state_client_http_t::etcd_call(std::string api, json11::Json payload, 
             callback(err, data);
     };
     if (!keepalive_client)
-    {
-        keepalive_client = http_init(tfd);
-    }
-    http_request(keepalive_client, etcd_address, req, { .timeout = timeout, .keepalive = true, .ssl = ssl, .ssl_ca = etcd_ca }, cb);
+        keepalive_client = http_init(tfd, get_http_ctx());
+    http_request(keepalive_client, etcd_address, req, { .timeout = timeout, .keepalive = true, .ssl = ssl }, cb);
 }
 
 void etcd_state_client_http_t::parse_config(const json11::Json & config)
@@ -209,10 +227,10 @@ void etcd_state_client_http_t::start_etcd_watcher()
             etcd_watch_revision_config, etcd_watch_revision_osd, etcd_watch_revision_pg);
     }
     if (!etcd_watch_ws)
-        etcd_watch_ws = http_init(tfd);
+        etcd_watch_ws = http_init(tfd, get_http_ctx());
     else
         http_close(etcd_watch_ws);
-    open_websocket(etcd_watch_ws, etcd_address, etcd_api_path+"/watch", { .timeout = etcd_slow_timeout, .ssl = ssl, .ssl_ca = etcd_ca },
+    open_websocket(etcd_watch_ws, etcd_address, etcd_api_path+"/watch", { .timeout = etcd_slow_timeout, .ssl = ssl },
         [this, cur_addr = selected_etcd_address](const http_response_t *msg)
     {
         if (msg->body.length())
