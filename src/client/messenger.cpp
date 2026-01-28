@@ -583,7 +583,13 @@ void osd_messenger_t::handle_peer_epoll(int peer_fd, int epoll_events)
 
 void osd_messenger_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
 {
-    auto & wp = wanted_peers.at(peer_osd);
+    auto wp_it = wanted_peers.find(peer_osd);
+    if (wp_it == wanted_peers.end())
+    {
+        fprintf(stderr, "on_connect_peer: no wanted peer entry for OSD %ju\n", peer_osd);
+        return;
+    }
+    auto & wp = wp_it->second;
     wp.connecting = false;
     if (peer_fd < 0)
     {
