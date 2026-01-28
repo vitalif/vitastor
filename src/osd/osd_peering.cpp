@@ -584,7 +584,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
                     .opcode = OSD_OP_SEC_LIST,
                 },
                 .list_pg = ps->pg_num,
-                .pg_count = pool_cfg.applied_pg_count,
+                .pg_count = (uint32_t)pool_cfg.applied_pg_count,
                 .pg_stripe_size = pool_cfg.applied_pg_stripe_size,
                 .min_inode = ((uint64_t)(ps->pool_id) << (64 - POOL_ID_BITS)),
                 .max_inode = ((uint64_t)(ps->pool_id+1) << (64 - POOL_ID_BITS)) - 1,

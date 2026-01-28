@@ -58,7 +58,6 @@ class journal_flusher_co
     int i, res;
     bool read_to_fill_incomplete;
     int copy_count;
-    bool do_repeat = false;
 
     friend class journal_flusher_t;
 

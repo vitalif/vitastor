@@ -269,7 +269,7 @@ resume_6:
         }
         GET_SQE();
         data->iov = (iovec){ buf, len };
-        data->callback = [this, offset, cb](ring_data_t *data)
+        data->callback = [offset, cb](ring_data_t *data)
         {
             if (data->res < 0)
             {

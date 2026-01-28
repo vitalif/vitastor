@@ -898,7 +898,7 @@ void cluster_client_t::execute_cas(cluster_op_t *op)
                         .opcode = OSD_OP_SYNC,
                     },
                 },
-                .callback = [this, op](osd_op_t *part)
+                .callback = [op](osd_op_t *part)
                 {
                     if (part->reply.hdr.retval != 0)
                     {

@@ -163,7 +163,7 @@ using heap_mvcc_map_t = robin_hood::unordered_flat_map<object_id, heap_object_mv
 
 class blockstore_heap_t
 {
-    friend class heap_entry_t;
+    friend struct heap_entry_t;
 
     blockstore_disk_t *dsk = NULL;
     uint8_t* buffer_area = NULL;
