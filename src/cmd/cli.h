@@ -46,6 +46,7 @@ public:
     json11::Json etcd_result;
 
     void parse_config(json11::Json::object & cfg);
+    void parse_api_opts(json11::Json::object & cfg);
     json11::Json parse_tags(std::string tags);
 
     void change_parent(inode_t cur, inode_t new_parent, cli_result_t *result);
@@ -56,8 +57,10 @@ public:
     friend struct snap_flattener_t;
     friend struct snap_remover_t;
 
+    std::function<bool(cli_result_t &)> start(json11::Json::object cfg, cli_result_t & result);
     std::function<bool(cli_result_t &)> start_alloc_osd(json11::Json);
     std::function<bool(cli_result_t &)> start_create(json11::Json);
+    std::function<bool(cli_result_t &)> start_dd(json11::Json);
     std::function<bool(cli_result_t &)> start_describe(json11::Json);
     std::function<bool(cli_result_t &)> start_fix(json11::Json);
     std::function<bool(cli_result_t &)> start_flatten(json11::Json);
@@ -76,8 +79,8 @@ public:
     std::function<bool(cli_result_t &)> start_rm_data(json11::Json);
     std::function<bool(cli_result_t &)> start_rm_osd(json11::Json);
     std::function<bool(cli_result_t &)> start_rm_wildcard(json11::Json);
+    std::function<bool(cli_result_t &)> start_serve(json11::Json);
     std::function<bool(cli_result_t &)> start_status(json11::Json);
-    std::function<bool(cli_result_t &)> start_dd(json11::Json);
 
     // Should be called like loop_and_wait(start_status(), <completion callback>)
     void loop_and_wait(std::function<bool(cli_result_t &)> loop_cb, std::function<void(const cli_result_t &)> complete_cb);

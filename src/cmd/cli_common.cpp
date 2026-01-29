@@ -101,6 +101,16 @@ inode_config_t* cli_tool_t::get_inode_cfg(const std::string & name)
     return NULL;
 }
 
+void cli_tool_t::parse_api_opts(json11::Json::object & cfg)
+{
+    iodepth = cfg["iodepth"].uint64_value();
+    if (!iodepth)
+        iodepth = 32;
+    parallel_osds = cfg["parallel_osds"].uint64_value();
+    if (!parallel_osds)
+        parallel_osds = 4;
+}
+
 void cli_tool_t::parse_config(json11::Json::object & cfg)
 {
     for (auto kv_it = cfg.begin(); kv_it != cfg.end();)
@@ -121,15 +131,10 @@ void cli_tool_t::parse_config(json11::Json::object & cfg)
     else
         color = isatty(1);
     json_output = cfg["json"].bool_value();
-    iodepth = cfg["iodepth"].uint64_value();
-    if (!iodepth)
-        iodepth = 32;
-    parallel_osds = cfg["parallel_osds"].uint64_value();
-    if (!parallel_osds)
-        parallel_osds = 4;
     log_level = cfg["log_level"].int64_value();
     progress = cfg["progress"].uint64_value() ? true : false;
     list_first = cfg["wait_list"].uint64_value() ? true : false;
+    parse_api_opts(cfg);
 }
 
 struct cli_result_looper_t
@@ -153,7 +158,6 @@ void cli_tool_t::loop_and_wait(std::function<bool(cli_result_t &)> loop_cb, std:
             ringloop->unregister_consumer(&looper->consumer);
             looper->loop_cb = NULL;
             looper->complete_cb(looper->result);
-            ringloop->submit();
             delete looper;
             return;
         }

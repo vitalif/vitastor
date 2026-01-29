@@ -1,6 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
+#include "str_util.h"
 #include "json_util.h"
 
 std::map<std::string, std::string> json_to_string_map(const json11::Json::object & config)
@@ -48,4 +49,37 @@ std::string implode(const std::string & sep, json11::Json array)
         first = false;
     }
     return res;
+}
+
+static void json_array_add(json11::Json & to, json11::Json item)
+{
+    if (to.is_null())
+        to = item;
+    else if (to.is_array())
+    {
+        auto a = to.array_items();
+        a.push_back(item);
+        to = a;
+    }
+    else
+    {
+        json11::Json::array a = {to};
+        a.push_back(item);
+        to = a;
+    }
+}
+
+json11::Json::object parse_uri_params(const std::string & params)
+{
+    json11::Json::object obj;
+    auto list = explode("&", params, true);
+    for (auto & param: list)
+    {
+        auto pos = param.find("=");
+        if (pos != std::string::npos)
+            json_array_add(obj[urldecode(param.substr(0, pos))], urldecode(param.substr(pos+1)));
+        else
+            json_array_add(obj[urldecode(param)], true);
+    }
+    return obj;
 }

@@ -36,5 +36,6 @@ std::string strprintf(const char *fmt, ...) __attribute__((format(printf, 1, 2))
 std::string format_datetime(uint64_t unixtime);
 bool is_zero(void *buf, size_t size);
 bool memcheck(uint8_t *buf, uint8_t byte, size_t len);
+std::string urldecode(const std::string & orig);
 
 #pragma GCC visibility pop

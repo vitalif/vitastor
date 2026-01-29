@@ -230,6 +230,14 @@ static const char* help_text =
     "  -r|--reverse    Sort in descending order\n"
     "  -n|--count N    Only list first N items\n"
     "\n"
+    "vitastor-cli serve\n"
+    "  Start HTTP server able to handle CLI commands over a REST API. Options:\n"
+    "  --bind_address ADDR  Specify server IP address or addresses, separated by space. Default is 127.0.0.1.\n"
+    "  --port 8080          Specify server port.\n"
+    "  --ssl_cert FILE      Path to server SSL certificate file (PEM format).\n"
+    "  --ssl_key FILE       Path to server SSL private key file.\n"
+    "  --ssl_ca FILE        Path to file with SSL CA certificates used to validate client connections.\n"
+    "\n"
     "Use vitastor-cli --help <command> for command details or vitastor-cli --help --all for all details.\n"
     "\n"
     "GLOBAL OPTIONS:\n"
@@ -324,27 +332,24 @@ static json11::Json::object parse_args(int narg, const char *args[])
     return cfg;
 }
 
-static int run(cli_tool_t *p, json11::Json::object cfg)
+std::function<bool(cli_result_t &)> cli_tool_t::start(json11::Json::object cfg, cli_result_t & result)
 {
-    cli_result_t result = {};
-    p->is_command_line = true;
-    p->parse_config(cfg);
     json11::Json::array cmd = cfg["command"].array_items();
     cfg.erase("command");
     std::function<bool(cli_result_t &)> action_cb;
     if (!cmd.size())
     {
-        result = { .err = EINVAL, .text = "command is missing" };
+        result = { .err = EOPNOTSUPP, .text = "command is missing" };
     }
     else if (cmd[0] == "status")
     {
         // Show cluster status
-        action_cb = p->start_status(cfg);
+        action_cb = start_status(cfg);
     }
     else if (cmd[0] == "df")
     {
         // Show pool space stats
-        action_cb = p->start_pool_ls(cfg);
+        action_cb = start_pool_ls(cfg);
     }
     else if (cmd[0] == "ls")
     {
@@ -354,7 +359,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
             cmd.erase(cmd.begin(), cmd.begin()+1);
             cfg["names"] = cmd;
         }
-        action_cb = p->start_ls(cfg);
+        action_cb = start_ls(cfg);
     }
     else if (cmd[0] == "snap-create")
     {
@@ -369,7 +374,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         {
             cfg["image"] = name.substr(0, pos);
             cfg["snapshot"] = name.substr(pos + 1);
-            action_cb = p->start_create(cfg);
+            action_cb = start_create(cfg);
         }
     }
     else if (cmd[0] == "create")
@@ -379,7 +384,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         {
             cfg["image"] = cmd[1];
         }
-        action_cb = p->start_create(cfg);
+        action_cb = start_create(cfg);
     }
     else if (cmd[0] == "modify")
     {
@@ -388,12 +393,12 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         {
             cfg["image"] = cmd[1];
         }
-        action_cb = p->start_modify(cfg);
+        action_cb = start_modify(cfg);
     }
     else if (cmd[0] == "rm-data")
     {
         // Delete inode data
-        action_cb = p->start_rm_data(cfg);
+        action_cb = start_rm_data(cfg);
     }
     else if (cmd[0] == "rm-osd")
     {
@@ -403,7 +408,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
             cmd.erase(cmd.begin(), cmd.begin()+1);
             cfg["osd_id"] = cmd;
         }
-        action_cb = p->start_rm_osd(cfg);
+        action_cb = start_rm_osd(cfg);
     }
     else if (cmd[0] == "merge-data")
     {
@@ -414,7 +419,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
             if (cmd.size() > 2)
                 cfg["to"] = cmd[2];
         }
-        action_cb = p->start_merge(cfg);
+        action_cb = start_merge(cfg);
     }
     else if (cmd[0] == "flatten")
     {
@@ -423,7 +428,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         {
             cfg["image"] = cmd[1];
         }
-        action_cb = p->start_flatten(cfg);
+        action_cb = start_flatten(cfg);
     }
     else if (cmd[0] == "dd")
     {
@@ -437,7 +442,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
                 cfg[arg.substr(0, p)] = arg.substr(p+1);
             }
         }
-        action_cb = p->start_dd(cfg);
+        action_cb = start_dd(cfg);
     }
     else if (cmd[0] == "rm")
     {
@@ -446,7 +451,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         {
             cmd.erase(cmd.begin(), cmd.begin()+1);
             cfg["globs"] = cmd;
-            action_cb = p->start_rm_wildcard(cfg);
+            action_cb = start_rm_wildcard(cfg);
         }
         else
         {
@@ -456,46 +461,46 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
                 if (cmd.size() > 2)
                     cfg["to"] = cmd[2];
             }
-            action_cb = p->start_rm(cfg);
+            action_cb = start_rm(cfg);
         }
     }
     else if (cmd[0] == "describe")
     {
         // Describe unclean objects
-        action_cb = p->start_describe(cfg);
+        action_cb = start_describe(cfg);
     }
     else if (cmd[0] == "raw-ls")
     {
         // Run raw listings
-        action_cb = p->start_raw_ls(cfg);
+        action_cb = start_raw_ls(cfg);
     }
     else if (cmd[0] == "fix")
     {
         // Fix inconsistent objects (by deleting some copies)
-        action_cb = p->start_fix(cfg);
+        action_cb = start_fix(cfg);
     }
     else if (cmd[0] == "alloc-osd")
     {
         // Allocate a new OSD number
-        action_cb = p->start_alloc_osd(cfg);
+        action_cb = start_alloc_osd(cfg);
     }
     else if (cmd[0] == "osd-tree")
     {
         // Print OSD tree
-        action_cb = p->start_osd_tree(cfg);
+        action_cb = start_osd_tree(cfg);
     }
     else if (cmd[0] == "osds" || cmd[0] == "ls-osds" || cmd[0] == "ls-osd" || cmd[0] == "osd-ls")
     {
         // Print OSD list
         cfg["flat"] = true;
-        action_cb = p->start_osd_tree(cfg);
+        action_cb = start_osd_tree(cfg);
     }
     else if (cmd[0] == "modify-osd")
     {
         // Modify OSD configuration
         if (cmd.size() > 1)
             cfg["osd_num"] = cmd[1];
-        action_cb = p->start_modify_osd(cfg);
+        action_cb = start_modify_osd(cfg);
     }
     else if (cmd[0] == "pg-list" || cmd[0] == "pg-ls" || cmd[0] == "list-pg" || cmd[0] == "ls-pg" || cmd[0] == "ls-pgs" || cmd[0] == "pgs")
     {
@@ -505,7 +510,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
             cmd.erase(cmd.begin(), cmd.begin()+1);
             cfg["pg_state"] = cmd;
         }
-        action_cb = p->start_pg_list(cfg);
+        action_cb = start_pg_list(cfg);
     }
     else if (cmd[0] == "create-pool" || cmd[0] == "pool-create")
     {
@@ -514,7 +519,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         {
             cfg["name"] = cmd[1];
         }
-        action_cb = p->start_pool_create(cfg);
+        action_cb = start_pool_create(cfg);
     }
     else if (cmd[0] == "modify-pool" || cmd[0] == "pool-modify")
     {
@@ -523,7 +528,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         {
             cfg["old_name"] = cmd[1];
         }
-        action_cb = p->start_pool_modify(cfg);
+        action_cb = start_pool_modify(cfg);
     }
     else if (cmd[0] == "rm-pool" || cmd[0] == "pool-rm")
     {
@@ -532,7 +537,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         {
             cfg["pool"] = cmd[1];
         }
-        action_cb = p->start_pool_rm(cfg);
+        action_cb = start_pool_rm(cfg);
     }
     else if (cmd[0] == "ls-pool" || cmd[0] == "pool-ls" || cmd[0] == "ls-pools" || cmd[0] == "pools")
     {
@@ -543,12 +548,26 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
             cmd.erase(cmd.begin(), cmd.begin()+1);
             cfg["names"] = cmd;
         }
-        action_cb = p->start_pool_ls(cfg);
+        action_cb = start_pool_ls(cfg);
+    }
+    else if (cmd[0] == "serve")
+    {
+        // Start HTTP server
+        action_cb = start_serve(cfg);
     }
     else
     {
-        result = { .err = EINVAL, .text = "unknown command: "+cmd[0].string_value() };
+        result = { .err = EOPNOTSUPP, .text = "unknown command: "+cmd[0].string_value() };
     }
+    return action_cb;
+}
+
+static int run(cli_tool_t *p, json11::Json::object cfg)
+{
+    cli_result_t result = {};
+    p->is_command_line = true;
+    p->parse_config(cfg);
+    auto action_cb = p->start(cfg, result);
     if (action_cb != NULL)
     {
         // Create client
@@ -560,6 +579,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         {
             result = r;
             action_cb = NULL;
+            p->ringloop->submit();
         });
         // Loop until it completes
         while (action_cb != NULL)

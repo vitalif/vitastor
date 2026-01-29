@@ -526,3 +526,34 @@ bool memcheck(uint8_t *buf, uint8_t byte, size_t len)
             return false;
     return true;
 }
+
+char hextochar(char h)
+{
+    if (h >= 'a' && h <= 'f')
+        return h-'a'+10;
+    else if (h >= 'A' && h <= 'F')
+        return h-'A'+10;
+    else if (h >= '0' && h <= '9')
+        return h-'0';
+    return 0;
+}
+
+std::string urldecode(const std::string & orig)
+{
+    size_t len = orig.size();
+    std::string res;
+    res.reserve(len);
+    for (size_t i = 0; i < len; i++)
+    {
+        if (orig[i] == '+')
+            res.push_back(' ');
+        else if (orig[i] == '%' && i < len-2)
+        {
+            res.push_back(hextochar(orig[i+1])*16 + hextochar(orig[i+2]));
+            i += 2;
+        }
+        else
+            res.push_back(orig[i]);
+    }
+    return res;
+}
