@@ -173,9 +173,9 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     }
     if (data_block_size / bitmap_granularity < 8)
     {
-        fprintf(stderr, "Warning: block_size (%ju) / bitmap_granularity (%ju) = %ju bits. "
-                "Consider using larger block_size or bitmap_granularity for better performance.\n",
-                data_block_size, bitmap_granularity, data_block_size / bitmap_granularity);
+        fprintf(stderr, "Warning: block_size (%u) / bitmap_granularity (%u) = %u bits. "
+            "Consider using larger block_size or bitmap_granularity for better performance.\n",
+            data_block_size, bitmap_granularity, data_block_size / bitmap_granularity);
     }
     if (!data_csum_type)
     {
