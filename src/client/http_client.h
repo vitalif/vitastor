@@ -27,7 +27,7 @@ struct http_options_t
 
 struct http_context_t;
 
-struct http_response_t
+struct http_message_t
 {
     std::string error;
 
@@ -48,9 +48,9 @@ http_context_t* http_context_init(const std::string & ssl_cert, const std::strin
 void http_context_destroy(http_context_t *ctx);
 http_co_t* http_init(timerfd_manager_t *tfd, http_context_t *ctx = NULL);
 void open_websocket(http_co_t *handler, const std::string & host, const std::string & path,
-    const http_options_t & options, std::function<void(const http_response_t *msg)> on_message);
+    const http_options_t & options, std::function<void(const http_message_t *msg)> on_message);
 void http_request(http_co_t *handler, const std::string & host, const std::string & request,
-    const http_options_t & options, std::function<void(const http_response_t *response)> response_callback);
+    const http_options_t & options, std::function<void(const http_message_t *response)> response_callback);
 void http_post_message(http_co_t *handler, uint8_t type, const std::string & msg);
 void http_close(http_co_t *co);
 void http_destroy(http_co_t *co);

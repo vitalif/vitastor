@@ -32,7 +32,7 @@
 
 static std::string ws_format_frame(int type, uint64_t size);
 static bool ws_parse_frame(std::string & buf, uint8_t & type, std::string & res);
-static void parse_http_headers(std::string & res, http_response_t *parsed);
+static void parse_http_headers(std::string & res, http_message_t *parsed);
 
 struct http_context_t
 {
@@ -65,7 +65,7 @@ struct http_co_t
 #endif
 
     timerfd_manager_t *tfd;
-    std::function<void(const http_response_t*)> response_callback;
+    std::function<void(const http_message_t*)> response_callback;
 
     int request_timeout = 0;
     bool ssl = false;
@@ -87,7 +87,7 @@ struct http_co_t
     std::vector<uint8_t> rbuf;
     iovec read_iov, send_iov;
     msghdr read_msg = { 0 }, send_msg = { 0 };
-    http_response_t parsed;
+    http_message_t parsed;
     uint64_t target_response_size = 0;
 
     int onstack = 0;
@@ -113,7 +113,7 @@ struct http_co_t
 #endif
     void post_message(uint8_t type, const std::string & msg);
     void send_request(const std::string & host, const std::string & request,
-        const http_options_t & options, std::function<void(const http_response_t *response)> response_callback);
+        const http_options_t & options, std::function<void(const http_message_t *response)> response_callback);
 };
 
 #define HTTP_CO_CLOSED 0
@@ -172,7 +172,7 @@ http_co_t *http_init(timerfd_manager_t *tfd, http_context_t *ctx)
 }
 
 void open_websocket(http_co_t *handler, const std::string & host, const std::string & path,
-    const http_options_t & options, std::function<void(const http_response_t *msg)> response_callback)
+    const http_options_t & options, std::function<void(const http_message_t *msg)> response_callback)
 {
     if (handler->state == HTTP_CO_KEEPALIVE && (handler->connected_host != host || handler->ssl != options.ssl))
         handler->close_connection();
@@ -200,7 +200,7 @@ void open_websocket(http_co_t *handler, const std::string & host, const std::str
 }
 
 void http_request(http_co_t *handler, const std::string & host, const std::string & request,
-    const http_options_t & options, std::function<void(const http_response_t *response)> response_callback)
+    const http_options_t & options, std::function<void(const http_message_t *response)> response_callback)
 {
     handler->send_request(host, request, options, response_callback);
 }
@@ -208,7 +208,7 @@ void http_request(http_co_t *handler, const std::string & host, const std::strin
 void http_co_t::run_cb_and_clear()
 {
     parsed.eof = true;
-    std::function<void(const http_response_t*)> cb;
+    std::function<void(const http_message_t*)> cb;
     cb.swap(response_callback);
     // Call callback after clearing it because otherwise we may hit reenterability problems
     if (cb != NULL)
@@ -217,7 +217,7 @@ void http_co_t::run_cb_and_clear()
 }
 
 void http_co_t::send_request(const std::string & host, const std::string & request,
-    const http_options_t & options, std::function<void(const http_response_t *response)> response_callback)
+    const http_options_t & options, std::function<void(const http_message_t *response)> response_callback)
 {
     stackin();
     if (state == HTTP_CO_WEBSOCKET)
@@ -318,7 +318,7 @@ void http_close(http_co_t *handler)
     handler->close_connection();
 }
 
-void http_response_t::parse_json_response(std::string & error, json11::Json & r) const
+void http_message_t::parse_json_response(std::string & error, json11::Json & r) const
 {
     if (this->error != "")
     {
@@ -877,7 +877,7 @@ void http_co_t::next_request()
     }
 }
 
-static void parse_http_headers(std::string & res, http_response_t *parsed)
+static void parse_http_headers(std::string & res, http_message_t *parsed)
 {
     int pos = res.find("\r\n");
     pos = pos < 0 ? res.length() : pos+2;
