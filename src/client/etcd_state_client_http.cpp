@@ -50,7 +50,7 @@ http_context_t *etcd_state_client_http_t::get_http_ctx()
     if (!http_ctx)
     {
         std::string error;
-        http_ctx = http_context_init(etcd_client_cert, etcd_client_key, etcd_ca, error);
+        http_ctx = http_context_init(etcd_client_cert, etcd_client_key, etcd_ca, true, error);
         if (!http_ctx)
         {
             fprintf(stderr, "Failed to initialize HTTP context: %s\n", error.c_str());
@@ -80,7 +80,7 @@ void etcd_state_client_http_t::etcd_call_oneshot(std::string etcd_address, std::
         "Connection: close\r\n"
         "\r\n"+req;
     auto http_cli = http_init(tfd, get_http_ctx());
-    auto cb = [http_cli, callback](const http_message_t *response)
+    auto cb = [http_cli, callback](http_message_t *response)
     {
         std::string err;
         json11::Json data;
@@ -120,7 +120,7 @@ void etcd_state_client_http_t::etcd_call(std::string api, json11::Json payload, 
         "\r\n"+req;
     retries--;
     auto cb = [this, api, payload, timeout, retries, interval, callback,
-        cur_addr = selected_etcd_address](const http_message_t *response)
+        cur_addr = selected_etcd_address](http_message_t *response)
     {
         std::string err;
         json11::Json data;
@@ -231,7 +231,7 @@ void etcd_state_client_http_t::start_etcd_watcher()
     else
         http_close(etcd_watch_ws);
     open_websocket(etcd_watch_ws, etcd_address, etcd_api_path+"/watch", { .timeout = etcd_slow_timeout, .ssl = ssl },
-        [this, cur_addr = selected_etcd_address](const http_message_t *msg)
+        [this, cur_addr = selected_etcd_address](http_message_t *msg)
     {
         if (msg->body.length())
         {
