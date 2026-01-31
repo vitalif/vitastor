@@ -1,0 +1,937 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "description": "Vitastor control API",
+        "version": "3.0.2",
+        "license": {
+            "name": "VNPL 1.1"
+        }
+    },
+    "paths": {
+        "/status": { "get": {
+            "summary": "Show server status",
+            "operationId": "status",
+            "produces": [ "application/json" ],
+            "parameters": [],
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": {
+                        "pool_count": { "type": "integer", "format": "uint64", "description": "Total number of pools" },
+                        "active_pool_count": { "type": "integer", "format": "uint64", "description": "Number of active pools" },
+                        "backfillfull_pools": { "type": "array", "items": { "type": "integer", "format": "uint64" }, "description": "ID(s) of backfillfull pools" },
+                        "clean_data": { "type": "integer", "format": "uint64", "description": "Clean data - user size in bytes" },
+                        "misplaced_data": { "type": "integer", "format": "uint64", "description": "Misplaced data - user size in bytes" },
+                        "degraded_data": { "type": "integer", "format": "uint64", "description": "Degraded data - user size in bytes" },
+                        "incomplete_data": { "type": "integer", "format": "uint64", "description": "Incomplete data - user size in bytes" },
+                        "osd_count": { "type": "integer", "format": "uint64", "description": "Total number of OSDs" },
+                        "osd_up": { "type": "integer", "format": "uint64", "description": "Number of active OSDs" },
+                        "osds_full": { "type": "integer", "format": "uint64", "description": "Number of full OSDs" },
+                        "osds_nearfull": { "type": "integer", "format": "uint64", "description": "Number of nearfull OSDs" },
+                        "osds_primary_slow_ops": { "type": "array", "items": { "type": "integer", "format": "uint64" }, "description": "Numbers of OSDs with slow/hung client operations" },
+                        "osds_secondary_slow_ops": { "type": "array", "items": { "type": "integer", "format": "uint64" }, "description": "Numbers of OSDs with slow/hung storage operations" },
+                        "total_raw": { "type": "integer", "format": "uint64", "description": "Total size of all OSDs in bytes" },
+                        "free_raw": { "type": "integer", "format": "uint64", "description": "Total free space on OSDs in bytes" },
+                        "down_raw": { "type": "integer", "format": "uint64", "description": "Total size of stopped OSDs in bytes" },
+                        "free_down_raw": { "type": "integer", "format": "uint64", "description": "Total free space on stopped OSDs in bytes" },
+                        "etcd_count": { "type": "integer", "format": "uint64", "description": "Total number of etcd endpoints in the config" },
+                        "etcd_alive": { "type": "integer", "format": "uint64", "description": "Number of healthy etcd endpoints" },
+                        "etcd_db_size": { "type": "integer", "format": "uint64", "description": "Estimated maximum size of etcd databases (dbSize)" },
+                        "mon_count": { "type": "integer", "format": "uint64", "description": "Number of active monitors" },
+                        "mon_master": { "type": "string", "description": "Name of the host with active monitor" },
+                        "readonly": { "type": "boolean", "description": "readonly flag" },
+                        "no_rebalance": { "type": "boolean", "description": "no_rebalance flag" },
+                        "no_recovery": { "type": "boolean", "description": "no_recovery flag" },
+                        "no_scrub": { "type": "boolean", "description": "no_scrub flag" },
+                        "object_counts": { "type": "object", "properties": {
+                            "object": { "type": "integer", "format": "uint64", "description": "Total number of objects" },
+                            "clean": { "type": "integer", "format": "uint64", "description": "Number of clean objects" },
+                            "degraded": { "type": "integer", "format": "uint64", "description": "Number of degraded objects" },
+                            "incomplete": { "type": "integer", "format": "uint64", "description": "Number of incomplete objects" },
+                            "misplaced": { "type": "integer", "format": "uint64", "description": "Number of misplaced objects" }
+                        } },
+                        "pg_states": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Number of PGs by state" },
+                        "op_stats": { "$ref": "#/components/schemas/OpStats" },
+                        "recovery_stats": { "$ref": "#/components/schemas/RecoveryStats" }
+                    }
+                } } } }
+            }
+        } },
+        "/image/list": { "get": {
+            "summary": "List images",
+            "operationId": "imageListGet",
+            "produces": [ "application/json" ],
+            "parameters": [ {
+                "name": "params",
+                "in": "query",
+                "schema": { "$ref": "#/components/schemas/ImageListParams" },
+                "style": "form",
+                "explode": true
+            } ],
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageList" } } } }
+            }
+        }, "post": {
+            "summary": "List images",
+            "operationId": "imageListPost",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageListParams" } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageList" } } } }
+            }
+        } },
+        "/image/create": { "post": {
+            "summary": "Create an image, snapshot, or a clone",
+            "operationId": "imageCreate",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "required": [ "image" ],
+                "properties": {
+                    "image": { "type": "string", "description": "Image name" },
+                    "snapshot": { "type": "string", "description": "Snapshot name" },
+                    "size": {
+                        "oneOf": [
+                            { "type": "integer", "format": "uint64" },
+                            { "type": "string", "pattern": "^\\d+[KMGT]$" }
+                        ],
+                        "description": "Image size in bytes or with K/M/G/T suffix (not for snapshots)"
+                    },
+                    "pool_id": { "type": "integer", "format": "uint64", "description": "Pool ID for the new image/snapshot" },
+                    "pool_name": { "type": "string", "description": "Pool name for the new image/snapshot" },
+                    "parent": { "type": "string", "description": "Create a clone with this parent image name" }
+                }
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Image" } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/image/modify": { "post": {
+            "summary": "Modify an image",
+            "operationId": "imageModify",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "required": [ "image" ],
+                "properties": {
+                    "image": { "type": "string", "description": "Old full name of the image" },
+                    "rename": { "type": "string", "description": "New full image name" },
+                    "resize": {
+                        "oneOf": [
+                            { "type": "integer", "format": "uint64" },
+                            { "type": "string", "pattern": "^\\d+[KMGT]$" }
+                        ],
+                        "description": "New image size in bytes or with K/M/G/T suffix"
+                    },
+                    "readonly": { "type": "boolean", "description": "Make the image read-only" },
+                    "readwrite": { "type": "boolean", "description": "Make the image read-write" },
+                    "deleted": { "type": "boolean", "description": "Set or clear the 'deleted' flag" },
+                    "force": { "type": "boolean", "description": "Proceed with shrinking or setting readwrite flag even if the image has children" },
+                    "down_ok": { "type": "boolean", "description": "Proceed with shrinking even if some data will be left on unavailable OSDs" }
+                }
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Image" } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/image/delete": { "post": {
+            "summary": "Delete image(s)",
+            "operationId": "imageDelete",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "oneOf": [ {
+                    "type": "object",
+                    "required": [ "names" ],
+                    "properties": {
+                        "names": { "type": "array", "items": { "type": "string" }, "description": "Exact image name list to delete" },
+                        "writers_stopped": { "type": "boolean", "description": "Allow 'inverse' snapshot deletion optimisation" },
+                        "down_ok": { "type": "boolean", "description": "Continue deletion/merging even if some data will be left on unavailable OSDs" }
+                    }
+                }, {
+                    "type": "object",
+                    "required": [ "matching" ],
+                    "properties": {
+                        "matching": { "type": "array", "items": { "type": "string" }, "description": "Glob image name patterns to delete" },
+                        "writers_stopped": { "type": "boolean", "description": "Allow 'inverse' snapshot deletion optimisation" },
+                        "down_ok": { "type": "boolean", "description": "Continue deletion/merging even if some data will be left on unavailable OSDs" }
+                    }
+                }, {
+                    "type": "object",
+                    "required": [ "from" ],
+                    "properties": {
+                        "from": { "type": "string", "description": "Parent image in a parent-child sequence to delete" },
+                        "to": { "type": "string", "description": "Child image in a parent-child sequence to delete" },
+                        "writers_stopped": { "type": "boolean", "description": "Allow 'inverse' snapshot deletion optimisation" },
+                        "down_ok": { "type": "boolean", "description": "Continue deletion/merging even if some data will be left on unavailable OSDs" }
+                    }
+                } ]
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": {
+                        "deleted_ids": { "type": "array", "items": { "type": "integer", "format": "uint64" }, "description": "Full inode ID(s) of deleted images" },
+                        "deleted_images": { "type": "array", "items": { "type": "string" }, "description": "Deleted image name(s)" },
+                        "rebased_images": { "type": "array", "items": { "type": "string" }, "description": "Rebased child image name(s)" },
+                        "renamed_from": { "type": "string", "description": "Name of the renamed snapshot when 'inverse' deletion is enabled" },
+                        "renamed_to": { "type": "string", "description": "Name of the rename destination when 'inverse' deletion is enabled" }
+                    }
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/image/flatten": { "post": {
+            "summary": "Flatten an image",
+            "operationId": "imageFlatten",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "required": [ "names" ],
+                "properties": {
+                    "image": { "type": "string", "description": "Image name to flatten" }
+                }
+            } } } },
+            "responses": {
+                "200": { "content": { "text/plain": { "schema": { "type": "string", "description": "Empty response" } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/osd/list": { "get": {
+            "summary": "List OSDs",
+            "operationId": "osdListGet",
+            "produces": [ "application/json" ],
+            "parameters": [ {
+                "name": "params",
+                "in": "query",
+                "schema": { "$ref": "#/components/schemas/OsdListParams" },
+                "style": "form",
+                "explode": true
+            } ],
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OsdList" } } } }
+            }
+        }, "post": {
+            "summary": "List OSDs",
+            "operationId": "osdListPost",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OsdListParams" } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OsdList" } } } }
+            }
+        } },
+        "/osd/alloc": { "post": {
+            "summary": "Allocate a new OSD number",
+            "operationId": "osdAlloc",
+            "produces": [ "application/json" ],
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "type": "integer",
+                    "format": "uint64",
+                    "description": "New OSD number"
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/osd/delete": { "post": {
+            "summary": "Delete stopped OSD(s) from etcd",
+            "operationId": "osdDelete",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "properties": {
+                    "force": { "type": "boolean", "description": "Allow to remove non-empty OSDs" },
+                    "allow_data_loss": { "type": "boolean", "description": "Allow to remove non-empty OSDs even if it will lead to data loss" },
+                    "dry_run": { "type": "boolean", "description": "Only check if the removal is possible but do not delete" }
+                }
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": {
+                        "deleted_osds": {
+                            "type": "array",
+                            "items": { "type": "integer", "format": "uint64" },
+                            "description": "Deleted OSD numbers"
+                        }
+                    },
+                    "format": "uint64",
+                    "description": "New OSD number"
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": {
+                        "pool_effects": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "pool_id": { "type": "integer", "format": "uint64", "description": "Affected pool ID" },
+                                    "pool_name": { "type": "string", "description": "Affected pool name" },
+                                    "effect": {
+                                        "type": "string",
+                                        "enum": [ "incomplete", "has_incomplete", "offline", "degraded" ],
+                                        "description": "Possible pool PG state after removing OSD(s)"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } } } }
+            }
+        } },
+        "/osd/modify": { "post": {
+            "summary": "Modify OSD reweight, tags or noout flag",
+            "operationId": "osdDelete",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "properties": {
+                    "osd_num": { "type": "integer", "format": "uint64", "description": "OSD number to modify" },
+                    "reweight": { "type": "number", "minimum": 0, "maximum": 1, "description": "New OSD weight" },
+                    "tags": { "type": "array", "items": { "type": "string" }, "description": "New OSD tags" },
+                    "noout": { "type": "boolean", "description": "New value of the noout flag" }
+                }
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": {
+                        "reweight": { "type": "number", "minimum": 0, "maximum": 1, "description": "OSD weight" },
+                        "tags": { "type": "array", "items": { "type": "string" }, "description": "OSD tags" },
+                        "noout": { "type": "boolean", "description": "noout flag" }
+                    },
+                    "format": "uint64",
+                    "description": "New OSD number"
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/pool/list": { "get": {
+            "summary": "List pools",
+            "operationId": "poolListGet",
+            "produces": [ "application/json" ],
+            "parameters": [ {
+                "name": "params",
+                "in": "query",
+                "schema": { "$ref": "#/components/schemas/PoolListParams" },
+                "style": "form",
+                "explode": true
+            } ],
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PoolList" } } } }
+            }
+        }, "post": {
+            "summary": "List pools",
+            "operationId": "poolListPost",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PoolListParams" } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PoolList" } } } }
+            }
+        } },
+        "/pool/create": { "post": {
+            "summary": "Create a pool",
+            "operationId": "poolCreate",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "allOf": [ {
+                    "$ref": "#/components/schemas/PoolConfig"
+                }, { "type": "object", "properties": {
+                    "wait": { "type": "boolean", "description": "Wait for the new pool to come online" },
+                    "force": { "type": "boolean", "description": "Do not check that cluster has enough OSDs to create the pool" }
+                } } ]
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "$ref": "#/components/schemas/PoolConfig"
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/pool/modify": { "post": {
+            "summary": "Modify a pool",
+            "operationId": "poolModify",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "allOf": [ {
+                    "$ref": "#/components/schemas/PoolConfig"
+                }, { "type": "object", "properties": {
+                    "id": { "type": "integer", "format": "uint64", "description": "Pool ID to modify" },
+                    "old_name": { "type": "string", "description": "Pool name to modify" },
+                    "force": { "type": "boolean", "description": "Allow modifications which may lead to data loss" }
+                } } ]
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "$ref": "#/components/schemas/PoolConfig"
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/pool/delete": { "post": {
+            "summary": "Delete an pool",
+            "operationId": "poolDelete",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "properties": {
+                    "pool_id": { "type": "integer", "format": "uint64", "description": "Pool ID to delete" },
+                    "pool_name": { "type": "string", "description": "Pool name to delete" },
+                    "force": { "type": "boolean", "description": "Allow to delete non-empty pools" }
+                }
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": { "ok": { "type": "boolean" } }
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/pg/list": { "get": {
+            "summary": "List PGs",
+            "operationId": "pgListGet",
+            "produces": [ "application/json" ],
+            "parameters": [ {
+                "name": "params",
+                "in": "query",
+                "schema": { "$ref": "#/components/schemas/PgListParams" },
+                "style": "form",
+                "explode": true
+            } ],
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PgList" } } } }
+            }
+        }, "post": {
+            "summary": "List PGs",
+            "operationId": "pgListPost",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PgListParams" } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PgList" } } } }
+            }
+        } },
+        "/data/delete": { "post": {
+            "summary": "Remove inode data without changing metadata",
+            "operationId": "dataDelete",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "properties": {
+                    "pool": { "type": "integer", "format": "uint64", "description": "Pool ID" },
+                    "inode": { "type": "integer", "format": "uint64", "description": "Inode number" },
+                    "min_offset": { "type": "integer", "format": "uint64", "description": "Purge only data starting with specified offset" },
+                    "max_offset": { "type": "integer", "format": "uint64", "description": "Purge only data before specified offset" }
+                }
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": {
+                        "removed_objects": { "type": "integer", "format": "uint64", "description": "Removed object count" }
+                    }
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "412": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": {
+                        "total_objects": { "type": "integer", "format": "uint64", "description": "Total object count" },
+                        "removed_objects": { "type": "integer", "format": "uint64", "description": "Removed object count" },
+                        "error_count": { "type": "integer", "format": "uint64", "description": "Error count" },
+                        "inactive_osds": {
+                            "type": "array",
+                            "items": { "type": "integer", "format": "uint64" },
+                            "description": "Inactive OSDs possibly with some non-removed data left"
+                        },
+                        "inactive_pgs": {
+                            "type": "array",
+                            "items": { "type": "integer", "format": "uint64" },
+                            "description": "Inactive PGs possibly with some non-removed data left"
+                        }
+                    }
+                } } } }
+            }
+        } },
+        "/data/describe": { "get": {
+            "summary": "Describe unclean object locations in the cluster",
+            "operationId": "dataDescribeGet",
+            "produces": [ "application/json" ],
+            "parameters": [ {
+                "name": "params",
+                "in": "query",
+                "schema": { "$ref": "#/components/schemas/DataDescribeParams" },
+                "style": "form",
+                "explode": true
+            } ],
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataDescribe" } } } }
+            }
+        }, "post": {
+            "summary": "Describe unclean object locations in the cluster",
+            "operationId": "dataDescribePost",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataDescribeParams" } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataDescribe" } } } }
+            }
+        } },
+        "/data/fix": { "post": {
+            "summary": "Fix inconsistent objects in the cluster by deleting some copies",
+            "operationId": "dataDelete",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "properties": {
+                    "objects": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "inode": { "type": "integer", "format": "uint64", "description": "Full inode ID with pool" },
+                                "stripe": { "type": "integer", "format": "uint64", "description": "Object offset within inode" }
+                            }
+                        }
+                    },
+                    "bad_osds": {
+                        "type": "array",
+                        "items": { "type": "integer", "format": "uint64" },
+                        "description": "Remove inconsistent copies/parts of objects from these OSDs"
+                    },
+                    "part": { "type": "integer", "minimum": 0, "maximum": 255, "description": "Only remove EC object part with this number" },
+                    "check": { "type": "boolean", "default": true, "description": "Do safety checks before removing parts" }
+                }
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": {
+                        "inode": { "type": "integer", "format": "uint64", "description": "Full inode ID with pool" },
+                        "stripe": { "type": "integer", "format": "uint64", "description": "Object offset within inode" },
+                        "part": { "type": "integer", "minimum": 0, "maximum": 255, "description": "Object part number" },
+                        "osd_num": { "type": "integer", "format": "uint64", "description": "OSD number with this part" }
+                    }
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" }
+            }
+        } },
+        "/data/merge": { "post": {
+            "summary": "Merge layer data without changing metadata",
+            "operationId": "dataMerge",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "properties": {
+                    "from": { "type": "string", "description": "First parent layer to merge" },
+                    "to": { "type": "string", "description": "Last child layer to merge" },
+                    "target": { "type": "string", "description": "Merge target (must be between from and to)" },
+                    "delete_source": { "type": "boolean", "description": "Delete source data after merging" },
+                    "fsync_interval": { "type": "integer", "format": "uint64", "description": "Fsync every this number of writes during merge" },
+                    "cas": { "type": "boolean", "description": "Use CAS writes to allow online merging" }
+                }
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": {
+                        "from": { "type": "string", "description": "First merged parent layer" },
+                        "to": { "type": "string", "description": "Last merged child layer" },
+                        "target": { "type": "string", "description": "Merge target" }
+                    }
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } }
+    },
+    "components": {
+        "responses": {
+            "Invalid": {
+                "description": "Invalid Arguments (EINVAL)",
+                "content": {
+                    "text/plain": {
+                        "schema": { "type": "string", "description": "Error text" }
+                    }
+                }
+            },
+            "PreconditionFailed": {
+                "description": "Precondition Failed (ENOTEMPTY, EEXIST or ENOENT)",
+                "content": {
+                    "text/plain": {
+                        "schema": { "type": "string", "description": "Error text" }
+                    }
+                }
+            },
+            "UpdateConflict": {
+                "description": "Update Conflict",
+                "content": {
+                    "text/plain": {
+                        "schema": { "type": "string", "description": "Error text" }
+                    }
+                }
+            }
+        },
+        "schemas": {
+            "OpStat": {
+                "type": "object",
+                "properties": {
+                    "bytes": { "type": "integer", "format": "uint64", "description": "Total bytes processed" },
+                    "count": { "type": "integer", "format": "uint64", "description": "Number of processed operations" },
+                    "usec": { "type": "integer", "format": "uint64", "description": "Total operation processing time in microseconds" },
+                    "bps": { "type": "integer", "format": "uint64", "description": "Bytes per second (average since previous report)" },
+                    "iops": { "type": "integer", "format": "uint64", "description": "Operations per second (average since previous report)" },
+                    "lat": { "type": "integer", "format": "uint64", "description": "Operation latency (average since previous report)" }
+                }
+            },
+            "SubOpStat": {
+                "type": "object",
+                "properties": {
+                    "count": { "type": "integer", "format": "uint64", "description": "Number of processed operations" },
+                    "usec": { "type": "integer", "format": "uint64", "description": "Total operation processing time in microseconds" },
+                    "iops": { "type": "integer", "format": "uint64", "description": "Operations per second (average since previous report)" },
+                    "lat": { "type": "integer", "format": "uint64", "description": "Operation latency (average since previous report)" }
+                }
+            },
+            "RecoveryStat": {
+                "type": "object",
+                "properties": {
+                    "bytes": { "type": "integer", "format": "uint64", "description": "Total bytes processed" },
+                    "count": { "type": "integer", "format": "uint64", "description": "Number of processed operations" },
+                    "bps": { "type": "integer", "format": "uint64", "description": "Bytes per second (average since previous report)" },
+                    "iops": { "type": "integer", "format": "uint64", "description": "Operations per second (average since previous report)" }
+                }
+            },
+            "RecoveryStats": {
+                "description": "Recovery statistics",
+                "type": "object",
+                "properties": {
+                    "misplaced": { "$ref": "#/components/schemas/RecoveryStat" },
+                    "degraded": { "$ref": "#/components/schemas/RecoveryStat" }
+                }
+            },
+            "OpStats": {
+                "description": "Operation statistics (processing time without client RTT)",
+                "type": "object",
+                "properties": {
+                    "read": { "$ref": "#/components/schemas/OpStat" },
+                    "write": { "$ref": "#/components/schemas/OpStat" },
+                    "write_stable": { "$ref": "#/components/schemas/OpStat" },
+                    "sync": { "$ref": "#/components/schemas/OpStat" },
+                    "stabilize": { "$ref": "#/components/schemas/OpStat" },
+                    "rollback": { "$ref": "#/components/schemas/OpStat" },
+                    "delete": { "$ref": "#/components/schemas/OpStat" },
+                    "list": { "$ref": "#/components/schemas/OpStat" },
+                    "show_config": { "$ref": "#/components/schemas/OpStat" },
+                    "primary_read": { "$ref": "#/components/schemas/OpStat" },
+                    "primary_write": { "$ref": "#/components/schemas/OpStat" },
+                    "primary_sync": { "$ref": "#/components/schemas/OpStat" },
+                    "primary_delete": { "$ref": "#/components/schemas/OpStat" },
+                    "ping": { "$ref": "#/components/schemas/OpStat" },
+                    "sec_read_bmp": { "$ref": "#/components/schemas/OpStat" },
+                    "scrub": { "$ref": "#/components/schemas/OpStat" },
+                    "describe": { "$ref": "#/components/schemas/OpStat" },
+                    "sec_lock": { "$ref": "#/components/schemas/OpStat" }
+                }
+            },
+            "SubOpStats": {
+                "description": "Suboperation statistics (processing+RTT to secondary as primary sees it)",
+                "type": "object",
+                "properties": {
+                    "read": { "$ref": "#/components/schemas/SubOpStat" },
+                    "write": { "$ref": "#/components/schemas/SubOpStat" },
+                    "write_stable": { "$ref": "#/components/schemas/SubOpStat" },
+                    "sync": { "$ref": "#/components/schemas/SubOpStat" },
+                    "stabilize": { "$ref": "#/components/schemas/SubOpStat" },
+                    "rollback": { "$ref": "#/components/schemas/SubOpStat" },
+                    "delete": { "$ref": "#/components/schemas/SubOpStat" },
+                    "list": { "$ref": "#/components/schemas/SubOpStat" },
+                    "show_config": { "$ref": "#/components/schemas/SubOpStat" },
+                    "ping": { "$ref": "#/components/schemas/SubOpStat" },
+                    "sec_read_bmp": { "$ref": "#/components/schemas/SubOpStat" },
+                    "sec_lock": { "$ref": "#/components/schemas/SubOpStat" }
+                }
+            },
+            "ImageListParams": {
+                "type": "object",
+                "properties": {
+                    "globs": { "type": "array", "items": { "type": "string" }, "description": "Glob patterns or exact name matches" },
+                    "exact": { "type": "boolean", "description": "Treat globs as exact name matches, not as patterns" },
+                    "pool_id": { "type": "integer", "format": "uint64", "description": "Pool ID to list" },
+                    "pool_name": { "type": "string", "description": "Pool name to list" },
+                    "long": { "type": "boolean", "description": "Include allocated size and I/O statistics" },
+                    "sort": {
+                        "type": "string",
+                        "description": "Sort by specified field",
+                        "enum": [
+                            "name", "size", "used_size",
+                            "read_iops", "read_bps", "read_lat", "read_queue",
+                            "write_iops", "write_bps", "write_lat", "write_queue",
+                            "delete_iops", "delete_bps", "delete_lat", "delete_queue"
+                        ]
+                    },
+                    "reverse": { "type": "boolean", "description": "Sort in descending order" },
+                    "count": { "type": "integer", "format": "uint64", "description": "Only list first N items" }
+                }
+            },
+            "Image": {
+                "type": "object",
+                "properties": {
+                    "inode_id": { "type": "integer", "format": "uint64", "description": "Full inode ID with pool" },
+                    "inode_num": { "type": "integer", "format": "uint64", "description": "Inode number without pool" },
+                    "name": { "type": "string", "description": "Image name" },
+                    "pool_id": { "type": "integer", "format": "uint64", "description": "Pool ID" },
+                    "pool_name": { "type": "string", "description": "Pool name" },
+                    "parent_name": { "type": "string", "description": "Name of the parent image (layer)" },
+                    "parent_inode_id": { "type": "integer", "format": "uint64", "description": "Full ID of the parent inode" },
+                    "parent_inode_num": { "type": "integer", "format": "uint64", "description": "Parent inode number without pool" },
+                    "parent_pool_id": { "type": "integer", "format": "uint64", "description": "Pool ID of the parent inode" },
+                    "size": { "type": "integer", "format": "uint64", "description": "Image size in bytes" },
+                    "used_size": { "type": "integer", "format": "uint64", "description": "Used space in bytes" },
+                    "readonly": { "type": "boolean", "description": "Readonly flag" },
+                    "deleted": { "type": "boolean", "description": "Deleted flag" }
+                }
+            },
+            "ImageList": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/Image" }
+            },
+            "OsdListParams": {
+                "type": "object",
+                "properties": {
+                    "as_tree": { "type": "boolean", "description": "Include all placement tree nodes, not just OSDs" },
+                    "long": { "type": "boolean", "description": "Include per-OSD I/O statistics" }
+                }
+            },
+            "OsdList": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string", "description": "OSD number" },
+                        "type": { "type": "string", "description": "Placement tree node type (osd for OSDs)" },
+                        "up": { "type": "boolean", "description": "Whether the OSD is active" },
+                        "parent": { "type": "string", "description": "Parent placement tree node name (host name, etc)" },
+                        "size": { "type": "integer", "format": "uint64", "description": "OSD size in bytes" },
+                        "free": { "type": "integer", "format": "uint64", "description": "Free space on the OSD in bytes" },
+                        "reweight": { "type": "number", "minimum": 0, "maximum": 1, "description": "OSD weight in data distribution" },
+                        "tags": { "type": "array", "items": { "type": "string" }, "description": "OSD tags" },
+                        "data_block_size": { "type": "integer", "format": "uint64" },
+                        "bitmap_granularity": { "type": "integer", "format": "uint64" },
+                        "immediate_commit": { "type": "string" },
+                        "noout": { "type": "boolean", "description": "noout flag" },
+                        "slow_ops_primary": { "type": "integer", "format": "uint64", "description": "Number of slow/hung client operations on this OSD" },
+                        "slow_ops_secondary": { "type": "integer", "format": "uint64", "description": "Number of slow/hung storage operations on this OSD" },
+                        "op_stats": { "$ref": "#/components/schemas/OpStats" },
+                        "subop_stats": { "$ref": "#/components/schemas/SubOpStats" },
+                        "recovery_stats": { "$ref": "#/components/schemas/RecoveryStats" }
+                    }
+                }
+            },
+            "PoolListParams": {
+                "type": "object",
+                "properties": {
+                    "globs": { "type": "array", "items": { "type": "string" }, "description": "Glob patterns to restrict listing" },
+                    "long": { "type": "boolean", "description": "Include per-pool I/O statistics" },
+                    "sort": { "type": "string", "description": "Sort by specified field" },
+                    "reverse": { "type": "boolean", "description": "Sort in descending order" },
+                    "count": { "type": "integer", "format": "uint64", "description": "Only list first N items" }
+                }
+            },
+            "PoolConfig": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "Pool name" },
+                    "used_for_app": { "type": "string", "description": "Application name pool is used for" },
+                    "scheme": { "type": "string", "enum": [ "replicated", "ec", "xor" ], "description": "Redundancy scheme" },
+                    "pg_count": { "type": "integer", "format": "uint64", "description": "Configured PG count" },
+                    "pg_size": { "type": "integer", "minimum": 1, "maximum": 255, "description": "Number of replicas or total data and parity EC chunks" },
+                    "pg_minsize": { "type": "integer", "minimum": 1, "maximum": 255, "description": "Minimum active OSD count in a PG to allow activity" },
+                    "parity_chunks": { "type": "integer", "minimum": 1, "maximum": 255, "description": "Parity chunk count for EC" },
+                    "local_reads": { "type": "string", "enum": [ "primary", "nearest", "random" ], "description": "Local read policy" },
+                    "root_node": { "type": "string", "description": "Root placement tree node for pool OSDs" },
+                    "pg_stripe_size": { "type": "integer", "format": "uint64", "description": "Stripe size to map to one PG in bytes" },
+                    "failure_domain": { "type": "string", "description": "Failure domain" },
+                    "osd_tags": { "type": "array", "items": { "type": "string" }, "description": "Put pool only on OSDs tagged with all specified tags" },
+                    "primary_affinity_tags": { "type": "array", "items": { "type": "string" }, "description": "Tags to prefer for primary OSDs" },
+                    "block_size": { "type": "integer", "format": "uint64", "description": "Put pool only on OSDs with this data block size" },
+                    "bitmap_granularity": { "type": "integer", "format": "uint64", "description": "Put pool only on OSDs with this logical sector size" },
+                    "immediate_commit": { "type": "string", "enum": [ "none", "small", "all" ], "description": "Put pool only on OSDs with this or larger immediate_commit" },
+                    "scrub_interval": { "type": "string", "pattern": "^\\d+[smhdMy]$", "description": "Automatic scrub interval" },
+                    "level_placement": { "type": "string", "description": "Additional failure domain rules" },
+                    "raw_placement": { "type": "string", "description": "Raw PG generation rules" },
+                    "max_osd_combinations": { "type": "integer", "format": "uint64", "description": "Maximum number of random combinations during PG generation" }
+                }
+            },
+            "PoolList": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "allOf": [ {
+                        "$ref": "#/components/schemas/PoolConfig"
+                    }, { "type": "object", "properties": {
+                        "id": { "type": "integer", "format": "uint64", "description": "Pool ID" },
+                        "status": {
+                            "type": "string",
+                            "enum": [ "active", "has_misplaced", "has_degraded", "degraded", "has_incomplete", "incomplete", "inactive" ],
+                            "description": "Pool status (worst status of pool PGs)"
+                        },
+                        "real_pg_count": { "type": "integer", "format": "uint64", "description": "Currently active PG count" },
+                        "total_raw": { "type": "integer", "format": "uint64", "description": "Total raw space on all pool OSDs" },
+                        "used_raw": { "type": "integer", "format": "uint64", "description": "Raw OSD space used by the pool data" },
+                        "max_available": { "type": "integer", "format": "uint64", "description": "Maximum available user space in the pool" },
+                        "raw_to_usable": { "type": "number", "minimum": 1, "description": "Raw to user space ratio" },
+                        "space_efficiency": { "type": "number", "minimum": 0, "maximum": 1, "description": "Space efficiency (1 - wasted due to unbalanced PGs)" },
+                        "pg_real_size": { "type": "integer", "format": "uint64", "description": "Minimum of PG size and available failure domain count" },
+                        "osd_count": { "type": "integer", "format": "uint64", "description": "Number of OSDs used for the pool" },
+                        "backfillfull": { "type": "boolean", "description": "Backfillfull (is rebalance stopped due to low space)?" },
+                        "misplaced_count": { "type": "integer", "format": "uint64", "description": "Misplaced object count" },
+                        "degraded_count": { "type": "integer", "format": "uint64", "description": "Degraded object count" },
+                        "incomplete_count": { "type": "integer", "format": "uint64", "description": "Incomplete object count" },
+                        "object_count": { "type": "integer", "format": "uint64", "description": "Total object count" },
+                        "read_bps": { "type": "integer", "format": "uint64", "description": "Read bytes per second" },
+                        "read_iops": { "type": "integer", "format": "uint64", "description": "Read operations per second" },
+                        "read_lat": { "type": "integer", "format": "uint64", "description": "Average read latency" },
+                        "write_bps": { "type": "integer", "format": "uint64", "description": "Write bytes per second" },
+                        "write_iops": { "type": "integer", "format": "uint64", "description": "Write operations per second" },
+                        "write_lat": { "type": "integer", "format": "uint64", "description": "Average write latency" },
+                        "delete_bps": { "type": "integer", "format": "uint64", "description": "Delete bytes per second" },
+                        "delete_iops": { "type": "integer", "format": "uint64", "description": "Delete operations per second" },
+                        "delete_lat": { "type": "integer", "format": "uint64", "description": "Average delete latency" }
+                    } } ]
+                }
+            },
+            "PgListParams": {
+                "type": "object",
+                "properties": {
+                    "pool_id": { "type": "integer", "format": "uint64", "description": "Pool ID" },
+                    "pool_name": { "type": "string", "description": "Pool name" },
+                    "pg_state": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "PG state combinations (OR) separated by + (AND) and possibly with ! for negation"
+                    },
+                    "min": { "type": "integer", "format": "uint64", "description": "First PG number to show" },
+                    "max": { "type": "integer", "format": "uint64", "description": "Last PG number to show" },
+                    "osd": {
+                        "type": "array",
+                        "items": { "type": "integer", "format": "uint64" },
+                        "description": "Only return PGs with data on one of these OSDs"
+                    }
+                }
+            },
+            "PgList": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "pool_id": { "type": "integer", "format": "uint64", "description": "Pool ID" },
+                        "pool_name": { "type": "string", "description": "Pool name" },
+                        "pg_num": { "type": "integer", "format": "uint64", "description": "PG number" },
+                        "target_set": {
+                            "type": "array",
+                            "items": { "type": "integer", "format": "uint64" },
+                            "description": "Target OSD set for this PG"
+                        },
+                        "target_primary": { "type": "integer", "format": "uint64", "description": "Target primary OSD of this PG (0 = no primary)" },
+                        "epoch": { "type": "integer", "format": "uint64", "description": "PG epoch number" },
+                        "next_scrub": { "type": "integer", "format": "uint64", "description": "UNIX timestamp of the next planned scrub" },
+                        "target_history": {
+                            "type": "array",
+                            "items": { "type": "array", "items": { "type": "integer", "format": "uint64" } },
+                            "description": "Other OSD sets of this PG which possibly still have some data left"
+                        },
+                        "pause": { "type": "boolean", "description": "Pause PG control flag from monitor" },
+                        "cur_primary": { "type": "integer", "format": "uint64", "description": "Current primary OSD of this PG (0 = no primary)" },
+                        "state": {
+                            "type": "array",
+                            "items": { "type": "string", "enum": [
+                                "starting", "peering", "incomplete", "active", "repeering", "stopping", "offline",
+                                "degraded", "has_inconsistent", "has_corrupted", "has_incomplete", "has_degraded",
+                                "has_misplaced", "has_unclean", "has_invalid", "left_on_dead", "scrubbing"
+                            ] },
+                            "description": "PG state"
+                        },
+                        "all_peers": {
+                            "type": "array",
+                            "items": { "type": "array", "items": { "type": "integer", "format": "uint64" } },
+                            "description": "Other OSDs of this PG which possibly still have some data left"
+                        }
+                    }
+                }
+            },
+            "DataDescribeParams": {
+                "type": "object",
+                "properties": {
+                    "pool_id": { "type": "integer", "format": "uint64", "description": "Only list objects from the given pool (by ID)" },
+                    "pool_name": { "type": "string", "description": "Only list objects from the given pool (by name)" },
+                    "pg": { "type": "integer", "format": "uint64", "description": "Only list objects in the given PG of the pool" },
+                    "inode": { "type": "integer", "format": "uint64", "description": "Single inode number to list" },
+                    "min_inode": { "type": "integer", "format": "uint64", "description": "Minimum inode number to list" },
+                    "max_inode": { "type": "integer", "format": "uint64", "description": "Maximum inode number to list" },
+                    "object_state": {
+                        "type": "array",
+                        "items": { "type": "string", "enum": [ "degraded", "misplaced", "incomplete", "corrupted", "inconsistent" ] },
+                        "description": "Only list objects in given state(s)"
+                    },
+                    "osd": {
+                        "type": "array",
+                        "items": { "type": "integer", "format": "uint64" },
+                        "description": "Only list objects from these primary OSD(s)"
+                    }
+                }
+            },
+            "DataDescribe": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "inode": { "type": "integer", "format": "uint64", "description": "Full inode ID with pool" },
+                        "stripe": { "type": "integer", "format": "uint64", "description": "Object offset within inode" },
+                        "part": { "type": "integer", "minimum": 0, "maximum": 255, "description": "Object part number" },
+                        "osd_num": { "type": "integer", "format": "uint64", "description": "OSD number with this part" },
+                        "corrupted": { "type": "boolean", "description": "Part is corrupted flag" },
+                        "inconsistent": { "type": "boolean", "description": "Inconsistency flag (parts do not match)" },
+                        "outdated": { "type": "boolean", "description": "Part on this OSD is outdated" }
+                    }
+                }
+            }
+        }
+    }
+}

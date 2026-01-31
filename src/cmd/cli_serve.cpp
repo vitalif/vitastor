@@ -12,6 +12,7 @@
 #include "str_util.h"
 #include "json_util.h"
 #include "addr_util.h"
+#include "openapi.json.h"
 
 struct cli_serve_conn_t
 {
@@ -26,6 +27,7 @@ struct cli_serve_conn_t
     std::string request_method;
     std::string request_path;
     std::string request_body;
+    std::string response_type;
     std::function<bool(cli_result_t &)> action_cb;
 };
 
@@ -258,7 +260,10 @@ struct cli_serve_t
         }
         else
         {
-            response += "Content-Type: text/plain; charset=utf-8\r\n";
+            if (!conn->response_type.empty())
+                response += "Content-Type: "+conn->response_type+"\r\n";
+            else
+                response += "Content-Type: text/plain; charset=utf-8\r\n";
             body = conn->result.text;
         }
         response += "Content-Length: "+std::to_string(body.size())+"\r\n\r\n";
@@ -328,6 +333,7 @@ struct cli_serve_t
         conn->request_method = std::move(req_line[0]);
         conn->request_path = std::move(req_line[1]);
         conn->request_body = std::move(msg->body);
+        conn->response_type = "";
         auto ctype = msg->headers["content-type"];
         if (conn->request_method != "GET" && conn->request_method != "POST")
         {
@@ -344,12 +350,17 @@ struct cli_serve_t
             auto cmd_it = cmd_paths.find(uri[0]);
             if (uri[0] == "")
             {
-                std::string text = "Supported APIs:\n\n";
+                std::string text = "Supported APIs:\n\n- GET /openapi\n";
                 for (auto & pp: cmd_paths)
                 {
                     text += (pp.second.allow_get ? "- GET" : "- POST") + (" /" + pp.first) + "\n";
                 }
                 conn->result = { .text = text };
+            }
+            else if (uri[0] == "openapi")
+            {
+                conn->response_type = "application/json";
+                conn->result = { .text = openapi_description };
             }
             else if (cmd_it == cmd_paths.end())
             {
