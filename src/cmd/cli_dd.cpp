@@ -870,7 +870,7 @@ resume_2:
         // Copy data
         if (iinfo.in_seekable && iseek >= iinfo.in_size)
         {
-            result = (cli_result_t){ .err = -EINVAL, .text = "Input seek position is beyond end of input" };
+            result = (cli_result_t){ .err = EINVAL, .text = "Input seek position is beyond end of input" };
             goto close_end;
         }
         if (!iinfo.iwatch && !iinfo.in_seekable && iseek)

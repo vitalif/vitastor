@@ -57,12 +57,24 @@ struct cli_describe_t
 
     void parse_options(json11::Json cfg)
     {
-        only_pool = cfg["pool"].uint64_value();
-        if (!only_pool && cfg["pool"].is_string())
+        uint64_t pool_id;
+        std::string pool_name;
+        if (!cfg["pool"].is_null())
+        {
+            pool_id = cfg["pool"].uint64_value();
+            pool_name = pool_id ? "" : cfg["pool"].string_value();
+        }
+        else
+        {
+            pool_id = cfg["pool_id"].uint64_value();
+            pool_name = pool_id ? "" : cfg["pool_name"].string_value();
+        }
+        only_pool = pool_id;
+        if (!only_pool && pool_name != "")
         {
             for (auto & pp: parent->cli->st_cli->pool_config)
             {
-                if (pp.second.name == cfg["pool"].string_value())
+                if (pp.second.name == pool_name)
                 {
                     only_pool = pp.first;
                     break;
@@ -105,6 +117,22 @@ struct cli_describe_t
                 object_state |= OBJ_DEGRADED;
             if (cfg["object_state"].string_value().find("misplaced") != std::string::npos)
                 object_state |= OBJ_MISPLACED;
+        }
+        else if (!object_state && cfg["object_state"].is_array())
+        {
+            for (auto & st: cfg["object_state"].array_items())
+            {
+                if (st == "inconsistent")
+                    object_state |= OBJ_INCONSISTENT;
+                else if (st == "corrupted")
+                    object_state |= OBJ_CORRUPTED;
+                else if (st == "incomplete")
+                    object_state |= OBJ_INCOMPLETE;
+                else if (st == "degraded")
+                    object_state |= OBJ_DEGRADED;
+                else if (st == "misplaced")
+                    object_state |= OBJ_MISPLACED;
+            }
         }
     }
 

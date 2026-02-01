@@ -41,7 +41,7 @@ struct osd_tree_printer_t
 {
     cli_tool_t *parent;
     json11::Json cfg;
-    bool flat = false;
+    bool as_tree = false;
     bool show_stats = false;
 
     int state = 0;
@@ -209,11 +209,14 @@ resume_1:
             for (int i = 1; i < node_seq.size(); i++)
             {
                 auto & node = placement_tree->nodes.at(node_seq[i]);
-                fmt_items.push_back(json11::Json::object{
-                    { "type", node.level },
-                    { "name", node.name },
-                    { "parent", node.parent },
-                });
+                if (as_tree)
+                {
+                    fmt_items.push_back(json11::Json::object{
+                        { "type", node.level },
+                        { "name", node.name },
+                        { "parent", node.parent },
+                    });
+                }
                 for (uint64_t osd_num: node.child_osds)
                 {
                     auto & osd = placement_tree->osds.at(osd_num);
@@ -221,17 +224,22 @@ resume_1:
                         { "type", "osd" },
                         { "name", osd.num },
                         { "parent", node.name },
-                        { "up", osd.up ? "up" : "down" },
+                        { "up", osd.up },
                         { "size", osd.size },
                         { "free", osd.free },
                         { "reweight", osd.reweight },
                         { "noout", osd.noout },
                         { "tags", osd.tags },
-                        { "block", (uint64_t)osd.block_size },
-                        { "bitmap", (uint64_t)osd.bitmap_granularity },
-                        { "commit", osd.immediate_commit == IMMEDIATE_NONE ? "none" : (osd.immediate_commit == IMMEDIATE_ALL ? "all" : "small") },
-                        { "op_stats", osd_stats[osd_num]["op_stats"] },
+                        { "data_block_size", (uint64_t)osd.block_size },
+                        { "bitmap_granularity", (uint64_t)osd.bitmap_granularity },
+                        { "immediate_commit", osd.immediate_commit == IMMEDIATE_NONE ? "none" : (osd.immediate_commit == IMMEDIATE_ALL ? "all" : "small") },
                     };
+                    if (show_stats)
+                    {
+                        json_osd["op_stats"] = osd_stats[osd_num]["op_stats"];
+                        json_osd["subop_stats"] = osd_stats[osd_num]["subop_stats"];
+                        json_osd["recovery_stats"] = osd_stats[osd_num]["recovery_stats"];
+                    }
                     if (osd_stats[osd_num]["slow_ops_primary"].uint64_value() > 0)
                     {
                         json_osd["slow_ops_primary"] = osd_stats[osd_num]["slow_ops_primary"];
@@ -249,7 +257,7 @@ resume_1:
         for (int i = 1; i < node_seq.size(); i++)
         {
             auto & node = placement_tree->nodes.at(node_seq[i]);
-            if (!flat)
+            if (as_tree)
             {
                 fmt_items.push_back(json11::Json::object{
                     { "type", str_repeat("  ", indents[i]) + node.level },
@@ -257,7 +265,7 @@ resume_1:
                 });
             }
             std::string parent = node.name;
-            if (flat)
+            if (!as_tree)
             {
                 auto cur = &placement_tree->nodes.at(node.name);
                 while (cur->parent != "" && cur->parent != node.name)
@@ -270,7 +278,7 @@ resume_1:
             {
                 auto & osd = placement_tree->osds.at(osd_num);
                 auto fmt = json11::Json::object{
-                    { "type", (flat ? "osd" : str_repeat("  ", indents[i]+1) + "osd") },
+                    { "type", (!as_tree ? "osd" : str_repeat("  ", indents[i]+1) + "osd") },
                     { "name", osd.num },
                     { "parent", parent },
                     { "up", osd.up ? "up" : "down" },
@@ -300,7 +308,7 @@ resume_1:
             }
         }
         json11::Json::array cols;
-        if (!flat)
+        if (as_tree)
         {
             cols.push_back(json11::Json::object{
                 { "key", "type" },
@@ -309,9 +317,9 @@ resume_1:
         }
         cols.push_back(json11::Json::object{
             { "key", "name" },
-            { "title", flat ? "OSD" : "NAME" },
+            { "title", !as_tree ? "OSD" : "NAME" },
         });
-        if (flat)
+        if (!as_tree)
         {
             cols.push_back(json11::Json::object{
                 { "key", "parent" },
@@ -414,7 +422,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_osd_tree(json11::Json cfg)
     auto osd_tree_printer = new osd_tree_printer_t();
     osd_tree_printer->parent = this;
     osd_tree_printer->cfg = cfg;
-    osd_tree_printer->flat = cfg["flat"].bool_value();
+    osd_tree_printer->as_tree = cfg["as_tree"].bool_value();
     osd_tree_printer->show_stats = cfg["long"].bool_value();
     return [osd_tree_printer](cli_result_t & result)
     {

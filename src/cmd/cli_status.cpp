@@ -18,6 +18,7 @@ struct status_printer_t
 {
     cli_tool_t *parent;
 
+    cli_result_t result;
     int state = 0;
     json11::Json::array mon_members;
     json11::Json agg_stats;
@@ -89,7 +90,7 @@ resume_2:
             return;
         if (parent->etcd_err.err)
         {
-            fprintf(stderr, "%s\n", parent->etcd_err.text.c_str());
+            result = parent->etcd_err;
             state = 100;
             return;
         }
@@ -107,7 +108,8 @@ resume_2:
             if (etcd_states[i]["error"].is_null())
             {
                 etcd_alive++;
-                etcd_db_size = etcd_states[i]["dbSize"].uint64_value();
+                uint64_t db_size = etcd_states[i]["dbSize"].uint64_value();
+                etcd_db_size = db_size > etcd_db_size ? db_size : etcd_db_size;
             }
         }
         int mon_count = 0;
@@ -265,7 +267,7 @@ resume_2:
                     obj_n = agg_stats["object_counts"][str].uint64_value() * parent->cli->st_cli->global_block_size;
                 json_status[str+"_data"] = obj_n;
             }
-            printf("%s\n", json11::Json(json_status).dump().c_str());
+            result.data = json11::Json(json_status);
             state = 100;
             return;
         }
@@ -406,7 +408,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_status(json11::Json cfg)
         printer->loop();
         if (printer->is_done())
         {
-            result = { .err = 0 };
+            result = printer->result;
             delete printer;
             return true;
         }

@@ -376,7 +376,7 @@ struct snap_merger_t
         result = (cli_result_t){ .text = "Done, layers from "+from_name+" to "+to_name+" merged into "+target_name, .data = json11::Json::object {
             { "from", from_name },
             { "to", to_name },
-            { "into", target_name },
+            { "target", target_name },
         }};
         state = 100;
     resume_100:

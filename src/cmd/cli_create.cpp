@@ -64,7 +64,8 @@ struct image_creator_t
         }
         if (new_pool_id)
         {
-            if (pools.find(new_pool_id) == pools.end())
+            auto pool_it = pools.find(new_pool_id);
+            if (pool_it == pools.end())
             {
                 result = (cli_result_t){ .err = ENOENT, .text = "Pool "+std::to_string(new_pool_id)+" does not exist" };
                 state = 100;
@@ -194,15 +195,31 @@ resume_3:
         // Save into inode_config for library users to be able to take it from there immediately
         new_cfg.mod_revision = parent->etcd_result["header"]["revision"].uint64_value();
         parent->cli->st_cli->insert_inode_config(new_cfg);
+        auto img = json11::Json::object {
+            { "inode_id", INODE_WITH_POOL(new_pool_id, new_id) },
+            { "inode_num", new_id },
+            { "name", image_name },
+            { "pool_id", (uint64_t)new_pool_id },
+            { "size", size },
+        };
+        {
+            auto new_pool_it = parent->cli->st_cli->pool_config.find(new_pool_id);
+            if (new_pool_it != parent->cli->st_cli->pool_config.end())
+            {
+                img["pool_name"] = new_pool_it->second.name;
+            }
+        }
+        if (new_parent_id)
+        {
+            img["parent_name"] = new_parent;
+            img["parent_inode_id"] = new_parent_id;
+            img["parent_inode_num"] = INODE_NO_POOL(new_parent_id);
+            img["parent_pool_id"] = (uint64_t)INODE_POOL(new_parent_id);
+        }
         result = (cli_result_t){
             .err = 0,
             .text = "Image "+image_name+" created",
-            .data = json11::Json::object {
-                { "name", image_name },
-                { "pool", new_pool_name },
-                { "parent", new_parent },
-                { "size", size },
-            }
+            .data = img,
         };
         state = 100;
     }
@@ -272,13 +289,23 @@ resume_4:
         // Save into inode_config for library users to be able to take it from there immediately
         new_cfg.mod_revision = parent->etcd_result["header"]["revision"].uint64_value();
         parent->cli->st_cli->insert_inode_config(new_cfg);
+        {
+            auto new_pool_it = parent->cli->st_cli->pool_config.find(new_pool_id);
+            new_pool_name = new_pool_it != parent->cli->st_cli->pool_config.end() ? new_pool_it->second.name : "";
+        }
         result = (cli_result_t){
             .err = 0,
             .text = "Snapshot "+image_name+"@"+new_snap+" created",
             .data = json11::Json::object {
-                { "name", image_name+"@"+new_snap },
-                { "pool", (uint64_t)new_pool_id },
-                { "parent", new_parent },
+                { "inode_id", INODE_WITH_POOL(new_pool_id, new_id) },
+                { "inode_num", new_id },
+                { "name", image_name },
+                { "pool_id", (uint64_t)new_pool_id },
+                { "pool_name", new_pool_name },
+                { "parent_name", image_name+"@"+new_snap },
+                { "parent_inode_id", INODE_WITH_POOL(old_pool_id, old_id) },
+                { "parent_inode_num", old_id },
+                { "parent_pool_id", (uint64_t)old_pool_id },
                 { "size", size },
             }
         };
@@ -554,8 +581,16 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
     auto image_creator = new image_creator_t();
     image_creator->parent = this;
     image_creator->image_name = cfg["image"].string_value();
-    image_creator->new_pool_id = cfg["pool"].uint64_value();
-    image_creator->new_pool_name = cfg["pool"].string_value();
+    if (!cfg["pool"].is_null())
+    {
+        image_creator->new_pool_id = cfg["pool"].uint64_value();
+        image_creator->new_pool_name = cfg["pool"].string_value();
+    }
+    else
+    {
+        image_creator->new_pool_id = cfg["pool_id"].uint64_value();
+        image_creator->new_pool_name = cfg["pool_name"].string_value();
+    }
     image_creator->force = cfg["force"].bool_value();
     image_creator->force_size = cfg["force_size"].bool_value();
     if (cfg["image_meta"].is_object())

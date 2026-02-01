@@ -181,6 +181,7 @@ struct rm_osd_t
             if (dry_run || is_dataloss && !force_dataloss || is_warning && !force_warning)
             {
                 result.err = is_dataloss && !force_dataloss || is_warning && !force_warning ? EBUSY : 0;
+                result.data = json11::Json::object{ { "pool_effects", pool_effects } };
                 state = 100;
                 return;
             }
@@ -332,6 +333,9 @@ struct rm_osd_t
         ids = (osd_ids.size() > 1 ? "OSDs " : "OSD ")+ids+(osd_ids.size() > 1 ? " are" : " is")+" removed from etcd";
         state = 100;
         result.text = (result.text != "" ? ids+"\n"+result.text : ids);
+        result.data = json11::Json::object {
+            {"deleted_osds", osd_ids},
+        };
         result.err = 0;
     }
 

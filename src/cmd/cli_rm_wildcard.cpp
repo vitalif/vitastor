@@ -195,6 +195,8 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_rm_wildcard(json11::Json c
     auto wildcard_remover = new wildcard_remover_t();
     wildcard_remover->parent = this;
     wildcard_remover->cfg = cfg;
+    if (cfg["globs"].is_string())
+        wildcard_remover->globs.push_back(cfg["globs"].string_value());
     for (auto & glob: cfg["globs"].array_items())
         wildcard_remover->globs.push_back(glob.string_value());
     wildcard_remover->exact = cfg["exact"].bool_value();

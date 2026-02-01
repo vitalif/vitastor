@@ -17,6 +17,7 @@ struct image_lister_t
     std::string list_pool_name;
     std::string sort_field;
     std::set<std::string> only_names;
+    std::vector<uint64_t> only_ids;
     bool reverse = false;
     bool exact = false;
     bool tree = false;
@@ -63,7 +64,6 @@ struct image_lister_t
             auto item = json11::Json::object {
                 { "name", ic.second.name },
                 { "size", ic.second.size },
-                { "used_size", 0 },
                 { "readonly", ic.second.readonly },
                 { "pool_id", (uint64_t)INODE_POOL(ic.second.num) },
                 { "pool_name", good_pool ? pool_it->second.name : "? (ID:"+std::to_string(INODE_POOL(ic.second.num))+")" },
@@ -202,20 +202,33 @@ resume_1:
     json11::Json::array to_list()
     {
         json11::Json::array list;
-        for (auto & kv: stats)
+        if (only_ids.size())
         {
-            if (!only_names.size())
+            for (auto & id: only_ids)
             {
-                list.push_back(kv.second);
-            }
-            else
-            {
-                for (auto & glob: only_names)
+                if (stats.find(id) != stats.end())
                 {
-                    if (exact ? (kv.second["name"].string_value() == glob) : stupid_glob(kv.second["name"].string_value(), glob))
+                    list.push_back(stats[id]);
+                }
+            }
+        }
+        else
+        {
+            for (auto & kv: stats)
+            {
+                if (!only_names.size())
+                {
+                    list.push_back(kv.second);
+                }
+                else
+                {
+                    for (auto & glob: only_names)
                     {
-                        list.push_back(kv.second);
-                        break;
+                        if (exact ? (kv.second["name"].string_value() == glob) : stupid_glob(kv.second["name"].string_value(), glob))
+                        {
+                            list.push_back(kv.second);
+                            break;
+                        }
                     }
                 }
             }
@@ -570,17 +583,30 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_ls(json11::Json cfg)
     lister->parent = this;
     lister->exact = cfg["exact"].bool_value();
     lister->tree = cfg["tree"].bool_value();
-    lister->list_pool_id = cfg["pool"].uint64_value();
-    lister->list_pool_name = lister->list_pool_id ? "" : cfg["pool"].as_string();
+    if (!cfg["pool"].is_null())
+    {
+        lister->list_pool_id = cfg["pool"].uint64_value();
+        lister->list_pool_name = lister->list_pool_id ? "" : cfg["pool"].as_string();
+    }
+    else
+    {
+        lister->list_pool_id = cfg["pool_id"].uint64_value();
+        lister->list_pool_name = lister->list_pool_id ? "" : cfg["pool_name"].string_value();
+    }
     lister->show_stats = cfg["long"].bool_value();
     lister->show_delete = cfg["del"].bool_value();
     lister->sort_field = cfg["sort"].string_value() != "" ? cfg["sort"].string_value() : "name";
     lister->reverse = cfg["reverse"].bool_value();
     lister->max_count = cfg["count"].uint64_value();
+    if (cfg["names"].is_string())
+        lister->only_names.insert(cfg["names"].string_value());
     for (auto & item: cfg["names"].array_items())
-    {
         lister->only_names.insert(item.string_value());
-    }
+    if (cfg["ids"].is_string())
+        for (auto & item: explode(",", cfg["ids"].string_value(), true))
+            lister->only_ids.push_back(stoull_full(item));
+    for (auto & item: cfg["ids"].array_items())
+        lister->only_ids.push_back(item.uint64_value());
     return [lister](cli_result_t & result)
     {
         lister->loop();

@@ -282,10 +282,16 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_pg_list(json11::Json cfg)
 {
     auto pg_lister = new pg_lister_t();
     pg_lister->parent = this;
-    if (cfg["pool"].uint64_value())
+    if (!cfg["pool"].is_null())
+    {
         pg_lister->pool_id = cfg["pool"].uint64_value();
+        pg_lister->pool_name = pg_lister->pool_id ? "" : cfg["pool"].string_value();
+    }
     else
-        pg_lister->pool_name = cfg["pool"].string_value();
+    {
+        pg_lister->pool_id = cfg["pool_id"].uint64_value();
+        pg_lister->pool_name = pg_lister->pool_id ? "" : cfg["pool_name"].string_value();
+    }
     for (auto & st: cfg["pg_state"].array_items())
         pg_lister->pg_state.push_back(st.string_value());
     if (cfg["pg_state"].is_string())

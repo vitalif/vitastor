@@ -196,7 +196,9 @@ resume_3:
         result = (cli_result_t){
             .err = 0,
             .text = "Pool "+pool_name+" deleted",
-            .data = new_pools
+            .data = json11::Json::object{
+                {"ok", true},
+            },
         };
         state = 100;
     }
@@ -207,8 +209,16 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_pool_rm(json11::Json cfg)
     auto pool_remover = new pool_remover_t();
     pool_remover->parent = this;
 
-    pool_remover->pool_id = cfg["pool"].uint64_value();
-    pool_remover->pool_name = pool_remover->pool_id ? "" : cfg["pool"].as_string();
+    if (!cfg["pool"].is_null())
+    {
+        pool_remover->pool_id = cfg["pool"].uint64_value();
+        pool_remover->pool_name = pool_remover->pool_id ? "" : cfg["pool"].as_string();
+    }
+    else
+    {
+        pool_remover->pool_id = cfg["pool_id"].uint64_value();
+        pool_remover->pool_name = pool_remover->pool_id ? "" : cfg["pool_name"].as_string();
+    }
 
     pool_remover->force = !cfg["force"].is_null();
 

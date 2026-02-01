@@ -206,7 +206,7 @@ resume_1:
                 { "space_efficiency", pool_stats[pool_cfg.id]["space_efficiency"].number_value() },
                 { "pg_real_size", pool_stats[pool_cfg.id]["pg_real_size"].uint64_value() },
                 { "osd_count", (uint64_t)pg_per_osd.size() },
-                { "backfillfull", pool_cfg.backfillfull },
+                { "backfillfull", !!pool_cfg.backfillfull },
             };
         }
         // Include full pool config
@@ -546,6 +546,10 @@ resume_3:
                 { "write_fmt", "Write" },
                 { "delete_fmt", "Delete" },
             };
+            if (sort_field == "osd_tags" || sort_field == "primary_affinity_tags")
+            {
+                sort_field += "_fmt";
+            }
             auto list = to_list();
             size_t title_len = 0;
             for (auto & item: list)
@@ -666,15 +670,12 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_pool_ls(json11::Json cfg)
     lister->show_stats = cfg["long"].bool_value();
     lister->detailed = cfg["detail"].bool_value();
     lister->sort_field = cfg["sort"].string_value();
-    if ((lister->sort_field == "osd_tags") ||
-        (lister->sort_field == "primary_affinity_tags" ))
-        lister->sort_field = lister->sort_field + "_fmt";
     lister->reverse = cfg["reverse"].bool_value();
     lister->max_count = cfg["count"].uint64_value();
+    if (cfg["names"].is_string())
+        lister->only_names.insert(cfg["names"].string_value());
     for (auto & item: cfg["names"].array_items())
-    {
         lister->only_names.insert(item.string_value());
-    }
     return [lister](cli_result_t & result)
     {
         lister->loop();

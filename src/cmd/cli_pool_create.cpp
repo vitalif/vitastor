@@ -213,7 +213,7 @@ resume_3:
                     if (failure_domain != "osd")
                         pool_err += "\n- different parent '"+failure_domain+"' nodes";
                     result = (cli_result_t){
-                        .err = EINVAL,
+                        .err = EBUSY,
                         .text = pool_err,
                     };
                     state = 100;

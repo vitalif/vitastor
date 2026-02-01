@@ -37,6 +37,7 @@ static const char* help_text =
     "  --sort FIELD    Sort by specified field (name, size, used_size, <read|write|delete>_<iops|bps|lat|queue>)\n"
     "  -r|--reverse    Sort in descending order\n"
     "  -n|--count N    Only list first N items\n"
+    "  --ids ID1,ID2   Only list images with specified full IDs\n"
     "  --tree          Show image snapshot/clone tree\n"
     "\n"
     "vitastor-cli create -s|--size <size> [-p|--pool <id|name>] [--parent <parent_name>[@<snapshot>]] <name>\n"
@@ -222,7 +223,7 @@ static const char* help_text =
     "vitastor-cli rm-pool|pool-rm [--force] <id|name>\n"
     "  Remove a pool. Refuses to remove pools with images without --force.\n"
     "\n"
-    "vitastor-cli ls-pools|pool-ls|ls-pool|pools [-l] [--detail] [--sort FIELD] [-r] [-n N] [--stats] [<glob> ...]\n"
+    "vitastor-cli ls-pools|pool-ls|ls-pool|pools [-l] [--detail] [--sort FIELD] [-r] [-n N] [<glob> ...]\n"
     "  List pools (only matching <glob> patterns if passed).\n"
     "  -l|--long       Also report I/O statistics\n"
     "  --detail        Use list format (not table), show all details\n"
@@ -447,7 +448,22 @@ std::function<bool(cli_result_t &)> cli_tool_t::start(json11::Json::object cfg, 
     else if (cmd[0] == "rm")
     {
         // Remove multiple snapshots and rebase their children
-        if (cfg["exact"].bool_value() || cfg["matching"].bool_value())
+        if (cfg["names"].is_array())
+        {
+            cfg["globs"] = cfg["names"];
+            cfg.erase("names");
+            cfg["exact"] = true;
+            cfg["matching"] = false;
+            action_cb = start_rm_wildcard(cfg);
+        }
+        else if (cfg["matching"].is_array())
+        {
+            cfg["globs"] = cfg["matching"];
+            cfg["exact"] = false;
+            cfg["matching"] = true;
+            action_cb = start_rm_wildcard(cfg);
+        }
+        else if (cfg["exact"].bool_value() || cfg["matching"].bool_value())
         {
             cmd.erase(cmd.begin(), cmd.begin()+1);
             cfg["globs"] = cmd;
@@ -487,12 +503,12 @@ std::function<bool(cli_result_t &)> cli_tool_t::start(json11::Json::object cfg, 
     else if (cmd[0] == "osd-tree")
     {
         // Print OSD tree
+        cfg["as_tree"] = true;
         action_cb = start_osd_tree(cfg);
     }
     else if (cmd[0] == "osds" || cmd[0] == "ls-osds" || cmd[0] == "ls-osd" || cmd[0] == "osd-ls")
     {
         // Print OSD list
-        cfg["flat"] = true;
         action_cb = start_osd_tree(cfg);
     }
     else if (cmd[0] == "modify-osd")
@@ -526,7 +542,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start(json11::Json::object cfg, 
         // Modify existing pool
         if (cmd.size() > 1)
         {
-            cfg["old_name"] = cmd[1];
+            cfg["pool"] = cmd[1];
         }
         action_cb = start_pool_modify(cfg);
     }

@@ -88,10 +88,7 @@ struct image_changer_t
             (!new_size && !force_size || cfg.size == new_size || cfg.size >= new_size && inc_size) &&
             (new_name == "" || new_name == image_name))
         {
-            result = (cli_result_t){ .err = 0, .text = "No change", .data = json11::Json::object {
-                { "error_code", 0 },
-                { "error_text", "No change" },
-            }};
+            result = (cli_result_t){ .err = 0, .text = "No change", .data = fill_img(cfg) };
             state = 100;
             return;
         }
@@ -235,14 +232,41 @@ resume_2:
         result = (cli_result_t){
             .err = 0,
             .text = "Image "+image_name+" modified",
-            .data = json11::Json::object {
-                { "name", image_name },
-                { "inode", INODE_NO_POOL(inode_num) },
-                { "pool", (uint64_t)INODE_POOL(inode_num) },
-                { "size", new_size },
-            }
+            .data = fill_img(cfg)
         };
         state = 100;
+    }
+
+    json11::Json fill_img(inode_config_t & cfg)
+    {
+        auto img = json11::Json::object {
+            { "inode_id", inode_num },
+            { "inode_num", INODE_NO_POOL(inode_num) },
+            { "name", cfg.name },
+            { "pool_id", (uint64_t)INODE_POOL(inode_num) },
+            { "size", cfg.size },
+            { "readonly", cfg.readonly },
+            { "deleted", cfg.deleted },
+        };
+        {
+            auto pool_it = parent->cli->st_cli->pool_config.find(INODE_POOL(inode_num));
+            if (pool_it != parent->cli->st_cli->pool_config.end())
+            {
+                img["pool_name"] = pool_it->second.name;
+            }
+        }
+        if (cfg.parent_id)
+        {
+            auto parent_it = parent->cli->st_cli->inode_config.find(cfg.parent_id);
+            if (parent_it != parent->cli->st_cli->inode_config.end())
+            {
+                img["parent_name"] = parent_it->second.name;
+            }
+            img["parent_inode_id"] = cfg.parent_id;
+            img["parent_inode_num"] = INODE_NO_POOL(cfg.parent_id);
+            img["parent_pool_id"] = (uint64_t)INODE_POOL(cfg.parent_id);
+        }
+        return img;
     }
 };
 

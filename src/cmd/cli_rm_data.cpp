@@ -263,7 +263,7 @@ struct rm_inode_t
             {
                 // Error
                 result = (cli_result_t){
-                    .err = EIO,
+                    .err = EBUSY,
                     .text = "Failed: some blocks were not removed",
                     .data = data,
                 };

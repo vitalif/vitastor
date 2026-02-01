@@ -39,16 +39,21 @@ struct pool_changer_t
             goto resume_1;
         else if (state == 2)
             goto resume_2;
-        pool_id = stoull_full(cfg["old_name"].string_value());
-        if (!pool_id)
+        if (!cfg["pool"].is_null())
         {
-            pool_name = cfg["old_name"].string_value();
-            if (pool_name == "")
-            {
-                result = (cli_result_t){ .err = ENOENT, .text = "Pool ID or name is required to modify it" };
-                state = 100;
-                return;
-            }
+            pool_id = cfg["pool"].uint64_value();
+            pool_name = pool_id ? "" : cfg["pool"].string_value();
+        }
+        else
+        {
+            pool_id = cfg["id"].uint64_value();
+            pool_name = pool_id ? "" : cfg["old_name"].string_value();
+        }
+        if (!pool_id && pool_name == "")
+        {
+            result = (cli_result_t){ .err = ENOENT, .text = "Pool ID or name is required to modify it" };
+            state = 100;
+            return;
         }
 resume_0:
         // Get pools from etcd
@@ -179,7 +184,7 @@ resume_2:
         result = (cli_result_t){
             .err = 0,
             .text = "Pool "+pool_name+" updated",
-            .data = new_pools,
+            .data = new_pools[std::to_string(pool_id)],
         };
         state = 100;
     }
