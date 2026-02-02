@@ -890,12 +890,12 @@ resume_2:
         clock_gettime(CLOCK_REALTIME, &tv_begin);
         tv_progress = tv_begin;
 resume_3:
-        while ((ignore_errors || !copy_error) && (!in_eof || read_buffers.size() || in_waiting > 0 || out_waiting > 0))
+        while ((ignore_errors || !copy_error) && (!in_eof || read_buffers.size() || in_waiting > 0 || out_waiting > 0 || short_writes.size()))
         {
             print_progress(false);
             while ((ignore_errors || !copy_error) &&
                 (!in_eof && in_waiting < in_iodepth && read_buffers.size() < out_iodepth ||
-                read_buffers.size() && out_waiting < out_iodepth))
+                (read_buffers.size() || short_writes.size()) && out_waiting < out_iodepth))
             {
                 if (!in_eof && in_waiting < in_iodepth && read_buffers.size() < out_iodepth)
                 {
@@ -904,7 +904,7 @@ resume_3:
                         break;
                     }
                 }
-                if (read_buffers.size() && out_waiting < out_iodepth)
+                if ((read_buffers.size() || short_writes.size()) && out_waiting < out_iodepth)
                 {
                     if (!add_write_op())
                     {
