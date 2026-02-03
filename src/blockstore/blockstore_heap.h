@@ -261,7 +261,7 @@ public:
     // unlock an entry
     bool unlock_entry(object_id oid);
     // set or verify checksums in a write request
-    bool calc_checksums(heap_entry_t *wr, uint8_t *data, bool set, uint32_t offset = 0, uint32_t len = 0);
+    bool calc_checksums(heap_entry_t *wr, uint8_t *data, bool set, uint32_t offset = UINT32_MAX, uint32_t len = UINT32_MAX);
     // set or verify raw block checksums
     bool calc_block_checksums(uint32_t *block_csums, uint8_t *data, uint8_t *bitmap, uint32_t start, uint32_t end,
         bool set, std::function<void(uint32_t, uint32_t, uint32_t)> bad_block_cb);

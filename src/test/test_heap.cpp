@@ -461,7 +461,7 @@ void test_compact(bool csum, bool stable)
     assert(!memcmp(obj->get_int_bitmap(&heap), ref_int_bitmap, dsk.clean_entry_bitmap_size));
     if (csum)
     {
-        assert(heap.calc_checksums(obj, buffer_area.data(), false));
+        assert(heap.calc_checksums(obj, buffer_area.data(), false, 0, dsk.data_block_size));
         size_t csum_count = dsk.data_block_size/(dsk.csum_block_size ? dsk.csum_block_size : 4096);
         std::vector<uint32_t> csums(csum_count);
         csums[0] = crc32c(0, buffer_area.data(), 4096);

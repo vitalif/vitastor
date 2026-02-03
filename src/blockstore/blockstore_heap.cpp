@@ -837,7 +837,6 @@ bool blockstore_heap_t::calc_checksums(heap_entry_t *wr, uint8_t *data, bool set
         {
             return true;
         }
-        uint32_t len = 0;
         if (wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE)
             len = wr->small().len;
         else if (wr->type() == BS_HEAP_BIG_INTENT)
@@ -854,13 +853,14 @@ bool blockstore_heap_t::calc_checksums(heap_entry_t *wr, uint8_t *data, bool set
     }
     if (wr->type() == BS_HEAP_BIG_WRITE)
     {
+        assert(offset != UINT32_MAX && len != UINT32_MAX);
         return calc_block_checksums((uint32_t*)(wr->get_checksums(this) + offset/dsk->csum_block_size * (dsk->data_csum_type & 0xFF)),
             data, wr->get_int_bitmap(this), offset, offset+len, set, NULL);
     }
     if (wr->type() == BS_HEAP_BIG_INTENT)
     {
         auto & bi = wr->big_intent();
-        return calc_block_checksums((uint32_t*)(wr->get_checksums(this) + offset/dsk->csum_block_size * (dsk->data_csum_type & 0xFF)),
+        return calc_block_checksums((uint32_t*)(wr->get_checksums(this) + bi.offset/dsk->csum_block_size * (dsk->data_csum_type & 0xFF)),
             data, wr->get_int_bitmap(this), bi.offset, bi.offset+bi.len, set, NULL);
     }
     assert(wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE);
@@ -1418,7 +1418,7 @@ int blockstore_heap_t::add_redirect_intent(object_id oid, heap_entry_t **obj_ptr
         bitmap_set(wr->get_int_bitmap(this), offset, len, dsk->bitmap_granularity);
         if (dsk->data_csum_type)
             memset(wr->get_checksums(this), 0, get_csum_size(wr));
-        calc_checksums(wr, (uint8_t*)data, true, offset, len);
+        calc_checksums(wr, (uint8_t*)data, true);
         *obj_ptr = wr;
     });
 }
@@ -1461,7 +1461,7 @@ int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t **obj_ptr, uin
             else
             {
                 memcpy(wr->get_checksums(this), obj->get_checksums(this), get_csum_size(wr));
-                calc_checksums(wr, (uint8_t*)data, true, offset, len);
+                calc_checksums(wr, (uint8_t*)data, true);
             }
         }
         else
