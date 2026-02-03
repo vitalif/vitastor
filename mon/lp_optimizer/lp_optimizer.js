@@ -10,16 +10,19 @@ const NO_OSD = 'Z';
 async function lp_solve(text)
 {
     const cp = child_process.spawn('lp_solve');
-    let stdout = '', stderr = '', finish_cb;
+    let stdout = '', stderr = '', finish_cb, finished = 0;
     cp.stdout.on('data', buf => stdout += buf.toString());
     cp.stderr.on('data', buf => stderr += buf.toString());
-    cp.on('exit', () => finish_cb && finish_cb());
+    cp.stdout.on('end', () => finish_cb());
+    cp.stderr.on('end', () => finish_cb());
     cp.stdin.write(text);
     cp.stdin.end();
-    if (cp.exitCode == null)
+    await new Promise(ok => (finish_cb = () =>
     {
-        await new Promise(ok => finish_cb = ok);
-    }
+        finished++;
+        if (finished == 2)
+            ok();
+    }));
     if (!stdout.trim())
     {
         return null;
