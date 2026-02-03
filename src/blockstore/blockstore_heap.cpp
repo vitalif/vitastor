@@ -1457,10 +1457,10 @@ int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t **obj_ptr, uin
         if (dsk->data_csum_type)
         {
             if (checksums)
-                memcpy(wr->get_checksums(this), checksums, dsk->clean_entry_bitmap_size);
+                memcpy(wr->get_checksums(this), checksums, get_csum_size(wr));
             else
             {
-                memcpy(wr->get_checksums(this), obj->get_checksums(this), dsk->clean_entry_bitmap_size);
+                memcpy(wr->get_checksums(this), obj->get_checksums(this), get_csum_size(wr));
                 calc_checksums(wr, (uint8_t*)data, true, offset, len);
             }
         }
