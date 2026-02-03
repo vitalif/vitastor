@@ -195,7 +195,7 @@ async function generate_pool_pgs(state, global_config, pool_id, osd_tree, levels
     const folded_tree = make_hier_tree(global_config, folded.nodes.reduce((a, c) => { a[c.id] = c; return a; }, {}));
     const old_pg_count = prev_pgs.length;
     const optimize_cfg = {
-        osd_weights: folded.nodes.reduce((a, c) => { if (Number(c.id)) { a[c.id] = c.size; } return a; }, {}),
+        osd_weights: folded.nodes.reduce((a, c) => { if (/^\d+$/.exec(c.id) && c.size != null) { a[c.id] = c.size||0; } return a; }, {}),
         combinator: use_rules
             // new algorithm:
             ? new RuleCombinator(folded_tree, rules, pool_cfg.max_osd_combinations)
