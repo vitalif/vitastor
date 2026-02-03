@@ -1242,6 +1242,102 @@ void test_intent_write(bool csum)
     printf("OK test_intent_write %s\n", csum ? "csum" : "no_csum");
 }
 
+void test_big_intent_csums()
+{
+    blockstore_disk_t dsk;
+    _test_init(dsk, true /*csum*/);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    memset(buffer_area.data(), 0xab, 4096);
+    memset(buffer_area.data()+4096, 0xac, 4096);
+
+    std::vector<uint8_t> tmp;
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 4096, buffer_area.data());
+
+        uint32_t mblock = 999999;
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        uint8_t ext_bitmap[dsk.clean_entry_bitmap_size];
+        memset(ext_bitmap, 0x8e, dsk.clean_entry_bitmap_size);
+        heap_entry_t *obj = heap.read_entry(oid);
+        int res = heap.add_big_intent(oid, &obj, 2, 32768, 4096, ext_bitmap, buffer_area.data()+4096, NULL, &mblock);
+        assert(res == 0);
+        assert(mblock == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+        heap.complete_lsn_write(obj->lsn);
+
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 2);
+        assert(heap.prev(obj)->entry_type == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
+        assert(obj->lsn == 2);
+
+        // verify csums
+        uint32_t ref_csums[dsk.data_block_size/4096];
+        memset(ref_csums, 0, dsk.data_block_size/4096*4);
+        ref_csums[0] = crc32c(0, buffer_area.data(), 4096);
+        ref_csums[8] = crc32c(0, buffer_area.data()+4096, 4096);
+        assert(!memcmp(obj->get_checksums(&heap), ref_csums, dsk.data_block_size/dsk.csum_block_size*4));
+
+        // verify bitmap
+        uint8_t ref_bmp[dsk.clean_entry_bitmap_size];
+        memset(ref_bmp, 0, dsk.clean_entry_bitmap_size);
+        bitmap_set(ref_bmp, 0, 4096, 4096);
+        bitmap_set(ref_bmp, 32768, 4096, 4096);
+        assert(!memcmp(obj->get_int_bitmap(&heap), ref_bmp, dsk.clean_entry_bitmap_size));
+        assert(!memcmp(obj->get_ext_bitmap(&heap), ext_bitmap, dsk.clean_entry_bitmap_size));
+
+        // persist
+        assert(heap.get_meta_block_used_space(0) > 0);
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+
+    // reload heap to check that the write is still here
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data(), 10);
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+
+        int calls = 0;
+        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
+        {
+            calls++;
+            if (len)
+            {
+                assert(is_data);
+                assert(offset == 0x20000+32768 && len == 4096);
+                memcpy(buf, buffer_area.data()+4096, len);
+                assert(cb);
+                cb();
+            }
+        }, 1);
+        assert(done);
+        assert(calls == 2);
+
+        heap.finish_load();
+
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 0);
+
+        // read object 1 - big_intent should be there
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 2);
+        assert(obj->lsn == 2);
+        assert(obj->entry_type == BS_HEAP_BIG_INTENT|BS_HEAP_STABLE);
+        assert(obj->version == 2);
+        assert(obj->big_location(&heap) == 0x20000);
+    }
+
+    printf("OK test_big_intent_csums\n");
+}
+
 // FIXME: Add a test for big_intent, incl. explicit_complete with big_intent over big_write over deletion over big_write :)
 // FIXME: Add a test for redirect_intent
 
@@ -1278,5 +1374,6 @@ int main(int narg, char *args[])
     test_full_alloc();
     test_intent_write(true);
     test_intent_write(false);
+    test_big_intent_csums();
     return 0;
 }
