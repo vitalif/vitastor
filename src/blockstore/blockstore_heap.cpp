@@ -1099,27 +1099,6 @@ heap_entry_t *blockstore_heap_t::lock_and_read_entry(object_id oid)
     return obj;
 }
 
-heap_entry_t *blockstore_heap_t::read_locked_entry(object_id oid, uint64_t lsn)
-{
-    auto obj = read_entry(oid);
-    assert(obj);
-    for (auto wr = obj; wr; wr = prev(wr))
-    {
-        if (wr->is_overwrite())
-        {
-            if (lsn == wr->lsn)
-            {
-                return obj;
-            }
-            else
-            {
-                obj = prev(wr);
-            }
-        }
-    }
-    return NULL;
-}
-
 bool blockstore_heap_t::unlock_entry(object_id oid)
 {
     auto mvcc_it = object_mvcc.find(oid);

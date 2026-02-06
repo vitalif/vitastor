@@ -254,8 +254,6 @@ public:
     // read an object entry and lock it against removal
     // in the future, may become asynchronous
     heap_entry_t *lock_and_read_entry(object_id oid);
-    // re-read a locked object entry with the given lsn (pointer may be invalidated)
-    heap_entry_t *read_locked_entry(object_id oid, uint64_t lsn);
     // read an object entry without locking it
     heap_entry_t *read_entry(object_id oid);
     // unlock an entry
