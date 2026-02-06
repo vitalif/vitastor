@@ -260,19 +260,36 @@ void test_delete(bool csum)
         obj = heap.read_entry(oid);
         assert(obj);
 
+        assert(heap.get_meta_block_used_space(0) == heap.get_big_entry_size() + heap.get_simple_entry_size());
+
+        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 };
+        obj = heap.read_entry(oid);
+        res = heap.add_delete(obj, &mblock);
+        assert(mblock == 0);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
         // Now the trickiest part - check that the delete entry itself disappears
         // when all previous entries disappear from the disk too. It happens only
         // during block defragmentation so we fill the block 0 to 100%
-        assert(heap.get_meta_block_used_space(0) == heap.get_big_entry_size() + heap.get_simple_entry_size());
+        assert(heap.get_meta_block_used_space(0) == heap.get_simple_entry_size());
         int i = 0;
         while (dsk.meta_block_size-heap.get_meta_block_used_space(0) >= heap.get_big_entry_size())
         {
-            _test_big_write(heap, dsk, 1, 0x40000+0x20000*i, 1, 0x60000+0x20000*i, true, 0, 0, buffer_area.data());
+            _test_big_write(heap, dsk, 2, 0x40000+0x20000*i, 1, 0x60000+0x20000*i, true, 0, 0, buffer_area.data());
             i++;
         }
 
+        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
         obj = heap.read_entry(oid);
         assert(!obj);
+        oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 };
+        obj = heap.read_entry(oid);
+        assert(!obj);
+
+        // Check that inode 1 is removed from statistics
+        assert(space.find(INODE_WITH_POOL(1, 1)) == space.end());
     }
 
     printf("OK test_delete %s\n", csum ? "csum" : "no_csum");

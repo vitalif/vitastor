@@ -2027,7 +2027,13 @@ void blockstore_heap_t::free_data(inode_t inode, uint64_t location)
         inode = (INODE_POOL(inode) << POOL_ID_BITS);
     assert(data_alloc->get(location / dsk->data_block_size));
     data_alloc->set(location / dsk->data_block_size, false);
-    inode_space_stats[inode] -= dsk->data_block_size;
+    auto sp_it = inode_space_stats.find(inode);
+    if (sp_it != inode_space_stats.end())
+    {
+        sp_it->second -= dsk->data_block_size;
+        if (sp_it->second == 0)
+            inode_space_stats.erase(sp_it);
+    }
     data_used_space -= dsk->data_block_size;
 }
 
