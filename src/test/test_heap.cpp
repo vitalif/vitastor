@@ -422,7 +422,6 @@ void test_compact(bool csum, bool stable)
     assert(count_writes(heap, obj) == (stable ? 2 : 3));
     int small_writes = 0;
     heap_entry_t *small_wr = NULL;
-    // FIXME: Check more iterate_compaction cases, also check more compact_object cases
     auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
     {
         small_wr = wr;
@@ -482,13 +481,14 @@ void test_iterate_compaction()
     int res;
     blockstore_disk_t dsk;
     _test_init(dsk, false);
+    std::vector<uint8_t> tmp;
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
         heap.finish_load();
 
-        // Case: BIG_STABLE(v1 l1) -> SMALL(v2 l2) -> SMALL(v3 l3) -> SMALL(v4 l4) -> COMMIT(v2 l5) -> SMALL(v5 l6) -> COMMIT(v5 l7)
+        // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) SMALL(v4 l4) COMMIT(v2 l5) SMALL(v5 l6) COMMIT(v5 l7)
         uint32_t mblock = 0;
         _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
         _test_small_write(heap, dsk, 1, 0, 2, 0, 4096, 0, false, buffer_area.data(), false);
@@ -518,13 +518,41 @@ void test_iterate_compaction()
         assert(compact_info.compact_version == 5);
         assert(compact_info.clean_wr->lsn == 1);
         assert(small_writes == 4);
+
+        // persist
+        assert(heap.get_meta_block_used_space(0) > 0);
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+    {
+        // reload heap and check that object state isn't changed and validation passes
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_load();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 0);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 7);
+        assert(compact_info.compact_version == 5);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(small_writes == 4);
     }
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
         heap.finish_load();
 
-        // Case: BIG_STABLE(v1 l1) -> SMALL(v2 l2) -> COMMIT(v2 l3) -> SMALL(v3 l4) -> COMMIT(v3 l5) unfinished
+        // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) COMMIT(v2 l3) SMALL(v3 l4) COMMIT(v3 l5) unfinished
         uint32_t mblock = 0;
         _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
         _test_small_write(heap, dsk, 1, 0, 2, 0, 4096, 0, false, buffer_area.data(), false);
@@ -551,6 +579,325 @@ void test_iterate_compaction()
         assert(compact_info.compact_lsn == 3);
         assert(compact_info.compact_version == 2);
         assert(compact_info.clean_wr->lsn == 1);
+        assert(small_writes == 1);
+
+        // persist
+        assert(heap.get_meta_block_used_space(0) > 0);
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+    {
+        // reload heap and check that object state isn't changed and validation passes
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_load();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 0);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 5);
+        assert(compact_info.compact_version == 3);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(small_writes == 2);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) SMALL(v4 l4) ROLLBACK(v3 l5) COMMIT(v2 l6)
+        // -> compact by adding BIG_STABLE(v2 l2)
+        uint32_t mblock = 0;
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 0, 4096, 0, false, buffer_area.data(), false);
+        _test_small_write(heap, dsk, 1, 0, 3, 4096, 4096, 4096, false, buffer_area.data(), false);
+        _test_small_write(heap, dsk, 1, 0, 4, 8192, 4096, 8192, false, buffer_area.data(), false);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        res = heap.add_rollback(obj, 3, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 5);
+        assert(obj->entry_type == BS_HEAP_ROLLBACK);
+        assert(obj->version == 3);
+        assert(obj->lsn == 5);
+        res = heap.add_commit(obj, 2, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
+        assert(heap.get_fsynced_lsn() == 6);
+        int small_writes = 0;
+        obj = heap.read_entry(oid);
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            assert(wr->lsn == 2);
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 2);
+        assert(compact_info.compact_version == 2);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 1);
+
+        // persist
+        assert(heap.get_meta_block_used_space(0) > 0);
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+    {
+        // reload heap and check that object state isn't changed and validation passes
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_load();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 0);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            assert(wr->lsn == 2);
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 2);
+        assert(compact_info.compact_version == 2);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 1);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        // Case: BIG_STABLE(v1 l1) DELETE(l2) BIG_UNSTABLE(v1 l3) ROLLBACK(v0 l4)
+        // -> compact by adding DELETE(l4)
+        uint32_t mblock = 0;
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        res = heap.add_delete(obj, &mblock);
+        assert(mblock == 0);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
+        _test_big_write(heap, dsk, 1, 0, 1, 0, false, 0, 4096, buffer_area.data());
+
+        obj = heap.read_entry(oid);
+        res = heap.add_rollback(obj, 0, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 2);
+        assert(obj->entry_type == BS_HEAP_ROLLBACK);
+        assert(obj->version == 0);
+
+        uint64_t rollback_lsn = obj->lsn;
+        assert(heap.get_fsynced_lsn() == rollback_lsn);
+        int small_writes = 0;
+        obj = heap.read_entry(oid);
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == rollback_lsn);
+        assert(compact_info.compact_version == 0);
+        assert(compact_info.clean_wr == NULL);
+        assert(compact_info.do_delete);
+        assert(small_writes == 0);
+
+        // persist
+        assert(heap.get_meta_block_used_space(0) > 0);
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+    {
+        // reload heap and check that object state isn't changed and validation passes
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_load();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 0);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 6);
+        assert(compact_info.compact_version == 0);
+        assert(compact_info.clean_wr == NULL);
+        assert(compact_info.do_delete);
+        assert(small_writes == 0);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) ROLLBACK(v2 l4) SMALL(v3 l5) COMMIT(v3 l6)
+        // -> compact by adding BIG_STABLE(v3 l6) and skip l3
+        uint32_t mblock = 0;
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 0, 4096, 0, false, buffer_area.data(), false);
+        _test_small_write(heap, dsk, 1, 0, 3, 4096, 4096, 4096, false, buffer_area.data(), false);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        assert(obj->lsn == 3);
+
+        res = heap.add_rollback(obj, 2, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 4);
+        _test_small_write(heap, dsk, 1, 0, 3, 8192, 4096, 8192, false, buffer_area.data(), false);
+
+        obj = heap.read_entry(oid);
+        assert(obj->lsn == 5);
+
+        res = heap.add_commit(obj, 3, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
+        assert(heap.get_fsynced_lsn() == 6);
+        int small_writes = 0;
+        obj = heap.read_entry(oid);
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            assert(wr->lsn == 2 || wr->lsn == 5);
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 6);
+        assert(compact_info.compact_version == 3);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 2);
+
+        // persist
+        assert(heap.get_meta_block_used_space(0) > 0);
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+    {
+        // reload heap and check that object state isn't changed and validation passes
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_load();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 0);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            assert(wr->lsn == 2 || wr->lsn == 5);
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 6);
+        assert(compact_info.compact_version == 3);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 2);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        // Case: BIG_STABLE(v1 l1) SMALL_STABLE(v2 l2) BIG_UNSTABLE(v3 l3)
+        // -> skip compaction of l2 into l1 if not under pressure
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 0, 4096, 0, true, buffer_area.data(), false);
+        _test_big_write(heap, dsk, 1, 0, 3, 128*1024, false, 4096, 4096, buffer_area.data());
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 0);
+        assert(compact_info.compact_version == 0);
+        assert(!compact_info.clean_wr);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 0);
+
+        compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), true, [&](heap_entry_t *wr)
+        {
+            assert(wr->lsn == 2);
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 2);
+        assert(compact_info.compact_version == 2);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 1);
+
+        // persist
+        assert(heap.get_meta_block_used_space(0) > 0);
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+    {
+        // reload heap and check that object state isn't changed and validation passes
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_load();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 0);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), true, [&](heap_entry_t *wr)
+        {
+            assert(wr->lsn == 2);
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 2);
+        assert(compact_info.compact_version == 2);
+        assert(compact_info.clean_wr->lsn == 1);
+        assert(!compact_info.do_delete);
         assert(small_writes == 1);
     }
 
