@@ -458,19 +458,22 @@ bool blockstore_heap_t::validate_object(heap_entry_t *obj)
         next_wr = wr;
         if (wr->type() == BS_HEAP_ROLLBACK)
         {
-            if (commit_wr && wr->version > commit_wr->version)
-            {
-                // rollback may not come before commit with a smaller version
-                fprintf(stderr, "Error: rollback entry %jx:%jx v%ju l%ju comes before a commit entry v%ju l%ju\n",
-                    wr->inode, wr->stripe, wr->version, wr->lsn, commit_wr->version, commit_wr->lsn);
-                return false;
-            }
             rollback_wr = wr;
             continue;
         }
         if (wr->type() == BS_HEAP_COMMIT)
         {
-            commit_wr = wr;
+            if (commit_wr && wr->version > commit_wr->version)
+            {
+                // commit may not come before commit with a smaller version
+                fprintf(stderr, "Error: commit entry %jx:%jx v%ju l%ju comes before a commit entry v%ju l%ju\n",
+                    wr->inode, wr->stripe, wr->version, wr->lsn, commit_wr->version, commit_wr->lsn);
+                return false;
+            }
+            if (!commit_wr)
+            {
+                commit_wr = wr;
+            }
             continue;
         }
         if (wr->entry_type & BS_HEAP_STABLE)
