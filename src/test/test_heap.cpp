@@ -1999,6 +1999,67 @@ void test_redirect_intent_csums()
     printf("OK test_redirect_intent_csums\n");
 }
 
+void test_explicit_complete()
+{
+    blockstore_disk_t dsk;
+    _test_init(dsk, false);
+    dsk.disable_journal_fsync = dsk.disable_meta_fsync = false;
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    blockstore_heap_t heap(&dsk, buffer_area.data());
+    heap.finish_load();
+
+    {
+        _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
+        assert(heap.get_completed_lsn() == 1);
+        _test_big_write(heap, dsk, 1, 0, 2, 0x40000, true, 0, 0, buffer_area.data());
+        _test_big_write(heap, dsk, 1, 0, 3, 0x60000, true, 0, 0, buffer_area.data());
+        assert(heap.get_completed_lsn() == 3);
+        assert(heap.is_lsn_completed(3));
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 3);
+        assert(heap.get_fsynced_lsn() == 0);
+        heap.mark_lsn_fsynced(3);
+        assert(heap.get_fsynced_lsn() == 3);
+
+        _test_big_write(heap, dsk, 2, 0, 1, 0x80000, true, 0, 0, buffer_area.data());
+        assert(heap.get_completed_lsn() == 6);
+        assert(heap.is_lsn_completed(6));
+
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 3);
+        // now fsync GC
+        heap.mark_lsn_fsynced(6);
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 1);
+
+        uint32_t mblock = 999999;
+        uint8_t ext_bitmap[dsk.clean_entry_bitmap_size];
+        memset(ext_bitmap, 0xff, dsk.clean_entry_bitmap_size);
+        int res = heap.add_small_write(oid, &obj, BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE, 4, 0, 4096, 4096, ext_bitmap, buffer_area.data(), &mblock);
+        assert(res == 0);
+        // test explicit_complete - do not complete_lsn_write()
+        assert(heap.get_completed_lsn() == 6);
+
+        oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
+        heap_entry_t *obj2 = heap.read_entry(oid);
+        res = heap.add_small_write(oid, &obj2, BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE, 5, 0, 4096, 8192, ext_bitmap, buffer_area.data(), &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+        heap.complete_lsn_write(8);
+        assert(heap.get_completed_lsn() == 6);
+        assert(heap.is_lsn_completed(8));
+
+        heap.complete_lsn_write(7);
+        assert(heap.get_completed_lsn() == 8);
+        assert(heap.is_lsn_completed(7));
+    }
+
+    printf("OK test_explicit_complete\n");
+}
+
 // FIXME: Add a test for big_intent, incl. explicit_complete with big_intent over big_write over deletion over big_write :)
 
 int main(int narg, char *args[])
@@ -2037,5 +2098,6 @@ int main(int narg, char *args[])
     test_big_intent_csums();
     test_recalc_stats();
     test_redirect_intent_csums();
+    test_explicit_complete();
     return 0;
 }
