@@ -420,7 +420,7 @@ void test_compact(bool csum, bool stable)
         assert(res == ENOENT);
         auto obj = heap.read_entry(oid);
         res = heap.add_commit(obj, 1, &mblock);
-        assert(res == EBUSY); // already stable
+        assert(res == 0); // already stable
         res = heap.add_commit(obj, 3, &mblock);
         assert(res == 0);
         assert(mblock == 0);

@@ -1554,7 +1554,7 @@ int blockstore_heap_t::add_commit(heap_entry_t *obj, uint64_t version, uint32_t 
     }
     if (!uncommitted)
     {
-        return EBUSY;
+        return 0;
     }
     return add_simple(obj, version, modified_block, BS_HEAP_COMMIT);
 }
