@@ -1702,6 +1702,51 @@ void test_big_intent_csums()
     printf("OK test_big_intent_csums\n");
 }
 
+void test_recalc_stats()
+{
+    blockstore_disk_t dsk;
+    _test_init(dsk, false);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    blockstore_heap_t heap(&dsk, buffer_area.data());
+    heap.finish_load();
+
+    {
+        _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
+        _test_big_write(heap, dsk, 2, 0, 1, 0x40000, true, 0, 0, buffer_area.data());
+        _test_big_write(heap, dsk, 3, 0, 1, 0x60000, true, 0, 0, buffer_area.data());
+
+        uint32_t mblock = 999999;
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        uint8_t ext_bitmap[dsk.clean_entry_bitmap_size];
+        memset(ext_bitmap, 0x8e, dsk.clean_entry_bitmap_size);
+        heap_entry_t *obj = heap.read_entry(oid);
+        int res = heap.add_big_intent(oid, &obj, 2, 32768, 4096, ext_bitmap, buffer_area.data()+4096, NULL, &mblock);
+        assert(res == 0);
+        assert(mblock == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+        heap.complete_lsn_write(obj->lsn);
+
+        auto & space = heap.get_inode_space_stats();
+        assert(space.size() == 3);
+        assert(heap.get_data_used_space() == 0x60000);
+
+        heap.set_no_inode_stats({1});
+
+        assert(space.size() == 1);
+        assert(space.at(INODE_WITH_POOL(1, 0)) == 0x60000);
+
+        heap.set_no_inode_stats({});
+
+        assert(space.size() == 3);
+        assert(space.at(INODE_WITH_POOL(1, 1)) == 0x20000);
+        assert(space.at(INODE_WITH_POOL(1, 2)) == 0x20000);
+        assert(space.at(INODE_WITH_POOL(1, 3)) == 0x20000);
+    }
+
+    printf("OK test_recalc_stats\n");
+}
+
 // FIXME: Add a test for big_intent, incl. explicit_complete with big_intent over big_write over deletion over big_write :)
 // FIXME: Add a test for redirect_intent
 
@@ -1739,5 +1784,6 @@ int main(int narg, char *args[])
     test_intent_write(true);
     test_intent_write(false);
     test_big_intent_csums();
+    test_recalc_stats();
     return 0;
 }

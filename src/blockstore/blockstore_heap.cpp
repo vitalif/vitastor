@@ -1789,9 +1789,9 @@ void blockstore_heap_t::iterate_with_stable(heap_entry_t *obj, uint64_t max_lsn,
         }
         else
         {
-            // 1) 1 2 3 ROLLBACK(2) COMMIT(3) -> impossible
+            // 1) 1 2 3 ROLLBACK(2) COMMIT(3) -> 3 is unstable
             // 2) 1 2 3 4 ROLLBACK(3) COMMIT(2) -> OK
-            // 3) 1 2 3 ROLLBACK(2) 3 COMMIT(3) -> first 3 shouldn't be treated as stable
+            // 3) 1 2 3 ROLLBACK(2) 3 COMMIT(3) -> first 3 is unstable
             // 4) 1 2 3 COMMIT(3) ROLLBACK(2) -> impossible
             //    I.e. a rollback always has version >= previous commit
             // 5) 1 2 3 4 5 ROLLBACK(4) 5 ROLLBACK(3)
@@ -2316,7 +2316,7 @@ void blockstore_heap_t::set_no_inode_stats(const std::vector<uint64_t> & pool_id
     {
         // Recalculate if changed
         if (ps.second.no_inode_stats == 2 || ps.second.no_inode_stats == 1)
-            recalc_inode_space_stats(ps.first, ps.second.no_inode_stats == 1);
+            recalc_inode_space_stats(ps.first, ps.second.no_inode_stats == 2);
         ps.second.no_inode_stats &= 1;
     }
 }
@@ -2327,8 +2327,8 @@ void blockstore_heap_t::recalc_inode_space_stats(uint64_t pool_id, bool per_inod
     auto sp_begin = inode_space_stats.lower_bound((pool_id << (64-POOL_ID_BITS)));
     auto sp_end = inode_space_stats.lower_bound(((pool_id+1) << (64-POOL_ID_BITS)));
     inode_space_stats.erase(sp_begin, sp_end);
-    uint32_t pg_count = ps.pg_count ? ps.pg_count : 1;
-    for (uint32_t pg_num = 1; pg_num <= pg_count; pg_num++)
+    uint32_t pg_count = ps.pg_count;
+    for (uint32_t pg_num = pg_count ? 1 : 0; pg_num <= pg_count; pg_num++)
     {
         auto & pg_idx = block_index[(pool_id << (64-POOL_ID_BITS)) | pg_num];
         for (auto & ip: pg_idx)
