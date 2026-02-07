@@ -1574,23 +1574,32 @@ int blockstore_heap_t::add_rollback(heap_entry_t *obj, uint64_t version, uint32_
     heap_entry_t *wr = obj;
     bool found_uncommitted = false;
     uint64_t commit_version = 0;
-    while (wr && !wr->is_overwrite())
+    uint64_t rollback_version = UINT64_MAX;
+    while (wr)
     {
         if (wr->type() == BS_HEAP_ROLLBACK)
         {
-            auto rollback_version = wr->version;
-            wr = prev(wr);
-            while (wr->version > rollback_version)
+            if (wr->version <= version)
             {
-                assert(!(wr->entry_type & BS_HEAP_STABLE));
-                wr = prev(wr);
+                // All previous writes are already rolled back, stop
+                break;
             }
+            rollback_version = wr->version;
+            wr = prev(wr);
             continue;
         }
         if (wr->type() == BS_HEAP_COMMIT)
         {
             if (commit_version < wr->version)
+            {
                 commit_version = wr->version;
+            }
+            wr = prev(wr);
+            continue;
+        }
+        if (wr->version > rollback_version)
+        {
+            // Already rolled back, skip
             wr = prev(wr);
             continue;
         }
@@ -1601,13 +1610,9 @@ int blockstore_heap_t::add_rollback(heap_entry_t *obj, uint64_t version, uint32_
             {
                 return EBUSY;
             }
-            else if (wr->version == version)
+            else
             {
                 break;
-            }
-            else if (wr->version < version)
-            {
-                return ENOENT;
             }
         }
         else if (wr->version > version)

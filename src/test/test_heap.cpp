@@ -1362,7 +1362,7 @@ void test_rollback()
         assert(!heap.is_buffer_area_free(16384, 4096));
         assert(!heap.is_buffer_area_free(20480, 4096));
         res = heap.add_rollback(obj, 5, NULL);
-        assert(res == ENOENT);
+        assert(res == 0);
         res = heap.add_rollback(obj, 2, &mblock);
         assert(res == 0);
         assert(mblock == 0);
@@ -1455,6 +1455,130 @@ void test_rollback()
         heap.complete_block_write(mblock);
 
         assert(!heap.is_data_used(0x20000));
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        // v1 unstable -> v2 unstable -> v3 unstable -> rollback v2 -> rollback v1
+        _test_big_write(heap, dsk, 1, 0, 1, 0x20000, false, 0, 0, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, false, buffer_area.data()+16384, false);
+        _test_small_write(heap, dsk, 1, 0, 3, 12*1024, 4096, 20480, false, buffer_area.data()+20480, false);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(obj);
+
+        uint32_t mblock = 0;
+        // rollback to 2
+        res = heap.add_rollback(obj, 2, &mblock);
+        assert(res == 0);
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 4);
+
+        // rollback to 1
+        res = heap.add_rollback(obj, 1, &mblock);
+        assert(res == 0);
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 5);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        // v1 unstable -> v2 unstable -> v3 unstable -> rollback v2 -> rollback v1
+        _test_big_write(heap, dsk, 1, 0, 1, 0x20000, false, 0, 0, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, false, buffer_area.data()+16384, false);
+        _test_small_write(heap, dsk, 1, 0, 3, 12*1024, 4096, 20480, false, buffer_area.data()+20480, false);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(obj);
+
+        uint32_t mblock = 0;
+        // rollback to 2
+        res = heap.add_rollback(obj, 2, &mblock);
+        assert(res == 0);
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 4);
+
+        // rollback to 2 again (?!)
+        res = heap.add_rollback(obj, 2, &mblock);
+        assert(res == 0);
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 4);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        // v1 unstable -> v2 unstable -> v3 unstable -> commit v1 -> commit v2 -> rollback v1
+        _test_big_write(heap, dsk, 1, 0, 1, 0x20000, false, 0, 0, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, false, buffer_area.data()+16384, false);
+        _test_small_write(heap, dsk, 1, 0, 3, 12*1024, 4096, 20480, false, buffer_area.data()+20480, false);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(obj);
+
+        uint32_t mblock = 0;
+        // commit 1
+        res = heap.add_commit(obj, 1, &mblock);
+        assert(res == 0);
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 4);
+
+        // check stable writes
+        int count = 0;
+        heap.iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *wr, bool stable)
+        {
+            assert(wr->lsn == 1 || wr->lsn == 2 || wr->lsn == 3);
+            assert(stable == (wr->lsn == 1));
+            count++;
+            return true;
+        });
+        assert(count == 3);
+
+        // commit 2
+        res = heap.add_commit(obj, 2, &mblock);
+        assert(res == 0);
+        obj = heap.read_entry(oid);
+        assert(count_writes(heap, obj) == 5);
+
+        // check stable writes
+        count = 0;
+        heap.iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *wr, bool stable)
+        {
+            assert(wr->lsn == 2 || wr->lsn == 3);
+            assert(stable == (wr->lsn <= 2));
+            count++;
+            return (wr->lsn > 2);
+        });
+        assert(count == 2);
+
+        // rollback to 1 (should fail)
+        res = heap.add_rollback(obj, 1, &mblock);
+        assert(res == EBUSY);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        // v1 stable -> rollback v2
+        _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(obj);
+
+        uint32_t mblock = 0;
+        // rollback to 2
+        res = heap.add_rollback(obj, 2, &mblock);
+        assert(res == 0);
     }
 
     printf("OK test_rollback\n");
