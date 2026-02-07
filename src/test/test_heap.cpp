@@ -409,6 +409,7 @@ void test_compact(bool csum, bool stable)
     object_id compact_oid = {};
     if (!stable)
     {
+        assert(heap.get_compact_queue_size() == 0);
         res = heap.get_next_compact(compact_oid);
         assert(res == ENOENT);
 
@@ -429,8 +430,11 @@ void test_compact(bool csum, bool stable)
         heap.complete_block_write(mblock);
     }
 
+    assert(heap.get_compacted_count() == 2);
     assert(heap.get_to_compact_count() == 1);
+    assert(heap.get_compact_queue_size() == 1);
     res = heap.get_next_compact(compact_oid);
+    assert(heap.get_compact_queue_size() == 0);
     assert(res == 0);
     assert(oid == compact_oid);
 
@@ -466,6 +470,7 @@ void test_compact(bool csum, bool stable)
     heap.complete_block_write(mblock);
 
     assert(heap.get_to_compact_count() == 0);
+    assert(heap.get_compacted_count() == 3);
 
     assert(check_used_space(heap, dsk, 0));
     assert(heap.get_meta_block_used_space(0) == 2*heap.get_big_entry_size());
