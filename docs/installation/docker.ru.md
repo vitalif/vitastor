@@ -25,9 +25,9 @@ Vitastor можно установить в Docker/Podman. При этом etcd,
 Инструкция по установке максимально простая.
 
 1. Скачайте Docker-образ желаемой версии: \
-   `docker pull vitalif/vitastor:v3.0.2`
+   `docker pull vitalif/vitastor:v3.0.3`
 2. Установите скрипты в хост-систему командой: \
-   `docker run --rm -it -v /etc:/host-etc -v /usr/bin:/host-bin vitalif/vitastor:v3.0.2 install.sh`
+   `docker run --rm -it -v /etc:/host-etc -v /usr/bin:/host-bin vitalif/vitastor:v3.0.3 install.sh`
 3. Перезагрузите правила udev: \
    `udevadm control --reload-rules`
 
