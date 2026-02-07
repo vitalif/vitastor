@@ -57,9 +57,9 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
             }
             assert(res == 0);
         }
+resume_1:
         if (priv->modified_block != UINT32_MAX && priv->modified_block2 != priv->modified_block)
         {
-resume_1:
             BS_SUBMIT_CHECK_SQES(1);
             prepare_meta_block_write(priv->modified_block);
 resume_2:
