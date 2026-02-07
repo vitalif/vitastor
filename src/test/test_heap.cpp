@@ -1302,6 +1302,76 @@ void test_reshard_list()
     printf("OK test_reshard_list\n");
 }
 
+void test_reshard_chunked()
+{
+    int res;
+    blockstore_disk_t dsk;
+    _test_init(dsk, false);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+
+    // write
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_load();
+
+        for (int i = 0; i < 30; i++)
+            _test_big_write(heap, dsk, 1, i*0x20000, 1, i*0x20000, true, 0, 0, buffer_area.data());
+
+        obj_ver_id *listing = NULL;
+        size_t stable_count = 0, unstable_count = 0;
+        res = heap.list_objects(1, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, UINT64_MAX), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
+        assert(res == 0);
+        assert(stable_count == 30);
+        assert(unstable_count == 0);
+        free(listing);
+        listing = NULL;
+
+        assert(!heap.reshard_check(1, 2, 0x20000));
+
+        void *st = heap.reshard_start(1, 2, 0x20000, 10);
+        assert(st != NULL);
+
+        assert(!heap.reshard_check(1, 2, 0x20000));
+
+        res = heap.list_objects(1, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
+        assert(res == 0);
+        assert(stable_count == 0);
+        assert(unstable_count == 0);
+        free(listing);
+        listing = NULL;
+
+        bool done = heap.reshard_continue(st, 10);
+        assert(!done);
+
+        assert(!heap.reshard_check(1, 2, 0x20000));
+
+        done = heap.reshard_continue(st, 10);
+        assert(done);
+
+        assert(heap.reshard_check(1, 2, 0x20000));
+
+        res = heap.list_objects(1, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
+        assert(res == 0);
+        assert(stable_count == 15);
+        assert(unstable_count == 0);
+        free(listing);
+        listing = NULL;
+
+        res = heap.list_objects(2, (object_id){ .inode = INODE_WITH_POOL(1, 1) },
+            (object_id){ .inode = INODE_WITH_POOL(1, 1), .stripe = UINT64_MAX }, &listing, &stable_count, &unstable_count);
+        assert(res == 0);
+        assert(stable_count == 15);
+        assert(unstable_count == 0);
+        free(listing);
+        listing = NULL;
+    }
+
+    printf("OK test_reshard_chunked\n");
+}
+
 void test_destructor_mvcc()
 {
     blockstore_disk_t dsk;
@@ -2094,6 +2164,7 @@ int main(int narg, char *args[])
     test_full_overwrite(true);
     test_full_overwrite(false);
     test_reshard_list();
+    test_reshard_chunked();
     test_destructor_mvcc();
     test_rollback();
     test_alloc_buffer();
