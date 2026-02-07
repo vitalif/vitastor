@@ -809,20 +809,16 @@ again:
         goto again;
     }
     auto & pool_cfg = pool_it->second;
-    bool done = false;
-    if (pool_cfg.real_pg_count != pool_cfg.applied_pg_count ||
-        pool_cfg.pg_stripe_size != pool_cfg.applied_pg_stripe_size)
+    bool done = bs->reshard_continue(pool_cfg.reshard_state, pg_reshard_chunk_size);
+    if (done &&
+        (pool_cfg.real_pg_count != pool_cfg.applied_pg_count ||
+        pool_cfg.pg_stripe_size != pool_cfg.applied_pg_stripe_size))
     {
         // PG count changed again, reshard again
-        bs->reshard_abort(pool_cfg.reshard_state);
         pool_cfg.applied_pg_count = pool_cfg.real_pg_count;
         pool_cfg.applied_pg_stripe_size = pool_cfg.pg_stripe_size;
         pool_cfg.reshard_state = bs->reshard_start(pool_id, pool_cfg.real_pg_count, pool_cfg.pg_stripe_size, pg_reshard_chunk_size);
         done = !pool_cfg.reshard_state;
-    }
-    else
-    {
-        done = bs->reshard_continue(pool_cfg.reshard_state, pg_reshard_chunk_size);
     }
     if (done)
     {

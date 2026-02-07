@@ -406,8 +406,3 @@ bool blockstore_impl_t::reshard_continue(void *reshard_state, uint64_t chunk_lim
 {
     return heap->reshard_continue(reshard_state, chunk_limit);
 }
-
-void blockstore_impl_t::reshard_abort(void *reshard_state)
-{
-    return heap->reshard_abort(reshard_state);
-}

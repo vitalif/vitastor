@@ -187,7 +187,6 @@ public:
     // MUST be called only when nobody makes any modifications to the DB for this pool
     virtual void* reshard_start(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size, uint64_t chunk_limit) = 0;
     virtual bool reshard_continue(void *reshard_state, uint64_t chunk_limit) = 0;
-    virtual void reshard_abort(void *reshard_state) = 0;
 
     // Event loop
     virtual void loop() = 0;

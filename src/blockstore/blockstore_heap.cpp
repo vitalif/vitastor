@@ -1080,16 +1080,6 @@ bool blockstore_heap_t::reshard_check(pool_id_t pool, uint32_t pg_count, uint32_
         set_it->second.pg_stripe_size == pg_stripe_size);
 }
 
-void blockstore_heap_t::reshard_abort(void* reshard_state)
-{
-    heap_reshard_state_t *st = (heap_reshard_state_t*)reshard_state;
-    for (auto sh_it = st->old_shards.begin(); sh_it != st->old_shards.end(); sh_it++)
-    {
-        block_index[sh_it->first] = std::move(sh_it->second);
-    }
-    delete st;
-}
-
 heap_entry_t *blockstore_heap_t::lock_and_read_entry(object_id oid)
 {
     auto obj = read_entry(oid);

@@ -480,17 +480,6 @@ resume_1:
     return true;
 }
 
-void blockstore_impl_t::reshard_abort(void *reshard_state)
-{
-    bs_reshard_state_t *st = (bs_reshard_state_t*)reshard_state;
-    for (auto sh_it = st->old_shards.begin(); sh_it != st->old_shards.end(); sh_it++)
-    {
-        auto & to = clean_db_shards[sh_it->first];
-        to.swap(sh_it->second);
-    }
-    delete st;
-}
-
 void blockstore_impl_t::process_list(blockstore_op_t *op)
 {
     uint32_t list_pg = op->pg_number+1;

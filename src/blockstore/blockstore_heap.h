@@ -248,7 +248,6 @@ public:
     void* reshard_start(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size, uint64_t chunk_limit);
     bool reshard_continue(void* reshard_state, uint64_t chunk_limit);
     bool reshard_check(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size);
-    void reshard_abort(void* reshard_state);
     void set_no_inode_stats(const std::vector<uint64_t> & pool_ids);
     void recalc_inode_space_stats(uint64_t pool_id, bool per_inode);
     // read an object entry and lock it against removal
