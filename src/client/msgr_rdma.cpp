@@ -388,8 +388,6 @@ msgr_rdma_context_t *msgr_rdma_context_t::create(ibv_device *dev, ibv_port_attr 
     return ctx;
 
 cleanup:
-    if (context)
-        ibv_close_device(context);
     delete ctx;
     return NULL;
 }
