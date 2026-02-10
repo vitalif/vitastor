@@ -22,28 +22,6 @@ uint64_t sscanf_json(const char *fmt, const json11::Json & str)
     return value;
 }
 
-static int fromhex(char c)
-{
-    if (c >= '0' && c <= '9')
-        return (c-'0');
-    else if (c >= 'a' && c <= 'f')
-        return (c-'a'+10);
-    else if (c >= 'A' && c <= 'F')
-        return (c-'A'+10);
-    return -1;
-}
-
-void fromhexstr(const std::string & from, int bytes, uint8_t *to)
-{
-    for (int i = 0; i < from.size() && i < bytes; i++)
-    {
-        int x = fromhex(from[2*i]), y = fromhex(from[2*i+1]);
-        if (x < 0 || y < 0)
-            break;
-        to[i] = x*16 + y;
-    }
-}
-
 // returns 1 = check error, 0 = write through, -1 = write back
 // (similar to 1 = warning, -1 = error, 0 = success in disable_cache)
 static int check_queue_cache(std::string dev, std::string parent_dev)

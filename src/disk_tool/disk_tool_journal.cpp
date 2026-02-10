@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include "disk_tool.h"
+#include "str_util.h"
 #include "malloc_or_die.h"
 
 int disk_tool_t::dump_journal()

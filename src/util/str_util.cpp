@@ -527,7 +527,7 @@ bool memcheck(uint8_t *buf, uint8_t byte, size_t len)
     return true;
 }
 
-char hextochar(char h)
+static uint8_t fromhexchar(char h, uint8_t def)
 {
     if (h >= 'a' && h <= 'f')
         return h-'a'+10;
@@ -535,7 +535,7 @@ char hextochar(char h)
         return h-'A'+10;
     else if (h >= '0' && h <= '9')
         return h-'0';
-    return 0;
+    return def;
 }
 
 std::string urldecode(const std::string & orig)
@@ -549,11 +549,28 @@ std::string urldecode(const std::string & orig)
             res.push_back(' ');
         else if (orig[i] == '%' && i < len-2)
         {
-            res.push_back(hextochar(orig[i+1])*16 + hextochar(orig[i+2]));
+            res.push_back(fromhexchar(orig[i+1], 0)*16 + fromhexchar(orig[i+2], 0));
             i += 2;
         }
         else
             res.push_back(orig[i]);
     }
     return res;
+}
+
+size_t fromhexstr(const std::string & from, size_t bytes, uint8_t *to)
+{
+    if (bytes > from.size()/2)
+        bytes = from.size()/2;
+    size_t i = 0;
+    while (i < bytes)
+    {
+        uint8_t x = fromhexchar(from[2*i], 16);
+        uint8_t y = fromhexchar(from[2*i+1], 16);
+        if (x == 16 || y == 16)
+            break;
+        to[i] = x*16 + y;
+        i++;
+    }
+    return i;
 }

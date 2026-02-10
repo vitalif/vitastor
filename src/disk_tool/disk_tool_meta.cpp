@@ -4,6 +4,7 @@
 #include "disk_tool.h"
 #include "rw_blocking.h"
 #include "json_util.h"
+#include "str_util.h"
 #include "malloc_or_die.h"
 
 int disk_tool_t::process_meta(std::function<void(blockstore_meta_header_v3_t *)> hdr_fn,
