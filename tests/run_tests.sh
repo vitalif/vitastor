@@ -96,6 +96,11 @@ TEST_NAME=local_read POOLCFG='"local_reads":"random",' ./test_heal.sh
 SCHEME=ec ./test_heal.sh
 ANTIETCD=1 ./test_heal.sh
 
+./test_checksum.sh
+OLD=1 ./test_checksum.sh
+./test_corrupt_all.sh
+OLD=1 ./test_corrupt_all.sh
+
 ./test_reweight_half.sh
 ./test_snapshot_pool2.sh
 ./test_snapshot_read_bitmap.sh

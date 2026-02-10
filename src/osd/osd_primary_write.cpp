@@ -108,57 +108,31 @@ retry_1:
         }
     }
     // Read required blocks
-    {
-        if (op_data->object_state && (op_data->object_state->state & OBJ_INCOMPLETE))
-        {
-            // Allow to read version number (just version number!) from corrupted chunks
-            // to allow full overwrite of a corrupted object
-            bool found = false;
-            for (int role = 0; role < pg.pg_size; role++)
-            {
-                if (op_data->prev_set[role] != 0 || op_data->stripes[role].read_end > op_data->stripes[role].read_start)
-                {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found)
-            {
-                osd_num_t corrupted_target[pg.pg_size];
-                for (int role = 0; role < pg.pg_size; role++)
-                {
-                    corrupted_target[role] = 0;
-                }
-                for (auto & loc: op_data->object_state->osd_set)
-                {
-                    if (!(loc.loc_bad & LOC_OUTDATED) && !corrupted_target[loc.role])
-                    {
-                        corrupted_target[loc.role] = loc.osd_num;
-                    }
-                }
-                submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, corrupted_target, cur_op);
-                goto resume_2;
-            }
-        }
-        submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
-    }
+    submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
 resume_2:
-    op_data->st = 2;
-    return;
+    if (op_data->n_subops > 0)
+    {
+        op_data->st = 2;
+        return;
+    }
 resume_3:
     if (op_data->errors > 0)
     {
         if (op_data->errcode == -EIO || op_data->errcode == -EDOM)
         {
             // Mark object corrupted and retry
-            op_data->object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, true);
-            op_data->prev_set = op_data->object_state ? op_data->object_state->read_target.data() : pg.cur_set.data();
-            if (cur_op->rmw_buf)
+            pg_osd_set_state_t *new_object_state = mark_object_corrupted(pg, op_data->oid, op_data->object_state, op_data->stripes, true);
+            if (new_object_state != op_data->object_state)
             {
-                free(cur_op->rmw_buf);
-                cur_op->rmw_buf = NULL;
+                op_data->object_state = new_object_state;
+                op_data->prev_set = op_data->object_state ? op_data->object_state->read_target.data() : pg.cur_set.data();
+                if (cur_op->rmw_buf)
+                {
+                    free(cur_op->rmw_buf);
+                    cur_op->rmw_buf = NULL;
+                }
+                goto retry_1;
             }
-            goto retry_1;
         }
         deref_object_state(pg, &op_data->object_state, true);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);

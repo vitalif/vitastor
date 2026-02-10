@@ -134,11 +134,17 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const ui
         n_subops = 1;
     else
         zero_read = -1;
-    osd_op_t *subops = new osd_op_t[n_subops];
     op_data->fact_ver = 0;
     op_data->done = op_data->errors = op_data->drops = op_data->errcode = 0;
     op_data->n_subops = n_subops;
-    op_data->subops = subops;
+    if (!n_subops)
+    {
+        op_data->errcode = -EIO;
+        op_data->subops = NULL;
+        op_data->errors = 1;
+        return;
+    }
+    op_data->subops = new osd_op_t[n_subops];
     int sent = submit_primary_subop_batch(submit_type, op_data->oid.inode, op_version, op_data->stripes, osd_set, cur_op, 0, zero_read);
     assert(sent == n_subops);
 }

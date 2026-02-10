@@ -334,35 +334,43 @@ pg_osd_set_state_t* pg_t::add_object_to_state(const object_id oid, const uint64_
     if (it == state_dict.end())
     {
         std::vector<osd_num_t> read_target;
+        bool found = false;
+        uint32_t bad_mask = (LOC_OUTDATED | LOC_CORRUPTED);
+retry:
         if (scheme == POOL_SCHEME_REPLICATED)
         {
             for (auto & o: osd_set)
             {
-                if (!(o.loc_bad & (LOC_OUTDATED | LOC_CORRUPTED)))
+                if (!(o.loc_bad & bad_mask))
                 {
                     read_target.push_back(o.osd_num);
+                    found = true;
                 }
             }
-            while (read_target.size() < pg_size)
+            if (read_target.size() < pg_size)
             {
                 // FIXME: This is because we then use .data() and assume it's at least <pg_size> long
-                read_target.push_back(0);
+                read_target.resize(pg_size);
             }
         }
         else
         {
             read_target.resize(pg_size);
-            for (int i = 0; i < pg_size; i++)
-            {
-                read_target[i] = 0;
-            }
             for (auto & o: osd_set)
             {
-                if (!(o.loc_bad & (LOC_OUTDATED | LOC_CORRUPTED)))
+                if (!(o.loc_bad & bad_mask))
                 {
                     read_target[o.role] = o.osd_num;
+                    found = true;
                 }
             }
+        }
+        if (!found && (bad_mask & LOC_CORRUPTED))
+        {
+            // Allow to try reading corrupted copies in rare cases when the object is corrupted on all OSDs
+            bad_mask = LOC_OUTDATED;
+            read_target.clear();
+            goto retry;
         }
         state_dict[osd_set] = {
             .read_target = read_target,

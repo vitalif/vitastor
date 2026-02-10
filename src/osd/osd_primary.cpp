@@ -271,7 +271,6 @@ resume_0:
             }
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg ? pg->pg_data_size : 1, 0);
             submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
-            op_data->st = 1;
         }
         else
         {
@@ -284,11 +283,14 @@ resume_0:
             op_data->degraded = 1;
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg->pg_size, 0);
             submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
-            op_data->st = 1;
         }
     }
 resume_1:
-    return;
+    if (op_data->n_subops > 0)
+    {
+        op_data->st = 1;
+        return;
+    }
 resume_2:
     if (op_data->errors > 0)
     {
@@ -296,8 +298,9 @@ resume_2:
         {
             // I/O or checksum error
             // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
-            op_data->object_state = mark_object_corrupted(*pg, op_data->oid, op_data->object_state, op_data->stripes, false);
-            goto resume_0;
+            auto new_object_state = mark_object_corrupted(*pg, op_data->oid, op_data->object_state, op_data->stripes, false);
+            if (new_object_state != op_data->object_state)
+                goto resume_0;
         }
         finish_op(cur_op, op_data->errcode);
         return;
@@ -736,8 +739,11 @@ resume_1:
     submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
     op_data->prev_set = NULL;
 resume_2:
-    op_data->st = 2;
-    return;
+    if (op_data->n_subops > 0)
+    {
+        op_data->st = 2;
+        return;
+    }
 resume_3:
     if (op_data->errors > 0)
     {
