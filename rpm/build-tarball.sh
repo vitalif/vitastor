@@ -21,7 +21,7 @@ rpmbuild -bp fio.spec
 cd $VITASTOR
 VER=$(grep ^Version: rpm/vitastor-$REL.spec | awk '{print $2}')
 rm -rf fio
-ln -s ~/rpmbuild/BUILD/fio*/ fio
+ln -s $(ls -d ~/rpmbuild/BUILD/fio*/ | grep -v SPECPARTS) fio
 sh copy-fio-includes.sh
 rm fio
 mv fio-copy fio
