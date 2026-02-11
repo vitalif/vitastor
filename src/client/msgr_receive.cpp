@@ -1,6 +1,8 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
+#define _XOPEN_SOURCE
+#include <limits.h>
 #include "messenger.h"
 #include "msgr_iothread.h"
 
@@ -16,7 +18,11 @@ void osd_messenger_t::read_requests()
             continue;
         }
         auto cl = cl_it->second;
-        if (cl->read_remaining < receive_buffer_size)
+        if (cl->read_op && cl->read_op_size-(cl->read_op_pos-OSD_PACKET_SIZE) >= receive_buffer_size)
+        {
+            op_get_read_buffers(cl, cl->recv_list);
+        }
+        if (!cl->recv_list.size())
         {
             cl->read_iov.iov_base = cl->in_buf;
             cl->read_iov.iov_len = receive_buffer_size;
@@ -26,10 +32,11 @@ void osd_messenger_t::read_requests()
         else
         {
             cl->read_iov.iov_base = 0;
-            cl->read_iov.iov_len = cl->read_remaining;
-            cl->read_msg.msg_iov = cl->recv_list.get_iovec();
-            cl->read_msg.msg_iovlen = cl->recv_list.get_size();
+            cl->read_iov.iov_len = 0;
+            cl->read_msg.msg_iov = cl->recv_list.data();
+            cl->read_msg.msg_iovlen = cl->recv_list.size();
         }
+        assert(!cl->read_op || cl->read_op_pos < OSD_PACKET_SIZE || cl->read_op_size >= (cl->read_op_pos-OSD_PACKET_SIZE));
         cl->refs++;
         if (ringloop && !use_sync_send_recv)
         {
@@ -51,7 +58,7 @@ void osd_messenger_t::read_requests()
             }
             ring_data_t* data = ((ring_data_t*)sqe->user_data);
             data->callback = [this, cl](ring_data_t *data) { handle_read(data->res, cl); };
-            io_uring_prep_recvmsg(sqe, cl->peer_fd, &cl->read_msg, 0);
+            io_uring_prep_recvmsg(sqe, cl->peer_fd, &cl->read_msg, cl->recv_list.size() ? MSG_WAITALL : 0);
             if (iothread)
             {
                 iothread->add_sqe(sqe_local);
@@ -71,14 +78,12 @@ void osd_messenger_t::read_requests()
     read_ready_clients.clear();
 }
 
-bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
+void osd_messenger_t::handle_read(int result, osd_client_t *cl)
 {
-    bool ret = false;
-    cl->read_msg.msg_iovlen = 0;
     cl->refs--;
     if (cl->peer_state == PEER_RDMA)
     {
-        return true;
+        return;
     }
     if (cl->peer_state == PEER_STOPPED)
     {
@@ -86,7 +91,7 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
         {
             destroy_client(cl);
         }
-        return false;
+        return;
     }
     if (result <= 0 && result != -EAGAIN && result != -EINTR)
     {
@@ -96,9 +101,50 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
             fprintf(stderr, "Client %ju socket read error: %d (%s). Disconnecting client\n", cl->client_id, -result, strerror(-result));
         }
         stop_client(cl->client_id);
-        return false;
+        return;
     }
-    if (result == -EAGAIN || result == -EINTR || result < cl->read_iov.iov_len)
+    bool full_read = false;
+    if (result > 0)
+    {
+        if (cl->read_iov.iov_base == cl->in_buf)
+        {
+            full_read = result >= cl->read_iov.iov_len;
+            if (!handle_read_buffer(cl, cl->in_buf, result))
+            {
+                handle_immediate_ops();
+                return;
+            }
+        }
+        else
+        {
+            // Reset OSD ping state
+            cl->ping_time_remaining = 0;
+            cl->idle_time_remaining = osd_idle_timeout;
+            // Long data
+            size_t i = 0;
+            while (i < cl->recv_list.size() && result >= cl->recv_list[i].iov_len)
+            {
+                result -= cl->recv_list[i].iov_len;
+                i++;
+            }
+            if (i < cl->recv_list.size())
+            {
+                cl->recv_list[i].iov_base += result;
+                cl->recv_list[i].iov_len -= result;
+            }
+            else
+            {
+                full_read = true;
+            }
+            cl->recv_list.erase(cl->recv_list.begin(), cl->recv_list.begin()+i);
+            if (!cl->recv_list.size())
+            {
+                handle_finished_op(cl);
+            }
+        }
+    }
+    cl->read_msg.msg_iovlen = 0;
+    if (result == -EAGAIN || result == -EINTR || !full_read)
     {
         cl->read_ready--;
         if (cl->read_ready > 0)
@@ -108,37 +154,7 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
     {
         read_ready_clients.push_back(cl->client_id);
     }
-    if (result > 0)
-    {
-        if (cl->read_iov.iov_base == cl->in_buf)
-        {
-            if (!handle_read_buffer(cl, cl->in_buf, result))
-            {
-                handle_immediate_ops();
-                return false;
-            }
-        }
-        else
-        {
-            // Long data
-            cl->read_remaining -= result;
-            cl->recv_list.eat(result);
-            if (cl->recv_list.done >= cl->recv_list.count)
-            {
-                if (!handle_finished_read(cl))
-                {
-                    handle_immediate_ops();
-                    return false;
-                }
-            }
-        }
-        if (result >= cl->read_iov.iov_len)
-        {
-            ret = true;
-        }
-    }
     handle_immediate_ops();
-    return ret;
 }
 
 void osd_messenger_t::handle_immediate_ops()
@@ -163,117 +179,94 @@ void osd_messenger_t::handle_immediate_ops()
     }
 }
 
-bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, void *curbuf, int remain)
+bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size_t bufsize)
 {
+    // Reset OSD ping state
+    cl->ping_time_remaining = 0;
+    cl->idle_time_remaining = osd_idle_timeout;
     // Compose operation(s) from the buffer
-    while (remain > 0)
+    size_t done = 0;
+    while (done < bufsize)
     {
         if (!cl->read_op)
         {
             cl->read_op = new osd_op_t;
             cl->read_op->client_id = cl->client_id;
             cl->read_op->op_type = OSD_OP_IN;
-            cl->recv_list.push_back(cl->read_op->req.buf, OSD_PACKET_SIZE);
-            cl->read_remaining = OSD_PACKET_SIZE;
-            cl->read_state = CL_READ_HDR;
+            cl->read_op_pos = 0;
+            cl->read_op_size = 0;
         }
-        while (cl->recv_list.done < cl->recv_list.count && remain > 0)
+        if (cl->read_op_pos < OSD_PACKET_SIZE)
         {
-            iovec* cur = cl->recv_list.get_iovec();
-            if (cur->iov_len > remain)
-            {
-                memcpy(cur->iov_base, curbuf, remain);
-                cl->read_remaining -= remain;
-                cur->iov_len -= remain;
-                cur->iov_base = (uint8_t*)cur->iov_base + remain;
-                remain = 0;
-            }
-            else
-            {
-                memcpy(cur->iov_base, curbuf, cur->iov_len);
-                curbuf = (uint8_t*)curbuf + cur->iov_len;
-                cl->read_remaining -= cur->iov_len;
-                remain -= cur->iov_len;
-                cur->iov_len = 0;
-                cl->recv_list.done++;
-            }
-        }
-        if (cl->recv_list.done >= cl->recv_list.count)
-        {
-            if (!handle_finished_read(cl))
-            {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
-bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
-{
-    // Reset OSD ping state
-    cl->ping_time_remaining = 0;
-    cl->idle_time_remaining = osd_idle_timeout;
-    cl->recv_list.reset();
-    if (cl->read_state == CL_READ_HDR)
-    {
-        if (cl->read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
-            return handle_reply_hdr(cl);
-        else if (cl->read_op->req.hdr.magic == SECONDARY_OSD_OP_MAGIC)
-        {
-            if (cl->check_sequencing)
-            {
-                if (cl->read_op->req.hdr.id != cl->read_op_id)
-                {
-                    fprintf(stderr, "Warning: operation sequencing is broken on client %ju: expected num %ju, got %ju, stopping client\n", cl->client_id, cl->read_op_id, cl->read_op->req.hdr.id);
-                    stop_client(cl->client_id);
-                    return false;
-                }
-                cl->read_op_id++;
-            }
-            if (!handle_op_hdr(cl))
+            int len = OSD_PACKET_SIZE - cl->read_op_pos;
+            if (len > bufsize-done)
+                len = bufsize-done;
+            memcpy(cl->read_op->req.buf + cl->read_op_pos, curbuf+done, len);
+            done += len;
+            cl->read_op_pos += len;
+            if (cl->read_op_pos < OSD_PACKET_SIZE)
+                return true;
+            if (!handle_hdr(cl))
             {
                 stop_client(cl->client_id);
                 return false;
             }
         }
-        else
-        {
-            fprintf(stderr, "Received garbage: magic=%jx id=%ju opcode=%jx from client %ju\n", cl->read_op->req.hdr.magic, cl->read_op->req.hdr.id, cl->read_op->req.hdr.opcode, cl->client_id);
-            stop_client(cl->client_id);
-            return false;
-        }
-    }
-    else if (cl->read_state == CL_READ_DATA)
-    {
-        // Operation is ready
-        cl->received_ops.push_back(cl->read_op);
-        set_immediate_ops.push_back(cl->read_op);
-        cl->read_op = NULL;
-        cl->read_state = 0;
-    }
-    else if (cl->read_state == CL_READ_REPLY_DATA)
-    {
-        // Reply is ready
-        handle_reply_ready(cl->read_op);
-        cl->read_op = NULL;
-        cl->read_state = 0;
-    }
-    else
-    {
-        assert(0);
+        op_copy_from(cl, curbuf, bufsize, done);
     }
     return true;
 }
 
-bool osd_messenger_t::handle_op_hdr(osd_client_t *cl)
+bool osd_messenger_t::handle_hdr(osd_client_t *cl)
+{
+    if (cl->read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
+    {
+        auto req_it = cl->sent_ops.find(cl->read_op->req.hdr.id);
+        if (req_it == cl->sent_ops.end())
+        {
+            // Command out of sync. Drop connection
+            fprintf(stderr, "Client %ju command out of sync: id %ju\n", cl->client_id, cl->read_op->req.hdr.id);
+            return false;
+        }
+        osd_op_t *op = req_it->second;
+        memcpy(op->reply.buf, cl->read_op->req.buf, OSD_PACKET_SIZE);
+        if (!allocate_reply_buffers(cl, op))
+        {
+            return false;
+        }
+        cl->sent_ops.erase(req_it);
+        delete cl->read_op;
+        cl->read_op = op;
+    }
+    else if (cl->read_op->req.hdr.magic == SECONDARY_OSD_OP_MAGIC)
+    {
+        if (cl->check_sequencing)
+        {
+            if (cl->read_op->req.hdr.id != cl->read_op_id)
+            {
+                fprintf(stderr, "Warning: operation sequencing is broken on client %d: expected num %ju, got %ju, stopping client\n", cl->peer_fd, cl->read_op_id, cl->read_op->req.hdr.id);
+                return false;
+            }
+            cl->read_op_id++;
+        }
+        if (!allocate_op_buffers(cl))
+        {
+            return false;
+        }
+    }
+    else
+    {
+        fprintf(stderr, "Received garbage: magic=%jx id=%ju opcode=%jx from client %ju\n", cl->read_op->req.hdr.magic, cl->read_op->req.hdr.id, cl->read_op->req.hdr.opcode, cl->client_id);
+        return false;
+    }
+    return true;
+}
+
+bool osd_messenger_t::allocate_op_buffers(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
-    if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ)
-    {
-        cl->read_remaining = 0;
-    }
-    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+    cl->read_op_size = 0;
+    if (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
         if (cur_op->req.sec_rw.attr_len > 0)
@@ -291,7 +284,6 @@ bool osd_messenger_t::handle_op_hdr(osd_client_t *cl)
                 cur_op->bitmap = cur_op->rmw_buf = malloc_or_die(cur_op->req.sec_rw.attr_len);
             else
                 cur_op->bitmap = &cur_op->bmp_data;
-            cl->recv_list.push_back(cur_op->bitmap, cur_op->req.sec_rw.attr_len);
         }
         if (cur_op->req.sec_rw.len > 0)
         {
@@ -305,9 +297,8 @@ bool osd_messenger_t::handle_op_hdr(osd_client_t *cl)
                 return false;
             }
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
-            cl->recv_list.push_back(cur_op->buf, cur_op->req.sec_rw.len);
         }
-        cl->read_remaining = cur_op->req.sec_rw.len + cur_op->req.sec_rw.attr_len;
+        cl->read_op_size = cur_op->req.sec_rw.len + cur_op->req.sec_rw.attr_len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
@@ -324,9 +315,8 @@ bool osd_messenger_t::handle_op_hdr(osd_client_t *cl)
                 return false;
             }
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_stab.len);
-            cl->recv_list.push_back(cur_op->buf, cur_op->req.sec_stab.len);
         }
-        cl->read_remaining = cur_op->req.sec_stab.len;
+        cl->read_op_size = cur_op->req.sec_stab.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
     {
@@ -342,9 +332,8 @@ bool osd_messenger_t::handle_op_hdr(osd_client_t *cl)
                 return false;
             }
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_read_bmp.len);
-            cl->recv_list.push_back(cur_op->buf, cur_op->req.sec_read_bmp.len);
         }
-        cl->read_remaining = cur_op->req.sec_read_bmp.len;
+        cl->read_op_size = cur_op->req.sec_read_bmp.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_WRITE)
     {
@@ -360,9 +349,8 @@ bool osd_messenger_t::handle_op_hdr(osd_client_t *cl)
                 return false;
             }
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.rw.len);
-            cl->recv_list.push_back(cur_op->buf, cur_op->req.rw.len);
         }
-        cl->read_remaining = cur_op->req.rw.len;
+        cl->read_op_size = cur_op->req.rw.len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
     {
@@ -379,45 +367,15 @@ bool osd_messenger_t::handle_op_hdr(osd_client_t *cl)
             }
             cur_op->buf = malloc_or_die(cur_op->req.show_conf.json_len+1);
             ((uint8_t*)cur_op->buf)[cur_op->req.show_conf.json_len] = 0;
-            cl->recv_list.push_back(cur_op->buf, cur_op->req.show_conf.json_len);
         }
-        cl->read_remaining = cur_op->req.show_conf.json_len;
-    }
-    /*else if (cur_op->req.hdr.opcode == OSD_OP_READ ||
-        cur_op->req.hdr.opcode == OSD_OP_SCRUB ||
-        cur_op->req.hdr.opcode == OSD_OP_DESCRIBE)
-    {
-        cl->read_remaining = 0;
-    }*/
-    if (cl->read_remaining > 0)
-    {
-        // Read data
-        cl->read_state = CL_READ_DATA;
-    }
-    else
-    {
-        // Operation is ready
-        cl->received_ops.push_back(cur_op);
-        set_immediate_ops.push_back(cur_op);
-        cl->read_op = NULL;
-        cl->read_state = 0;
+        cl->read_op_size = cur_op->req.show_conf.json_len;
     }
     return true;
 }
 
-bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
+bool osd_messenger_t::allocate_reply_buffers(osd_client_t *cl, osd_op_t *op)
 {
-    auto req_it = cl->sent_ops.find(cl->read_op->req.hdr.id);
-    if (req_it == cl->sent_ops.end() || req_it->second->req.hdr.opcode != cl->read_op->req.hdr.opcode)
-    {
-        // Command out of sync. Drop connection
-        fprintf(stderr, "Client %ju command out of sync: id %ju\n", cl->client_id, cl->read_op->req.hdr.id);
-        stop_client(cl->client_id);
-        return false;
-    }
-    osd_op_t *op = req_it->second;
-    memcpy(op->reply.buf, cl->read_op->req.buf, OSD_PACKET_SIZE);
-    cl->sent_ops.erase(req_it);
+    cl->read_op_size = 0;
     if (op->reply.hdr.opcode == OSD_OP_SEC_READ || op->reply.hdr.opcode == OSD_OP_READ)
     {
         // Read data. In this case we assume that the buffer is preallocated by the caller (!)
@@ -428,120 +386,298 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
             // Check reply length to not overflow the buffer
             fprintf(stderr, "Error: peer %ju read reply has incorrect length: expected %u+%u, got %jd+%u, stopping\n",
                 cl->client_id, expected_size, op->bitmap_len, op->reply.hdr.retval, bmp_len);
-            cl->sent_ops[op->req.hdr.id] = op;
-            stop_client(cl->client_id);
             return false;
         }
         if (op->reply.hdr.retval >= 0 && bmp_len > 0)
         {
             assert(op->bitmap);
-            cl->recv_list.push_back(op->bitmap, bmp_len);
-            cl->read_remaining += bmp_len;
+            cl->read_op_size += bmp_len;
         }
         if (op->reply.hdr.retval > 0)
         {
             assert(op->iov.count > 0);
-            cl->recv_list.append(op->iov);
-            cl->read_remaining += op->reply.hdr.retval;
+            cl->read_op_size += op->reply.hdr.retval;
         }
-        if (cl->read_remaining == 0)
-        {
-            goto reuse;
-        }
-        delete cl->read_op;
-        cl->read_op = op;
-        cl->read_state = CL_READ_REPLY_DATA;
     }
     else if (op->reply.hdr.opcode == OSD_OP_SEC_LIST && op->reply.hdr.retval > 0)
     {
         assert(!op->iov.count);
-        delete cl->read_op;
-        cl->read_op = op;
-        cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_remaining = sizeof(obj_ver_id) * op->reply.hdr.retval;
-        if (cl->read_remaining < op->reply.hdr.retval) // check for overflow
+        cl->read_op_size = sizeof(obj_ver_id) * op->reply.hdr.retval;
+        if (cl->read_op_size/sizeof(obj_ver_id) != op->reply.hdr.retval) // check for overflow
         {
             fprintf(stderr, "Error: peer %ju object list length is too large: %jx objects, stopping\n",
                 cl->client_id, op->reply.hdr.retval);
-            stop_client(cl->client_id);
             return false;
         }
-        assert(!op->buf);
-        op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_remaining);
-        cl->recv_list.push_back(op->buf, cl->read_remaining);
+        op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_op_size);
     }
     else if (op->reply.hdr.opcode == OSD_OP_SEC_READ_BMP && op->reply.hdr.retval > 0)
     {
         assert(!op->iov.count);
-        delete cl->read_op;
-        cl->read_op = op;
-        cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_remaining = op->reply.hdr.retval;
         uint64_t expected_retval = (op->req.sec_read_bmp.len / sizeof(obj_ver_id) * (8 + clean_entry_bitmap_size));
         if (op->reply.hdr.retval != expected_retval)
         {
             fprintf(stderr, "Error: peer %ju bitmap read reply has incorrect length: expected %jx, got %jx, stopping\n",
                 cl->client_id, expected_retval, op->reply.hdr.retval);
-            stop_client(cl->client_id);
             return false;
         }
+        cl->read_op_size = op->reply.hdr.retval;
         free(op->buf);
-        op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_remaining);
-        cl->recv_list.push_back(op->buf, cl->read_remaining);
+        op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_op_size);
     }
     else if (op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG && op->reply.hdr.retval > 0)
     {
-        delete cl->read_op;
-        cl->read_op = op;
-        cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_remaining = op->reply.hdr.retval;
-        if (op->reply.hdr.retval > MAX_SIMPLE_PAYLOAD_SIZE)
+        cl->read_op_size = op->reply.hdr.retval;
+        if (cl->read_op_size > MAX_SIMPLE_PAYLOAD_SIZE)
         {
             fprintf(stderr, "Error: peer %ju show_config response length too large (%ju > %u bytes), stopping\n",
                 cl->client_id, op->reply.hdr.retval, MAX_SIMPLE_PAYLOAD_SIZE);
-            stop_client(cl->client_id);
             return false;
         }
         free(op->buf);
         op->buf = malloc_or_die(op->reply.hdr.retval);
-        cl->recv_list.push_back(op->buf, op->reply.hdr.retval);
     }
     else if (op->reply.hdr.opcode == OSD_OP_DESCRIBE && op->reply.describe.result_bytes > 0)
     {
-        delete cl->read_op;
-        cl->read_op = op;
-        cl->read_state = CL_READ_REPLY_DATA;
-        cl->read_remaining = op->reply.describe.result_bytes;
+        cl->read_op_size = op->reply.describe.result_bytes;
         free(op->buf);
         op->buf = malloc_or_die(op->reply.describe.result_bytes);
-        cl->recv_list.push_back(op->buf, op->reply.describe.result_bytes);
-    }
-    else
-    {
-reuse:
-        // It's fine to reuse cl->read_op for the next reply
-        handle_reply_ready(op);
-        cl->recv_list.push_back(cl->read_op->req.buf, OSD_PACKET_SIZE);
-        cl->read_remaining = OSD_PACKET_SIZE;
-        cl->read_state = CL_READ_HDR;
     }
     return true;
 }
 
-void osd_messenger_t::handle_reply_ready(osd_op_t *op)
+size_t osd_messenger_t::op_copy_from(osd_client_t *cl, uint8_t *src, size_t src_len, size_t & done)
 {
-    // Measure subop latency
-    timespec tv_end;
-    clock_gettime(CLOCK_REALTIME, &tv_end);
-    stats.subop_stat_count[op->req.hdr.opcode]++;
-    if (!stats.subop_stat_count[op->req.hdr.opcode])
+    osd_op_t *op = cl->read_op;
+    size_t from = cl->read_op_pos-OSD_PACKET_SIZE;
+    auto op_read_buf = [&](uint8_t *dst, size_t dst_len)
     {
-        stats.subop_stat_count[op->req.hdr.opcode]++;
-        stats.subop_stat_sum[op->req.hdr.opcode] = 0;
+        if (from < dst_len)
+        {
+            size_t n = dst_len-from;
+            if (n > src_len-done)
+                n = src_len-done;
+            memcpy(dst+from, src+done, n);
+            done += n;
+            cl->read_op_pos += n;
+            from += n;
+            if (from < dst_len)
+                return false;
+            from = 0;
+        }
+        else
+            from -= dst_len;
+        return true;
+    };
+    if (op->op_type == OSD_OP_IN)
+    {
+        if (op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+            op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
+        {
+            if (!op_read_buf((uint8_t*)op->bitmap, op->req.sec_rw.attr_len))
+                return done;
+            if (!op_read_buf((uint8_t*)op->buf, op->req.sec_rw.len))
+                return done;
+        }
+        else if (op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
+            op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->req.sec_stab.len))
+                return done;
+        }
+        else if (op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->req.sec_read_bmp.len))
+                return done;
+        }
+        else if (op->req.hdr.opcode == OSD_OP_WRITE)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->req.rw.len))
+                return done;
+        }
+        else if (op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->req.show_conf.json_len))
+                return done;
+        }
     }
-    stats.subop_stat_sum[op->req.hdr.opcode] += (
-        (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
-        (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
-    );
+    else
+    {
+        if (op->reply.hdr.opcode == OSD_OP_SEC_READ)
+        {
+            if (op->reply.sec_rw.attr_len > 0)
+            {
+                if (!op_read_buf((uint8_t*)op->bitmap, op->reply.sec_rw.attr_len))
+                    return done;
+            }
+            if (op->reply.hdr.retval > 0)
+            {
+                for (int i = 0; i < op->iov.count; i++)
+                    if (!op_read_buf((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len))
+                        return done;
+            }
+        }
+        else if (op->reply.hdr.opcode == OSD_OP_READ)
+        {
+            if (op->reply.rw.bitmap_len > 0)
+            {
+                if (!op_read_buf((uint8_t*)op->bitmap, op->reply.rw.bitmap_len))
+                    return done;
+            }
+            if (op->reply.hdr.retval > 0)
+            {
+                for (int i = 0; i < op->iov.count; i++)
+                    if (!op_read_buf((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len))
+                        return done;
+            }
+        }
+        else if (op->reply.hdr.opcode == OSD_OP_SEC_LIST && op->reply.hdr.retval > 0)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, sizeof(obj_ver_id) * op->reply.hdr.retval))
+                return done;
+        }
+        else if ((op->reply.hdr.opcode == OSD_OP_SEC_READ_BMP ||
+            op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG) && op->reply.hdr.retval > 0)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->reply.hdr.retval))
+                return done;
+        }
+        else if (op->reply.hdr.opcode == OSD_OP_DESCRIBE && op->reply.describe.result_bytes > 0)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->reply.describe.result_bytes))
+                return done;
+        }
+    }
+    handle_finished_op(cl);
+    return done;
+}
+
+size_t osd_messenger_t::op_get_read_buffers(osd_client_t *cl, std::vector<iovec> & lst)
+{
+    osd_op_t *op = cl->read_op;
+    size_t from = cl->read_op_pos-OSD_PACKET_SIZE;
+    size_t done = 0;
+    auto op_read_buf = [&](uint8_t *dst, size_t dst_len)
+    {
+        if (lst.size() >= IOV_MAX)
+            return false;
+        if (from < dst_len)
+        {
+            lst.push_back((iovec){ .iov_base = dst+from, .iov_len = dst_len-from });
+            cl->read_op_pos += dst_len-from;
+            done += dst_len-from;
+            from = 0;
+        }
+        else
+            from -= dst_len;
+        return true;
+    };
+    if (op->op_type == OSD_OP_IN)
+    {
+        if (op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+            op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
+        {
+            if (!op_read_buf((uint8_t*)op->bitmap, op->req.sec_rw.attr_len))
+                return done;
+            if (!op_read_buf((uint8_t*)op->buf, op->req.sec_rw.len))
+                return done;
+        }
+        else if (op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
+            op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->req.sec_stab.len))
+                return done;
+        }
+        else if (op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->req.sec_read_bmp.len))
+                return done;
+        }
+        else if (op->req.hdr.opcode == OSD_OP_WRITE)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->req.rw.len))
+                return done;
+        }
+        else if (op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->req.show_conf.json_len))
+                return done;
+        }
+    }
+    else
+    {
+        if (op->reply.hdr.opcode == OSD_OP_SEC_READ)
+        {
+            if (op->reply.sec_rw.attr_len > 0)
+            {
+                if (!op_read_buf((uint8_t*)op->bitmap, op->reply.sec_rw.attr_len))
+                    return done;
+            }
+            if (op->reply.hdr.retval > 0)
+            {
+                for (int i = 0; i < op->iov.count; i++)
+                    if (!op_read_buf((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len))
+                        return done;
+            }
+        }
+        else if (op->reply.hdr.opcode == OSD_OP_READ)
+        {
+            if (op->reply.rw.bitmap_len > 0)
+            {
+                if (!op_read_buf((uint8_t*)op->bitmap, op->reply.rw.bitmap_len))
+                    return done;
+            }
+            if (op->reply.hdr.retval > 0)
+            {
+                for (int i = 0; i < op->iov.count; i++)
+                    if (!op_read_buf((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len))
+                        return done;
+            }
+        }
+        else if (op->reply.hdr.opcode == OSD_OP_SEC_LIST && op->reply.hdr.retval > 0)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, sizeof(obj_ver_id) * op->reply.hdr.retval))
+                return done;
+        }
+        else if ((op->reply.hdr.opcode == OSD_OP_SEC_READ_BMP ||
+            op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG) && op->reply.hdr.retval > 0)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->reply.hdr.retval))
+                return done;
+        }
+        else if (op->reply.hdr.opcode == OSD_OP_DESCRIBE && op->reply.describe.result_bytes > 0)
+        {
+            if (!op_read_buf((uint8_t*)op->buf, op->reply.describe.result_bytes))
+                return done;
+        }
+    }
+    return done;
+}
+
+void osd_messenger_t::handle_finished_op(osd_client_t *cl)
+{
+    osd_op_t *op = cl->read_op;
+    if (op->op_type == OSD_OP_IN)
+    {
+        // Operation is ready
+        cl->received_ops.push_back(op);
+    }
+    else
+    {
+        // Measure subop (outbound op) latency
+        timespec tv_end;
+        clock_gettime(CLOCK_REALTIME, &tv_end);
+        stats.subop_stat_count[op->req.hdr.opcode]++;
+        if (!stats.subop_stat_count[op->req.hdr.opcode])
+        {
+            stats.subop_stat_count[op->req.hdr.opcode]++;
+            stats.subop_stat_sum[op->req.hdr.opcode] = 0;
+        }
+        stats.subop_stat_sum[op->req.hdr.opcode] += (
+            (tv_end.tv_sec - op->tv_begin.tv_sec)*1000000 +
+            (tv_end.tv_nsec - op->tv_begin.tv_nsec)/1000
+        );
+    }
     set_immediate_ops.push_back(op);
+    cl->read_op = NULL;
 }

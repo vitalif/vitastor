@@ -8,7 +8,10 @@
 #include <infiniband/verbs.h>
 #include <string>
 #include <vector>
+#include <deque>
 #include "addr_util.h"
+
+struct osd_op_t;
 
 struct msgr_rdma_address_t
 {
@@ -72,9 +75,9 @@ struct msgr_rdma_connection_t
     int cur_send = 0, cur_recv = 0;
     int send_pos = 0, send_buf_pos = 0;
     int next_recv_buf = 0;
-    std::vector<void*> recv_buffers;
+    std::vector<uint8_t*> recv_buffers;
     msgr_rdma_buf_t recv_buf;
-    std::vector<uint64_t> send_sizes;
+    std::deque<uint64_t> send_sizes;
     msgr_rdma_buf_t send_out;
     int send_out_pos = 0, send_done_pos = 0, send_out_size = 0;
     bool send_out_full = false;

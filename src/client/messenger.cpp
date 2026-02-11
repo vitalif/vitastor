@@ -399,7 +399,7 @@ void osd_messenger_t::try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_
     cl->peer_state = PEER_CONNECTING;
     cl->connect_timeout_id = -1;
     cl->osd_num = peer_osd;
-    cl->in_buf = malloc_or_die(receive_buffer_size);
+    cl->in_buf = (uint8_t*)malloc_or_die(receive_buffer_size);
     clients[client_id] = cl;
     clients_by_fd[peer_fd] = cl;
     tfd->set_fd_handler(peer_fd, true, [this](int peer_fd, int epoll_events)
@@ -680,7 +680,7 @@ void osd_messenger_t::accept_connections(int listen_fd)
         cl->peer_port = ntohs(((sockaddr_in*)&addr)->sin_port);
         cl->peer_fd = peer_fd;
         cl->peer_state = PEER_CONNECTED;
-        cl->in_buf = malloc_or_die(receive_buffer_size);
+        cl->in_buf = (uint8_t*)malloc_or_die(receive_buffer_size);
         // Add FD to epoll
         tfd->set_fd_handler(peer_fd, false, [this](int peer_fd, int epoll_events)
         {

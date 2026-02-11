@@ -35,9 +35,6 @@
 
 #define DEFAULT_MIN_ZEROCOPY_SEND_SIZE 32*1024
 
-#define MSGR_SENDP_HDR 1
-#define MSGR_SENDP_FREE 2
-
 #define MAX_SIMPLE_PAYLOAD_SIZE 1048576
 
 struct msgr_sendp_t
@@ -67,7 +64,7 @@ struct osd_client_t
     osd_num_t in_osd_num = 0;
     bool is_incoming = false;
 
-    void *in_buf = NULL;
+    uint8_t *in_buf = NULL;
 
 #ifdef WITH_RDMA
     msgr_rdma_connection_t *rdma_conn = NULL;
@@ -76,11 +73,12 @@ struct osd_client_t
     // Read state
     int read_ready = 0;
     osd_op_t *read_op = NULL;
+    size_t read_op_size = 0;
+    size_t read_op_pos = 0;
     iovec read_iov = { 0 };
     msghdr read_msg = { 0 };
-    uint64_t read_remaining = 0;
-    int read_state = 0;
-    osd_op_buf_list_t recv_list;
+    std::vector<iovec> recv_list;
+    size_t recv_list_size = 0;
     uint64_t read_op_id = 1;
     bool check_sequencing = false;
     bool enable_pg_locks = false;
@@ -96,10 +94,14 @@ struct osd_client_t
     std::set<pool_pg_num_t> dirty_pgs;
 
     // Write state
+    std::deque<osd_op_t *> write_ops;
+    osd_op_t *write_op = NULL;
+    size_t write_op_pos = 0;
     msghdr write_msg = { 0 };
     int write_state = 0;
-    std::vector<iovec> send_list, next_send_list;
-    std::vector<msgr_sendp_t> outbox, next_outbox;
+    std::vector<iovec> send_list;
+    size_t send_list_size = 0;
+    std::deque<osd_op_t*> send_free_ops;
     std::vector<osd_op_t*> zc_free_list;
 
     ~osd_client_t();
@@ -250,17 +252,22 @@ protected:
 
     bool try_send(osd_client_t *cl);
     void handle_send(int result, bool prev, bool more, osd_client_t *cl);
+    size_t op_copy_to(osd_client_t *cl, uint8_t *dst, size_t dst_len);
+    void op_get_write_buffers(osd_client_t *cl, std::vector<iovec> & lst);
 
-    bool handle_read(int result, osd_client_t *cl);
-    bool handle_read_buffer(osd_client_t *cl, void *curbuf, int remain);
-    bool handle_finished_read(osd_client_t *cl);
-    bool handle_op_hdr(osd_client_t *cl);
-    bool handle_reply_hdr(osd_client_t *cl);
-    void handle_reply_ready(osd_op_t *op);
+    void handle_read(int result, osd_client_t *cl);
+    bool handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size_t bufsize);
+    bool handle_hdr(osd_client_t *cl);
+    bool allocate_op_buffers(osd_client_t *cl);
+    bool allocate_reply_buffers(osd_client_t *cl, osd_op_t *op);
+    size_t op_copy_from(osd_client_t *cl, uint8_t *src, size_t src_len, size_t & done);
+    size_t op_get_read_buffers(osd_client_t *cl, std::vector<iovec> & lst);
+    void handle_finished_op(osd_client_t *cl);
     void handle_immediate_ops();
 
 #ifdef WITH_RDMA
     void try_send_rdma(osd_client_t *cl);
+    int try_send_rdma_copy(osd_client_t *cl, uint8_t *dst, int dst_len);
     bool init_recv_rdma(osd_client_t *cl);
     void handle_rdma_events(msgr_rdma_context_t *rdma_context);
     msgr_rdma_context_t* choose_rdma_context(osd_client_t *cl);

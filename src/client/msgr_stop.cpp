@@ -179,6 +179,13 @@ osd_client_t::~osd_client_t()
     }
     // Cancel outbound ops
     cancel_ops();
+    for (osd_op_t *op: send_free_ops)
+    {
+        if (op)
+        {
+            delete op;
+        }
+    }
     for (osd_op_t *op: zc_free_list)
     {
         if (op)

@@ -495,7 +495,7 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
     cl->peer_state = PEER_RDMA;
     cl->connect_timeout_id = -1;
     cl->osd_num = peer_osd;
-    cl->in_buf = malloc_or_die(receive_buffer_size);
+    cl->in_buf = (uint8_t*)malloc_or_die(receive_buffer_size);
     cl->rdma_conn = rc;
     clients[conn->client_id] = cl;
     if (conn->timeout_id >= 0)

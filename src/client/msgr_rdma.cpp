@@ -571,23 +571,28 @@ static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
     cl->rdma_conn->cur_send++;
 }
 
-static int try_send_rdma_copy(osd_client_t *cl, uint8_t *dst, int dst_len)
+int osd_messenger_t::try_send_rdma_copy(osd_client_t *cl, uint8_t *dst, int dst_len)
 {
-    auto rc = cl->rdma_conn;
     int total_dst_len = dst_len;
-    while (dst_len > 0 && rc->send_pos < cl->send_list.size())
+    while (dst_len > 0 && cl->write_ops.size())
     {
-        iovec & iov = cl->send_list[rc->send_pos];
-        uint32_t len = (uint32_t)(iov.iov_len-rc->send_buf_pos < dst_len
-            ? iov.iov_len-rc->send_buf_pos : dst_len);
-        memcpy(dst, (uint8_t*)iov.iov_base+rc->send_buf_pos, len);
-        dst += len;
-        dst_len -= len;
-        rc->send_buf_pos += len;
-        if (rc->send_buf_pos >= iov.iov_len)
+        if (!cl->write_op)
         {
-            rc->send_pos++;
-            rc->send_buf_pos = 0;
+            cl->write_op = cl->write_ops.front();
+            cl->write_ops.pop_front();
+        }
+        osd_op_t *op = cl->write_op;
+        size_t copied = op_copy_to(cl, dst, dst_len);
+        if (!copied)
+        {
+            break;
+        }
+        dst += copied;
+        dst_len -= copied;
+        if (!cl->write_op && op->op_type == OSD_OP_IN)
+        {
+            // this is a reply, free the op after sending it
+            cl->send_free_ops.push_back(op);
         }
     }
     return total_dst_len-dst_len;
@@ -636,6 +641,7 @@ void osd_messenger_t::try_send_rdma(osd_client_t *cl)
             };
             try_send_rdma_wr(cl, &sge, 1);
             rc->send_sizes.push_back(copied);
+            cl->send_free_ops.push_back(NULL); // end marker
         }
     }
 }
@@ -746,51 +752,20 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
             else
             {
                 rc->cur_send--;
-                uint64_t sent_size = rc->send_sizes.at(0);
-                rc->send_sizes.erase(rc->send_sizes.begin(), rc->send_sizes.begin()+1);
+                // byte_len is not filled for send operations
+                uint64_t sent_size = rc->send_sizes.front();
+                rc->send_sizes.pop_front();
                 rc->send_done_pos += sent_size;
                 rc->send_out_full = false;
                 if (rc->send_done_pos == rc->send_out_size)
                     rc->send_done_pos = 0;
                 assert(rc->send_done_pos < rc->send_out_size);
-                int send_pos = 0, send_buf_pos = 0;
-                while (sent_size > 0)
+                while (cl->send_free_ops.front())
                 {
-                    if (sent_size >= cl->send_list.at(send_pos).iov_len)
-                    {
-                        sent_size -= cl->send_list[send_pos].iov_len;
-                        send_pos++;
-                    }
-                    else
-                    {
-                        send_buf_pos = sent_size;
-                        sent_size = 0;
-                    }
+                    delete cl->send_free_ops.front();
+                    cl->send_free_ops.pop_front();
                 }
-                assert(rc->send_pos >= send_pos);
-                if (rc->send_pos == send_pos)
-                {
-                    rc->send_buf_pos -= send_buf_pos;
-                }
-                rc->send_pos -= send_pos;
-                for (int i = 0; i < send_pos; i++)
-                {
-                    if (cl->outbox[i].flags & MSGR_SENDP_FREE)
-                    {
-                        // Reply fully sent
-                        delete cl->outbox[i].op;
-                    }
-                }
-                if (send_pos > 0)
-                {
-                    cl->send_list.erase(cl->send_list.begin(), cl->send_list.begin()+send_pos);
-                    cl->outbox.erase(cl->outbox.begin(), cl->outbox.begin()+send_pos);
-                }
-                if (send_buf_pos > 0)
-                {
-                    cl->send_list[0].iov_base = (uint8_t*)cl->send_list[0].iov_base + send_buf_pos;
-                    cl->send_list[0].iov_len -= send_buf_pos;
-                }
+                cl->send_free_ops.pop_front();
                 try_send_rdma(cl);
             }
         }
