@@ -112,6 +112,13 @@ bool osd_t::sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid, uint3
 
 void osd_t::exec_secondary_real(osd_op_t *cur_op)
 {
+    auto cl_it = msgr.clients.find(cur_op->peer_fd);
+    if (cl_it == msgr.clients.end())
+    {
+        finish_op(cur_op, -EPIPE);
+        return;
+    }
+    auto cl = cl_it->second;
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_LIST &&
         (cur_op->req.sec_list.flags & OSD_LIST_PRIMARY))
     {
@@ -120,15 +127,14 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
     }
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
     {
-        exec_sec_read_bmp(cur_op);
+        exec_sec_read_bmp(cur_op, cl);
         return;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_LOCK)
     {
-        exec_sec_lock(cur_op);
+        exec_sec_lock(cur_op, cl);
         return;
     }
-    auto cl = msgr.clients.at(cur_op->peer_fd);
     cur_op->bs_op = new blockstore_op_t();
     cur_op->bs_op->callback = [this, cur_op](blockstore_op_t* bs_op) { secondary_op_callback(cur_op); };
     cur_op->bs_op->opcode = (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ? BS_OP_READ
@@ -247,9 +253,8 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
 #endif
 }
 
-void osd_t::exec_sec_read_bmp(osd_op_t *cur_op)
+void osd_t::exec_sec_read_bmp(osd_op_t *cur_op, osd_client_t *cl)
 {
-    auto cl = msgr.clients.at(cur_op->peer_fd);
     int n = cur_op->req.sec_read_bmp.len / sizeof(obj_ver_id);
     if (n > 0)
     {
@@ -275,10 +280,9 @@ void osd_t::exec_sec_read_bmp(osd_op_t *cur_op)
 }
 
 // Lock/Unlock PG
-void osd_t::exec_sec_lock(osd_op_t *cur_op)
+void osd_t::exec_sec_lock(osd_op_t *cur_op, osd_client_t *cl)
 {
     cur_op->reply.sec_lock.cur_primary = 0;
-    auto cl = msgr.clients.at(cur_op->peer_fd);
     if (!cl->in_osd_num ||
         cur_op->req.sec_lock.flags != OSD_SEC_LOCK_PG &&
         cur_op->req.sec_lock.flags != OSD_SEC_UNLOCK_PG ||
@@ -340,7 +344,13 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         ? json11::Json::parse(std::string((char *)cur_op->buf), json_err)
         : json11::Json();
     auto peer_osd_num = req_json["osd_num"].uint64_value();
-    auto cl = msgr.clients.at(cur_op->peer_fd);
+    auto cl_it = msgr.clients.find(cur_op->peer_fd);
+    if (cl_it == msgr.clients.end())
+    {
+        finish_op(cur_op, -EPIPE);
+        return;
+    }
+    auto cl = cl_it->second;
     cl->in_osd_num = peer_osd_num;
     if (req_json["features"]["check_sequencing"].bool_value())
     {
