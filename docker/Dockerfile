@@ -1,6 +1,6 @@
 # Build Docker image with Vitastor packages
 
-FROM debian:bookworm
+FROM debian:trixie
 
 ADD etc/apt /etc/apt/
 RUN apt-get update && apt-get -y install vitastor ibverbs-providers udev systemd qemu-system-x86 qemu-system-common qemu-block-extra qemu-utils jq nfs-common && apt-get clean
