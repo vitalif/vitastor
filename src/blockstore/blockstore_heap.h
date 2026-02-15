@@ -216,6 +216,7 @@ class blockstore_heap_t
     void defragment_block(uint32_t block_num);
     void reshard_add(heap_reshard_state_t *st, heap_list_item_t *li);
 
+    void gc_block(heap_block_info_t & inf);
     int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free);
     void insert_list_item(heap_list_item_t *li);
     int add_entry(uint32_t wr_size, uint32_t *modified_block, bool allow_last_free,

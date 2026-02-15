@@ -1899,7 +1899,7 @@ void test_big_intent_csums()
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
         heap_entry_t *obj = heap.read_entry(oid);
         assert(obj);
-        assert(count_writes(heap, obj) == 2);
+        assert(count_writes(heap, obj) == 1);
         assert(obj->lsn == 2);
         assert(obj->entry_type == BS_HEAP_BIG_INTENT|BS_HEAP_STABLE);
         assert(obj->version == 2);

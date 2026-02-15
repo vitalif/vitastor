@@ -331,7 +331,19 @@ corrupted_block:
                     block_num, block_offset, wr->size, sizeof(heap_entry_t));
                 goto corrupted_block;
             }
-            wr->entry_type &= ~BS_HEAP_GARBAGE;
+            if (wr->is_garbage())
+            {
+                // Garbage collection is only performed when writing new entries into the block
+                // because it needs a fake LSN and modified blocks require consecutive modified LSNs
+                // That's why garbage entries may persist on disk
+                if (log_level > 5)
+                {
+                    fprintf(stderr, "Notice: skipping garbage entry %jx:%jx v%ju l%ju in metadata block %u at %u\n",
+                        wr->inode, wr->stripe, wr->version, wr->lsn, block_num, block_offset);
+                }
+                block_offset += wr->size;
+                continue;
+            }
             if ((wr->entry_type & BS_HEAP_TYPE) < BS_HEAP_BIG_WRITE ||
                 (wr->entry_type & BS_HEAP_TYPE) > BS_HEAP_ROLLBACK ||
                 (wr->entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)) ||
@@ -374,8 +386,8 @@ corrupted_object:
             uint32_t expected_crc32c = wr->calc_crc32c();
             if (wr->crc32c != expected_crc32c)
             {
-                fprintf(stderr, "Error: entry %jx:%jx v%ju in metadata block %u at %u is corrupt (crc32c mismatch: expected %08x, got %08x). ",
-                    wr->inode, wr->stripe, wr->version,
+                fprintf(stderr, "Error: entry %jx:%jx v%ju l%ju in metadata block %u at %u is corrupt (crc32c mismatch: expected %08x, got %08x). ",
+                    wr->inode, wr->stripe, wr->version, wr->lsn,
                     block_num, block_offset, expected_crc32c, wr->crc32c);
                 goto corrupted_object;
             }
@@ -1146,6 +1158,35 @@ heap_entry_t *blockstore_heap_t::read_entry(object_id oid)
     return &li->entry;
 }
 
+void blockstore_heap_t::gc_block(heap_block_info_t & inf)
+{
+    if (inf.has_garbage)
+    {
+        size_t i = 0, j = 0;
+        for (; i < inf.entries.size(); i++)
+        {
+            if (inf.entries[i]->entry.is_garbage())
+            {
+                // old entry invalidated by a newer one, mark it as freeable on block write
+                // assign a 'virtual' LSN to track GC completion
+                assert(!inf.mod_lsn_to || inf.mod_lsn_to == next_lsn);
+                uint64_t gc_lsn = ++next_lsn;
+                inf.mod_lsn = inf.mod_lsn ? inf.mod_lsn : gc_lsn;
+                inf.mod_lsn_to = gc_lsn;
+                push_inflight_lsn(gc_lsn, &inf.entries[i]->entry, HEAP_INFLIGHT_GC);
+            }
+            else
+            {
+                if (j != i)
+                    inf.entries[j] = inf.entries[i];
+                j++;
+            }
+        }
+        inf.entries.resize(j);
+        inf.has_garbage = false;
+    }
+}
+
 int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free)
 {
     if (last_allocated_block != UINT32_MAX)
@@ -1212,31 +1253,7 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
     }
     // Write into the same block
     auto & inf = block_info.at(last_allocated_block);
-    if (inf.has_garbage)
-    {
-        size_t i = 0, j = 0;
-        for (; i < inf.entries.size(); i++)
-        {
-            if (inf.entries[i]->entry.is_garbage())
-            {
-                // old entry invalidated by a newer one, mark it as freeable on block write
-                // assign a 'virtual' LSN to track GC completion
-                assert(!inf.mod_lsn_to || inf.mod_lsn_to == next_lsn);
-                uint64_t gc_lsn = ++next_lsn;
-                inf.mod_lsn = inf.mod_lsn ? inf.mod_lsn : gc_lsn;
-                inf.mod_lsn_to = gc_lsn;
-                push_inflight_lsn(gc_lsn, &inf.entries[i]->entry, HEAP_INFLIGHT_GC);
-            }
-            else
-            {
-                if (j != i)
-                    inf.entries[j] = inf.entries[i];
-                j++;
-            }
-        }
-        inf.entries.resize(j);
-        inf.has_garbage = false;
-    }
+    gc_block(inf);
     *block_num = last_allocated_block;
     modify_alloc(last_allocated_block, [&](heap_block_info_t & inf)
     {
