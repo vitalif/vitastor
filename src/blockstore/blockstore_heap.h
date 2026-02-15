@@ -200,6 +200,7 @@ class blockstore_heap_t
 
     bool marked_used_blocks = false;
     bool recheck_queue_filled = false;
+    std::vector<heap_list_item_t*> loaded_list_items;
     std::set<uint32_t> recheck_modified_blocks;
     std::deque<heap_entry_t*> recheck_queue;
     int recheck_in_progress = 0;
@@ -237,13 +238,14 @@ public:
         std::function<void(uint32_t, uint32_t, uint8_t*)> handle_block);
     int load_blocks(uint64_t disk_offset, uint64_t size, uint8_t *buf,
         bool allow_corrupted, uint64_t &entries_loaded);
-    // finish loading
-    int finish_load(bool allow_corrupted = false);
+    // finish loading - should be called after load_blocks
+    void finish_load();
     // get blocks which are modified during loading and should be written to the disk
     // before finishing initialization if not R/O
     std::vector<uint32_t> get_recheck_modified_blocks();
     // recheck small write data after reading the database from disk
     bool recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> read_buffer, int queue_depth);
+    int finish_recheck();
     // reshard database according to the pool's PG count
     void* reshard_start(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size, uint64_t chunk_limit);
     bool reshard_continue(void* reshard_state, uint64_t chunk_limit);

@@ -360,7 +360,7 @@ corrupted_object:
             {
                 // Small writes require accessing offset & len to calculate correct length,
                 // so require at least sizeof(heap_small_write_t) for them
-                fprintf(stderr, "Error: entry %jx:%jx v%ju has invalid size in metadata block %u at %u (%u < min %zu bytes). Metadata is corrupted, aborting\n",
+                fprintf(stderr, "Error: entry %jx:%jx v%ju has invalid size in metadata block %u at %u (%u < min %zu bytes)\n",
                     wr->inode, wr->stripe, wr->version, block_num, block_offset, wr->size, sizeof(heap_small_write_t));
                 goto corrupted_object;
             }
@@ -374,7 +374,7 @@ corrupted_object:
             uint32_t expected_crc32c = wr->calc_crc32c();
             if (wr->crc32c != expected_crc32c)
             {
-                fprintf(stderr, "Error: entry %jx:%jx v%ju in metadata block %u at %u is corrupt (crc32c mismatch: expected %08x, got %08x). Metadata is corrupted, aborting\n",
+                fprintf(stderr, "Error: entry %jx:%jx v%ju in metadata block %u at %u is corrupt (crc32c mismatch: expected %08x, got %08x). ",
                     wr->inode, wr->stripe, wr->version,
                     block_num, block_offset, expected_crc32c, wr->crc32c);
                 goto corrupted_object;
@@ -385,7 +385,7 @@ corrupted_object:
                 wr->small().offset % dsk->bitmap_granularity ||
                 wr->small().len % dsk->bitmap_granularity))
             {
-                fprintf(stderr, "Error: %s entry %jx:%jx v%ju has invalid offset/length: %u/%u. Metadata is incompatible with current parameters, aborting\n",
+                fprintf(stderr, "Error: %s entry %jx:%jx v%ju has invalid offset/length: %u/%u. Metadata is incompatible with current parameters. ",
                     wr->type() == BS_HEAP_SMALL_WRITE ? "small_write" : "intent_write",
                     wr->inode, wr->stripe, wr->version, wr->small().offset, wr->small().len);
                 goto corrupted_object;
@@ -395,7 +395,7 @@ corrupted_object:
                 wr->big_intent().offset % dsk->bitmap_granularity ||
                 wr->big_intent().len % dsk->bitmap_granularity))
             {
-                fprintf(stderr, "Error: big_intent entry %jx:%jx v%ju has invalid offset/length: %u/%u. Metadata is incompatible with current parameters, aborting\n",
+                fprintf(stderr, "Error: big_intent entry %jx:%jx v%ju has invalid offset/length: %u/%u. Metadata is incompatible with current parameters. ",
                     wr->inode, wr->stripe, wr->version, wr->big_intent().offset, wr->big_intent().len);
                 goto corrupted_object;
             }
@@ -422,7 +422,7 @@ int blockstore_heap_t::load_blocks(uint64_t disk_offset, uint64_t size, uint8_t 
             next_lsn = wr->lsn;
         }
         entries_loaded++;
-        insert_list_item(li);
+        loaded_list_items.push_back(li);
         modify_alloc(block_num, [&](heap_block_info_t & inf)
         {
             if (!inf.entries.size())
@@ -524,6 +524,23 @@ bool blockstore_heap_t::validate_object(heap_entry_t *obj)
         return false;
     }
     return true;
+}
+
+void blockstore_heap_t::finish_load()
+{
+    if (loaded_list_items.size())
+    {
+        // Sort everything and load in correct order
+        std::sort(loaded_list_items.begin(), loaded_list_items.end(), [this](const heap_list_item_t* a, const heap_list_item_t* b)
+        {
+            return a->entry.lsn < b->entry.lsn;
+        });
+        for (auto & li: loaded_list_items)
+        {
+            insert_list_item(li);
+        }
+        loaded_list_items.clear();
+    }
 }
 
 void blockstore_heap_t::fill_recheck_queue()
@@ -712,6 +729,7 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
     }
     if (!recheck_queue_filled)
     {
+        finish_load();
         fill_recheck_queue();
         recheck_queue_filled = true;
     }
@@ -803,7 +821,7 @@ std::vector<uint32_t> blockstore_heap_t::get_recheck_modified_blocks()
     return modified;
 }
 
-int blockstore_heap_t::finish_load(bool allow_corrupted)
+int blockstore_heap_t::finish_recheck()
 {
     if (!marked_used_blocks)
     {

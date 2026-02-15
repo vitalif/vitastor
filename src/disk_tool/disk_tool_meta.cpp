@@ -109,6 +109,7 @@ close_error:
             r = heap->load_blocks(meta_pos-dsk.meta_block_size, read_len, data, true, entries_loaded);
             meta_pos += read_len;
         }
+        heap->finish_load();
         heap->iterate_objects([&](heap_entry_t* obj, uint32_t meta_block_num)
         {
             obj_fn(heap, obj, meta_block_num);

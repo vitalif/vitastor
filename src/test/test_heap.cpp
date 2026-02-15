@@ -131,7 +131,7 @@ void test_mvcc(bool csum)
     _test_init(dsk, csum);
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
     blockstore_heap_t heap(&dsk, buffer_area.data());
-    heap.finish_load();
+    heap.finish_recheck();
 
     // write, read, modify, check basic mvcc
     {
@@ -186,7 +186,7 @@ void test_update(bool csum)
     _test_init(dsk, csum);
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
     blockstore_heap_t heap(&dsk, buffer_area.data());
-    heap.finish_load();
+    heap.finish_recheck();
 
     {
         _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 0, buffer_area.data());
@@ -206,7 +206,7 @@ void test_delete(bool csum)
     _test_init(dsk, csum);
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
     blockstore_heap_t heap(&dsk, buffer_area.data());
-    heap.finish_load();
+    heap.finish_recheck();
 
     {
         // Add 1:0 and 1:20000
@@ -302,7 +302,7 @@ void test_defrag_block()
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
     dsk.meta_area_size = 4096*3;
     blockstore_heap_t heap(&dsk, buffer_area.data());
-    heap.finish_load();
+    heap.finish_recheck();
 
     uint32_t big_write_size = heap.get_big_entry_size();
     uint32_t small_write_size = heap.get_small_entry_size(0, 4096);
@@ -377,7 +377,7 @@ void test_compact(bool csum, bool stable)
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
 
     blockstore_heap_t heap(&dsk, buffer_area.data());
-    heap.finish_load();
+    heap.finish_recheck();
 
     memset(buffer_area.data(), 0x19, 4096);
     _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 4096, buffer_area.data());
@@ -508,7 +508,7 @@ void test_iterate_compaction()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) SMALL(v4 l4) COMMIT(v2 l5) SMALL(v5 l6) COMMIT(v5 l7)
         uint32_t mblock = 0;
@@ -551,9 +551,10 @@ void test_iterate_compaction()
         blockstore_heap_t heap(&dsk, buffer_area.data());
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
         bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
         assert(done);
-        heap.finish_load();
+        heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
         assert(mod.size() == 0);
 
@@ -572,7 +573,7 @@ void test_iterate_compaction()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) COMMIT(v2 l3) SMALL(v3 l4) COMMIT(v3 l5) unfinished
         uint32_t mblock = 0;
@@ -613,9 +614,10 @@ void test_iterate_compaction()
         blockstore_heap_t heap(&dsk, buffer_area.data());
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
         bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
         assert(done);
-        heap.finish_load();
+        heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
         assert(mod.size() == 0);
 
@@ -634,7 +636,7 @@ void test_iterate_compaction()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) SMALL(v4 l4) ROLLBACK(v3 l5) COMMIT(v2 l6)
         // -> compact by adding BIG_STABLE(v2 l2)
@@ -685,9 +687,10 @@ void test_iterate_compaction()
         blockstore_heap_t heap(&dsk, buffer_area.data());
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
         bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
         assert(done);
-        heap.finish_load();
+        heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
         assert(mod.size() == 0);
 
@@ -708,7 +711,7 @@ void test_iterate_compaction()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // Case: BIG_STABLE(v1 l1) DELETE(l2) BIG_UNSTABLE(v1 l3) ROLLBACK(v0 l4)
         // -> compact by adding DELETE(l4)
@@ -760,9 +763,10 @@ void test_iterate_compaction()
         blockstore_heap_t heap(&dsk, buffer_area.data());
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
         bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
         assert(done);
-        heap.finish_load();
+        heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
         assert(mod.size() == 0);
 
@@ -782,7 +786,7 @@ void test_iterate_compaction()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) ROLLBACK(v2 l4) SMALL(v3 l5) COMMIT(v3 l6)
         // -> compact by adding BIG_STABLE(v3 l6) and skip l3
@@ -836,9 +840,10 @@ void test_iterate_compaction()
         blockstore_heap_t heap(&dsk, buffer_area.data());
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
         bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
         assert(done);
-        heap.finish_load();
+        heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
         assert(mod.size() == 0);
 
@@ -859,7 +864,7 @@ void test_iterate_compaction()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // Case: BIG_STABLE(v1 l1) SMALL_STABLE(v2 l2) BIG_UNSTABLE(v3 l3)
         // -> skip compaction of l2 into l1 if not under pressure
@@ -902,9 +907,10 @@ void test_iterate_compaction()
         blockstore_heap_t heap(&dsk, buffer_area.data());
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
         bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
         assert(done);
-        heap.finish_load();
+        heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
         assert(mod.size() == 0);
 
@@ -933,7 +939,7 @@ void test_modify_bitmap()
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
 
     blockstore_heap_t heap(&dsk, buffer_area.data());
-    heap.finish_load();
+    heap.finish_recheck();
 
     memset(buffer_area.data(), 0x19, 8192);
     _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 8192, buffer_area.data());
@@ -981,7 +987,7 @@ void test_recheck(bool async, bool csum, bool intent)
     // write
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // object 1
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 8192, buffer_area.data());
@@ -1007,6 +1013,7 @@ void test_recheck(bool async, bool csum, bool intent)
         blockstore_heap_t heap(&dsk, async ? NULL : buffer_area.data(), 10);
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
 
         int calls = 0;
         bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
@@ -1033,7 +1040,7 @@ void test_recheck(bool async, bool csum, bool intent)
         assert(done);
         assert(calls == (async || intent ? 3 : 1));
 
-        heap.finish_load();
+        heap.finish_recheck();
 
         auto mod = heap.get_recheck_modified_blocks();
         assert(mod.size() == 1);
@@ -1075,7 +1082,7 @@ void test_corruption()
     // write
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // big_write
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
@@ -1128,7 +1135,7 @@ void test_full_overwrite(bool stable)
     // write
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // big_write
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
@@ -1233,7 +1240,7 @@ void test_reshard_list()
     // write
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
         _test_big_write(heap, dsk, 1, 0x20000, 1, 0x40000, true, 0, 0, buffer_area.data());
@@ -1312,7 +1319,7 @@ void test_reshard_chunked()
     // write
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         for (int i = 0; i < 30; i++)
             _test_big_write(heap, dsk, 1, i*0x20000, 1, i*0x20000, true, 0, 0, buffer_area.data());
@@ -1380,7 +1387,7 @@ void test_destructor_mvcc()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // some writes
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
@@ -1406,7 +1413,7 @@ void test_rollback()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // some writes
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
@@ -1495,7 +1502,7 @@ void test_rollback()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // Remove a big write at all
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0x20000 };
@@ -1534,7 +1541,7 @@ void test_rollback()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // v1 unstable -> v2 unstable -> v3 unstable -> rollback v2 -> rollback v1
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, false, 0, 0, buffer_area.data());
@@ -1561,7 +1568,7 @@ void test_rollback()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // v1 unstable -> v2 unstable -> v3 unstable -> rollback v2 -> rollback v1
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, false, 0, 0, buffer_area.data());
@@ -1588,7 +1595,7 @@ void test_rollback()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // v1 unstable -> v2 unstable -> v3 unstable -> commit v1 -> commit v2 -> rollback v1
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, false, 0, 0, buffer_area.data());
@@ -1641,7 +1648,7 @@ void test_rollback()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         // v1 stable -> rollback v2
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
@@ -1676,7 +1683,7 @@ void test_alloc_buffer()
     }
 
     blockstore_heap_t heap(&dsk, buffer_area.data());
-    heap.finish_load();
+    heap.finish_recheck();
 
     uint64_t pos;
 
@@ -1739,7 +1746,7 @@ void test_full_alloc()
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
 
     blockstore_heap_t heap(&dsk, buffer_area.data());
-    heap.finish_load();
+    heap.finish_recheck();
     assert(heap.get_meta_total_space() == 4*4096);
 
     uint32_t big_write_size = heap.get_big_entry_size();
@@ -1784,7 +1791,7 @@ void test_intent_write(bool csum)
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 4096, buffer_area.data());
 
@@ -1817,7 +1824,7 @@ void test_big_intent_csums()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 4096, buffer_area.data());
 
@@ -1865,6 +1872,7 @@ void test_big_intent_csums()
         blockstore_heap_t heap(&dsk, buffer_area.data(), 10);
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
 
         int calls = 0;
         bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
@@ -1882,7 +1890,7 @@ void test_big_intent_csums()
         assert(done);
         assert(calls == 2);
 
-        heap.finish_load();
+        heap.finish_recheck();
 
         auto mod = heap.get_recheck_modified_blocks();
         assert(mod.size() == 0);
@@ -1907,7 +1915,7 @@ void test_recalc_stats()
     _test_init(dsk, false);
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
     blockstore_heap_t heap(&dsk, buffer_area.data());
-    heap.finish_load();
+    heap.finish_recheck();
 
     {
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
@@ -1959,7 +1967,7 @@ void test_redirect_intent_csums()
 
     {
         blockstore_heap_t heap(&dsk, buffer_area.data());
-        heap.finish_load();
+        heap.finish_recheck();
 
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 4096, buffer_area.data());
 
@@ -1985,6 +1993,7 @@ void test_redirect_intent_csums()
         blockstore_heap_t heap(&dsk, buffer_area.data(), 10);
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
 
         int calls = 0;
         bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
@@ -2002,7 +2011,7 @@ void test_redirect_intent_csums()
         assert(done);
         assert(calls == 2);
 
-        heap.finish_load();
+        heap.finish_recheck();
 
         auto mod = heap.get_recheck_modified_blocks();
         assert(mod.size() == 0);
@@ -2039,6 +2048,7 @@ void test_redirect_intent_csums()
         blockstore_heap_t heap(&dsk, buffer_area.data(), 10);
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
 
         int calls = 0;
         bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
@@ -2054,7 +2064,7 @@ void test_redirect_intent_csums()
         assert(done);
         assert(calls == 2);
 
-        heap.finish_load();
+        heap.finish_recheck();
 
         auto mod = heap.get_recheck_modified_blocks();
         assert(mod.size() == 1);
@@ -2081,7 +2091,7 @@ void test_explicit_complete()
     dsk.disable_journal_fsync = dsk.disable_meta_fsync = false;
     std::vector<uint8_t> buffer_area(dsk.journal_device_size);
     blockstore_heap_t heap(&dsk, buffer_area.data());
-    heap.finish_load();
+    heap.finish_recheck();
 
     {
         _test_big_write(heap, dsk, 1, 0, 1, 0x20000, true, 0, 0, buffer_area.data());
