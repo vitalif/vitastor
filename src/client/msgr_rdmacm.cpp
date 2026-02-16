@@ -178,7 +178,6 @@ msgr_rdma_context_t* msgr_rdma_context_t::create_cm(ibv_context *ctx)
         delete rdma_context;
         return NULL;
     }
-    rdma_context->odp = false;
     rdma_context->channel = ibv_create_comp_channel(rdma_context->context);
     if (!rdma_context->channel)
     {

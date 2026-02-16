@@ -200,7 +200,6 @@ protected:
     std::vector<msgr_rdma_context_t *> rdma_contexts;
     uint64_t rdma_max_sge = 0, rdma_max_send = 0, rdma_max_recv = 0;
     uint64_t rdma_max_msg = 0;
-    bool rdma_odp = false;
     rdma_event_channel *rdmacm_evch = NULL;
     std::map<rdma_cm_id*, osd_client_t*> rdmacm_connections;
     std::map<rdma_cm_id*, rdmacm_connecting_t*> rdmacm_connecting;
@@ -287,8 +286,6 @@ protected:
 
 #ifdef WITH_RDMA
     void try_send_rdma(osd_client_t *cl);
-    void try_send_rdma_odp(osd_client_t *cl);
-    void try_send_rdma_nodp(osd_client_t *cl);
     bool init_recv_rdma(osd_client_t *cl);
     void handle_rdma_events(msgr_rdma_context_t *rdma_context);
     msgr_rdma_context_t* choose_rdma_context(osd_client_t *cl);

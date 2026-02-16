@@ -145,7 +145,7 @@ void osd_messenger_t::init()
         rdma_contexts = msgr_rdma_context_t::create_all(
             osd_num && osd_cluster_network_masks.size() ? osd_cluster_network_masks : osd_network_masks,
             rdma_device != "" ? rdma_device.c_str() : NULL,
-            rdma_port_num, rdma_gid_index, rdma_mtu, rdma_odp, log_level
+            rdma_port_num, rdma_gid_index, rdma_mtu, log_level
         );
         if (!rdma_contexts.size())
         {
@@ -322,7 +322,6 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     this->rdma_max_msg = config["rdma_max_msg"].uint64_value();
     if (!this->rdma_max_msg || this->rdma_max_msg > 128*1024*1024)
         this->rdma_max_msg = 129*1024;
-    this->rdma_odp = config["rdma_odp"].bool_value();
 #endif
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();

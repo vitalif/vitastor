@@ -26,8 +26,6 @@ struct msgr_rdma_context_t
     ibv_context *context = NULL;
     ibv_device_attr_ex attrx;
     ibv_pd *pd = NULL;
-    bool odp = false;
-    ibv_mr *mr = NULL;
     ibv_comp_channel *channel = NULL;
     ibv_cq *cq = NULL;
     ibv_port_attr portinfo;
@@ -43,9 +41,9 @@ struct msgr_rdma_context_t
     int cm_refs = 0;
 
     static std::vector<msgr_rdma_context_t*> create_all(const std::vector<addr_mask_t> & osd_network_masks,
-        const char *sel_dev_name, int sel_port_num, int sel_gid_index, uint32_t sel_mtu, bool odp, int log_level);
+        const char *sel_dev_name, int sel_port_num, int sel_gid_index, uint32_t sel_mtu, int log_level);
     static msgr_rdma_context_t *create(ibv_device *dev, ibv_port_attr & portinfo,
-        int ib_port, int gid_index, uint32_t mtu, bool odp, int log_level);
+        int ib_port, int gid_index, uint32_t mtu, int log_level);
     static msgr_rdma_context_t* create_cm(ibv_context *ctx);
     bool reserve_cqe(int n);
 

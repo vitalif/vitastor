@@ -22,7 +22,6 @@ between clients, OSDs and etcd.
 - [rdma_max_msg](#rdma_max_msg)
 - [rdma_max_recv](#rdma_max_recv)
 - [rdma_max_send](#rdma_max_send)
-- [rdma_odp](#rdma_odp)
 - [peer_connect_interval](#peer_connect_interval)
 - [peer_connect_timeout](#peer_connect_timeout)
 - [osd_idle_timeout](#osd_idle_timeout)
@@ -102,11 +101,6 @@ found or if `osd_network` is not specified. Auto-selection is also
 unsupported with old libibverbs < v32, like in Debian 10 Buster or
 CentOS 7.
 
-Vitastor supports all adapters, even ones without ODP support, like
-Mellanox ConnectX-3 and non-Mellanox cards. Versions up to Vitastor
-1.2.0 required ODP which is only present in Mellanox ConnectX >= 4.
-See also [rdma_odp](#rdma_odp).
-
 Run `ibv_devinfo -v` as root to list available RDMA devices and their
 features.
 
@@ -115,6 +109,23 @@ RoCE/RoCEv2, otherwise you may experience unstable performance. Refer to
 the manual of your network vendor for details about setting up the switch
 for RoCEv2 correctly. Usually it means setting up Lossless Ethernet with
 PFC (Priority Flow Control) and ECN (Explicit Congestion Notification).
+
+Vitastor supports all adapters, even ones without ODP (On-Demand Paging)
+support, like Mellanox ConnectX-3 and non-Mellanox cards. ODP is only present
+in Mellanox ConnectX >= 4 adapters and allows to skip memory registration
+for RDMA and thus, in theory, avoid memory copying.
+
+Versions up to Vitastor 1.2.0 required ODP, then it was disabled by default,
+but it was still supported up to 3.0.3. Now ODP support is removed because it
+actually only hurts performance: an example 3-node cluster with 8 NVMe in each
+node and 2*25 GBit/s ConnectX-6 RDMA network pushed 3950000 read iops without
+ODP, but only 239000 iops with ODP.
+
+This happens because Mellanox ODP implementation seems to be based on
+message retransmissions when the adapter doesn't know about the buffer yet -
+it likely uses standard "RNR retransmissions" (RNR = receiver not ready)
+which is generally slow in RDMA/RoCE networks. Here's a presentation about
+it from ISPASS-2021 conference: https://tkygtr6.github.io/pub/ISPASS21_slides.pdf
 
 ## rdma_port_num
 
@@ -186,28 +197,6 @@ Maximum number of outstanding RDMA send operations per connection. Should be
 less than `rdma_max_recv` so the receiving side doesn't run out of buffers.
 Doesn't affect memory usage - additional memory isn't allocated for send
 operations.
-
-## rdma_odp
-
-- Type: boolean
-- Default: false
-
-Use RDMA with On-Demand Paging. ODP is currently only available on Mellanox
-ConnectX-4 and newer adapters. ODP allows to not register memory explicitly
-for RDMA adapter to be able to use it. This, in turn, allows to skip memory
-copying during sending. One would think this should improve performance, but
-**in reality** RDMA performance with ODP is **drastically** worse. Example
-3-node cluster with 8 NVMe in each node and 2*25 GBit/s ConnectX-6 RDMA network
-without ODP pushes 3950000 read iops, but only 239000 iops with ODP...
-
-This happens because Mellanox ODP implementation seems to be based on
-message retransmissions when the adapter doesn't know about the buffer yet -
-it likely uses standard "RNR retransmissions" (RNR = receiver not ready)
-which is generally slow in RDMA/RoCE networks. Here's a presentation about
-it from ISPASS-2021 conference: https://tkygtr6.github.io/pub/ISPASS21_slides.pdf
-
-ODP support is retained in the code just in case a good ODP implementation
-appears one day.
 
 ## peer_connect_interval
 
