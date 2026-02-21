@@ -24,6 +24,10 @@ osd_op_t::~osd_op_t()
         // So we don't reuse it, but free it every time
         free(buf);
     }
+    if (enc_buf)
+    {
+        free(enc_buf);
+    }
 }
 
 bool osd_op_t::is_recovery_related()

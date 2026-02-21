@@ -972,9 +972,22 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     {
         op->flags |= OP_IMMEDIATE_COMMIT;
     }
+    auto ino_it = st_cli->inode_config.find(op->inode);
+    if (ino_it != st_cli->inode_config.end() && ino_it->second.enc)
+    {
+        // FIXME: Rework client API by adding open/close and cache inode information in the "FD"
+        op->enc = ino_it->second.enc;
+        if (!op->enc->bitmap_granularity)
+        {
+            op->enc->bitmap_granularity = pool_it->second.bitmap_granularity;
+        }
+    }
+    else
+    {
+        op->enc.reset();
+    }
     if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && !(op->flags & OSD_OP_IGNORE_READONLY))
     {
-        auto ino_it = st_cli->inode_config.find(op->inode);
         if (ino_it != st_cli->inode_config.end() && ino_it->second.readonly)
         {
             op->retval = -EROFS;
@@ -986,7 +999,6 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     op->deoptimise_snapshot = false;
     if (enable_writeback && (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP))
     {
-        auto ino_it = st_cli->inode_config.find(op->inode);
         if (ino_it != st_cli->inode_config.end())
         {
             int chain_size = 0;
@@ -1456,6 +1468,7 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
                     ? (uint8_t*)op->part_bitmaps + pg_bitmap_size*i : NULL),
                 .bitmap_len = (unsigned)(op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP
                     ? pg_bitmap_size : 0),
+                .enc = op->enc,
                 .callback = cb ? cb : [this, part](osd_op_t *op_part)
                 {
                     handle_op_part(part);

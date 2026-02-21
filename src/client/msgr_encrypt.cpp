@@ -1,0 +1,457 @@
+// Copyright (c) Vitaliy Filippov, 2026+
+// License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
+
+#include <assert.h>
+
+#include "etcd_state_client.h"
+#include "messenger.h"
+#include "msgr_encrypt.h"
+
+op_aes_xts_encrypt_t::op_aes_xts_encrypt_t()
+{
+#ifdef WITH_OPENSSL
+    if (!(ctx = EVP_CIPHER_CTX_new()))
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+    EVP_CIPHER_CTX_set_padding(ctx, 0);
+    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_xts(), NULL, NULL, NULL) != 1)
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+#else
+    fprintf(stderr, "Error: Vitastor is built without encryption support\n");
+    abort();
+#endif
+}
+
+op_aes_xts_encrypt_t::~op_aes_xts_encrypt_t()
+{
+    assert(!encrypted);
+#ifdef WITH_OPENSSL
+    EVP_CIPHER_CTX_free(ctx);
+#endif
+    if (tmp)
+        free(tmp);
+}
+
+void op_aes_xts_encrypt_t::start(const uint8_t *key, uint64_t start_offset, size_t block_size)
+{
+    assert(!encrypted);
+    this->start_offset = start_offset;
+    this->key = key;
+    this->block_size = block_size;
+    this->offset = 0;
+    this->encrypted = false;
+    this->tmp_pos = 0;
+    if (tmp && tmp_size != block_size)
+    {
+        free(tmp);
+        tmp = NULL;
+        tmp_size = 0;
+    }
+#ifdef WITH_OPENSSL
+    if (EVP_EncryptInit_ex(ctx, NULL, NULL, key, NULL) != 1)
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+#endif
+}
+
+void op_aes_xts_encrypt_t::encrypt_block(uint8_t *in, uint8_t *out)
+{
+#ifdef WITH_OPENSSL
+    uint8_t iv[16] = { 0 };
+    *((uint64_t*)iv) = start_offset + offset - offset%block_size;
+    if (EVP_EncryptInit_ex(ctx, NULL, NULL, NULL, iv) != 1)
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+    int actual_out = 0;
+    if (EVP_EncryptUpdate(ctx, out, &actual_out, in, block_size) != 1)
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+    assert(actual_out == block_size);
+#endif
+}
+
+// FIXME: Copy-paste
+void op_aes_xts_encrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out)
+{
+    // Fucking AES-XTS implementations (all of them) don't have streaming support,
+    // crafting IV to resume encryption is slow, so we have to accumulate a full block
+    // and encrypt it at once :-(
+    // And then we have to support consuming it in parts because it's simpler for the
+    // higher layers.
+    if (encrypted)
+    {
+        // Copy accumulated and encrypted output
+        assert(tmp);
+        if (max_out > block_size - tmp_pos)
+            max_out = block_size - tmp_pos;
+        memcpy(out, tmp + tmp_pos, max_out);
+        done_out += max_out;
+        tmp_pos += max_out;
+        if (tmp_pos >= block_size)
+            encrypted = false;
+    }
+    else if (max_in < block_size - offset%block_size)
+    {
+        // Just accumulate input
+        if (!tmp)
+        {
+            tmp = (uint8_t*)malloc_or_die(block_size);
+            tmp_size = block_size;
+        }
+        memcpy(tmp + offset%block_size, in, max_in);
+        done_in += max_in;
+        offset += max_in;
+    }
+    else if (max_out < block_size)
+    {
+        // Accumulate and encrypt input in <tmp>, then copy part of it to <out>
+        if (!tmp)
+        {
+            tmp = (uint8_t*)malloc_or_die(block_size);
+            tmp_size = block_size;
+        }
+        max_in = block_size - offset%block_size;
+        memcpy(tmp + offset%block_size, in, max_in);
+        encrypt_block(tmp, tmp);
+        encrypted = true;
+        memcpy(out, tmp, max_out);
+        tmp_pos = max_out;
+        done_in += max_in;
+        offset += max_in;
+        done_out += max_out;
+    }
+    else if (!(offset%block_size))
+    {
+        // Full block - simplest case
+        encrypt_block(in, out);
+        done_in += block_size;
+        offset += block_size;
+        done_out += block_size;
+    }
+    else
+    {
+        // Accumulate input and encrypt directly to <output>
+        assert(tmp);
+        max_in = block_size - offset%block_size;
+        memcpy(tmp + offset%block_size, in, max_in);
+        encrypt_block(tmp, out);
+        done_in += max_in;
+        offset += max_in;
+        done_out += block_size;
+    }
+}
+
+void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx)
+{
+    delete encrypt_ctx;
+}
+
+op_aes_xts_decrypt_t::op_aes_xts_decrypt_t()
+{
+#ifdef WITH_OPENSSL
+    if (!(ctx = EVP_CIPHER_CTX_new()))
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+    EVP_CIPHER_CTX_set_padding(ctx, 0);
+    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_xts(), NULL, NULL, NULL) != 1)
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+#else
+    fprintf(stderr, "Error: Vitastor is built without encryption support\n");
+    abort();
+#endif
+}
+
+op_aes_xts_decrypt_t::~op_aes_xts_decrypt_t()
+{
+    assert(!decrypted);
+#ifdef WITH_OPENSSL
+    EVP_CIPHER_CTX_free(ctx);
+#endif
+    if (tmp)
+        free(tmp);
+}
+
+void op_aes_xts_decrypt_t::start(const uint8_t *key, uint64_t start_offset, size_t block_size)
+{
+    assert(!decrypted);
+    this->start_offset = start_offset;
+    this->key = key;
+    this->block_size = block_size;
+    this->offset = 0;
+    this->tmp_pos = 0;
+    if (tmp && tmp_size != block_size)
+    {
+        free(tmp);
+        tmp = NULL;
+        tmp_size = 0;
+    }
+#ifdef WITH_OPENSSL
+    if (EVP_DecryptInit_ex(ctx, NULL, NULL, key, NULL) != 1)
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+#endif
+}
+
+void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
+{
+#ifdef WITH_OPENSSL
+    uint8_t iv[16] = { 0 };
+    *((uint64_t*)iv) = start_offset + offset - offset%block_size;
+    if (EVP_DecryptInit_ex(ctx, NULL, NULL, NULL, iv) != 1)
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+    int actual_out = 0;
+    if (EVP_DecryptUpdate(ctx, out, &actual_out, in, block_size) != 1)
+    {
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+    assert(actual_out == block_size);
+#endif
+}
+
+void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out)
+{
+    // Fucking AES-XTS implementations (all of them) don't have streaming support,
+    // crafting IV to resume decryption is slow, so we have to accumulate a full block
+    // and decrypt it at once :-(
+    // And then we have to support consuming it in parts because clients sometimes need
+    // fragmented output.
+    if (decrypted)
+    {
+        // Copy accumulated and decrypted output
+        assert(tmp);
+        if (max_out > block_size - tmp_pos)
+            max_out = block_size - tmp_pos;
+        memcpy(out, tmp + tmp_pos, max_out);
+        done_out += max_out;
+        tmp_pos += max_out;
+        if (tmp_pos >= block_size)
+            decrypted = false;
+    }
+    else if (max_in < block_size - offset%block_size)
+    {
+        // Just accumulate input
+        if (!tmp)
+        {
+            tmp = (uint8_t*)malloc_or_die(block_size);
+            tmp_size = block_size;
+        }
+        memcpy(tmp + offset%block_size, in, max_in);
+        done_in += max_in;
+        offset += max_in;
+    }
+    else if (max_out < block_size)
+    {
+        // Accumulate and decrypt input in <tmp>, then copy part of it to <out>
+        if (!tmp)
+        {
+            tmp = (uint8_t*)malloc_or_die(block_size);
+            tmp_size = block_size;
+        }
+        max_in = block_size - offset%block_size;
+        memcpy(tmp + offset%block_size, in, max_in);
+        decrypt_block(tmp, tmp);
+        decrypted = true;
+        memcpy(out, tmp, max_out);
+        tmp_pos = max_out;
+        done_in += max_in;
+        offset += max_in;
+        done_out += max_out;
+    }
+    else if (!(offset%block_size))
+    {
+        // Full block - simplest case
+        decrypt_block(in, out);
+        done_in += block_size;
+        offset += block_size;
+        done_out += block_size;
+    }
+    else
+    {
+        // Accumulate input and decrypt directly to <output>
+        assert(tmp);
+        max_in = block_size - offset%block_size;
+        memcpy(tmp + offset%block_size, in, max_in);
+        decrypt_block(tmp, out);
+        done_in += max_in;
+        offset += max_in;
+        done_out += block_size;
+    }
+}
+
+void destroy_aes_xts_decrypt(op_aes_xts_decrypt_t *decrypt_ctx)
+{
+    delete decrypt_ctx;
+}
+
+bool osd_messenger_t::op_encrypted_copy_data_to(osd_client_t* cl, uint8_t *enc_buf, size_t enc_len, size_t from, size_t & done)
+{
+    auto op = cl->write_op;
+    auto & op_pos = cl->write_op_pos;
+    assert(op->req.hdr.opcode == OSD_OP_WRITE);
+    if (!from)
+    {
+        if (!cl->encrypt_ctx)
+        {
+            if (encrypt_ctx_pool.size())
+            {
+                cl->encrypt_ctx = encrypt_ctx_pool.back();
+                encrypt_ctx_pool.pop_back();
+            }
+            else
+                cl->encrypt_ctx = new op_aes_xts_encrypt_t();
+        }
+        assert(op->enc->key.size() == 512/8);
+        cl->encrypt_ctx->start(op->enc->key.data(), op->req.rw.offset, op->enc->bitmap_granularity);
+    }
+    for (int i = 0; i < op->iov.count; i++)
+    {
+        uint8_t *plain = (uint8_t*)op->iov.buf[i].iov_base;
+        size_t plain_len = op->iov.buf[i].iov_len;
+        while (from < plain_len || cl->encrypt_ctx->has_buffered())
+        {
+            if (done >= enc_len)
+                return false;
+            size_t done_in = 0;
+            size_t done_out = 0;
+            cl->encrypt_ctx->update(plain+from, plain_len-from, enc_buf+done, enc_len-done, done_in, done_out);
+            done += done_out;
+            op_pos += done_in;
+            from += done_in;
+        }
+        from -= plain_len;
+    }
+    if (cl->encrypt_ctx)
+    {
+        if (encrypt_ctx_pool.size() > max_aes_xts_pool_size)
+            delete cl->encrypt_ctx;
+        else
+            encrypt_ctx_pool.push_back(cl->encrypt_ctx);
+        cl->encrypt_ctx = NULL;
+    }
+    return true;
+}
+
+bool osd_messenger_t::op_decrypted_copy_data_from(osd_client_t* cl, uint8_t *enc_buf, size_t enc_len, size_t from, size_t & done)
+{
+    op_decrypt_start(cl);
+    auto op = cl->read_op;
+    assert(op->req.hdr.opcode == OSD_OP_READ);
+    for (int i = 0; i < op->iov.count; i++)
+    {
+        uint8_t *plain = (uint8_t*)op->iov.buf[i].iov_base;
+        size_t plain_len = op->iov.buf[i].iov_len;
+        while (from < plain_len)
+        {
+            if (done >= enc_len)
+                return false;
+            size_t done_in = 0;
+            size_t done_out = 0;
+            cl->decrypt_ctx->update(enc_buf+done, enc_len-done, plain+from, plain_len-from, done_in, done_out);
+            done += done_in;
+            cl->read_op_pos += done_out;
+            cl->read_op_inline_decrypt_in += done_in;
+            from += done_out;
+            if (!done_out)
+                return false;
+        }
+        from -= plain_len;
+    }
+    op_decrypt_free(cl);
+    return true;
+}
+
+void osd_messenger_t::op_decrypt_start(osd_client_t* cl)
+{
+    if (!cl->decrypt_ctx)
+    {
+        if (decrypt_ctx_pool.size())
+        {
+            cl->decrypt_ctx = decrypt_ctx_pool.back();
+            decrypt_ctx_pool.pop_back();
+        }
+        else
+            cl->decrypt_ctx = new op_aes_xts_decrypt_t();
+        assert(cl->read_op->enc->key.size() == 512/8);
+        cl->decrypt_ctx->start(cl->read_op->enc->key.data(), cl->read_op->req.rw.offset, cl->read_op->enc->bitmap_granularity);
+    }
+}
+
+void osd_messenger_t::op_decrypt_inline(osd_client_t* cl)
+{
+    op_decrypt_start(cl);
+    osd_op_t *op = cl->read_op;
+    size_t from_in = cl->read_op_inline_decrypt_in;
+    int i = 0;
+    while (i < op->iov.count && from_in >= op->iov.buf[i].iov_len)
+    {
+        from_in -= op->iov.buf[i].iov_len;
+        i++;
+    }
+    size_t from_out = cl->read_op_inline_decrypt_pos - OSD_PACKET_SIZE - op->reply.rw.bitmap_len;
+    int j = 0;
+    while (j < op->iov.count && from_out >= op->iov.buf[j].iov_len)
+    {
+        from_out -= op->iov.buf[j].iov_len;
+        j++;
+    }
+    while (i < op->iov.count && j < op->iov.count)
+    {
+        uint8_t *in = (uint8_t*)op->iov.buf[i].iov_base + from_in;
+        size_t in_len = op->iov.buf[i].iov_len - from_in;
+        uint8_t *out = (uint8_t*)op->iov.buf[j].iov_base + from_out;
+        size_t out_len = op->iov.buf[j].iov_len - from_out;
+        size_t done_in = 0;
+        size_t done_out = 0;
+        cl->decrypt_ctx->update(in, in_len, out, out_len, done_in, done_out);
+        if (done_in >= in_len)
+        {
+            i++;
+            from_in = 0;
+        }
+        else
+            from_in += done_in;
+        if (done_out >= out_len)
+        {
+            j++;
+            from_out = 0;
+        }
+        else
+            from_out += done_out;
+    }
+    assert(j >= op->iov.count);
+    op_decrypt_free(cl);
+}
+
+void osd_messenger_t::op_decrypt_free(osd_client_t* cl)
+{
+    if (cl->decrypt_ctx)
+    {
+        if (decrypt_ctx_pool.size() > max_aes_xts_pool_size)
+            delete cl->decrypt_ctx;
+        else
+            decrypt_ctx_pool.push_back(cl->decrypt_ctx);
+        cl->decrypt_ctx = NULL;
+    }
+}

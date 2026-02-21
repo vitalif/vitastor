@@ -10,6 +10,7 @@ add_library(vitastor_common STATIC
 	../../json11/json11.cpp
 	osd_ops.cpp
 	pg_states.cpp
+	msgr_encrypt.cpp
 	../util/allocator.cpp
 	../util/addr_util.cpp
 	../util/timerfd_manager.cpp
@@ -17,6 +18,7 @@ add_library(vitastor_common STATIC
 	../util/json_util.cpp
 )
 target_compile_options(vitastor_common PUBLIC -fPIC)
+target_link_libraries(vitastor_common ${OPENSSL_LIBRARIES})
 
 # libvitastor_net.a
 set(MSGR_RDMA "")
@@ -34,6 +36,7 @@ add_library(vitastor_net STATIC
 	msgr_iothread.cpp
 	msgr_send.cpp
 	msgr_receive.cpp
+	msgr_encrypt.cpp
 	../util/ringloop.cpp
 	http_client.cpp
 	${MSGR_RDMA}

@@ -5,12 +5,6 @@
 #include <limits.h>
 #include <sys/epoll.h>
 
-#ifdef WITH_OPENSSL
-#include <openssl/conf.h>
-#include <openssl/evp.h>
-#include <openssl/err.h>
-#endif
-
 #include "messenger.h"
 #include "msgr_iothread.h"
 
@@ -328,10 +322,20 @@ size_t osd_messenger_t::op_copy_to(osd_client_t *cl, uint8_t *dst, size_t dst_le
     // Operation data
     if (op_has_data(cl->write_op))
     {
-        for (int i = 0; i < cl->write_op->iov.count; i++)
+        if (cl->write_op->enc)
         {
-            if (!op_write_buf((uint8_t*)cl->write_op->iov.buf[i].iov_base, cl->write_op->iov.buf[i].iov_len))
+            if (!op_encrypted_copy_data_to(cl, dst, dst_len, from, done))
+            {
                 return done;
+            }
+        }
+        else
+        {
+            for (int i = 0; i < cl->write_op->iov.count; i++)
+            {
+                if (!op_write_buf((uint8_t*)cl->write_op->iov.buf[i].iov_base, cl->write_op->iov.buf[i].iov_len))
+                    return done;
+            }
         }
     }
     cl->write_op = NULL;
@@ -363,10 +367,28 @@ void osd_messenger_t::op_get_write_buffers(osd_client_t *cl, std::vector<iovec> 
     // Operation data
     if (op_has_data(cl->write_op))
     {
-        for (int i = 0; i < cl->write_op->iov.count; i++)
+        if (cl->write_op->enc)
         {
-            if (!op_write_buf((uint8_t*)cl->write_op->iov.buf[i].iov_base, cl->write_op->iov.buf[i].iov_len))
+            if (lst.size() >= IOV_MAX)
                 return;
+            // No way except to allocate a temporary buffer and encrypt data to it
+            assert(cl->write_op->req.hdr.opcode == OSD_OP_WRITE);
+            size_t remsize = cl->write_op->req.rw.len - from + (from % 16);
+            assert(remsize > 0);
+            assert(!cl->write_op->enc_buf);
+            cl->write_op->enc_buf = (uint8_t*)malloc_or_die(remsize);
+            size_t done = 0;
+            bool end = op_encrypted_copy_data_to(cl, cl->write_op->enc_buf, remsize, from, done);
+            assert(end);
+            lst.push_back((iovec){ .iov_base = cl->write_op->enc_buf, .iov_len = remsize });
+        }
+        else
+        {
+            for (int i = 0; i < cl->write_op->iov.count; i++)
+            {
+                if (!op_write_buf((uint8_t*)cl->write_op->iov.buf[i].iov_base, cl->write_op->iov.buf[i].iov_len))
+                    return;
+            }
         }
     }
     cl->write_op = NULL;

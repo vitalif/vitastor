@@ -1,11 +1,16 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#ifdef WITH_OPENSSL
+#include <openssl/rand.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
 #include "etcd_state_client_mock.h"
 #include "cluster_client_impl.h"
+#include "msgr_encrypt.h"
 
 class cluster_client_test_t
 {
@@ -803,6 +808,120 @@ void test_deoptimize_snapshot_read()
     printf("[ok] deoptimize snapshot read test\n");
 }
 
+#ifdef WITH_OPENSSL
+void test_msgr_encrypt()
+{
+    const size_t sz = 1048576;
+    uint8_t *src = (uint8_t*)malloc_or_die(sz);
+    for (size_t i = 0; i < sz; i++)
+        src[i] = (i*0x1001) % 256;
+    uint8_t *crypt = (uint8_t*)malloc_or_die(sz);
+    uint8_t *decrypt = (uint8_t*)malloc_or_die(sz);
+    uint8_t *crypt2 = (uint8_t*)malloc_or_die(sz);
+    uint8_t *key = (uint8_t*)malloc_or_die(64);
+    RAND_bytes(key, 64);
+
+    // Basic encrypt+decrypt and also get reference data
+
+    auto enc = new op_aes_xts_encrypt_t();
+    enc->start(key, 4096 * 113, 4096);
+    size_t in_pos = 0;
+    size_t out_pos = 0;
+    while (out_pos < sz)
+    {
+        enc->update(src+in_pos, sz-in_pos, crypt+out_pos, sz-out_pos, in_pos, out_pos);
+    }
+
+    auto dec = new op_aes_xts_decrypt_t();
+    dec->start(key, 4096 * 113, 4096);
+    in_pos = out_pos = 0;
+    while (out_pos < sz)
+    {
+        dec->update(crypt+in_pos, sz-in_pos, decrypt+out_pos, sz-out_pos, in_pos, out_pos);
+    }
+
+    assert(memcmp(src, decrypt, sz) == 0);
+
+    // Insufficient output encrypt
+    printf("...insufficient output encrypt\n");
+    enc->start(key, 4096 * 114, 4096);
+    in_pos = out_pos = 0;
+    enc->update(src+4096, 4096, crypt2, 4095, in_pos, out_pos);
+    assert(in_pos == 4096);
+    assert(out_pos == 4095);
+    enc->update(src+4096+in_pos, 4096-in_pos, crypt2+out_pos, 4096-out_pos, in_pos, out_pos);
+    assert(in_pos == 4096);
+    assert(out_pos == 4096);
+    assert(memcmp(crypt2, crypt+4096, 4096) == 0);
+
+    // Fragmented encrypt
+    printf("...fragmented encrypt\n");
+    enc->start(key, 4096 * 114, 4096);
+    in_pos = out_pos = 0;
+    enc->update(src+4096, 2000, crypt2, 4095, in_pos, out_pos);
+    assert(in_pos == 2000);
+    assert(out_pos == 0);
+    enc->update(src+4096+in_pos, 4096-in_pos, crypt2+out_pos, 4096-out_pos, in_pos, out_pos);
+    assert(in_pos == 4096);
+    assert(out_pos == 4096);
+    assert(memcmp(crypt2, crypt+4096, 4096) == 0);
+
+    // Fragmented decrypt
+    // Input: 1000 + 2000 + 3000 + 2192, output: 500 + 3000 + 1000 + 3000 + 692
+    printf("...fragmented decrypt\n");
+    dec->start(key, 4096 * 114, 4096);
+    in_pos = out_pos = 0;
+    dec->update(crypt+4096, 1000, decrypt, 500, in_pos, out_pos);
+    assert(in_pos == 1000);
+    assert(out_pos == 0);
+    dec->update(crypt+4096+1000, 2000, decrypt, 500, in_pos, out_pos);
+    assert(in_pos == 3000);
+    assert(out_pos == 0);
+    dec->update(crypt+4096+3000, 3000, decrypt, 500, in_pos, out_pos);
+    assert(in_pos == 4096);
+    assert(out_pos == 500);
+    dec->update(crypt+4096+in_pos, 6000-in_pos, decrypt+out_pos, 3000, in_pos, out_pos);
+    assert(in_pos == 4096);
+    assert(out_pos == 3500);
+    dec->update(crypt+4096+in_pos, 6000-in_pos, decrypt+out_pos, 1000, in_pos, out_pos);
+    assert(in_pos == 4096);
+    assert(out_pos == 4096);
+    dec->update(crypt+4096+in_pos, 6000-in_pos, decrypt+out_pos, 4500-out_pos, in_pos, out_pos);
+    assert(in_pos == 6000);
+    assert(out_pos == 4096);
+    dec->update(crypt+4096+in_pos, 8192-in_pos, decrypt+out_pos, 4500-out_pos, in_pos, out_pos);
+    assert(in_pos == 8192);
+    assert(out_pos == 4500);
+    dec->update(crypt+4096+in_pos, 8192-in_pos, decrypt+out_pos, 7500-out_pos, in_pos, out_pos);
+    assert(in_pos == 8192);
+    assert(out_pos == 7500);
+    dec->update(crypt+4096+in_pos, 8192-in_pos, decrypt+out_pos, 8192-out_pos, in_pos, out_pos);
+    assert(in_pos == 8192);
+    assert(out_pos == 8192);
+    assert(memcmp(decrypt, src+4096, 8192) == 0);
+
+    // Extra size decrypt
+    // Input: 8192, output: 4096
+    printf("...extra size decrypt\n");
+    dec->start(key, 4096 * 114, 4096);
+    in_pos = out_pos = 0;
+    dec->update(crypt+4096, 8192, decrypt, 4096, in_pos, out_pos);
+    assert(in_pos == 4096);
+    assert(out_pos == 4096);
+    assert(memcmp(decrypt, src+4096, 4096) == 0);
+
+    delete dec;
+    delete enc;
+
+    free(key);
+    free(crypt2);
+    free(decrypt);
+    free(crypt);
+    free(src);
+    printf("[ok] msgr aes-xts encryption test\n");
+}
+#endif
+
 int main(int narg, char *args[])
 {
     test1();
@@ -811,5 +930,8 @@ int main(int narg, char *args[])
     test_writeback_merge();
     test_writeback_queue_split();
     test_deoptimize_snapshot_read();
+#ifdef WITH_OPENSSL
+    test_msgr_encrypt();
+#endif
     return 0;
 }

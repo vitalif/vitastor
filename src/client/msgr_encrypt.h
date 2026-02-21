@@ -1,0 +1,65 @@
+// Copyright (c) Vitaliy Filippov, 2026+
+// License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
+
+#include <stdint.h>
+
+// WITH_OPENSSL is left to possibly support other crypto libraries
+#ifdef WITH_OPENSSL
+#include <openssl/conf.h>
+#include <openssl/evp.h>
+#include <openssl/err.h>
+#endif
+
+class op_aes_xts_encrypt_t
+{
+#ifdef WITH_OPENSSL
+    EVP_CIPHER_CTX *ctx = NULL;
+#endif
+    uint64_t start_offset = 0;
+    const uint8_t *key = NULL;
+    size_t offset = 0;
+    size_t block_size = 0;
+    uint8_t *tmp = NULL;
+    size_t tmp_size = 0;
+    size_t tmp_pos = 0;
+    bool encrypted = false;
+
+    void encrypt_block(uint8_t *in, uint8_t *out);
+
+public:
+    op_aes_xts_encrypt_t();
+    ~op_aes_xts_encrypt_t();
+
+    inline bool has_buffered() { return encrypted; };
+    void start(const uint8_t *key, uint64_t start_offset, size_t block_size);
+    void update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out);
+};
+
+void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx);
+
+class op_aes_xts_decrypt_t
+{
+#ifdef WITH_OPENSSL
+    EVP_CIPHER_CTX *ctx = NULL;
+#endif
+    uint64_t start_offset = 0;
+    const uint8_t *key = NULL;
+    size_t offset = 0;
+    size_t block_size = 0;
+    uint8_t *tmp = NULL;
+    size_t tmp_size = 0;
+    size_t tmp_pos = 0;
+    bool decrypted = false;
+
+    void decrypt_block(uint8_t *in, uint8_t *out);
+
+public:
+    op_aes_xts_decrypt_t();
+    ~op_aes_xts_decrypt_t();
+
+    inline bool has_buffered() { return decrypted; };
+    void start(const uint8_t *key, uint64_t start_offset, size_t block_size);
+    void update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out);
+};
+
+void destroy_aes_xts_decrypt(op_aes_xts_decrypt_t *decrypt_ctx);

@@ -855,6 +855,16 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                     else
                         parent_inode_num |= parent_pool_id << (64-POOL_ID_BITS);
                 }
+                std::shared_ptr<inode_enc_t> enc;
+                if (!value["enc_key"].string_value().empty())
+                {
+                    std::vector<uint8_t> k(512/8);
+                    if (fromhexstr(value["enc_key"].string_value(), k.size(), k.data()) == k.size())
+                    {
+                        enc = std::make_shared<inode_enc_t>();
+                        enc->key = std::move(k);
+                    }
+                }
                 insert_inode_config((inode_config_t){
                     .num = inode_num,
                     .name = value["name"].string_value(),
@@ -862,6 +872,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                     .parent_id = parent_inode_num,
                     .readonly = value["readonly"].bool_value(),
                     .deleted = value["deleted"].bool_value(),
+                    .enc = enc,
                     .meta = value["meta"],
                     .mod_revision = kv.mod_revision,
                 });

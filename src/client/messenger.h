@@ -48,6 +48,11 @@ struct msgr_rdma_connection_t;
 struct msgr_rdma_context_t;
 #endif
 
+struct op_aes_xts_encrypt_t;
+struct op_aes_xts_decrypt_t;
+void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx);
+void destroy_aes_xts_decrypt(op_aes_xts_decrypt_t *decrypt_ctx);
+
 struct osd_client_t
 {
     uint64_t client_id = 0;
@@ -82,6 +87,9 @@ struct osd_client_t
     uint64_t read_op_id = 1;
     bool check_sequencing = false;
     bool enable_pg_locks = false;
+    op_aes_xts_decrypt_t *decrypt_ctx = NULL;
+    size_t read_op_inline_decrypt_pos = 0;
+    size_t read_op_inline_decrypt_in = 0;
 
     // Incoming operations
     std::vector<osd_op_t*> received_ops;
@@ -103,6 +111,7 @@ struct osd_client_t
     size_t send_list_size = 0;
     std::deque<osd_op_t*> send_free_ops;
     std::vector<osd_op_t*> zc_free_list;
+    op_aes_xts_encrypt_t *encrypt_ctx = NULL;
 
     ~osd_client_t();
     void cancel_ops();
@@ -158,6 +167,7 @@ protected:
     bool use_sync_send_recv = false;
     int min_zerocopy_send_size = DEFAULT_MIN_ZEROCOPY_SEND_SIZE;
     int iothread_count = 0;
+    int max_aes_xts_pool_size = 256;
 
 #ifdef WITH_RDMA
     bool use_rdma = true;
@@ -180,6 +190,9 @@ protected:
     std::vector<uint64_t> write_ready_clients;
     // We don't use ringloop->set_immediate here because we may have no ringloop in client :)
     std::deque<osd_op_t*> set_immediate_ops;
+
+    std::vector<op_aes_xts_encrypt_t*> encrypt_ctx_pool;
+    std::vector<op_aes_xts_decrypt_t*> decrypt_ctx_pool;
 
 public:
     timerfd_manager_t *tfd = NULL;
@@ -264,6 +277,12 @@ protected:
     size_t op_get_read_buffers(osd_client_t *cl, std::vector<iovec> & lst);
     void handle_finished_op(osd_client_t *cl);
     void handle_immediate_ops();
+
+    bool op_encrypted_copy_data_to(osd_client_t* cl, uint8_t *buf, size_t len, size_t from, size_t & done);
+    bool op_decrypted_copy_data_from(osd_client_t* cl, uint8_t *buf, size_t len, size_t from, size_t & done);
+    void op_decrypt_start(osd_client_t* cl);
+    void op_decrypt_inline(osd_client_t* cl);
+    void op_decrypt_free(osd_client_t* cl);
 
 #ifdef WITH_RDMA
     void try_send_rdma(osd_client_t *cl);

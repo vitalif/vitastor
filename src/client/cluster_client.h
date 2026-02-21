@@ -73,6 +73,7 @@ protected:
     cluster_op_t *prev = NULL, *next = NULL;
     int prev_wait = 0;
     uint64_t flush_id = 0;
+    std::shared_ptr<inode_enc_t> enc;
     friend class cluster_client_t;
     friend class writeback_cache_t;
 };

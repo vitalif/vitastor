@@ -4,6 +4,7 @@
 #pragma once
 
 #include <set>
+#include <memory>
 
 #include "json11/json11.hpp"
 #include "object_id.h"
@@ -75,6 +76,14 @@ struct pool_config_t
     void *reshard_state = NULL;
 };
 
+struct inode_enc_t
+{
+    int refs = 0;
+    std::vector<uint8_t> key;
+    // FIXME It may also contain snapshot chain and key information
+    uint32_t bitmap_granularity = 0;
+};
+
 struct inode_config_t
 {
     uint64_t num = 0;
@@ -83,6 +92,7 @@ struct inode_config_t
     inode_t parent_id = 0;
     bool readonly = false;
     bool deleted = false;
+    std::shared_ptr<inode_enc_t> enc;
     // Arbitrary metadata
     json11::Json meta;
     // Change revision of the metadata in etcd

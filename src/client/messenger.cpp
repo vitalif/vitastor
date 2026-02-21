@@ -184,6 +184,14 @@ osd_messenger_t::~osd_messenger_t()
         rdmacm_evch = NULL;
     }
 #endif
+    for (auto encrypt_ctx: encrypt_ctx_pool)
+    {
+        destroy_aes_xts_encrypt(encrypt_ctx);
+    }
+    for (auto decrypt_ctx: decrypt_ctx_pool)
+    {
+        destroy_aes_xts_decrypt(decrypt_ctx);
+    }
 }
 
 void osd_messenger_t::parse_config(const json11::Json & config)
@@ -218,6 +226,9 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     if (!this->rdma_max_msg || this->rdma_max_msg > 128*1024*1024)
         this->rdma_max_msg = 129*1024;
 #endif
+    this->max_aes_xts_pool_size = config["max_aes_xts_pool_size"].uint64_value();
+    if (!this->max_aes_xts_pool_size)
+        this->max_aes_xts_pool_size = 256;
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();
     else

@@ -74,7 +74,7 @@ if (RDMACM_LIBRARIES)
 	add_definitions(-DWITH_RDMACM)
 endif (RDMACM_LIBRARIES)
 
-find_package(OpenSSL)
+find_package(OpenSSL REQUIRED)
 if (OPENSSL_FOUND)
 	add_definitions(-DWITH_OPENSSL)
 endif (OPENSSL_FOUND)

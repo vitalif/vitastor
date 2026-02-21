@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include <sys/uio.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -152,6 +154,8 @@ struct blockstore_op_t;
 
 struct osd_primary_op_data_t;
 
+struct inode_enc_t;
+
 struct __attribute__((visibility("default"))) osd_op_t
 {
     timespec tv_begin = { 0 }, tv_end = { 0 };
@@ -168,6 +172,8 @@ struct __attribute__((visibility("default"))) osd_op_t
     size_t bmp_data = 0;
     void *bitmap_buf = NULL;
     void *rmw_buf = NULL;
+    std::shared_ptr<inode_enc_t> enc;
+    uint8_t *enc_buf = NULL;
     osd_primary_op_data_t* op_data = NULL;
     std::function<void(osd_op_t*)> callback;
 

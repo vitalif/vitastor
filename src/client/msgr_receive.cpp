@@ -195,6 +195,8 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size
             cl->read_op->op_type = OSD_OP_IN;
             cl->read_op_pos = 0;
             cl->read_op_size = 0;
+            cl->read_op_inline_decrypt_in = 0;
+            cl->read_op_inline_decrypt_pos = (size_t)-1;
         }
         if (cl->read_op_pos < OSD_PACKET_SIZE)
         {
@@ -526,9 +528,17 @@ size_t osd_messenger_t::op_copy_from(osd_client_t *cl, uint8_t *src, size_t src_
             }
             if (op->reply.hdr.retval > 0)
             {
-                for (int i = 0; i < op->iov.count; i++)
-                    if (!op_read_buf((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len))
+                if (op->enc)
+                {
+                    if (!op_decrypted_copy_data_from(cl, src, src_len, from, done))
                         return done;
+                }
+                else
+                {
+                    for (int i = 0; i < op->iov.count; i++)
+                        if (!op_read_buf((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len))
+                            return done;
+                }
             }
         }
         else if (op->reply.hdr.opcode == OSD_OP_SEC_LIST && op->reply.hdr.retval > 0)
@@ -629,6 +639,12 @@ size_t osd_messenger_t::op_get_read_buffers(osd_client_t *cl, std::vector<iovec>
             }
             if (op->reply.hdr.retval > 0)
             {
+                if (op->enc)
+                {
+                    cl->read_op_inline_decrypt_pos = cl->read_op_pos;
+                    cl->read_op_pos = cl->read_op_inline_decrypt_in + OSD_PACKET_SIZE + op->reply.rw.bitmap_len;
+                    from = cl->read_op_inline_decrypt_in;
+                }
                 for (int i = 0; i < op->iov.count; i++)
                     if (!op_read_buf((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len))
                         return done;
@@ -664,6 +680,12 @@ void osd_messenger_t::handle_finished_op(osd_client_t *cl)
     }
     else
     {
+        // Inline decryption
+        if (cl->read_op_inline_decrypt_pos != (size_t)-1)
+        {
+            op_decrypt_inline(cl);
+            cl->read_op_inline_decrypt_pos = (size_t)-1;
+        }
         // Measure subop (outbound op) latency
         timespec tv_end;
         clock_gettime(CLOCK_REALTIME, &tv_end);
