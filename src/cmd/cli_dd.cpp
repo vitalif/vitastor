@@ -442,7 +442,7 @@ struct cli_dd_t
                 }
                 delete cur_read;
             }
-            else if (!is_zero(read_op->bitmap_buf, read_op->len/iinfo.in_granularity/8))
+            else if (!is_zero(read_op->bitmap_buf, (read_op->len/iinfo.in_granularity+7)/8))
             {
                 vitastor_read(cur_read);
             }
