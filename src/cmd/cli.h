@@ -7,7 +7,6 @@
 
 #include "json11/json11.hpp"
 #include "object_id.h"
-#include "osd_id.h"
 #include "ringloop.h"
 #include <functional>
 

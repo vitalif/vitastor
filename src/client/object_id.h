@@ -20,6 +20,15 @@ typedef uint64_t inode_t;
 // Pool ID is 16 bits long
 typedef uint32_t pool_id_t;
 
+typedef uint64_t osd_num_t;
+typedef uint32_t pg_num_t;
+
+struct pool_pg_num_t
+{
+    pool_id_t pool_id;
+    pg_num_t pg_num;
+};
+
 // 16 bytes per object/stripe id
 // stripe = (start of the parity stripe + peer role)
 // i.e. for example (256KB + one of 0,1,2)
@@ -59,6 +68,21 @@ inline bool operator == (const obj_ver_id & a, const obj_ver_id & b)
 inline bool operator < (const obj_ver_id & a, const obj_ver_id & b)
 {
     return a.oid < b.oid || a.oid == b.oid && a.version < b.version;
+}
+
+inline bool operator < (const pool_pg_num_t & a, const pool_pg_num_t & b)
+{
+    return a.pool_id < b.pool_id || a.pool_id == b.pool_id && a.pg_num < b.pg_num;
+}
+
+inline bool operator == (const pool_pg_num_t & a, const pool_pg_num_t & b)
+{
+    return a.pool_id == b.pool_id && a.pg_num == b.pg_num;
+}
+
+inline bool operator != (const pool_pg_num_t & a, const pool_pg_num_t & b)
+{
+    return a.pool_id != b.pool_id || a.pg_num != b.pg_num;
 }
 
 namespace std

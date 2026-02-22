@@ -4,7 +4,6 @@
 #pragma once
 
 #include "object_id.h"
-#include "osd_id.h"
 
 // Magic numbers
 #define SECONDARY_OSD_OP_MAGIC      0x2bd7b10325434553l

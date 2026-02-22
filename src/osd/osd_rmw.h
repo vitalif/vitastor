@@ -6,7 +6,6 @@
 #include <stdint.h>
 #include <vector>
 #include "object_id.h"
-#include "osd_id.h"
 
 struct buf_len_t
 {

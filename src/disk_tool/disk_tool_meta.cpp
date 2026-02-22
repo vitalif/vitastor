@@ -3,7 +3,6 @@
 
 #include "disk_tool.h"
 #include "rw_blocking.h"
-#include "osd_id.h"
 #include "json_util.h"
 #include "malloc_or_die.h"
 

@@ -4,7 +4,6 @@
 #include "disk_tool.h"
 #include "str_util.h"
 #include "json_util.h"
-#include "osd_id.h"
 
 void disk_tool_t::parse_meta_reserve()
 {

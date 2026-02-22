@@ -6,7 +6,7 @@
 #include <set>
 
 #include "json11/json11.hpp"
-#include "osd_id.h"
+#include "object_id.h"
 #include "timerfd_manager.h"
 
 #define ETCD_CONFIG_WATCH_ID 1
