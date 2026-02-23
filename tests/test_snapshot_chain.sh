@@ -1,11 +1,15 @@
 #!/bin/bash -ex
 
+ENCRYPTED=${ENCRYPTED:-}
 . `dirname $0`/run_3osds.sh
 check_qemu
 
 # Test multiple snapshots
 
 $VITASTOR_CLI create -s 32M testchain
+if [[ -n "$ENCRYPTED" ]]; then
+    $ETCDCTL put /vitastor/config/inode/1/1 '{"name":"testchain","size":33554432,"enc_key":"'$(openssl rand -hex 64)'"}'
+fi
 
 $VITASTOR_FIO -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
     -image=testchain -mirror_file=./testdata/bin/mirror.bin
@@ -13,6 +17,10 @@ $VITASTOR_FIO -bs=4M -direct=1 -iodepth=1 -fsync=1 -rw=write \
 for i in {1..10}; do
     # Create a snapshot
     $VITASTOR_CLI snap-create testchain@$i
+    if [[ -n "$ENCRYPTED" ]]; then
+        # Generate different keys for each layer
+        $ETCDCTL put /vitastor/config/inode/1/$((i+1)) '{"name":"testchain","parent_id":'$((i))',"size":33554432,"enc_key":"'$(openssl rand -hex 64)'"}'
+    fi
     # Check that the new snapshot is see-through
     qemu-img convert -p \
         -f raw "vitastor:config_path=$VITASTOR_CFG:image=testchain" \

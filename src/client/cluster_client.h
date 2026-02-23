@@ -5,6 +5,7 @@
 
 #include "messenger.h"
 #include "etcd_state_client_http.h"
+#include "../util/robin_hood.h"
 
 #define DEFAULT_CLIENT_MAX_DIRTY_BYTES 32*1024*1024
 #define DEFAULT_CLIENT_MAX_DIRTY_OPS 1024
@@ -83,6 +84,18 @@ struct inode_list_osd_t;
 struct inode_list_pg_t;
 class writeback_cache_t;
 
+struct inode_cache_t
+{
+    std::vector<inode_t> chain;
+    uint8_t *key_data = NULL;
+    osd_op_enc_t *op_enc = NULL;
+    bool readonly = false;
+    bool has_parent_loop = false;
+    inode_t other_pool_parent_id = 0;
+
+    ~inode_cache_t();
+};
+
 // FIXME: Split into public and private interfaces
 class __attribute__((visibility("default"))) cluster_client_t
 {
@@ -122,6 +135,11 @@ class __attribute__((visibility("default"))) cluster_client_t
 
     void *scrap_buffer = NULL;
     unsigned scrap_buffer_size = 0;
+
+    // inodes require some extra state for read/write, it's stored here.
+    // moreover, robin_hood access is slightly faster than std::map :)
+    robin_hood::unordered_flat_map<inode_t, std::shared_ptr<inode_cache_t>> inode_cache;
+    std::set<std::pair<inode_t, inode_t>> inode_cache_children;
 
     bool pgs_loaded = false;
     ring_consumer_t consumer;
@@ -168,6 +186,9 @@ protected:
     void on_change_pg_state_hook(pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary);
     void on_change_osd_state_hook(uint64_t peer_osd);
     void on_change_node_placement_hook();
+    void on_change_inode_hook(uint64_t inode, bool removed);
+
+    std::shared_ptr<inode_cache_t> inode_cache_get(inode_t ino);
 
     void execute_internal(cluster_op_t *op);
     void execute_cas(cluster_op_t *op, bool nosync = false);
@@ -184,6 +205,7 @@ protected:
     void erase_op(cluster_op_t *op);
     void calc_wait(cluster_op_t *op);
     void inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *next, int inc);
+
     void continue_lists();
     bool continue_listing(inode_list_t *lst);
     bool restart_listing(inode_list_t* lst);

@@ -42,6 +42,10 @@ for my $line (<>)
             {
                 $test_name .= '_https';
             }
+            elsif ($1 eq 'ENCRYPTED')
+            {
+                $test_name .= '_encrypted';
+            }
             elsif ($1 eq 'OLD')
             {
                 $test_name =~ s/^test_/test_old_/s;

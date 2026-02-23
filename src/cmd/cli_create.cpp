@@ -33,7 +33,8 @@ struct image_creator_t
     pool_id_t old_pool_id = 0;
     inode_t new_parent_id = 0;
     inode_t new_id = 0, old_id = 0;
-    uint64_t max_id_mod_rev = 0, cfg_mod_rev = 0, idx_mod_rev = 0;
+    uint64_t max_id_mod_rev = 0, idx_mod_rev = 0;
+    inode_config_t cur_cfg;
     inode_config_t new_cfg;
 
     int state = 0;
@@ -250,7 +251,7 @@ resume_3:
         }
         do
         {
-            // In addition to next_id, get: size, old_id, old_pool_id, new_parent, cfg_mod_rev, idx_mod_rev
+            // In addition to next_id, get: cur_cfg, old_id, old_pool_id, size, idx_mod_rev
 resume_2:
 resume_3:
             get_image_details();
@@ -350,17 +351,6 @@ resume_4:
             goto resume_2;
         else if (state == 3)
             goto resume_3;
-        if (!new_pool_id)
-        {
-            for (auto & ic: parent->cli->st_cli->inode_config)
-            {
-                if (ic.second.name == image_name)
-                {
-                    new_pool_id = INODE_POOL(ic.first);
-                    break;
-                }
-            }
-        }
         parent->etcd_txn(json11::Json::object { { "success", json11::Json::array {
             get_next_id(),
             json11::Json::object {
@@ -384,7 +374,7 @@ resume_2:
         extract_next_id(parent->etcd_result["responses"][0]);
         old_id = 0;
         old_pool_id = 0;
-        cfg_mod_rev = idx_mod_rev = 0;
+        idx_mod_rev = 0;
         if (parent->etcd_result["responses"][1]["response_range"]["kvs"].array_items().size() == 0)
         {
             for (auto & ic: parent->cli->st_cli->inode_config)
@@ -393,9 +383,8 @@ resume_2:
                 {
                     old_id = INODE_NO_POOL(ic.first);
                     old_pool_id = INODE_POOL(ic.first);
+                    cur_cfg = ic.second;
                     size = ic.second.size;
-                    new_parent_id = ic.second.parent_id;
-                    cfg_mod_rev = ic.second.mod_revision;
                     break;
                 }
             }
@@ -439,15 +428,13 @@ resume_3:
             }
             {
                 auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
-                size = kv.value["size"].uint64_value();
-                new_parent_id = kv.value["parent_id"].uint64_value();
-                uint64_t parent_pool_id = kv.value["parent_pool"].uint64_value();
-                if (new_parent_id)
-                {
-                    new_parent_id = INODE_WITH_POOL(parent_pool_id ? parent_pool_id : old_pool_id, new_parent_id);
-                }
-                cfg_mod_rev = kv.mod_revision;
+                cur_cfg = parent->cli->st_cli->deserialize_inode_cfg(INODE_WITH_POOL(old_pool_id, old_id), kv.value, kv.mod_revision);
+                size = cur_cfg.size;
             }
+        }
+        if (!new_pool_id)
+        {
+            new_pool_id = old_pool_id;
         }
     }
 
@@ -527,16 +514,12 @@ resume_3:
         };
         if (new_snap != "")
         {
-            inode_config_t snap_cfg = {
-                .num = INODE_WITH_POOL(old_pool_id, old_id),
-                .name = image_name+"@"+new_snap,
-                .size = size,
-                .parent_id = new_parent_id,
-                .readonly = true,
-            };
+            inode_config_t snap_cfg = cur_cfg;
+            snap_cfg.name = image_name+"@"+new_snap;
+            snap_cfg.readonly = true;
             checks.push_back(json11::Json::object {
                 { "target", "MOD" },
-                { "mod_revision", cfg_mod_rev },
+                { "mod_revision", cur_cfg.mod_revision },
                 { "key", base64_encode(
                     parent->cli->st_cli->etcd_prefix+"/config/inode/"+
                     std::to_string(old_pool_id)+"/"+std::to_string(old_id)

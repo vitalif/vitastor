@@ -9,14 +9,6 @@
 #include "addr_util.h"
 #include "str_util.h"
 
-inode_key_t::~inode_key_t()
-{
-    if (op_enc)
-    {
-        free(op_enc);
-    }
-}
-
 etcd_state_client_t::~etcd_state_client_t()
 {
     for (auto watch: watches)
@@ -846,48 +838,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             }
             else
             {
-                inode_t parent_inode_num = value["parent_id"].uint64_value();
-                if (parent_inode_num && !(parent_inode_num >> (64-POOL_ID_BITS)))
-                {
-                    uint64_t parent_pool_id = value["parent_pool"].uint64_value();
-                    if (!parent_pool_id)
-                        parent_inode_num |= pool_id << (64-POOL_ID_BITS);
-                    else if (parent_pool_id >= POOL_ID_MAX)
-                    {
-                        fprintf(
-                            stderr, "Inode %ju/%ju parent_pool value is invalid, ignoring parent setting\n",
-                            inode_num >> (64-POOL_ID_BITS), inode_num & (((uint64_t)1 << (64-POOL_ID_BITS)) - 1)
-                        );
-                        parent_inode_num = 0;
-                    }
-                    else
-                        parent_inode_num |= parent_pool_id << (64-POOL_ID_BITS);
-                }
-                std::shared_ptr<inode_key_t> enc_key;
-                if (!value["enc_key"].string_value().empty())
-                {
-                    std::vector<uint8_t> k(512/8); // AES-256-XTS
-                    if (fromhexstr(value["enc_key"].string_value(), k.size(), k.data()) == k.size())
-                    {
-                        enc_key = std::make_shared<inode_key_t>();
-                        enc_key->key = std::move(k);
-                        enc_key->op_enc = (osd_op_enc_t*)calloc_or_die(1, sizeof(osd_op_enc_t) + sizeof(uint8_t*));
-                        enc_key->op_enc->key_chain = (uint8_t**)(enc_key->op_enc + 1);
-                        enc_key->op_enc->key_chain[0] = enc_key->key.data();
-                        enc_key->op_enc->chain_size = 1;
-                    }
-                }
-                insert_inode_config((inode_config_t){
-                    .num = inode_num,
-                    .name = value["name"].string_value(),
-                    .size = value["size"].uint64_value(),
-                    .parent_id = parent_inode_num,
-                    .readonly = value["readonly"].bool_value(),
-                    .deleted = value["deleted"].bool_value(),
-                    .enc_key = enc_key,
-                    .meta = value["meta"],
-                    .mod_revision = kv.mod_revision,
-                });
+                insert_inode_config(deserialize_inode_cfg(inode_num, kv.value, kv.mod_revision));
             }
         }
     }
@@ -976,6 +927,10 @@ json11::Json::object etcd_state_client_t::serialize_inode_cfg(inode_config_t *cf
             new_cfg["parent_pool"] = (uint64_t)INODE_POOL(cfg->parent_id);
         new_cfg["parent_id"] = (uint64_t)INODE_NO_POOL(cfg->parent_id);
     }
+    if (!cfg->enc_key.empty())
+    {
+        new_cfg["enc_key"] = tohexstr(cfg->enc_key.data(), cfg->enc_key.size());
+    }
     if (cfg->readonly)
     {
         new_cfg["readonly"] = true;
@@ -989,6 +944,53 @@ json11::Json::object etcd_state_client_t::serialize_inode_cfg(inode_config_t *cf
         new_cfg["meta"] = cfg->meta;
     }
     return new_cfg;
+}
+
+inode_config_t etcd_state_client_t::deserialize_inode_cfg(uint64_t inode_num, json11::Json value, uint64_t mod_revision)
+{
+    inode_t parent_inode_num = value["parent_id"].uint64_value();
+    if (parent_inode_num && !INODE_POOL(parent_inode_num))
+    {
+        uint64_t parent_pool_id = value["parent_pool"].uint64_value();
+        if (!parent_pool_id)
+            parent_inode_num = INODE_WITH_POOL(INODE_POOL(inode_num), parent_inode_num);
+        else if (parent_pool_id >= POOL_ID_MAX)
+        {
+            fprintf(
+                stderr, "Inode %u/%ju parent_pool value is invalid, ignoring parent setting\n",
+                INODE_POOL(inode_num), INODE_NO_POOL(inode_num)
+            );
+            parent_inode_num = 0;
+        }
+        else
+            parent_inode_num |= parent_pool_id << (64-POOL_ID_BITS);
+    }
+    std::vector<uint8_t> enc_key;
+    if (!value["enc_key"].is_null())
+    {
+        if (value["enc_key"].string_value().size() == 2*AES_256_XTS_KEY_SIZE)
+        {
+            enc_key.resize(AES_256_XTS_KEY_SIZE);
+            if (fromhexstr(value["enc_key"].string_value(), AES_256_XTS_KEY_SIZE, enc_key.data()) < AES_256_XTS_KEY_SIZE)
+                enc_key.clear();
+        }
+        if (enc_key.empty())
+        {
+            fprintf(stderr, "Inode %u/%ju has invalid enc_key, should be %u bit hex string\n",
+                INODE_POOL(inode_num), INODE_NO_POOL(inode_num), AES_256_XTS_KEY_SIZE);
+        }
+    }
+    return (inode_config_t){
+        .num = inode_num,
+        .name = value["name"].string_value(),
+        .size = value["size"].uint64_value(),
+        .parent_id = parent_inode_num,
+        .readonly = value["readonly"].bool_value(),
+        .deleted = value["deleted"].bool_value(),
+        .enc_key = std::move(enc_key),
+        .meta = value["meta"],
+        .mod_revision = mod_revision,
+    };
 }
 
 int etcd_state_client_t::address_count()

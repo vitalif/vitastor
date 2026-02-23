@@ -574,3 +574,17 @@ size_t fromhexstr(const std::string & from, size_t bytes, uint8_t *to)
     }
     return i;
 }
+
+std::string tohexstr(const uint8_t *from, size_t bytes)
+{
+    std::string res;
+    res.resize(bytes*2);
+    for (size_t i = 0; i < bytes; i++)
+    {
+        uint8_t x = from[i] / 16;
+        uint8_t y = from[i] % 16;
+        res[2*i] = (x < 10 ? '0' : 'a'-10) + x;
+        res[2*i+1] = (y < 10 ? '0' : 'a'-10) + y;
+    }
+    return res;
+}

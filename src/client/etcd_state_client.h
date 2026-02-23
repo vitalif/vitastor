@@ -76,16 +76,6 @@ struct pool_config_t
     void *reshard_state = NULL;
 };
 
-struct osd_op_enc_t;
-
-struct inode_key_t
-{
-    std::vector<uint8_t> key;
-    osd_op_enc_t *op_enc;
-
-    ~inode_key_t();
-};
-
 struct inode_config_t
 {
     uint64_t num = 0;
@@ -94,7 +84,7 @@ struct inode_config_t
     inode_t parent_id = 0;
     bool readonly = false;
     bool deleted = false;
-    std::shared_ptr<inode_key_t> enc_key;
+    std::vector<uint8_t> enc_key;
     // Arbitrary metadata
     json11::Json meta;
     // Change revision of the metadata in etcd
@@ -167,6 +157,7 @@ public:
     std::function<void(http_co_t *)> on_start_watcher_hook;
 
     json11::Json::object serialize_inode_cfg(inode_config_t *cfg);
+    inode_config_t deserialize_inode_cfg(uint64_t inode_num, json11::Json value, uint64_t mod_revision);
     etcd_kv_t parse_etcd_kv(const json11::Json & kv_json);
     std::vector<std::string> get_addresses();
     virtual void etcd_call_oneshot(std::string etcd_address, std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback) = 0;

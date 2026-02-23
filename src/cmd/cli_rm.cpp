@@ -451,6 +451,7 @@ resume_100:
         inode_config_t new_cfg = *child_cfg;
         new_cfg.deleted = false;
         new_cfg.num = target_cfg->num;
+        new_cfg.enc_key = target_cfg->enc_key;
         new_cfg.parent_id = new_parent;
         json11::Json::array cmp = json11::Json::array {
             json11::Json::object {

@@ -18,6 +18,8 @@
 
 #define OSD_OP_INLINE_BUF_COUNT 16
 
+#define AES_256_XTS_KEY_SIZE 64
+
 // Kind of a vector with small-list-optimisation
 struct osd_op_buf_list_t
 {

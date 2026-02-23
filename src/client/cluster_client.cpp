@@ -11,6 +11,16 @@
 #define TRY_SEND_CONNECTING 1
 #define TRY_SEND_OK 2
 
+inode_cache_t::~inode_cache_t()
+{
+    if (key_data)
+    {
+        free(key_data);
+        key_data = NULL;
+        op_enc = NULL;
+    }
+}
+
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config, std::unique_ptr<etcd_state_client_t> st_cli_ptr)
 {
     wb = new writeback_cache_t();
@@ -62,6 +72,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli->on_change_node_placement_hook = [this]() { on_change_node_placement_hook(); };
     st_cli->on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
     st_cli->on_reload_hook = [this]() { this->st_cli->load_global_config(); };
+    st_cli->on_inode_change_hook = [this](uint64_t inode, bool removed) { on_change_inode_hook(inode, removed); };
 
     st_cli->parse_config(config);
     st_cli->infinite_start = false;
@@ -607,6 +618,8 @@ void cluster_client_t::on_change_pool_config_hook()
             pg_counts[pool_item.first] = pool_item.second.real_pg_count;
         }
     }
+    inode_cache.clear();
+    inode_cache_children.clear();
     continue_ops();
 }
 
@@ -650,6 +663,136 @@ void cluster_client_t::on_change_node_placement_hook()
 {
     osd_tree_metrics.clear();
     self_tree_metrics.clear();
+}
+
+// FIXME: Rework client API by adding open/close and cache inode information in the "FD" (maybe)
+void cluster_client_t::on_change_inode_hook(uint64_t inode, bool removed)
+{
+    std::vector<inode_t> children = { inode };
+    for (size_t i = 0; i < children.size(); i++)
+    {
+        auto it = inode_cache_children.lower_bound(std::make_pair(children[i], (inode_t)0));
+        while (it != inode_cache_children.end() && it->first == children[i])
+        {
+            children.push_back(it->second);
+            it++;
+        }
+    }
+    for (auto & inode: children)
+    {
+        auto it = inode_cache.find(inode);
+        if (it != inode_cache.end())
+        {
+            auto icache = it->second;
+            for (auto & parent: icache->chain)
+            {
+                inode_cache_children.erase(std::make_pair(parent, inode));
+            }
+            inode_cache.erase(it);
+        }
+    }
+}
+
+std::shared_ptr<inode_cache_t> cluster_client_t::inode_cache_get(inode_t ino)
+{
+    auto icache_it = inode_cache.find(ino);
+    if (icache_it != inode_cache.end())
+    {
+        return icache_it->second;
+    }
+    // Fill inode cache
+    auto ino_it = st_cli->inode_config.find(ino);
+    if (ino_it == st_cli->inode_config.end())
+    {
+        inode_cache[ino] = NULL;
+        return NULL;
+    }
+    auto pool_it = st_cli->pool_config.find(INODE_POOL(ino));
+    if (pool_it == st_cli->pool_config.end())
+    {
+        inode_cache[ino] = NULL;
+        return NULL;
+    }
+    auto & inode_cfg = ino_it->second;
+    auto & pool_cfg = pool_it->second;
+    std::shared_ptr<inode_cache_t> icache = std::make_shared<inode_cache_t>();
+    icache->readonly = inode_cfg.readonly;
+    icache->chain.push_back(ino);
+    std::vector<inode_config_t*> chain_cfg;
+    int enc_key_count = !inode_cfg.enc_key.empty() ? 1 : 0;
+    if (inode_cfg.parent_id)
+    {
+        // Check for loops and cache the chain
+        robin_hood::unordered_flat_set<inode_t> seen;
+        seen.insert(ino);
+        uint64_t parent_id = inode_cfg.parent_id;
+        while (parent_id)
+        {
+            if (seen.find(parent_id) != seen.end())
+            {
+                icache->has_parent_loop = true;
+                break;
+            }
+            seen.insert(parent_id);
+            ino_it = st_cli->inode_config.find(parent_id);
+            if (INODE_POOL(parent_id) == INODE_POOL(ino))
+            {
+                icache->chain.push_back(parent_id);
+                if (ino_it == st_cli->inode_config.end())
+                    chain_cfg.push_back(NULL);
+                else
+                {
+                    chain_cfg.push_back(&ino_it->second);
+                    if (!ino_it->second.enc_key.empty())
+                        enc_key_count++;
+                }
+            }
+            else if (!icache->other_pool_parent_id)
+                icache->other_pool_parent_id = parent_id;
+            if (ino_it == st_cli->inode_config.end())
+                break;
+            parent_id = ino_it->second.parent_id;
+        }
+    }
+    // Generate encryption key chain, if applicable
+    if (enc_key_count)
+    {
+        uint8_t *key_data = (uint8_t*)malloc_or_die(
+            AES_256_XTS_KEY_SIZE * enc_key_count +
+            sizeof(uint8_t*) * icache->chain.size() +
+            sizeof(osd_op_enc_t)
+        );
+        uint8_t **keys = (uint8_t**)(key_data + AES_256_XTS_KEY_SIZE * enc_key_count);
+        osd_op_enc_t *enc = (osd_op_enc_t*)((uint8_t*)keys + sizeof(uint8_t*)*icache->chain.size());
+        size_t key_pos = 0;
+        for (size_t i = 0; i <= chain_cfg.size(); i++)
+        {
+            inode_config_t *cfg = !i ? &inode_cfg : chain_cfg[i-1];
+            if (cfg && !cfg->enc_key.empty())
+            {
+                assert(key_pos < AES_256_XTS_KEY_SIZE * enc_key_count);
+                assert(cfg->enc_key.size() == AES_256_XTS_KEY_SIZE);
+                keys[i] = key_data + key_pos;
+                memcpy(key_data + key_pos, cfg->enc_key.data(), AES_256_XTS_KEY_SIZE);
+                key_pos += AES_256_XTS_KEY_SIZE;
+            }
+            else
+                keys[i] = NULL;
+        }
+        enc->key_chain = keys;
+        enc->chain_size = icache->chain.size();
+        enc->read_chain_bitmap_pos = pool_cfg.data_block_size/pool_cfg.bitmap_granularity/8;
+        enc->bitmap_granularity = pool_cfg.bitmap_granularity;
+        icache->key_data = key_data;
+        icache->op_enc = enc;
+    }
+    inode_cache[ino] = icache;
+    for (auto & parent: icache->chain)
+    {
+        if (parent != ino)
+            inode_cache_children.insert(std::make_pair(parent, ino));
+    }
+    return icache;
 }
 
 bool cluster_client_t::is_ready()
@@ -972,37 +1115,40 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     {
         op->flags |= OP_IMMEDIATE_COMMIT;
     }
-    // FIXME: Rework client API by adding open/close and cache inode information in the "FD"
     bool searched = false;
-    std::map<inode_t, inode_config_t>::iterator ino_it;
+    std::shared_ptr<inode_cache_t> icache;
     if (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_WRITE)
     {
         if (!searched)
         {
-            ino_it = st_cli->inode_config.find(op->inode);
+            icache = inode_cache_get(op->inode);
             searched = true;
         }
-        if (ino_it != st_cli->inode_config.end() && ino_it->second.enc_key)
+        if (icache && icache->has_parent_loop && op->opcode == OSD_OP_READ)
         {
-            op->enc = std::shared_ptr<osd_op_enc_t>(ino_it->second.enc_key, ino_it->second.enc_key->op_enc);
-            if (!op->enc->bitmap_granularity)
-            {
-                op->enc->bitmap_granularity = pool_it->second.bitmap_granularity;
-            }
+            op->retval = -EINVAL;
+            auto cb = std::move(op->callback);
+            cb(op);
+            return false;
         }
+        if (icache && icache->op_enc)
+        {
+            // Use shared_ptr aliasing to attach op_enc to the inode cache entry
+            op->enc = std::shared_ptr<osd_op_enc_t>(icache, icache->op_enc);
+        }
+        else
+            op->enc.reset();
     }
     else
-    {
         op->enc.reset();
-    }
     if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && !(op->flags & OSD_OP_IGNORE_READONLY))
     {
         if (!searched)
         {
-            ino_it = st_cli->inode_config.find(op->inode);
+            icache = inode_cache_get(op->inode);
             searched = true;
         }
-        if (ino_it != st_cli->inode_config.end() && ino_it->second.readonly)
+        if (icache && icache->readonly)
         {
             op->retval = -EROFS;
             auto cb = std::move(op->callback);
@@ -1015,32 +1161,19 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     {
         if (!searched)
         {
-            ino_it = st_cli->inode_config.find(op->inode);
+            icache = inode_cache_get(op->inode);
             searched = true;
         }
-        if (ino_it != st_cli->inode_config.end())
+        if (icache)
         {
-            int chain_size = 0;
-            while (ino_it != st_cli->inode_config.end() && ino_it->second.parent_id)
+            for (auto & parent: icache->chain)
             {
-                // Check for loops - FIXME check it in etcd_state_client
-                if (ino_it->second.parent_id == op->inode ||
-                    chain_size > st_cli->inode_config.size())
-                {
-                    op->retval = -EINVAL;
-                    auto cb = std::move(op->callback);
-                    cb(op);
-                    return false;
-                }
-                if (INODE_POOL(ino_it->second.parent_id) == INODE_POOL(ino_it->first) &&
-                    wb->has_dirty(ino_it->second.parent_id, op->offset, op->len))
+                if (INODE_POOL(parent) == INODE_POOL(op->inode) && wb->has_dirty(parent, op->offset, op->len))
                 {
                     // Deoptimise reads - we have dirty data for one of the parent layer(s).
                     op->deoptimise_snapshot = true;
                     break;
                 }
-                chain_size++;
-                ino_it = st_cli->inode_config.find(ino_it->second.parent_id);
             }
         }
     }
@@ -1173,31 +1306,33 @@ resume_2:
         }
         if (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_CHAIN_BITMAP)
         {
-            // Check parent inode
-            auto ino_it = st_cli->inode_config.find(op->cur_inode);
-            // Skip parents from the same pool
-            int skipped = 0;
-            while (!op->deoptimise_snapshot &&
-                ino_it != st_cli->inode_config.end() && ino_it->second.parent_id &&
-                INODE_POOL(ino_it->second.parent_id) == INODE_POOL(op->cur_inode))
+            uint64_t next_inode = 0;
+            auto icache = inode_cache_get(op->cur_inode);
+            if (icache)
             {
-                // Check for loops - FIXME check it in etcd_state_client
-                if (ino_it->second.parent_id == op->inode ||
-                    skipped > st_cli->inode_config.size())
+                if (icache->has_parent_loop)
                 {
                     op->retval = -EINVAL;
                     erase_op(op);
                     return 1;
                 }
-                skipped++;
-                ino_it = st_cli->inode_config.find(ino_it->second.parent_id);
+                if (op->deoptimise_snapshot)
+                {
+                    if (icache->chain.size() > 1)
+                        next_inode = icache->chain[1];
+                }
+                else
+                {
+                    if (icache->other_pool_parent_id)
+                        next_inode = icache->other_pool_parent_id;
+                }
             }
-            if (ino_it != st_cli->inode_config.end() &&
-                ino_it->second.parent_id &&
-                ino_it->second.parent_id != op->inode)
+            if (next_inode)
             {
                 // Continue reading from the parent inode
-                op->cur_inode = ino_it->second.parent_id;
+                icache = inode_cache_get(next_inode);
+                op->cur_inode = next_inode;
+                op->enc = (icache && icache->op_enc ? std::shared_ptr<osd_op_enc_t>(icache, icache->op_enc) : nullptr);
                 op->parts.clear();
                 op->done_count = 0;
                 goto resume_0;
@@ -1484,7 +1619,7 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
                     .inode = op->cur_inode,
                     .offset = part->offset,
                     .len = part->len,
-                    .flags = op->opcode == OSD_OP_READ && op->enc ? OSD_OP_RETURN_CHAIN : 0,
+                    .flags = op->opcode == OSD_OP_READ && op->enc && !op->deoptimise_snapshot ? OSD_OP_RETURN_CHAIN : 0,
                     .meta_revision = meta_rev,
                     .version = op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE ? op->version : 0,
                 } },
