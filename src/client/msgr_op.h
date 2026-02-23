@@ -154,7 +154,18 @@ struct blockstore_op_t;
 
 struct osd_primary_op_data_t;
 
-struct inode_enc_t;
+struct osd_op_enc_t
+{
+    // Keys may contain more information in the future, like encryption algorithm and key ID
+    // In this case, key_chain will become inode_key_t* with inode_key_t also being a structure
+    // Currently all keys are required to be 512 bit (64 byte) long, for AES-256-XTS
+    // Raw pointers are convenient for messenger code; external users may use shared_ptr aliasing
+    // to implement complex freeing of osd_op_enc_t along with their external inode cache info
+    uint8_t** key_chain = NULL;
+    size_t chain_size = 0;
+    uint32_t read_chain_bitmap_pos = 0;
+    uint32_t bitmap_granularity = 0;
+};
 
 struct __attribute__((visibility("default"))) osd_op_t
 {
@@ -172,7 +183,7 @@ struct __attribute__((visibility("default"))) osd_op_t
     size_t bmp_data = 0;
     void *bitmap_buf = NULL;
     void *rmw_buf = NULL;
-    std::shared_ptr<inode_enc_t> enc;
+    std::shared_ptr<osd_op_enc_t> enc;
     uint8_t *enc_buf = NULL;
     osd_primary_op_data_t* op_data = NULL;
     std::function<void(osd_op_t*)> callback;

@@ -982,9 +982,9 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
             ino_it = st_cli->inode_config.find(op->inode);
             searched = true;
         }
-        if (ino_it != st_cli->inode_config.end() && ino_it->second.enc)
+        if (ino_it != st_cli->inode_config.end() && ino_it->second.enc_key)
         {
-            op->enc = ino_it->second.enc;
+            op->enc = std::shared_ptr<osd_op_enc_t>(ino_it->second.enc_key, ino_it->second.enc_key->op_enc);
             if (!op->enc->bitmap_granularity)
             {
                 op->enc->bitmap_granularity = pool_it->second.bitmap_granularity;

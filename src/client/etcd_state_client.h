@@ -76,12 +76,14 @@ struct pool_config_t
     void *reshard_state = NULL;
 };
 
-struct inode_enc_t
+struct osd_op_enc_t;
+
+struct inode_key_t
 {
-    int refs = 0;
     std::vector<uint8_t> key;
-    // FIXME It may also contain snapshot chain and key information
-    uint32_t bitmap_granularity = 0;
+    osd_op_enc_t *op_enc;
+
+    ~inode_key_t();
 };
 
 struct inode_config_t
@@ -92,7 +94,7 @@ struct inode_config_t
     inode_t parent_id = 0;
     bool readonly = false;
     bool deleted = false;
-    std::shared_ptr<inode_enc_t> enc;
+    std::shared_ptr<inode_key_t> enc_key;
     // Arbitrary metadata
     json11::Json meta;
     // Change revision of the metadata in etcd

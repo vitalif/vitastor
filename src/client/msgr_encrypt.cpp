@@ -37,7 +37,7 @@ op_aes_xts_encrypt_t::~op_aes_xts_encrypt_t()
         free(tmp);
 }
 
-void op_aes_xts_encrypt_t::start(const uint8_t *key, uint64_t start_offset, size_t block_size)
+void op_aes_xts_encrypt_t::start(uint8_t *key, uint64_t start_offset, size_t block_size)
 {
     assert(!encrypted);
     this->start_offset = start_offset;
@@ -187,11 +187,14 @@ op_aes_xts_decrypt_t::~op_aes_xts_decrypt_t()
         free(tmp);
 }
 
-void op_aes_xts_decrypt_t::start(const uint8_t *key, uint64_t start_offset, size_t block_size)
+void op_aes_xts_decrypt_t::start(uint8_t **key_chain, size_t chain_size, uint8_t *key_indexes, uint64_t start_offset, size_t block_size)
 {
     assert(!decrypted);
     this->start_offset = start_offset;
-    this->key = key;
+    this->key_chain = chain_size > 1 ? key_chain : 0;
+    this->chain_size = chain_size > 1 ? chain_size : 0;
+    this->key_indexes = chain_size > 1 ? key_indexes : NULL;
+    assert(chain_size <= 1 || key_indexes != NULL);
     this->block_size = block_size;
     this->offset = 0;
     this->tmp_pos = 0;
@@ -202,7 +205,7 @@ void op_aes_xts_decrypt_t::start(const uint8_t *key, uint64_t start_offset, size
         tmp_size = 0;
     }
 #ifdef WITH_OPENSSL
-    if (EVP_DecryptInit_ex(ctx, NULL, NULL, key, NULL) != 1)
+    if (chain_size == 1 && key_chain[0] && EVP_DecryptInit_ex(ctx, NULL, NULL, key_chain[0], NULL) != 1)
     {
         ERR_print_errors_fp(stderr);
         abort();
@@ -212,10 +215,22 @@ void op_aes_xts_decrypt_t::start(const uint8_t *key, uint64_t start_offset, size
 
 void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
 {
+    uint8_t *key = NULL;
+    if (chain_size)
+    {
+        assert(key_indexes[offset/block_size] < chain_size);
+        key = key_chain[key_indexes[offset/block_size]];
+        if (!key)
+        {
+            if (in != out)
+                memcpy(out, in, block_size);
+            return;
+        }
+    }
 #ifdef WITH_OPENSSL
     uint8_t iv[16] = { 0 };
     *((uint64_t*)iv) = start_offset + offset - offset%block_size;
-    if (EVP_DecryptInit_ex(ctx, NULL, NULL, NULL, iv) != 1)
+    if (EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv) != 1)
     {
         ERR_print_errors_fp(stderr);
         abort();
@@ -322,8 +337,8 @@ bool osd_messenger_t::op_encrypted_copy_data_to(osd_client_t* cl, uint8_t *enc_b
             else
                 cl->encrypt_ctx = new op_aes_xts_encrypt_t();
         }
-        assert(op->enc->key.size() == 512/8);
-        cl->encrypt_ctx->start(op->enc->key.data(), op->req.rw.offset, op->enc->bitmap_granularity);
+        assert(op->enc->key_chain[0]);
+        cl->encrypt_ctx->start(op->enc->key_chain[0], op->req.rw.offset, op->enc->bitmap_granularity);
     }
     for (int i = 0; i < op->iov.count; i++)
     {
@@ -393,8 +408,10 @@ void osd_messenger_t::op_decrypt_start(osd_client_t* cl)
         }
         else
             cl->decrypt_ctx = new op_aes_xts_decrypt_t();
-        assert(cl->read_op->enc->key.size() == 512/8);
-        cl->decrypt_ctx->start(cl->read_op->enc->key.data(), cl->read_op->req.rw.offset, cl->read_op->enc->bitmap_granularity);
+        auto & enc = cl->read_op->enc;
+        cl->decrypt_ctx->start(enc->key_chain, enc->chain_size,
+            (cl->read_op->req.rw.flags & OSD_OP_RETURN_CHAIN) ? (uint8_t*)cl->read_op->bitmap + enc->read_chain_bitmap_pos : 0,
+            cl->read_op->req.rw.offset, enc->bitmap_granularity);
     }
 }
 

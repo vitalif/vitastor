@@ -833,7 +833,7 @@ void test_msgr_encrypt()
     }
 
     auto dec = new op_aes_xts_decrypt_t();
-    dec->start(key, 4096 * 113, 4096);
+    dec->start(&key, 1, NULL, 4096 * 113, 4096);
     in_pos = out_pos = 0;
     while (out_pos < sz)
     {
@@ -869,7 +869,7 @@ void test_msgr_encrypt()
     // Fragmented decrypt
     // Input: 1000 + 2000 + 3000 + 2192, output: 500 + 3000 + 1000 + 3000 + 692
     printf("...fragmented decrypt\n");
-    dec->start(key, 4096 * 114, 4096);
+    dec->start(&key, 1, NULL, 4096 * 114, 4096);
     in_pos = out_pos = 0;
     dec->update(crypt+4096, 1000, decrypt, 500, in_pos, out_pos);
     assert(in_pos == 1000);
@@ -903,7 +903,7 @@ void test_msgr_encrypt()
     // Extra size decrypt
     // Input: 8192, output: 4096
     printf("...extra size decrypt\n");
-    dec->start(key, 4096 * 114, 4096);
+    dec->start(&key, 1, NULL, 4096 * 114, 4096);
     in_pos = out_pos = 0;
     dec->update(crypt+4096, 8192, decrypt, 4096, in_pos, out_pos);
     assert(in_pos == 4096);
@@ -920,6 +920,63 @@ void test_msgr_encrypt()
     free(src);
     printf("[ok] msgr aes-xts encryption test\n");
 }
+
+void test_msgr_decrypt_chain()
+{
+    const size_t sz = 4096 * 4;
+    uint8_t *src = (uint8_t*)malloc_or_die(sz);
+    for (size_t i = 0; i < sz; i++)
+        src[i] = (i*0x1001) % 256;
+    uint8_t *crypt = (uint8_t*)malloc_or_die(sz);
+    uint8_t *decrypt = (uint8_t*)malloc_or_die(sz);
+    uint8_t *key = (uint8_t*)malloc_or_die(64);
+    RAND_bytes(key, 64);
+    uint8_t *key2 = (uint8_t*)malloc_or_die(64);
+    RAND_bytes(key2, 64);
+
+    // Chained decryption with multiple keys
+
+    // encrypt:
+    size_t in_pos = 0, out_pos = 0;
+    auto enc = new op_aes_xts_encrypt_t();
+    // block 1 with key1
+    enc->start(key, 4096 * 113, 4096);
+    enc->update(src, 4096, crypt, 4096, in_pos, out_pos);
+    assert(in_pos == 4096 && out_pos == 4096);
+    // block 2 as plain
+    memcpy(crypt + 4096, src + 4096, 4096);
+    // block 3 with key2
+    enc->start(key2, 4096 * 115, 4096);
+    enc->update(src + 2*4096, 4096, crypt + 2*4096, 4096, in_pos, out_pos);
+    assert(in_pos == 2*4096 && out_pos == 2*4096);
+    // block 4 again with key1
+    enc->start(key, 4096 * 116, 4096);
+    enc->update(src + 3*4096, 4096, crypt + 3*4096, 4096, in_pos, out_pos);
+    assert(in_pos == 3*4096 && out_pos == 3*4096);
+
+    // decrypt:
+    uint8_t* keys[3] = { key, key2, NULL };
+    uint8_t chain_info[4] = { 0, 2, 1, 0 };
+    auto dec = new op_aes_xts_decrypt_t();
+    dec->start(keys, 3, chain_info, 4096 * 113, 4096);
+    in_pos = out_pos = 0;
+    while (out_pos < sz)
+    {
+        dec->update(crypt+in_pos, sz-in_pos, decrypt+out_pos, sz-out_pos, in_pos, out_pos);
+    }
+
+    assert(memcmp(src, decrypt, sz) == 0);
+
+    delete dec;
+    delete enc;
+
+    free(key2);
+    free(key);
+    free(decrypt);
+    free(crypt);
+    free(src);
+    printf("[ok] msgr aes-xts chained decrypt\n");
+}
 #endif
 
 int main(int narg, char *args[])
@@ -932,6 +989,7 @@ int main(int narg, char *args[])
     test_deoptimize_snapshot_read();
 #ifdef WITH_OPENSSL
     test_msgr_encrypt();
+    test_msgr_decrypt_chain();
 #endif
     return 0;
 }

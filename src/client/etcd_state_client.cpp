@@ -1,13 +1,21 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
-#include <assert.h>
-
+#include "malloc_or_die.h"
 #include "osd_ops.h"
+#include "msgr_op.h"
 #include "pg_states.h"
 #include "etcd_state_client.h"
 #include "addr_util.h"
 #include "str_util.h"
+
+inode_key_t::~inode_key_t()
+{
+    if (op_enc)
+    {
+        free(op_enc);
+    }
+}
 
 etcd_state_client_t::~etcd_state_client_t()
 {
@@ -855,14 +863,18 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                     else
                         parent_inode_num |= parent_pool_id << (64-POOL_ID_BITS);
                 }
-                std::shared_ptr<inode_enc_t> enc;
+                std::shared_ptr<inode_key_t> enc_key;
                 if (!value["enc_key"].string_value().empty())
                 {
-                    std::vector<uint8_t> k(512/8);
+                    std::vector<uint8_t> k(512/8); // AES-256-XTS
                     if (fromhexstr(value["enc_key"].string_value(), k.size(), k.data()) == k.size())
                     {
-                        enc = std::make_shared<inode_enc_t>();
-                        enc->key = std::move(k);
+                        enc_key = std::make_shared<inode_key_t>();
+                        enc_key->key = std::move(k);
+                        enc_key->op_enc = (osd_op_enc_t*)calloc_or_die(1, sizeof(osd_op_enc_t) + sizeof(uint8_t*));
+                        enc_key->op_enc->key_chain = (uint8_t**)(enc_key->op_enc + 1);
+                        enc_key->op_enc->key_chain[0] = enc_key->key.data();
+                        enc_key->op_enc->chain_size = 1;
                     }
                 }
                 insert_inode_config((inode_config_t){
@@ -872,7 +884,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                     .parent_id = parent_inode_num,
                     .readonly = value["readonly"].bool_value(),
                     .deleted = value["deleted"].bool_value(),
-                    .enc = enc,
+                    .enc_key = enc_key,
                     .meta = value["meta"],
                     .mod_revision = kv.mod_revision,
                 });
