@@ -414,7 +414,10 @@ void etcd_state_client_t::start_etcd_watcher()
                 }
                 // Save revision only if it's present in the message - because sometimes etcd sends something without a header, like:
                 // {"error": {"grpc_code": 14, "http_code": 503, "http_status": "Service Unavailable", "message": "error reading from server: EOF"}}
-                if (etcd_watches_initialised == ETCD_TOTAL_WATCHES && !data["result"]["header"]["revision"].is_null())
+                // Also don't save revision from the initial created: true messages because they always contain the latest revision
+                if (etcd_watches_initialised == ETCD_TOTAL_WATCHES &&
+                    !data["result"]["header"]["revision"].is_null() &&
+                    !data["result"]["created"].bool_value())
                 {
                     // Restart watchers from the same revision number as in the last received message,
                     // not from the next one to protect against revision being split into multiple messages,
