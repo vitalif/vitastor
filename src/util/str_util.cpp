@@ -588,3 +588,17 @@ std::string tohexstr(const uint8_t *from, size_t bytes)
     }
     return res;
 }
+
+bool ishexstr(const std::string & str)
+{
+    if (str.size() % 2)
+        return false;
+    for (auto & c: str)
+    {
+        if ((c < '0' || c > '9') &&
+            (c < 'a' || c > 'f') &&
+            (c < 'A' || c > 'F'))
+            return false;
+    }
+    return true;
+}

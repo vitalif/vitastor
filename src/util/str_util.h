@@ -39,5 +39,6 @@ bool memcheck(uint8_t *buf, uint8_t byte, size_t len);
 std::string urldecode(const std::string & orig);
 size_t fromhexstr(const std::string & from, size_t bytes, uint8_t *to);
 std::string tohexstr(const uint8_t *from, size_t bytes);
+bool ishexstr(const std::string & str);
 
 #pragma GCC visibility pop

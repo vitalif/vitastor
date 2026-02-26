@@ -17,6 +17,8 @@ struct image_changer_t
     bool force_size = false, inc_size = false;
     bool set_readonly = false, set_readwrite = false, force = false;
     bool set_deleted = false, new_deleted = false;
+    bool set_key = false;
+    std::string enc_key;
     bool down_ok = false;
     // interval between fsyncs
     int fsync_interval = 128;
@@ -148,6 +150,23 @@ resume_1:
         if (new_name != "")
         {
             cfg.name = new_name;
+        }
+        if (set_key)
+        {
+            if (!force)
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "Changing image encryption key is only allowed with --force" };
+                state = 100;
+                return;
+            }
+            if (enc_key != "" && (!ishexstr(enc_key) || enc_key.size() != 128))
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "Encryption key is not a 512-bit hex string and not \"\"" };
+                state = 100;
+                return;
+            }
+            cfg.enc_key.resize(enc_key.size()/2);
+            fromhexstr(enc_key, cfg.enc_key.size(), cfg.enc_key.data());
         }
         {
             std::string cur_cfg_key = base64_encode(parent->cli->st_cli->etcd_prefix+
@@ -285,6 +304,8 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_modify(json11::Json cfg)
     changer->set_deleted = !cfg["deleted"].is_null();
     changer->new_deleted = json_is_true(cfg["deleted"]);
     changer->fsync_interval = cfg["fsync_interval"].uint64_value();
+    changer->enc_key = cfg["enc_key"].string_value();
+    changer->set_key = cfg["enc_key"].is_string();
     if (!changer->fsync_interval)
         changer->fsync_interval = 128;
     changer->down_ok = cfg["down_ok"].bool_value();

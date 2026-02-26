@@ -125,18 +125,30 @@ bench-kaveri         kaveri    10 G  10 G    0 B/s  0     0      0 us  0 B/s  0 
 
 ## create
 
-`vitastor-cli create -s|--size <size> [-p|--pool <id|name>] [--parent <parent_name>[@<snapshot>]] <name>`
+`vitastor-cli create -s|--size SIZE [OPTIONS] <name>`
 
-Create an image. You may use K/M/G/T suffixes for `<size>`. If `--parent` is specified,
-a copy-on-write image clone is created. Parent must be a snapshot (readonly image).
-Pool must be specified if there is more than one pool.
+Create an image. Options:
+
+* `-s|--size SIZE` - New image size in bytes or with a K/M/G/T unit suffix.
+* `-p|--pool POOL` - Specify pool for the new image (may be omitted if there is only 1 pool).
+* `--parent PARENT` - Create a copy-on-write image clone based on PARENT (or PARENT@SNAPSHOT).
+  If parent is not a snapshot, it must be a read-only image.
+* `--enc-key random` - Generate a new random AES-256-XTS encryption key for the new image.
+* `--enc-key HEX` - Set a specified AES-256-XTS key (64 bytes in hex) for the new image.
 
 ```
-vitastor-cli create --snapshot <snapshot> [-p|--pool <id|name>] <image>
-vitastor-cli snap-create [-p|--pool <id|name>] <image>@<snapshot>
+vitastor-cli create --snapshot <snapshot> [OPTIONS] <image>
+vitastor-cli snap-create [OPTIONS] <image>@<snapshot>
 ```
 
-Create a snapshot of image `<name>` (either form can be used). May be used live if only a single writer is active.
+Create a snapshot of image `<image>`. May be used live if only a single writer is active.
+
+Options:
+
+* `-p|--pool POOL` - Move image to pool POOL, leaving the snapshot in the old pool.
+* `--enc-key random` - Change image encryption key to a new random AES-256-XTS key.
+* `--enc-key HEX` - Change image encryption key to a specified key or to an empty key.
+  By default, the image retains its old encryption key when taking a snapshot.
 
 See also about [how to export snapshots](qemu.en.md#exporting-snapshots).
 
@@ -151,6 +163,7 @@ You should resize file system in the image, if present, before shrinking it.
 * `--deleted 1|0` - Set/clear 'deleted image' flag (set automatically during unfinished deletes).
 * `-f|--force` - Proceed with shrinking or setting readwrite flag even if the image has children.
 * `--down-ok` - Proceed with shrinking even if some data will be left on unavailable OSDs.
+* `--enc-key HEX` - Change image encryption key (allowed only with `--force`).
 
 ## dd
 

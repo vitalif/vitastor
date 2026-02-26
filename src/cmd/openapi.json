@@ -101,7 +101,14 @@
                     },
                     "pool_id": { "type": "integer", "format": "uint64", "description": "Pool ID for the new image/snapshot" },
                     "pool_name": { "type": "string", "description": "Pool name for the new image/snapshot" },
-                    "parent": { "type": "string", "description": "Create a clone with this parent image name" }
+                    "parent": { "type": "string", "description": "Create a clone with this parent image name" },
+                    "enc_key": {
+                        "description": "Encryption key for the new/cloned image",
+                        "oneOf": [
+                            { "type": "string", "enum": [ "", "random" ] },
+                            { "type": "string", "pattern": "^[0-9a-fA-F]{128}$" }
+                        ]
+                    }
                 }
             } } } },
             "responses": {
@@ -132,6 +139,13 @@
                     "readonly": { "type": "boolean", "description": "Make the image read-only" },
                     "readwrite": { "type": "boolean", "description": "Make the image read-write" },
                     "deleted": { "type": "boolean", "description": "Set or clear the 'deleted' flag" },
+                    "enc_key": {
+                        "description": "Change encryption key for the image",
+                        "oneOf": [
+                            { "type": "string", "enum": [ "" ] },
+                            { "type": "string", "pattern": "^[0-9a-fA-F]{128}$" }
+                        ]
+                    },
                     "force": { "type": "boolean", "description": "Proceed with shrinking or setting readwrite flag even if the image has children" },
                     "down_ok": { "type": "boolean", "description": "Proceed with shrinking even if some data will be left on unavailable OSDs" }
                 }
