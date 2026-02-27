@@ -52,7 +52,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
     if (!ringloop)
     {
         // FIXME: It's worse because it doesn't allow batching
-        while (cl->write_ops.size())
+        while (cl->write_op || cl->write_ops.size())
         {
             try_send(cl);
         }

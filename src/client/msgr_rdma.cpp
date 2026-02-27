@@ -574,7 +574,7 @@ static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
 int osd_messenger_t::try_send_rdma_copy(osd_client_t *cl, uint8_t *dst, int dst_len)
 {
     int total_dst_len = dst_len;
-    while (dst_len > 0 && cl->write_ops.size())
+    while (dst_len > 0 && (cl->write_op || cl->write_ops.size()))
     {
         if (!cl->write_op)
         {
@@ -767,7 +767,6 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
             }
         }
     } while (event_count > 0);
-    handle_immediate_ops();
 }
 
 void osd_messenger_t::destroy_rdma_conn(msgr_rdma_connection_t *rdma_conn)

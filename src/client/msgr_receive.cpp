@@ -76,6 +76,7 @@ void osd_messenger_t::read_requests()
         }
     }
     read_ready_clients.clear();
+    handle_immediate_ops();
 }
 
 void osd_messenger_t::handle_read(int result, osd_client_t *cl)
@@ -111,7 +112,8 @@ void osd_messenger_t::handle_read(int result, osd_client_t *cl)
             full_read = result >= cl->read_iov.iov_len;
             if (!handle_read_buffer(cl, cl->in_buf, result))
             {
-                handle_immediate_ops();
+                if (set_immediate_ops.size())
+                    ringloop->wakeup();
                 return;
             }
         }
@@ -154,7 +156,8 @@ void osd_messenger_t::handle_read(int result, osd_client_t *cl)
     {
         read_ready_clients.push_back(cl->client_id);
     }
-    handle_immediate_ops();
+    if (set_immediate_ops.size())
+        ringloop->wakeup();
 }
 
 void osd_messenger_t::handle_immediate_ops()
