@@ -114,7 +114,7 @@ struct cli_serve_t
             std::string ssl_key = options["ssl_key"].string_value();
             std::string ssl_ca = options["ssl_ca"].string_value();
             std::string error;
-            http_ctx = http_context_init(ssl_cert, ssl_key, ssl_ca, ssl_ca != "", error);
+            http_ctx = http_context_init(parent->epmgr->tfd, ssl_cert, ssl_key, ssl_ca, ssl_ca != "", error);
             if (error != "")
             {
                 result = (cli_result_t){ .err = EINVAL, .text = error };
@@ -176,7 +176,7 @@ struct cli_serve_t
             cli_serve_conn_t *conn = new cli_serve_conn_t;
             conn->peer_fd = peer_fd;
             conn->peer_addr = peer_addr_str;
-            conn->co = http_init(parent->epmgr->tfd, http_ctx);
+            conn->co = http_init(http_ctx);
             http_serve(conn->co, peer_fd, (http_options_t){ .ssl = ssl }, [this, conn](http_message_t *msg)
             {
                 process_request(conn, msg);

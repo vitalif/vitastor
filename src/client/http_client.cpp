@@ -21,6 +21,9 @@
 #include <openssl/ssl.h>
 #endif
 
+// libc-ares
+#include <ares.h>
+
 #include "addr_util.h"
 #include "str_util.h"
 #include "json_util.h"
@@ -36,6 +39,9 @@ static void parse_http_headers(std::string & res, http_message_t *parsed, bool i
 
 struct http_context_t
 {
+    timerfd_manager_t *tfd = NULL;
+    ares_channel ares = NULL;
+
     std::string ssl_cert;
     std::string ssl_key;
     std::string ssl_ca;
@@ -46,6 +52,8 @@ struct http_context_t
 
     ~http_context_t()
     {
+        ares_destroy(ares);
+        ares = NULL;
 #ifdef WITH_OPENSSL
         if (ssl_ctx)
         {
@@ -72,12 +80,14 @@ struct http_co_t
     BIO *ssl_bio = NULL;
 #endif
 
-    timerfd_manager_t *tfd;
+    timerfd_manager_t *tfd = NULL;
+
     std::function<void(http_message_t*)> response_callback;
 
     int request_timeout = 0;
     bool ssl = false;
     std::string host;
+    std::string host_port;
     std::string request;
     std::string ws_outbox;
     std::string response;
@@ -106,7 +116,8 @@ struct http_co_t
     inline void stackout() { onstack--; if (!onstack && ended) end(); }
     inline void end() { ended = true; if (!onstack) { delete this; } }
     void run_cb_and_clear();
-    void start_connection();
+    void resolve_and_connect();
+    void start_connection(sockaddr *addr, size_t addr_size);
     void start_ws_connection();
     void close_connection();
     void next_request();
@@ -123,26 +134,44 @@ struct http_co_t
     void reply(const std::string & msg);
     void send_request(const std::string & host, const std::string & request,
         const http_options_t & options, std::function<void(http_message_t *response)> response_callback);
+
+    void ares_addrinfo_cb(int status, int timeouts, struct ares_addrinfo *result);
 };
 
 #define HTTP_CO_CLOSED 0
-#define HTTP_CO_CONNECTING 1
-#define HTTP_CO_SENDING_REQUEST 2
-#define HTTP_CO_REQUEST_SENT 3
-#define HTTP_CO_HEADERS_RECEIVED 4
-#define HTTP_CO_WEBSOCKET 5
-#define HTTP_CO_CHUNKED 6
-#define HTTP_CO_KEEPALIVE 7
-#define HTTP_CO_SERVER 8
-#define HTTP_CO_REQ_HDR_RECEIVED 9
-#define HTTP_CO_REQUEST_RECEIVED 10
+#define HTTP_CO_RESOLVING 1
+#define HTTP_CO_CONNECTING 2
+#define HTTP_CO_SENDING_REQUEST 3
+#define HTTP_CO_REQUEST_SENT 4
+#define HTTP_CO_HEADERS_RECEIVED 5
+#define HTTP_CO_WEBSOCKET 6
+#define HTTP_CO_CHUNKED 7
+#define HTTP_CO_KEEPALIVE 8
+#define HTTP_CO_SERVER 9
+#define HTTP_CO_REQ_HDR_RECEIVED 10
+#define HTTP_CO_REQUEST_RECEIVED 11
 
 #define DEFAULT_TIMEOUT 5000
 
-http_context_t* http_context_init(const std::string & ssl_cert, const std::string & ssl_key,
+void http_ares_cb(void *data, ares_socket_t socket_fd, int readable, int writable)
+{
+    http_context_t *ctx = (http_context_t *)data;
+    ctx->tfd->set_fd_handler(socket_fd, writable, [ctx](int fd, int epoll_events)
+    {
+        ares_process_fd(ctx->ares, (epoll_events & (EPOLLIN|EPOLLRDHUP)) ? fd : 0, (epoll_events & EPOLLOUT) ? fd : 0);
+    });
+}
+
+http_context_t* http_context_init(timerfd_manager_t *tfd, const std::string & ssl_cert, const std::string & ssl_key,
     const std::string & ssl_ca, bool verify_peer, std::string & error)
 {
     http_context_t *ctx = new http_context_t;
+    ctx->tfd = tfd;
+    ares_options opts = {
+        .sock_state_cb = http_ares_cb,
+        .sock_state_cb_data = ctx,
+    };
+    ares_init_options(&ctx->ares, &opts, ARES_OPT_SOCK_STATE_CB);
 #ifdef WITH_OPENSSL
     SSL_CTX *ssl_ctx = SSL_CTX_new(TLS_method());
     ctx->ssl_cert = ssl_cert;
@@ -175,10 +204,10 @@ void http_context_destroy(http_context_t *ctx)
     delete ctx;
 }
 
-http_co_t *http_init(timerfd_manager_t *tfd, http_context_t *ctx)
+http_co_t *http_init(http_context_t *ctx)
 {
     http_co_t *handler = new http_co_t();
-    handler->tfd = tfd;
+    handler->tfd = ctx->tfd;
     handler->state = HTTP_CO_CLOSED;
     handler->ctx = ctx;
     return handler;
@@ -199,6 +228,7 @@ void open_websocket(http_co_t *handler, const std::string & host, const std::str
         "Sec-WebSocket-Version: 13\r\n"
         "\r\n";
     handler->host = host;
+    handler->host_port = "";
     handler->request_timeout = options.timeout < 0 ? -1 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
     handler->want_streaming = false;
     handler->keepalive = false;
@@ -223,6 +253,7 @@ void http_serve(http_co_t *handler, int peer_fd, const http_options_t & options,
     if (handler->state != HTTP_CO_SERVER || handler->peer_fd != peer_fd)
         handler->close_connection();
     handler->host = "";
+    handler->host_port = "";
     handler->request_timeout = options.timeout < 0 ? -1 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
     handler->want_streaming = false;
     handler->keepalive = false;
@@ -277,6 +308,7 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
     this->keepalive = options.keepalive;
     this->ssl = options.ssl;
     this->host = host;
+    this->host_port = "";
     this->request = request;
     this->response = "";
     this->sent = 0;
@@ -289,7 +321,7 @@ void http_co_t::send_request(const std::string & host, const std::string & reque
     }
     else
     {
-        start_connection();
+        resolve_and_connect();
     }
     // Do it _after_ state assignment because set_timer() can actually trigger
     // other timers and requests (reenterability is our friend)
@@ -435,7 +467,7 @@ void http_co_t::close_connection()
 void http_co_t::start_ws_connection()
 {
     stackin();
-    start_connection();
+    resolve_and_connect();
     if (request_timeout > 0)
     {
         timeout_id = tfd->set_timer(request_timeout, false, [this](int timer_id)
@@ -453,19 +485,72 @@ void http_co_t::start_ws_connection()
     stackout();
 }
 
-void http_co_t::start_connection()
+void http_ares_addrinfo_cb(void *data, int status, int timeouts, struct ares_addrinfo *result)
+{
+    ((http_co_t*)data)->ares_addrinfo_cb(status, timeouts, result);
+}
+
+void http_co_t::ares_addrinfo_cb(int status, int timeouts, struct ares_addrinfo *result)
 {
     stackin();
-    struct sockaddr_storage addr;
-    if (!string_to_addr(host.c_str(), 1, 80, &addr))
+    if (status != ARES_SUCCESS)
     {
         close_connection();
-        parsed = { .error = "Invalid address: "+host, .status_code = EINVAL };
+        parsed = { .error = ares_strerror(status), .status_code = EINVAL };
         run_cb_and_clear();
         stackout();
         return;
     }
-    peer_fd = socket(addr.ss_family, SOCK_STREAM, 0);
+    ares_addrinfo_node *node = NULL;
+    int count = 0;
+    for (node = result->nodes; node; node = node->ai_next)
+    {
+        count++;
+    }
+    assert(count > 0);
+    int pos = lrand48() % count;
+    for (node = result->nodes; node && pos > 0; node = node->ai_next)
+    {
+        pos--;
+    }
+    assert(node);
+    start_connection(node->ai_addr, node->ai_addrlen);
+    stackout();
+}
+
+void http_co_t::resolve_and_connect()
+{
+    stackin();
+    struct sockaddr_storage addr;
+    if (!string_to_addr(host.c_str(), 1, ssl ? 443 : 80, &addr))
+    {
+        // Try to resolve host via c-ares
+        state = HTTP_CO_RESOLVING;
+        ares_addrinfo_hints hints = { .ai_flags = ARES_AI_NOSORT|ARES_AI_NUMERICSERV };
+        if (host_port.empty())
+        {
+            auto pos = host.rfind(':');
+            if (pos != std::string::npos)
+            {
+                host_port = host.substr(pos+1);
+                host = host.substr(0, pos);
+            }
+            else
+                host_port = ssl ? "443" : "80";
+        }
+        ares_getaddrinfo(ctx->ares, host.c_str(), host_port.c_str(), &hints, http_ares_addrinfo_cb, this);
+    }
+    else
+    {
+        start_connection((sockaddr*)&addr, sizeof(addr));
+    }
+    stackout();
+}
+
+void http_co_t::start_connection(sockaddr *addr, size_t addr_size)
+{
+    stackin();
+    peer_fd = socket(addr->sa_family, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
         close_connection();
@@ -514,7 +599,7 @@ init_err:
     }
 #endif
     // Finally call connect
-    int r = ::connect(peer_fd, (sockaddr*)&addr, sizeof(addr));
+    int r = ::connect(peer_fd, addr, addr_size);
     if (r < 0 && errno != EINPROGRESS)
     {
         close_connection();

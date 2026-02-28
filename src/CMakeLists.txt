@@ -79,6 +79,9 @@ if (OPENSSL_FOUND)
 	add_definitions(-DWITH_OPENSSL)
 endif (OPENSSL_FOUND)
 
+pkg_check_modules(CARES REQUIRED libcares)
+include_directories(${CARES_INCLUDE_DIRS})
+
 if (${WITH_SYSTEM_LIBURING})
 	pkg_check_modules(LIBURING REQUIRED liburing>=2.10)
 	include_directories(${LIBURING_INCLUDE_DIRS})

@@ -15,7 +15,7 @@
 - gcc and g++ 8 or newer, clang 10 or newer, or other compiler with C++11 plus
   designated initializers support from C++20
 - CMake
-- jerasure headers and libraries
+- jerasure, c-ares headers and libraries
 - ISA-L, libibverbs, librdmacm, libnl3 headers and libraries (optional)
 
 ## Basic instructions

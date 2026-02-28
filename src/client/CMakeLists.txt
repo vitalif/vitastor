@@ -42,7 +42,7 @@ add_library(vitastor_net STATIC
 	${MSGR_RDMA}
 	${MSGR_RDMACM}
 )
-target_link_libraries(vitastor_net pthread vitastor_common)
+target_link_libraries(vitastor_net pthread vitastor_common ${CARES_LIBRARIES})
 target_compile_options(vitastor_net PUBLIC -fPIC)
 
 # libvitastor_client.so

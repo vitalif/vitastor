@@ -17,6 +17,7 @@ BuildRequires:  gf-complete-devel
 BuildRequires:  rdma-core-devel
 BuildRequires:  cmake3
 BuildRequires:  libnl3-devel
+BuildRequires:  c-ares-devel
 Requires:       vitastor-osd = %{version}-%{release}
 Requires:       vitastor-mon = %{version}-%{release}
 Requires:       vitastor-client = %{version}-%{release}
