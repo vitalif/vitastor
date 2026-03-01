@@ -140,7 +140,10 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
     }
     close(fd);
     free(buf);
-    shell_exec({ "udevadm", "trigger", "--settle", device }, "", NULL, NULL);
+    if (!test_mode)
+    {
+        shell_exec({ "udevadm", "trigger", "--settle", device }, "", NULL, NULL);
+    }
     return sb_size;
 }
 
