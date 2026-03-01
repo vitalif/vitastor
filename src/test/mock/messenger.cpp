@@ -57,3 +57,7 @@ json11::Json::object osd_messenger_t::merge_configs(const json11::Json::object &
 {
     return cli_config;
 }
+
+void osd_messenger_t::clear_immediate_ops(int peer_fd)
+{
+}

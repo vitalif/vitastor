@@ -160,8 +160,10 @@ void osd_messenger_t::clear_immediate_ops(int peer_fd)
 
 void osd_messenger_t::handle_immediate_ops()
 {
-    for (auto op: set_immediate_ops)
+    while (set_immediate_ops.size())
     {
+        auto op = set_immediate_ops.front();
+        set_immediate_ops.pop_front();
         if (op->op_type == OSD_OP_IN)
         {
             exec_op(op);
@@ -172,7 +174,6 @@ void osd_messenger_t::handle_immediate_ops()
             std::function<void(osd_op_t*)>(op->callback)(op);
         }
     }
-    set_immediate_ops.clear();
 }
 
 bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, void *curbuf, int remain)

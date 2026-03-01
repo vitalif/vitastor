@@ -57,6 +57,7 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
     {
         return;
     }
+    clear_immediate_ops(peer_fd);
     if (log_level > 0)
     {
         if (cl->osd_num)
