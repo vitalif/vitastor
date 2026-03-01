@@ -1978,24 +1978,21 @@ int blockstore_heap_t::list_objects(uint32_t pg_num, object_id min_oid, object_i
                 return;
             }
             uint64_t stable_version = 0;
-            auto first_wr = obj;
-            for (auto wr = first_wr; wr; wr = prev(wr))
+            iterate_with_stable(obj, UINT64_MAX, [&](heap_entry_t* wr, bool stable)
             {
-                if ((wr->entry_type & BS_HEAP_STABLE) || wr->type() == BS_HEAP_COMMIT || wr->type() == BS_HEAP_ROLLBACK)
+                if (stable)
                 {
                     stable_version = wr->version;
-                    break;
+                    return false;
                 }
-                else
+                if (unstable_size >= unstable_alloc)
                 {
-                    if (unstable_size >= unstable_alloc)
-                    {
-                        unstable_alloc = (!unstable_alloc ? 128 : unstable_alloc*2);
-                        unstable = (obj_ver_id*)realloc_or_die(unstable, sizeof(obj_ver_id) * unstable_alloc);
-                    }
-                    unstable[unstable_size++] = (obj_ver_id){ .oid = oid, .version = wr->version };
+                    unstable_alloc = (!unstable_alloc ? 128 : unstable_alloc*2);
+                    unstable = (obj_ver_id*)realloc_or_die(unstable, sizeof(obj_ver_id) * unstable_alloc);
                 }
-            }
+                unstable[unstable_size++] = (obj_ver_id){ .oid = oid, .version = wr->version };
+                return true;
+            });
             if (stable_version)
             {
                 if (res_size >= res_alloc)
