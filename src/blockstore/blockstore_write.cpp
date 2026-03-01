@@ -404,11 +404,12 @@ resume_6:
         if (ref_us > exec_us + throttle_threshold_us)
         {
             // Pause reply
+            PRIV(op)->pending_ops++;
             PRIV(op)->op_state = 7;
             // Remember that the timer can in theory be called right here
             tfd->set_timer_us(ref_us-exec_us, false, [this, op](int timer_id)
             {
-                PRIV(op)->op_state = 8;
+                PRIV(op)->pending_ops--;
                 ringloop->wakeup();
             });
             return 1;
