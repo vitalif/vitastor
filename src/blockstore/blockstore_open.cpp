@@ -28,6 +28,7 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     throttle_target_parallelism = strtoull(config["throttle_target_parallelism"].c_str(), NULL, 10);
     throttle_threshold_us = strtoull(config["throttle_threshold_us"].c_str(), NULL, 10);
     perfect_csum_update = config["perfect_csum_update"] == "true" || config["perfect_csum_update"] == "1" || config["perfect_csum_update"] == "yes";
+    skip_corrupted_meta_entries = config["skip_corrupted_meta_entries"] == "true" || config["skip_corrupted_meta_entries"] == "1" || config["skip_corrupted_meta_entries"] == "yes";
     if (config["autosync_writes"] != "")
     {
         autosync_writes = strtoull(config["autosync_writes"].c_str(), NULL, 10);

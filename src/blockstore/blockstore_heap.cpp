@@ -307,6 +307,7 @@ corrupted_block:
                 if (allow_corrupted)
                 {
                     fprintf(stderr, "Metadata block is corrupted, skipping\n");
+                    recheck_modified_blocks.insert(block_num);
                     break;
                 }
                 else
@@ -357,6 +358,7 @@ corrupted_object:
                 if (allow_corrupted)
                 {
                     fprintf(stderr, "Entry is corrupted, skipping\n");
+                    recheck_modified_blocks.insert(block_num);
                     block_offset += wr->size;
                     continue;
                 }

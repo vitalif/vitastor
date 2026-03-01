@@ -78,6 +78,7 @@ public:
     // Suitable only for server SSDs with capacitors, requires disabled data and journal fsyncs
     int immediate_commit = IMMEDIATE_NONE;
     bool inmemory_meta = false;
+    bool skip_corrupted_meta_entries = false;
     uint32_t meta_write_recheck_parallelism = 0;
     // Maximum and minimum flusher count
     unsigned max_flusher_count = 0, min_flusher_count = 0;
