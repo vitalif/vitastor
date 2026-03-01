@@ -62,7 +62,8 @@ std::string addr_to_string(const sockaddr_storage &addr)
         throw std::runtime_error("Unknown address family "+std::to_string(addr.ss_family));
     if (!ok)
         throw std::runtime_error(std::string("inet_ntop: ") + strerror(errno));
-    return std::string(peer_str)+":"+std::to_string(port);
+    return (addr.ss_family == AF_INET6 ? "[" : "")+std::string(peer_str)+
+        (addr.ss_family == AF_INET6 ? "]:" : ":")+std::to_string(port);
 }
 
 bool cidr_match(const in_addr &addr, const in_addr &net, uint8_t bits)

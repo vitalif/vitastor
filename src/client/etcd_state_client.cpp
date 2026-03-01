@@ -51,50 +51,53 @@ std::vector<std::string> etcd_state_client_t::get_addresses()
     return addrs;
 }
 
-void etcd_state_client_t::add_etcd_url(std::string addr)
+void etcd_state_client_t::add_etcd_url(std::string etcd_address)
 {
-    if (addr.length() > 0)
+    if (etcd_address.size() > 0)
     {
-        bool ssl = false;
-        if (strtolower(addr.substr(0, 7)) == "http://")
-            addr = addr.substr(7);
-        else if (strtolower(addr.substr(0, 8)) == "https://")
-        {
-            addr = addr.substr(8);
-            ssl = true;
-        }
         if (!local_ips.size())
-            local_ips = getifaddr_list(std::vector<addr_mask_t>(), true);
-        std::string check_addr;
-        int pos = addr.find('/');
-        int pos2 = addr.find(':');
-        if (pos2 >= 0)
-            check_addr = addr.substr(0, pos2);
-        else if (pos >= 0)
-            check_addr = addr.substr(0, pos);
-        else
-            check_addr = addr;
-        if (pos == std::string::npos)
-            addr += "/v3";
-        addr = (ssl ? "https://" : "http://") + addr;
-        bool local = false;
-        int i;
-        for (i = 0; i < local_ips.size(); i++)
         {
-            if (local_ips[i] == check_addr)
-            {
-                local = true;
-                break;
-            }
+            // Fill local_ips
+            for (auto & ip: getifaddr_list(std::vector<addr_mask_t>(), true))
+                local_ips.insert(ip);
         }
-        auto & to = local ? this->etcd_local : this->etcd_addresses;
+        std::string etcd_api_path;
+        bool ssl = false;
+        if (etcd_address.substr(0, 8) == "https://")
+        {
+            ssl = true;
+            etcd_address = etcd_address.substr(8);
+        }
+        else if (etcd_address.substr(0, 7) == "http://")
+            etcd_address = etcd_address.substr(7);
+        auto pos = etcd_address.find('/');
+        if (pos != std::string::npos)
+        {
+            etcd_api_path = etcd_address.substr(pos);
+            etcd_address = etcd_address.substr(0, pos);
+        }
+        else
+            etcd_api_path = "/v3";
+        pos = etcd_address.find(':');
+        auto check_addr = (pos != std::string::npos ? etcd_address.substr(0, pos) : etcd_address);
+        bool is_local = local_ips.find(check_addr) != local_ips.end();
+        auto & to = (is_local ? etcd_local : etcd_addresses);
+        check_addr = (ssl ? "https://" : "http://") + etcd_address + etcd_api_path;
+        size_t i;
         for (i = 0; i < to.size(); i++)
         {
-            if (to[i] == addr)
+            if (to[i] == check_addr)
                 break;
         }
         if (i >= to.size())
-            to.push_back(addr);
+        {
+            to.push_back(check_addr);
+            // Check if it's a domain name
+            sockaddr_storage ss;
+            bool is_name = !is_local && !string_to_addr(etcd_address, true, 0, &ss);
+            auto & to_addr = (is_local ? etcd_local_addr_urls : (is_name ? etcd_name_urls : etcd_nonlocal_addr_urls));
+            to_addr.push_back((http_url_t){ .ssl = ssl, .addr = etcd_address, .hostname = etcd_address, .path = etcd_api_path });
+        }
     }
 }
 
@@ -102,6 +105,9 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
 {
     this->etcd_local.clear();
     this->etcd_addresses.clear();
+    this->etcd_local_addr_urls.clear();
+    this->etcd_nonlocal_addr_urls.clear();
+    this->etcd_name_urls.clear();
     if (config["etcd_address"].is_string())
     {
         std::string ea = config["etcd_address"].string_value();

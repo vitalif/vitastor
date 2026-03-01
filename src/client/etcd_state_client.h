@@ -97,14 +97,25 @@ struct inode_watch_t
     inode_config_t cfg = {};
 };
 
+struct http_url_t
+{
+    bool ssl;
+    std::string addr;
+    std::string hostname;
+    std::string path;
+};
+
 struct http_co_t;
 
 struct __attribute__((visibility("default"))) etcd_state_client_t
 {
 protected:
-    std::vector<std::string> local_ips;
-    std::vector<std::string> etcd_addresses;
+    std::set<std::string> local_ips;
     std::vector<std::string> etcd_local;
+    std::vector<std::string> etcd_addresses;
+    std::vector<http_url_t> etcd_local_addr_urls;
+    std::vector<http_url_t> etcd_nonlocal_addr_urls;
+    std::vector<http_url_t> etcd_name_urls;
     std::vector<inode_watch_t*> watches;
     std::set<osd_num_t> seen_peers;
     bool new_pg_config = false;
@@ -160,8 +171,8 @@ public:
     inode_config_t deserialize_inode_cfg(uint64_t inode_num, json11::Json value, uint64_t mod_revision);
     etcd_kv_t parse_etcd_kv(const json11::Json & kv_json);
     std::vector<std::string> get_addresses();
-    virtual void etcd_call_oneshot(std::string etcd_address, std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback) = 0;
-    virtual void etcd_call(std::string api, json11::Json payload, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback) = 0;
+    virtual void etcd_call_oneshot(const std::string & etcd_address, const std::string & api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback) = 0;
+    virtual void etcd_call(const std::string & api, json11::Json payload, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback) = 0;
     void etcd_txn(json11::Json txn, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback);
     void etcd_txn_slow(json11::Json txn, std::function<void(std::string, json11::Json)> callback);
     virtual void etcd_add_watch(json11::Json watch) = 0;

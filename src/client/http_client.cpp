@@ -199,6 +199,45 @@ init_err:
     return NULL;
 }
 
+struct http_ctx_resolve_t
+{
+    std::function<void(const std::string & error, const std::vector<std::string> & addrs)> cb;
+};
+
+void http_resolve_ares_cb(void *data, int status, int timeouts, struct ares_addrinfo *result)
+{
+    http_ctx_resolve_t *obj = (http_ctx_resolve_t*)data;
+    if (status != ARES_SUCCESS)
+    {
+        obj->cb(ares_strerror(status), {});
+        delete obj;
+        return;
+    }
+    std::vector<std::string> addrs;
+    for (auto node = result->nodes; node; node = node->ai_next)
+    {
+        sockaddr_storage ss;
+        memset(&ss, 0, sizeof(ss));
+        memcpy(&ss, node->ai_addr, node->ai_addrlen);
+        addrs.push_back(addr_to_string(ss));
+    }
+    obj->cb("", addrs);
+    delete obj;
+}
+
+void http_resolve(http_context_t *ctx, bool ssl, std::string host,
+    std::function<void(const std::string & error, const std::vector<std::string> & addrs)> cb)
+{
+    auto obj = new http_ctx_resolve_t();
+    obj->cb = std::move(cb);
+    ares_addrinfo_hints hints = { .ai_flags = ARES_AI_NOSORT|ARES_AI_NUMERICSERV };
+    auto pos = host.rfind(':');
+    if (pos != std::string::npos)
+        host[pos] = 0;
+    ares_getaddrinfo(ctx->ares, host.c_str(),
+        pos != std::string::npos ? host.c_str()+pos+1 : (ssl ? "443" : "80"), &hints, http_resolve_ares_cb, obj);
+}
+
 void http_context_destroy(http_context_t *ctx)
 {
     delete ctx;
@@ -213,21 +252,21 @@ http_co_t *http_init(http_context_t *ctx)
     return handler;
 }
 
-void open_websocket(http_co_t *handler, const std::string & host, const std::string & path,
+void open_websocket(http_co_t *handler, const std::string & addr, const std::string & hostname, const std::string & path,
     const http_options_t & options, std::function<void(http_message_t *msg)> response_callback)
 {
-    if (handler->state == HTTP_CO_KEEPALIVE && (handler->connected_host != host || handler->ssl != options.ssl))
+    if (handler->state == HTTP_CO_KEEPALIVE && (handler->connected_host != addr || handler->ssl != options.ssl))
         handler->close_connection();
     if (handler->state != HTTP_CO_KEEPALIVE && handler->state != HTTP_CO_CLOSED)
         throw std::runtime_error("Attempt to open websocket on a keepalive stream");
     std::string request = "GET "+path+" HTTP/1.1\r\n"
-        "Host: "+host+"\r\n"
+        "Host: "+hostname+"\r\n"
         "Upgrade: websocket\r\n"
         "Connection: upgrade\r\n"
         "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==\r\n"
         "Sec-WebSocket-Version: 13\r\n"
         "\r\n";
-    handler->host = host;
+    handler->host = addr;
     handler->host_port = "";
     handler->request_timeout = options.timeout < 0 ? -1 : (options.timeout == 0 ? DEFAULT_TIMEOUT : options.timeout);
     handler->want_streaming = false;

@@ -1,6 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
+#include <assert.h>
 #include "etcd_state_client_http.h"
 #include "addr_util.h"
 #include "http_client.h"
@@ -60,12 +61,12 @@ http_context_t *etcd_state_client_http_t::get_http_ctx()
     return http_ctx;
 }
 
-void etcd_state_client_http_t::etcd_call_oneshot(std::string etcd_address, std::string api, json11::Json payload,
+void etcd_state_client_http_t::etcd_call_oneshot(const std::string & etcd_url, const std::string & api, json11::Json payload,
     int timeout, std::function<void(std::string, json11::Json)> callback)
 {
     std::string etcd_api_path;
-    bool ssl = etcd_address.substr(0, 8) == "https://";
-    etcd_address = etcd_address.substr(ssl ? 8 : 7);
+    bool ssl = etcd_url.substr(0, 8) == "https://";
+    auto etcd_address = etcd_url.substr(ssl ? 8 : 7);
     int pos = etcd_address.find('/');
     if (pos >= 0)
     {
@@ -91,28 +92,22 @@ void etcd_state_client_http_t::etcd_call_oneshot(std::string etcd_address, std::
     http_request(http_cli, etcd_address, req, { .timeout = timeout, .ssl = ssl }, cb);
 }
 
-void etcd_state_client_http_t::etcd_call(std::string api, json11::Json payload, int timeout,
+void etcd_state_client_http_t::etcd_call(const std::string & api, json11::Json payload, int timeout,
     int retries, int interval, std::function<void(std::string, json11::Json)> callback)
 {
-    if (!etcd_addresses.size() && !etcd_local.size())
+    pick_next_etcd([=]()
     {
-        fprintf(stderr, "etcd_address is missing in Vitastor configuration\n");
-        exit(1);
-    }
-    pick_next_etcd();
-    std::string etcd_address = selected_etcd_address;
-    std::string etcd_api_path;
-    bool ssl = etcd_address.substr(0, 8) == "https://";
-    etcd_address = etcd_address.substr(ssl ? 8 : 7);
-    int pos = etcd_address.find('/');
-    if (pos >= 0)
-    {
-        etcd_api_path = etcd_address.substr(pos);
-        etcd_address = etcd_address.substr(0, pos);
-    }
+        etcd_call_selected(api, payload, timeout, retries, interval, callback);
+    });
+}
+
+void etcd_state_client_http_t::etcd_call_selected(const std::string & api, json11::Json payload, int timeout,
+    int retries, int interval, std::function<void(std::string, json11::Json)> callback)
+{
+    const auto & url = selected_etcd_url;
     std::string req = payload.dump();
-    req = "POST "+etcd_api_path+api+" HTTP/1.1\r\n"
-        "Host: "+etcd_address+"\r\n"
+    req = "POST "+url.path+api+" HTTP/1.1\r\n"
+        "Host: "+url.hostname+"\r\n"
         "Content-Type: application/json\r\n"
         "Content-Length: "+std::to_string(req.size())+"\r\n"
         "Connection: keep-alive\r\n"
@@ -120,15 +115,15 @@ void etcd_state_client_http_t::etcd_call(std::string api, json11::Json payload, 
         "\r\n"+req;
     retries--;
     auto cb = [this, api, payload, timeout, retries, interval, callback,
-        cur_addr = selected_etcd_address](http_message_t *response)
+        cur_addr = url.addr](http_message_t *response)
     {
         std::string err;
         json11::Json data;
         response->parse_json_response(err, data);
         if (err != "")
         {
-            if (cur_addr == selected_etcd_address)
-                selected_etcd_address = "";
+            if (cur_addr == selected_etcd_url.addr)
+                selected_etcd_url = (http_url_t){};
             if (retries > 0)
             {
                 if (this->log_level > 0)
@@ -157,7 +152,7 @@ void etcd_state_client_http_t::etcd_call(std::string api, json11::Json payload, 
     };
     if (!keepalive_client)
         keepalive_client = http_init(get_http_ctx());
-    http_request(keepalive_client, etcd_address, req, { .timeout = timeout, .keepalive = true, .ssl = ssl }, cb);
+    http_request(keepalive_client, url.addr, req, { .timeout = timeout, .keepalive = true, .ssl = url.ssl }, cb);
 }
 
 void etcd_state_client_http_t::parse_config(const json11::Json & config)
@@ -171,67 +166,130 @@ void etcd_state_client_http_t::parse_config(const json11::Json & config)
     }
 }
 
-void etcd_state_client_http_t::pick_next_etcd()
-{
-    if (selected_etcd_address != "")
-        return;
-    if (addresses_to_try.size() == 0)
-    {
-        // Prefer local etcd, if any
-        for (int i = 0; i < etcd_local.size(); i++)
-            addresses_to_try.push_back(etcd_local[i]);
-        std::vector<int> ns;
-        for (int i = 0; i < etcd_addresses.size(); i++)
-            ns.push_back(i);
-        if (!rand_initialized)
-        {
-            timespec tv;
-            clock_gettime(CLOCK_REALTIME, &tv);
-            srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
-            rand_initialized = true;
-        }
-        while (ns.size())
-        {
-            int i = lrand48() % ns.size();
-            addresses_to_try.push_back(etcd_addresses[ns[i]]);
-            ns.erase(ns.begin()+i, ns.begin()+i+1);
-        }
-    }
-    selected_etcd_address = addresses_to_try[0];
-    addresses_to_try.erase(addresses_to_try.begin(), addresses_to_try.begin()+1);
-}
-
-void etcd_state_client_http_t::start_etcd_watcher()
+void etcd_state_client_http_t::pick_next_etcd(std::function<void()> cb)
 {
     if (!etcd_addresses.size() && !etcd_local.size())
     {
         fprintf(stderr, "etcd_address is missing in Vitastor configuration\n");
         exit(1);
     }
-    pick_next_etcd();
-    std::string etcd_address = selected_etcd_address;
-    std::string etcd_api_path;
-    bool ssl = etcd_address.substr(0, 8) == "https://";
-    etcd_address = etcd_address.substr(ssl ? 8 : 7);
-    int pos = etcd_address.find('/');
-    if (pos >= 0)
+    if (selected_etcd_url.addr != "")
     {
-        etcd_api_path = etcd_address.substr(pos);
-        etcd_address = etcd_address.substr(0, pos);
+        cb();
+        return;
     }
+    if (etcd_urls_to_try.size() != 0)
+    {
+        selected_etcd_url = std::move(etcd_urls_to_try[0]);
+        etcd_urls_to_try.erase(etcd_urls_to_try.begin());
+        cb();
+        return;
+    }
+    on_resolve_queue.push_back(std::move(cb));
+    if (on_resolve_queue.size() > 1)
+    {
+        // Already resolving
+        return;
+    }
+    assert(!resolve_count);
+    local_to_try = 0;
+    for (auto & url: etcd_local_addr_urls)
+    {
+        // Prefer local IPs, if any
+        etcd_urls_to_try.push_back(url);
+        local_to_try++;
+    }
+    for (auto & url: etcd_nonlocal_addr_urls)
+    {
+        etcd_urls_to_try.push_back(url);
+    }
+    resolve_count++;
+    for (auto & url: etcd_name_urls)
+    {
+        resolve_count++;
+        http_resolve(get_http_ctx(), url.ssl, url.addr, [this, url](const std::string & error, const std::vector<std::string>& addresses)
+        {
+            if (error != "")
+                fprintf(stderr, "Error resolving %s: %s\n", url.addr.c_str(), error.c_str());
+            for (auto & addr: addresses)
+            {
+                auto url_copy = url;
+                url_copy.addr = addr;
+                if (local_ips.find(addr) != local_ips.end())
+                {
+                    etcd_urls_to_try.insert(etcd_urls_to_try.begin(), std::move(url_copy));
+                    local_to_try++;
+                }
+                else
+                    etcd_urls_to_try.push_back(std::move(url_copy));
+            }
+            resolve_count--;
+            if (!resolve_count)
+                pick_next_etcd_on_resolve();
+        });
+    }
+    resolve_count--;
+    if (!resolve_count)
+    {
+        pick_next_etcd_on_resolve();
+    }
+}
+
+void etcd_state_client_http_t::pick_next_etcd_on_resolve()
+{
+    if (!etcd_urls_to_try.size())
+    {
+        fprintf(stderr, "None of etcd_address could be resolved\n");
+        exit(1);
+    }
+    if (!rand_initialized)
+    {
+        timespec tv;
+        clock_gettime(CLOCK_REALTIME, &tv);
+        srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
+        rand_initialized = true;
+    }
+    // Shuffle addresses
+    for (size_t i = etcd_urls_to_try.size()-1; i > local_to_try; i--)
+    {
+        size_t j = local_to_try + lrand48() % (i - local_to_try);
+        if (j != i)
+            std::swap(etcd_urls_to_try[i], etcd_urls_to_try[j]);
+    }
+    selected_etcd_url = std::move(etcd_urls_to_try[0]);
+    etcd_urls_to_try.erase(etcd_urls_to_try.begin());
+    auto cbs = std::move(on_resolve_queue);
+    for (auto cb: cbs)
+    {
+        cb();
+    }
+}
+
+void etcd_state_client_http_t::start_etcd_watcher()
+{
+    pick_next_etcd([this]()
+    {
+        start_etcd_watcher_selected();
+    });
+}
+
+void etcd_state_client_http_t::start_etcd_watcher_selected()
+{
+    const auto & url = selected_etcd_url;
     etcd_watches_initialised = 0;
     ws_alive = 1;
     if (this->log_level > 1)
     {
-        fprintf(stderr, "Trying to connect to etcd websocket at %s, watch from revision %ju/%ju/%ju\n", etcd_address.c_str(),
+        fprintf(stderr, "Trying to connect to etcd websocket at %s%s%s (hostname %s), watch from revision %ju/%ju/%ju\n",
+            url.ssl ? "https://" : "http://", url.addr.c_str(), url.path.c_str(), url.hostname.c_str(),
             etcd_watch_revision_config, etcd_watch_revision_osd, etcd_watch_revision_pg);
     }
     if (!etcd_watch_ws)
         etcd_watch_ws = http_init(get_http_ctx());
     else
         http_close(etcd_watch_ws);
-    open_websocket(etcd_watch_ws, etcd_address, etcd_api_path+"/watch", { .timeout = etcd_slow_timeout, .ssl = ssl },
-        [this, cur_addr = selected_etcd_address](http_message_t *msg)
+    open_websocket(etcd_watch_ws, url.addr, url.hostname, url.path+"/watch", { .timeout = etcd_slow_timeout, .ssl = url.ssl },
+        [this, cur_addr = url.addr](http_message_t *msg)
     {
         if (msg->body.length())
         {
@@ -318,7 +376,7 @@ void etcd_state_client_http_t::start_etcd_watcher()
                         etcd_watch_revision_pg = watch_rev;
                     else if (watch_id == ETCD_OSD_STATE_WATCH_ID)
                         etcd_watch_revision_osd = watch_rev;
-                    addresses_to_try.clear();
+                    etcd_urls_to_try.clear();
                 }
                 // First gather all changes into a hash to remove multiple overwrites
                 std::map<std::string, etcd_kv_t> changes;
@@ -348,8 +406,8 @@ void etcd_state_client_http_t::start_etcd_watcher()
         if (msg->eof)
         {
             fprintf(stderr, "Disconnected from etcd %s\n", cur_addr.c_str());
-            if (cur_addr == selected_etcd_address)
-                selected_etcd_address = "";
+            if (cur_addr == selected_etcd_url.addr)
+                selected_etcd_url = (http_url_t){};
             if (etcd_watches_initialised == 0)
             {
                 // Connection not established, retry in <etcd_quick_timeout>
@@ -424,7 +482,7 @@ void etcd_state_client_http_t::start_ws_keepalive()
             {
                 if (this->log_level > 0)
                 {
-                    fprintf(stderr, "Websocket ping failed, disconnecting from etcd %s\n", selected_etcd_address.c_str());
+                    fprintf(stderr, "Websocket ping failed, disconnecting from etcd %s\n", selected_etcd_url.addr.c_str());
                 }
                 start_etcd_watcher();
             }
