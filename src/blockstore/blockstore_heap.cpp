@@ -2393,7 +2393,10 @@ void inode_map_get(void *inode_idx, heap_inode_map_t::iterator & li_it, heap_lis
     size_t map_n = ((size_t)inode_idx & IMAP_MALLOC_LOW_BITS);
     if (!map_n)
     {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
         li_it = ((heap_inode_map_t*)inode_idx)->find(list_item_key(&stripe));
+#pragma GCC diagnostic pop
         li = li_it != ((heap_inode_map_t*)inode_idx)->end() ? *li_it : NULL;
     }
     else if (map_n == 1)
