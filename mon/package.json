@@ -1,6 +1,6 @@
 {
   "name": "vitastor-mon",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "description": "Vitastor SDS monitor service",
   "main": "mon-main.js",
   "scripts": {
