@@ -253,21 +253,33 @@
   type: bool
   default: true
   info: |
-    This parameter makes Vitastor always keep metadata area of the block device
-    in memory. It's required for good performance because it allows to avoid
-    additional read-modify-write cycles during metadata modifications. Metadata
-    area size is currently roughly 224 MB per 1 TB of data. You can turn it off
-    to reduce memory usage by this value, but it will hurt performance. This
-    restriction is likely to be removed in the future along with the upgrade
-    of the metadata storage scheme.
+    Only for the old store ([meta_format](layout-osd.en.md#meta_format) 2).
+
+    This parameter makes Vitastor keep a copy of metadata area in memory as it is
+    on disk, in addition to the metadata database. When the option is enabled, every
+    metadata entry is effectively stored in RAM twice. It's required for good performance
+    because it allows to avoid additional read-modify-write cycles during metadata
+    modifications. Metadata area size with the old store is roughly 224 MB per 1 TB
+    of data. You can turn the option off to reduce memory usage by this value, but
+    it will reduce performance.
+
+    For the new store ([meta_format](layout-osd.en.md#meta_format) 3), the option
+    may be changed in the future to support operation without loading full metadata
+    database in memory.
   info_ru: |
-    Данный параметр заставляет Vitastor всегда держать область метаданных диска
-    в памяти. Это нужно, чтобы избегать дополнительных операций чтения с диска
-    при записи. Размер области метаданных на данный момент составляет примерно
-    224 МБ на 1 ТБ данных. При включении потребление памяти снизится примерно
-    на эту величину, но при этом также снизится и производительность. В будущем,
-    после обновления схемы хранения метаданных, это ограничение, скорее всего,
-    будет ликвидировано.
+    Только для старого хранилища ([meta_format](layout-osd.en.md#meta_format) 2).
+
+    Данный параметр заставляет Vitastor всегда держать копию области метаданных
+    в памяти в том же виде, как она лежит на диске, в дополнение к БД метаданных.
+    То есть, с включённой опцией каждая запись метаданных хранится в памяти дважды.
+    Это нужно, чтобы избегать дополнительных операций чтения с диска при записи.
+    Размер области метаданных в старом хранилище составляет примерно 224 МБ на
+    1 ТБ данных. Вы можете отключить опцию, чтобы снизить потребление памяти
+    примерно на эту величину, но при этом также снизится и производительность.
+
+    Для нового хранилища ([meta_format](layout-osd.en.md#meta_format) 3) опция,
+    возможно, будет переработана в будущем для поддержки работы без полной
+    загрузки метаданных в памяти.
 - name: inmemory_journal
   type: bool
   default: true
@@ -386,11 +398,15 @@
     blocks. The only situation when you should increase it to a larger value
     is when you enable journal_no_same_sector_overwrites. In this case set
     it to, for example, 1024.
+
+    Not applicable to the new store ([meta_format](layout-osd.en.md#meta_format) 3).
   info_ru: |
     Максимальное число буферов, разрешённых для использования под записываемые
     в журнал блоки метаданных. Единственная ситуация, в которой этот параметр
     нужно менять - это если вы включаете journal_no_same_sector_overwrites. В
     этом случае установите данный параметр, например, в 1024.
+
+    Неприменимо к новому хранилищу ([meta_format](layout-osd.en.md#meta_format) 3).
 - name: journal_no_same_sector_overwrites
   type: bool
   default: false
@@ -402,6 +418,8 @@
     journal after writing it instead of possibly overwriting it the second time.
 
     Most (99%) other SSDs don't need this option.
+
+    Not applicable to the new store ([meta_format](layout-osd.en.md#meta_format) 3).
   info_ru: |
     Включайте данную опцию для SSD вроде Intel D3-S4510 и D3-S4610, которые
     ОЧЕНЬ не любят, когда ПО перезаписывает один и тот же сектор несколько раз
@@ -412,6 +430,20 @@
     самого сектора.
 
     Почти все другие SSD (99% моделей) не требуют данной опции.
+
+    Неприменимо к новому хранилищу ([meta_format](layout-osd.en.md#meta_format) 3).
+- name: skip_corrupted_meta_entries
+  type: bool
+  default: false
+  info: |
+    Only for the new store ([meta_format](layout-osd.en.md#meta_format) 3).
+    Allow OSD to start when some metadata entries or blocks are corrupted by
+    skipping them. Should be only used as an emergency measure.
+  info_ru: |
+    Только для нового хранилища ([meta_format](layout-osd.en.md#meta_format) 3).
+    Разрешить OSD запускаться, даже если часть блоков или записей метаданных
+    повреждена, пропуская их. Опция предназначена для использования только в
+    целях аварийного восстановления.
 - name: throttle_small_writes
   type: bool
   default: false

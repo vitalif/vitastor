@@ -38,6 +38,7 @@ with an OSD restart or, for some of them, even without restarting by updating co
 - [journal_io](#journal_io)
 - [journal_sector_buffer_count](#journal_sector_buffer_count)
 - [journal_no_same_sector_overwrites](#journal_no_same_sector_overwrites)
+- [skip_corrupted_meta_entries](#skip_corrupted_meta_entries)
 - [throttle_small_writes](#throttle_small_writes)
 - [throttle_target_iops](#throttle_target_iops)
 - [throttle_target_mbs](#throttle_target_mbs)
@@ -279,13 +280,19 @@ Maximum number of journal flushers (see above min_flusher_count).
 - Type: boolean
 - Default: true
 
-This parameter makes Vitastor always keep metadata area of the block device
-in memory. It's required for good performance because it allows to avoid
-additional read-modify-write cycles during metadata modifications. Metadata
-area size is currently roughly 224 MB per 1 TB of data. You can turn it off
-to reduce memory usage by this value, but it will hurt performance. This
-restriction is likely to be removed in the future along with the upgrade
-of the metadata storage scheme.
+Only for the old store ([meta_format](layout-osd.en.md#meta_format) 2).
+
+This parameter makes Vitastor keep a copy of metadata area in memory as it is
+on disk, in addition to the metadata database. When the option is enabled, every
+metadata entry is effectively stored in RAM twice. It's required for good performance
+because it allows to avoid additional read-modify-write cycles during metadata
+modifications. Metadata area size with the old store is roughly 224 MB per 1 TB
+of data. You can turn the option off to reduce memory usage by this value, but
+it will reduce performance.
+
+For the new store ([meta_format](layout-osd.en.md#meta_format) 3), the option
+may be changed in the future to support operation without loading full metadata
+database in memory.
 
 ## inmemory_journal
 
@@ -364,6 +371,8 @@ blocks. The only situation when you should increase it to a larger value
 is when you enable journal_no_same_sector_overwrites. In this case set
 it to, for example, 1024.
 
+Not applicable to the new store ([meta_format](layout-osd.en.md#meta_format) 3).
+
 ## journal_no_same_sector_overwrites
 
 - Type: boolean
@@ -376,6 +385,17 @@ this option is set, Vitastor will always move to the next sector of the
 journal after writing it instead of possibly overwriting it the second time.
 
 Most (99%) other SSDs don't need this option.
+
+Not applicable to the new store ([meta_format](layout-osd.en.md#meta_format) 3).
+
+## skip_corrupted_meta_entries
+
+- Type: boolean
+- Default: false
+
+Only for the new store ([meta_format](layout-osd.en.md#meta_format) 3).
+Allow OSD to start when some metadata entries or blocks are corrupted by
+skipping them. Should be only used as an emergency measure.
 
 ## throttle_small_writes
 
