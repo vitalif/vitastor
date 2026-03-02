@@ -61,7 +61,7 @@ resume_1:
     }
     if (st->ientry["type"].string_value() != "file" &&
         st->ientry["type"].string_value() != "" &&
-        !st->set_attrs["size"].is_null())
+        st->set_attrs.find("size") != st->set_attrs.end())
     {
         auto cb = std::move(st->cb);
         cb(-EINVAL);
@@ -96,8 +96,13 @@ resume_1:
         nfs_kv_continue_setattr(st, 2);
     }, [st](int res, const std::string & cas_value)
     {
+        if ((res == 0 || res == -ENOENT && st->ino == KV_ROOT_INODE) && cas_value == st->ientry_text)
+        {
+            st->cas_res = 0;
+            return true;
+        }
         st->cas_res = res;
-        return (res == 0 || res == -ENOENT && st->ino == KV_ROOT_INODE) && cas_value == st->ientry_text;
+        return false;
     });
     return;
 resume_2:

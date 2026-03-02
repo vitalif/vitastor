@@ -15,6 +15,8 @@ sudo mount localhost:/ ./testdata/nfs -o port=2050,mountport=2050,nfsvers=3,soft
 MNT=$(pwd)/testdata/nfs
 trap "sudo umount -f $MNT"' || true; kill -9 $(jobs -p)' EXIT
 
+chown 1000:1000 ./testdata/nfs
+
 touch ./testdata/nfs/f1
 chown 1000:1000 ./testdata/nfs/f1
 chmod 600 ./testdata/nfs/f1
