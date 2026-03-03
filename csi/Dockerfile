@@ -25,8 +25,8 @@ RUN apt-get update && \
         # NFS mount dependencies
         nfs-common netbase \
         # dependencies of qemu-storage-daemon
-        libnuma1 liburing2 libglib2.0-0 libfuse3-3 libaio1 libzstd1 libnettle8 \
-        libgmp10 libhogweed6 libp11-kit0 libidn2-0 libunistring2 libtasn1-6 libpcre2-8-0 libffi8 && \
+        libaio1t64 libc6 libfuse3-4 libglib2.0-0t64 libgmp10 libgnutls30t64 \
+        libhogweed6t64 libnettle8t64 libnuma1 libselinux1 liburing2 libzstd1 zlib1g && \
     apt-get clean && \
     (echo options nbd nbds_max=128 > /etc/modprobe.d/nbd.conf)
 

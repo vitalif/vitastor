@@ -1,2 +1,2 @@
-deb http://vitastor.io/debian bookworm main
-deb http://http.debian.net/debian/ bookworm-backports main
+deb http://vitastor.io/debian trixie main
+#deb http://http.debian.net/debian/ trixie-backports main

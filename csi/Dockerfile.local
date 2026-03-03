@@ -1,5 +1,5 @@
 # Compile stage
-FROM golang:bookworm AS build
+FROM golang:trixie AS build
 
 ADD go.sum go.mod /app/
 RUN cd /app; CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go mod download -x
@@ -9,7 +9,7 @@ RUN perl -i -e '$/ = undef; while(<>) { s/\n\s*(\{\s*\n)/$1\n/g; s/\}(\s*\n\s*)e
     CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o vitastor-csi
 
 # Final stage
-FROM debian:bookworm
+FROM debian:trixie
 
 LABEL maintainers="Vitaliy Filippov <vitalif@yourcmc.ru>"
 LABEL description="Vitastor CSI Driver"
@@ -36,8 +36,8 @@ ADD deb /deb
 
 RUN apt-get update && \
     apt-get -y install /deb/vitastor-client_*.deb && \
-    wget https://vitastor.io/archive/qemu/qemu-bookworm-9.2.2%2Bds-1%2Bvitastor4/qemu-utils_9.2.2%2Bds-1%2Bvitastor4_amd64.deb && \
-    wget https://vitastor.io/archive/qemu/qemu-bookworm-9.2.2%2Bds-1%2Bvitastor4/qemu-block-extra_9.2.2%2Bds-1%2Bvitastor4_amd64.deb && \
+    wget https://vitastor.io/archive/qemu/qemu-trixie-9.2.2%2Bds-1%2Bvitastor4/qemu-utils_9.2.2%2Bds-1%2Bvitastor4_amd64.deb && \
+    wget https://vitastor.io/archive/qemu/qemu-trixie-9.2.2%2Bds-1%2Bvitastor4/qemu-block-extra_9.2.2%2Bds-1%2Bvitastor4_amd64.deb && \
     dpkg -x qemu-utils*.deb tmp1 && \
     dpkg -x qemu-block-extra*.deb tmp1 && \
     cp -a tmp1/usr/bin/qemu-storage-daemon /usr/bin/ && \
