@@ -36,7 +36,7 @@ void blockstore_impl_t::prepare_meta_block_write(uint32_t modified_block)
         ringloop->wakeup();
     };
     io_uring_prep_writev(
-        sqe, dsk.meta_fd, &data->iov, 1, dsk.meta_offset + (modified_block+1)*dsk.meta_block_size
+        sqe, dsk.meta_fd, &data->iov, 1, dsk.meta_offset + ((uint64_t)modified_block+1)*dsk.meta_block_size
     );
     unsynced_meta_write_count++;
     pending_modified_blocks.push_back(modified_block);
