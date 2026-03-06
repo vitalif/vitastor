@@ -301,7 +301,7 @@ int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uin
             heap_entry_t *wr = (heap_entry_t*)data;
             if (wr->size > dsk->meta_block_size-block_offset)
             {
-                fprintf(stderr, "Error: entry is too large in metadata block %u at %u (%u > max %u bytes). ",
+                fprintf(stderr, "Error: entry is too large in metadata block %u at %u (%u > max %ju bytes). ",
                     block_num, block_offset, wr->size, dsk->meta_block_size-block_offset);
 corrupted_block:
                 if (allow_corrupted)

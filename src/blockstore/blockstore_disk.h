@@ -26,14 +26,14 @@ class allocator_t;
 struct blockstore_disk_t
 {
     std::string data_device, meta_device, journal_device;
-    uint32_t data_block_size;
+    uint64_t data_block_size;
     uint64_t cfg_journal_size, cfg_data_size;
     // Required write alignment and journal/metadata/data areas' location alignment
     uint32_t disk_alignment = 4096;
     // Journal block size - minimum_io_size of the journal device is the best choice
-    uint32_t journal_block_size = 4096;
+    uint64_t journal_block_size = 4096;
     // Metadata block size - minimum_io_size of the metadata device is the best choice
-    uint32_t meta_block_size = 4096;
+    uint64_t meta_block_size = 4096;
     // Atomic write size of the data block device
     uint32_t atomic_write_size = 4096;
     // Whether we should set RWF_ATOMIC on atomic writes

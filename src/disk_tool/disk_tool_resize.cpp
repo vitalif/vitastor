@@ -212,11 +212,11 @@ void disk_tool_t::resize_init(blockstore_meta_header_v3_t *hdr)
     dsk.calc_lengths();
     if (((new_data_offset-dsk.data_offset) % dsk.data_block_size))
     {
-        fprintf(stderr, "Data alignment mismatch: old data offset is 0x%jx, new is 0x%jx, but alignment on %x should be equal\n",
+        fprintf(stderr, "Data alignment mismatch: old data offset is 0x%jx, new is 0x%jx, but alignment on %jx should be equal\n",
             dsk.data_offset, new_data_offset, dsk.data_block_size);
         exit(1);
     }
-    data_idx_diff = ((int64_t)(dsk.data_offset-new_data_offset)) / dsk.data_block_size;
+    data_idx_diff = ((int64_t)(dsk.data_offset-new_data_offset))/((int64_t)dsk.data_block_size);
     free_first = new_data_offset > dsk.data_offset ? (new_data_offset-dsk.data_offset) / dsk.data_block_size : 0;
     free_last = (new_data_offset+new_data_len < dsk.data_offset+dsk.data_len)
         ? (dsk.data_offset+dsk.data_len-new_data_offset-new_data_len) / dsk.data_block_size
@@ -351,7 +351,7 @@ int disk_tool_t::resize_copy_data()
                         if (data->res != dsk.data_block_size)
                         {
                             fprintf(
-                                stderr, "Failed to read %u bytes at %ju from %s: %s\n", dsk.data_block_size,
+                                stderr, "Failed to read %ju bytes at %ju from %s: %s\n", dsk.data_block_size,
                                 dsk.data_offset + moving_blocks[i].old_loc*dsk.data_block_size, dsk.data_device.c_str(),
                                 data->res < 0 ? strerror(-data->res) : "short read"
                             );
@@ -376,7 +376,7 @@ int disk_tool_t::resize_copy_data()
                         if (data->res != dsk.data_block_size)
                         {
                             fprintf(
-                                stderr, "Failed to write %u bytes at %ju to %s: %s\n", dsk.data_block_size,
+                                stderr, "Failed to write %ju bytes at %ju to %s: %s\n", dsk.data_block_size,
                                 dsk.data_offset + moving_blocks[i].new_loc*dsk.data_block_size, dsk.data_device.c_str(),
                                 data->res < 0 ? strerror(-data->res) : "short write"
                             );

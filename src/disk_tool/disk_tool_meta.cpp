@@ -331,7 +331,7 @@ void disk_tool_t::dump_meta_header(blockstore_meta_header_v3_t *hdr)
     }
     else
     {
-        printf("{\"version\":\"0.5\",\"meta_block_size\":%u,\"entries\":[\n", dsk.meta_block_size);
+        printf("{\"version\":\"0.5\",\"meta_block_size\":%ju,\"entries\":[\n", dsk.meta_block_size);
     }
     first_entry = true;
 }
