@@ -22,16 +22,18 @@ void blockstore_impl_t::prepare_meta_block_write(uint32_t modified_block)
     ring_data_t *data = ((ring_data_t*)sqe->user_data);
     uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.meta_block_size);
     data->iov = (struct iovec){ buf, (size_t)dsk.meta_block_size };
-    data->callback = [this, modified_block, buf](ring_data_t *data)
+    data->callback = [this, modified_block](ring_data_t *data)
     {
-        free(buf);
         live = true;
         if (data->res != data->iov.iov_len)
         {
             // FIXME: our state becomes corrupted after a write error. maybe do something better than just die
             disk_error_abort("data write", data->res, data->iov.iov_len);
         }
-        modified_blocks.erase(modified_block);
+        auto it = modified_blocks.find(modified_block);
+        assert(it != modified_blocks.end());
+        free(it->second.buf);
+        modified_blocks.erase(it);
         heap->complete_block_write(modified_block);
         ringloop->wakeup();
     };
@@ -249,13 +251,12 @@ enospc:
             goto enospc;
         assert(res == 0);
         PRIV(op)->lsn = obj->lsn;
-        if (op->len)
-            heap->use_buffer_area(op->oid.inode, loc, op->len);
         prepare_meta_block_write(PRIV(op)->modified_block);
         PRIV(op)->pending_ops++;
         if (op->len > 0)
         {
             // Prepare buffered data write
+            heap->use_buffer_area(op->oid.inode, loc, op->len);
             if (dsk.inmemory_journal)
             {
                 memcpy((uint8_t*)buffer_area + loc, op->buf, op->len);
@@ -348,6 +349,7 @@ resume_12:
     }
 resume_4:
     {
+        BS_SUBMIT_CHECK_SQES(1);
         auto obj = heap->read_entry(op->oid);
         int res = 0;
         if (PRIV(op)->write_type == _REDIRECT_INTENT)

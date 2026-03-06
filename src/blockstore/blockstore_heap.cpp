@@ -2291,7 +2291,9 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
         }
         if (!next)
         {
+            // The last freed entry must be a deletion
             assert(!prev);
+            assert(wr->entry_type == BS_HEAP_DELETE|BS_HEAP_STABLE);
             auto & pg_idx = block_index[get_pg_id(wr->inode, wr->stripe)];
             auto & inode_idx = pg_idx[wr->inode];
             heap_inode_map_t::iterator li_it;
