@@ -56,6 +56,10 @@ void open_websocket(http_co_t *handler, const std::string & addr, const std::str
     const http_options_t & options, std::function<void(http_message_t *msg)> on_message);
 void http_request(http_co_t *handler, const std::string & host, const std::string & request,
     const http_options_t & options, std::function<void(http_message_t *response)> response_callback);
+void http_get(http_co_t *handler, const std::string & url, const std::string & headers,
+    const http_options_t & options, std::function<void(http_message_t *response)> response_callback);
+void http_json_post(http_co_t *handler, const std::string & url, json11::Json body, const std::string & headers,
+    const http_options_t & options, std::function<void(http_message_t *response)> response_callback);
 void http_post_message(http_co_t *handler, uint8_t type, const std::string & msg);
 void http_serve(http_co_t *handler, int peer_fd, const http_options_t & options,
     std::function<void(http_message_t *msg)> request_callback);

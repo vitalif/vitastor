@@ -106,7 +106,7 @@
                         "description": "Encryption key for the new/cloned image",
                         "oneOf": [
                             { "type": "string", "enum": [ "", "random" ] },
-                            { "type": "string", "pattern": "^[0-9a-fA-F]{128}$" }
+                            { "type": "string", "pattern": "^[0-9a-fA-F]{128}$|^vault:" }
                         ]
                     }
                 }
@@ -143,7 +143,7 @@
                         "description": "Change encryption key for the image",
                         "oneOf": [
                             { "type": "string", "enum": [ "" ] },
-                            { "type": "string", "pattern": "^[0-9a-fA-F]{128}$" }
+                            { "type": "string", "pattern": "^[0-9a-fA-F]{128}$|^vault:" }
                         ]
                     },
                     "force": { "type": "boolean", "description": "Proceed with shrinking or setting readwrite flag even if the image has children" },

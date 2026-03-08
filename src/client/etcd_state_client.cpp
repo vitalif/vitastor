@@ -935,7 +935,7 @@ json11::Json::object etcd_state_client_t::serialize_inode_cfg(inode_config_t *cf
     }
     if (!cfg->enc_key.empty())
     {
-        new_cfg["enc_key"] = tohexstr(cfg->enc_key.data(), cfg->enc_key.size());
+        new_cfg["enc_key"] = cfg->enc_key;
     }
     if (cfg->readonly)
     {
@@ -971,18 +971,15 @@ inode_config_t etcd_state_client_t::deserialize_inode_cfg(uint64_t inode_num, js
         else
             parent_inode_num |= parent_pool_id << (64-POOL_ID_BITS);
     }
-    std::vector<uint8_t> enc_key;
+    std::string enc_key;
     if (!value["enc_key"].is_null())
     {
-        if (value["enc_key"].string_value().size() == 2*AES_256_XTS_KEY_SIZE)
+        enc_key = value["enc_key"].string_value();
+        if (enc_key.substr(0, strlen(VAULT_KEY_PREFIX)) != VAULT_KEY_PREFIX &&
+            (enc_key.size() != 2*AES_256_XTS_KEY_SIZE || !ishexstr(enc_key)))
         {
-            enc_key.resize(AES_256_XTS_KEY_SIZE);
-            if (fromhexstr(value["enc_key"].string_value(), AES_256_XTS_KEY_SIZE, enc_key.data()) < AES_256_XTS_KEY_SIZE)
-                enc_key.clear();
-        }
-        if (enc_key.empty())
-        {
-            fprintf(stderr, "Inode %u/%ju has invalid enc_key, should be %u bit hex string\n",
+            enc_key = "";
+            fprintf(stderr, "Inode %u/%ju has invalid enc_key, should be %u bit hex string or Vault key reference\n",
                 INODE_POOL(inode_num), INODE_NO_POOL(inode_num), AES_256_XTS_KEY_SIZE);
         }
     }

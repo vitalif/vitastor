@@ -20,6 +20,8 @@
 #define MAX_DATA_BLOCK_SIZE 128*1024*1024
 #define DEFAULT_BITMAP_GRANULARITY 4096
 
+#define VAULT_KEY_PREFIX "vault:"
+
 #ifndef IMMEDIATE_NONE
 #define IMMEDIATE_NONE 0
 #define IMMEDIATE_SMALL 1
@@ -84,7 +86,7 @@ struct inode_config_t
     inode_t parent_id = 0;
     bool readonly = false;
     bool deleted = false;
-    std::vector<uint8_t> enc_key;
+    std::string enc_key;
     // Arbitrary metadata
     json11::Json meta;
     // Change revision of the metadata in etcd

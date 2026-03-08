@@ -19,6 +19,8 @@ public:
     {
         cli->continue_ops(cli->client_retry_interval);
     }
+
+    static void test_vault();
 };
 
 void configure_single_pg_pool(etcd_state_client_mock_t *mock)
@@ -55,7 +57,7 @@ int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c,
 {
     printf("Post write %jx+%jx\n", offset, len);
     int *r = new int;
-    *r = instant ? -2 : -1;
+    *r = instant ? -1001 : -1000;
     cluster_op_t *op = new cluster_op_t();
     op->opcode = OSD_OP_WRITE;
     op->inode = 0x1000000000001;
@@ -65,10 +67,11 @@ int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c,
     memset(op->iov.buf[0].iov_base, c, len);
     op->callback = [r, cb](cluster_op_t *op)
     {
-        if (*r == -1)
-            printf("Error: Not allowed to complete yet (retval %d)\n", op->retval);
-        assert(*r != -1);
-        *r = op->retval == op->len ? 1 : 0;
+        if (*r == -1000)
+            printf("Error: Not allowed to complete yet\n");
+        assert(*r != -1000);
+        assert(op->retval == op->len || op->retval < 0);
+        *r = op->retval == op->len ? 1 : op->retval;
         free(op->iov.buf[0].iov_base);
         printf("Done write %jx+%jx r=%d\n", op->offset, op->len, op->retval);
         delete op;
@@ -90,14 +93,14 @@ int *test_sync(cluster_client_t *cli)
 {
     printf("Post sync\n");
     int *r = new int;
-    *r = -1;
+    *r = -1000;
     cluster_op_t *op = new cluster_op_t();
     op->opcode = OSD_OP_SYNC;
     op->callback = [r](cluster_op_t *op)
     {
-        if (*r == -1)
+        if (*r == -1000)
             printf("Error: Not allowed to complete yet\n");
-        assert(*r != -1);
+        assert(*r != -1000);
         *r = op->retval == 0 ? 1 : 0;
         printf("Done sync r=%d\n", op->retval);
         delete op;
@@ -110,7 +113,7 @@ void can_complete(int *r)
 {
     // Allow the operation to proceed so the test verifies
     // that it doesn't complete earlier than expected
-    *r = -2;
+    *r = -1001;
 }
 
 #define check_completed(r) { assert(*(r) == 1); delete (r); }
@@ -145,24 +148,22 @@ void pretend_disconnected(cluster_client_t *cli, osd_num_t osd_num)
     pretend_disconnected(&cli->msgr, osd_num);
 }
 
-void check_disconnected(cluster_client_t *cli, osd_num_t osd_num)
-{
-    if (cli->msgr.osd_peers.find(osd_num) != cli->msgr.osd_peers.end())
-    {
-        printf("OSD %ju not disconnected as it ought to be\n", osd_num);
-        assert(0);
-    }
+#define check_disconnected(cli, osd_num) {\
+    if (cli->msgr.osd_peers.find(osd_num) != cli->msgr.osd_peers.end())\
+    {\
+        printf("OSD %ju not disconnected as it ought to be\n", (uint64_t)osd_num);\
+        assert(0);\
+    }\
 }
 
-void check_op_count(cluster_client_t *cli, osd_num_t osd_num, int ops)
-{
-    osd_client_t *cl = cli->msgr.osd_peers.at(osd_num);
-    int real_ops = cl->sent_ops.size();
-    if (real_ops != ops)
-    {
-        printf("error: %d ops expected, but %d queued\n", ops, real_ops);
-        assert(0);
-    }
+#define check_op_count(cli, osd_num, ops) {\
+    osd_client_t *cl = cli->msgr.osd_peers.at(osd_num);\
+    int real_ops = cl->sent_ops.size();\
+    if (real_ops != ops)\
+    {\
+        printf("error: %d ops expected, but %d queued\n", ops, real_ops);\
+        assert(0);\
+    }\
 }
 
 osd_op_t *find_op(cluster_client_t *cli, osd_num_t osd_num, uint64_t opcode, uint64_t offset, uint64_t len)
@@ -979,6 +980,67 @@ void test_msgr_decrypt_chain()
 }
 #endif
 
+void cluster_client_test_t::test_vault()
+{
+    json11::Json::object config;
+    config["vault_url"] = "http://vault";
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
+
+    mock->set("/vitastor/config/inode/1/1", json11::Json::object {
+        { "name", "testimg" },
+        { "size", (uint64_t)10*1024*1024*1024 },
+        { "enc_key", "vault:key1" },
+    });
+    configure_single_pg_pool(mock);
+    mock->resume();
+    pretend_connected(cli, 1);
+
+    // No key -> fetch successfully -> complete op
+
+    int *r1 = test_write(cli, 0, 4096, 0x55);
+    check_op_count(cli, 1, 0);
+
+    assert(cli->vault_key_load_queue == std::vector<std::string>{"vault:key1"});
+    cli->vault_key_load_queue.clear();
+
+    cli->vault_parse_secret("vault:key1", "", json11::Json::object{
+        {"data", json11::Json::object {
+            {"key", "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"}
+        }}
+    });
+
+    can_complete(r1);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 4096), 0);
+    check_completed(r1);
+
+    // No key -> error -> EPERM
+
+    cli->vault_keys.clear();
+    cli->inode_cache.clear();
+    cli->inode_cache_children.clear();
+
+    r1 = test_write(cli, 0, 4096, 0x55);
+    check_op_count(cli, 1, 0);
+
+    assert(cli->vault_key_load_queue == std::vector<std::string>{"vault:key1"});
+    cli->vault_key_load_queue.clear();
+
+    can_complete(r1);
+    cli->vault_parse_secret("vault:key1", "HTTP 403 Forbidden", json11::Json());
+    check_op_count(cli, 1, 0);
+    assert(*r1 == -EPERM);
+    delete r1;
+
+    // Free client
+    delete cli;
+    delete tfd;
+    printf("[ok] basic vault key fetch test\n");
+}
+
 int main(int narg, char *args[])
 {
     test1();
@@ -991,5 +1053,6 @@ int main(int narg, char *args[])
     test_msgr_encrypt();
     test_msgr_decrypt_chain();
 #endif
+    cluster_client_test_t::test_vault();
     return 0;
 }

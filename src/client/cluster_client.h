@@ -92,8 +92,15 @@ struct inode_cache_t
     bool readonly = false;
     bool has_parent_loop = false;
     inode_t other_pool_parent_id = 0;
+    int err_code = 0;
 
     ~inode_cache_t();
+};
+
+struct vault_load_key_t
+{
+    int key_state = 0;
+    std::string key;
 };
 
 // FIXME: Split into public and private interfaces
@@ -102,8 +109,8 @@ class __attribute__((visibility("default"))) cluster_client_t
     timerfd_manager_t *tfd = NULL;
     ring_loop_t *ringloop = NULL;
 
-    std::map<pool_id_t, uint64_t> pg_counts;
-    std::map<pool_pg_num_t, osd_num_t> pg_primary;
+    // config:
+
     // client_max_dirty_* is actually "max unsynced", for the case when immediate_commit is off
     uint64_t client_max_dirty_bytes = 0;
     uint64_t client_max_dirty_ops = 0;
@@ -115,11 +122,22 @@ class __attribute__((visibility("default"))) cluster_client_t
     uint64_t client_max_writeback_iodepth = 0;
     std::string conf_hostname;
 
+    std::string vault_url;
+    std::string vault_client_cert;
+    std::string vault_client_key;
+    std::string vault_ca;
+    std::string vault_secret_api_path;
+    uint64_t vault_timeout_ms = 0;
+    uint64_t vault_error_timeout_sec = 0;
+    uint64_t vault_refresh_leeway_sec = 0;
+
     int log_level = 0;
     int client_retry_interval = 50; // ms
     int client_eio_retry_interval = 1000; // ms
     bool client_retry_enospc = true;
     int client_wait_up_timeout = 16; // sec (for listings)
+
+    // state:
 
     std::string client_hostname;
     std::map<std::string, int> self_tree_metrics;
@@ -128,6 +146,7 @@ class __attribute__((visibility("default"))) cluster_client_t
     int retry_timeout_id = -1;
     int retry_timeout_duration = 0;
     std::vector<cluster_op_t*> offline_ops;
+    std::vector<cluster_op_t*> key_wait_ops;
     cluster_op_t *op_queue_head = NULL, *op_queue_tail = NULL;
     writeback_cache_t *wb = NULL;
     std::set<osd_num_t> dirty_osds;
@@ -141,7 +160,17 @@ class __attribute__((visibility("default"))) cluster_client_t
     robin_hood::unordered_flat_map<inode_t, std::shared_ptr<inode_cache_t>> inode_cache;
     std::set<std::pair<inode_t, inode_t>> inode_cache_children;
 
+    http_context_t *vault_http_ctx = NULL;
+    http_co_t *vault_http_cli = NULL;
+    bool vault_loading = false;
+    std::string vault_token;
+    bool vault_auth_error = false;
+    timespec vault_token_expire = {};
+    std::vector<std::string> vault_key_load_queue;
+    std::map<std::string, vault_load_key_t> vault_keys;
+
     bool pgs_loaded = false;
+    std::map<pool_id_t, uint64_t> pg_counts;
     ring_consumer_t consumer;
     std::vector<std::function<void(void)>> on_ready_hooks;
     int list_retry_timeout_id = -1;
@@ -177,6 +206,13 @@ public:
 protected:
     void continue_ops(int time_passed = 0);
 
+    std::shared_ptr<inode_cache_t> inode_cache_get(inode_t ino);
+    void vault_parse_config();
+    bool vault_check_token();
+    void vault_load_keys();
+    void vault_destroy();
+    void vault_parse_secret(const std::string & key_id, const std::string & err, json11::Json data);
+
     bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
     bool affects_pg(uint64_t inode, uint64_t offset, uint64_t len, pool_id_t pool_id, pg_num_t pg_num);
 
@@ -187,8 +223,6 @@ protected:
     void on_change_osd_state_hook(uint64_t peer_osd);
     void on_change_node_placement_hook();
     void on_change_inode_hook(uint64_t inode, bool removed);
-
-    std::shared_ptr<inode_cache_t> inode_cache_get(inode_t ino);
 
     void execute_internal(cluster_op_t *op);
     void execute_cas(cluster_op_t *op, bool nosync = false);

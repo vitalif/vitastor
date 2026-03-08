@@ -456,11 +456,12 @@ resume_3:
         };
         if (set_key)
         {
-            new_cfg.enc_key.resize(enc_key.size()/2);
-            fromhexstr(enc_key, new_cfg.enc_key.size(), new_cfg.enc_key.data());
+            new_cfg.enc_key = enc_key;
         }
         else if (new_snap != "")
+        {
             new_cfg.enc_key = cur_cfg.enc_key;
+        }
         json11::Json::array checks = json11::Json::array {
             json11::Json::object {
                 { "target", "VERSION" },
@@ -600,19 +601,6 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
     if (!cfg["enc_key"].is_null())
     {
         image_creator->set_key = true;
-        image_creator->enc_key = cfg["enc_key"].string_value();
-        if (image_creator->enc_key != "" &&
-#ifdef WITH_OPENSSL
-            image_creator->enc_key != "random" &&
-#endif
-            (!ishexstr(image_creator->enc_key) || image_creator->enc_key.size() != 128))
-        {
-            return [](cli_result_t & result)
-            {
-                result = (cli_result_t){ .err = EINVAL, .text = "Encryption key is not a 512-bit hex string, not \"\" and not \"random\"" };
-                return true;
-            };
-        }
 #ifdef WITH_OPENSSL
         if (image_creator->enc_key == "random")
         {
@@ -621,6 +609,20 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
             image_creator->enc_key = tohexstr(newkey, 64);
         }
 #endif
+        else
+        {
+            image_creator->enc_key = cfg["enc_key"].string_value();
+            if (image_creator->enc_key != "" &&
+                image_creator->enc_key.substr(0, strlen(VAULT_KEY_PREFIX)) != VAULT_KEY_PREFIX &&
+                (!ishexstr(image_creator->enc_key) || image_creator->enc_key.size() != 128))
+            {
+                return [](cli_result_t & result)
+                {
+                    result = (cli_result_t){ .err = EINVAL, .text = "Encryption key is not a 512-bit hex string, not \"\" and not \"random\"" };
+                    return true;
+                };
+            }
+        }
     }
     image_creator->new_parent = cfg["parent"].string_value();
     if (!cfg["size"].is_null())

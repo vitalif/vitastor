@@ -18,6 +18,11 @@
 #define OP_FLUSH_BUFFER 0x02
 #define OP_IMMEDIATE_COMMIT 0x04
 
+#define VAULT_KEY_NOT_LOADED 0
+#define VAULT_KEY_LOADING 1
+#define VAULT_KEY_LOADED 2
+#define VAULT_KEY_ERROR 3
+
 struct cluster_buffer_t
 {
     uint8_t *buf;

@@ -159,14 +159,15 @@ resume_1:
                 state = 100;
                 return;
             }
-            if (enc_key != "" && (!ishexstr(enc_key) || enc_key.size() != 128))
+            if (enc_key != "" &&
+                enc_key.substr(0, strlen(VAULT_KEY_PREFIX)) != VAULT_KEY_PREFIX &&
+                (!ishexstr(enc_key) || enc_key.size() != 128))
             {
                 result = (cli_result_t){ .err = EINVAL, .text = "Encryption key is not a 512-bit hex string and not \"\"" };
                 state = 100;
                 return;
             }
-            cfg.enc_key.resize(enc_key.size()/2);
-            fromhexstr(enc_key, cfg.enc_key.size(), cfg.enc_key.data());
+            cfg.enc_key = enc_key;
         }
         {
             std::string cur_cfg_key = base64_encode(parent->cli->st_cli->etcd_prefix+

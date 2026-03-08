@@ -287,6 +287,48 @@ void http_request(http_co_t *handler, const std::string & host, const std::strin
     handler->send_request(host, request, options, response_callback);
 }
 
+void http_get(http_co_t *handler, const std::string & url, const std::string & headers,
+    const http_options_t & options, std::function<void(http_message_t *response)> response_callback)
+{
+    std::string path;
+    auto ssl = url.substr(0, 8) == "https://";
+    auto host = url.substr(ssl ? 8 : 7);
+    auto pos = host.find('/');
+    if (pos != std::string::npos)
+    {
+        path = host.substr(pos);
+        host = host.substr(0, pos);
+    }
+    std::string req = "GET "+path+" HTTP/1.1\r\n"
+        "Host: "+host+"\r\n"
+        "Connection: "+(options.keepalive ? "keep-alive" : "close")+"\r\n"+
+        headers+"\r\n";
+    handler->send_request(host, req, { .timeout = options.timeout, .keepalive = options.keepalive, .ssl = ssl }, response_callback);
+}
+
+void http_json_post(http_co_t *handler, const std::string & url, json11::Json body, const std::string & headers,
+    const http_options_t & options, std::function<void(http_message_t *response)> response_callback)
+{
+    std::string path;
+    auto ssl = url.substr(0, 8) == "https://";
+    auto host = url.substr(ssl ? 8 : 7);
+    auto pos = host.find('/');
+    if (pos != std::string::npos)
+    {
+        path = host.substr(pos);
+        host = host.substr(0, pos);
+    }
+    std::string req = body.dump();
+    req = "POST "+path+" HTTP/1.1\r\n"
+        "Host: "+host+"\r\n"
+        "Content-Type: application/json\r\n"
+        "Content-Length: "+std::to_string(req.size())+"\r\n"
+        "Connection: "+(options.keepalive ? "keep-alive" : "close")+"\r\n"+
+        headers+
+        "\r\n"+req;
+    handler->send_request(host, req, { .timeout = options.timeout, .keepalive = options.keepalive, .ssl = ssl }, response_callback);
+}
+
 void http_serve(http_co_t *handler, int peer_fd, const http_options_t & options, std::function<void(http_message_t *msg)> request_callback)
 {
     if (handler->state != HTTP_CO_SERVER || handler->peer_fd != peer_fd)

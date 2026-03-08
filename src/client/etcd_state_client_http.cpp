@@ -64,32 +64,15 @@ http_context_t *etcd_state_client_http_t::get_http_ctx()
 void etcd_state_client_http_t::etcd_call_oneshot(const std::string & etcd_url, const std::string & api, json11::Json payload,
     int timeout, std::function<void(std::string, json11::Json)> callback)
 {
-    std::string etcd_api_path;
-    bool ssl = etcd_url.substr(0, 8) == "https://";
-    auto etcd_address = etcd_url.substr(ssl ? 8 : 7);
-    int pos = etcd_address.find('/');
-    if (pos >= 0)
-    {
-        etcd_api_path = etcd_address.substr(pos);
-        etcd_address = etcd_address.substr(0, pos);
-    }
-    std::string req = payload.dump();
-    req = "POST "+etcd_api_path+api+" HTTP/1.1\r\n"
-        "Host: "+etcd_address+"\r\n"
-        "Content-Type: application/json\r\n"
-        "Content-Length: "+std::to_string(req.size())+"\r\n"
-        "Connection: close\r\n"
-        "\r\n"+req;
     auto http_cli = http_init(get_http_ctx());
-    auto cb = [http_cli, callback](http_message_t *response)
+    http_json_post(http_cli, etcd_url+api, payload, "", { .timeout = timeout }, [http_cli, callback](http_message_t *response)
     {
         std::string err;
         json11::Json data;
         response->parse_json_response(err, data);
         callback(err, data);
         http_destroy(http_cli);
-    };
-    http_request(http_cli, etcd_address, req, { .timeout = timeout, .ssl = ssl }, cb);
+    });
 }
 
 void etcd_state_client_http_t::etcd_call(const std::string & api, json11::Json payload, int timeout,

@@ -11,16 +11,6 @@
 #define TRY_SEND_CONNECTING 1
 #define TRY_SEND_OK 2
 
-inode_cache_t::~inode_cache_t()
-{
-    if (key_data)
-    {
-        free(key_data);
-        key_data = NULL;
-        op_enc = NULL;
-    }
-}
-
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config, std::unique_ptr<etcd_state_client_t> st_cli_ptr)
 {
     wb = new writeback_cache_t();
@@ -88,6 +78,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
 
 cluster_client_t::~cluster_client_t()
 {
+    vault_destroy();
     if (retry_timeout_id >= 0)
     {
         tfd->clear_timer(retry_timeout_id);
@@ -492,6 +483,8 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
         self_tree_metrics.clear();
         client_hostname = new_hostname;
     }
+    // vault
+    vault_parse_config();
     msgr.parse_config(config);
     st_cli->parse_config(config);
     st_cli->load_pgs();
@@ -620,6 +613,7 @@ void cluster_client_t::on_change_pool_config_hook()
     }
     inode_cache.clear();
     inode_cache_children.clear();
+    vault_keys.clear();
     continue_ops();
 }
 
@@ -665,136 +659,6 @@ void cluster_client_t::on_change_node_placement_hook()
     self_tree_metrics.clear();
 }
 
-// FIXME: Rework client API by adding open/close and cache inode information in the "FD" (maybe)
-void cluster_client_t::on_change_inode_hook(uint64_t inode, bool removed)
-{
-    std::vector<inode_t> children = { inode };
-    for (size_t i = 0; i < children.size(); i++)
-    {
-        auto it = inode_cache_children.lower_bound(std::make_pair(children[i], (inode_t)0));
-        while (it != inode_cache_children.end() && it->first == children[i])
-        {
-            children.push_back(it->second);
-            it++;
-        }
-    }
-    for (auto & inode: children)
-    {
-        auto it = inode_cache.find(inode);
-        if (it != inode_cache.end())
-        {
-            auto icache = it->second;
-            for (auto & parent: icache->chain)
-            {
-                inode_cache_children.erase(std::make_pair(parent, inode));
-            }
-            inode_cache.erase(it);
-        }
-    }
-}
-
-std::shared_ptr<inode_cache_t> cluster_client_t::inode_cache_get(inode_t ino)
-{
-    auto icache_it = inode_cache.find(ino);
-    if (icache_it != inode_cache.end())
-    {
-        return icache_it->second;
-    }
-    // Fill inode cache
-    auto ino_it = st_cli->inode_config.find(ino);
-    if (ino_it == st_cli->inode_config.end())
-    {
-        inode_cache[ino] = NULL;
-        return NULL;
-    }
-    auto pool_it = st_cli->pool_config.find(INODE_POOL(ino));
-    if (pool_it == st_cli->pool_config.end())
-    {
-        inode_cache[ino] = NULL;
-        return NULL;
-    }
-    auto & inode_cfg = ino_it->second;
-    auto & pool_cfg = pool_it->second;
-    std::shared_ptr<inode_cache_t> icache = std::make_shared<inode_cache_t>();
-    icache->readonly = inode_cfg.readonly;
-    icache->chain.push_back(ino);
-    std::vector<inode_config_t*> chain_cfg;
-    int enc_key_count = !inode_cfg.enc_key.empty() ? 1 : 0;
-    if (inode_cfg.parent_id)
-    {
-        // Check for loops and cache the chain
-        robin_hood::unordered_flat_set<inode_t> seen;
-        seen.insert(ino);
-        uint64_t parent_id = inode_cfg.parent_id;
-        while (parent_id)
-        {
-            if (seen.find(parent_id) != seen.end())
-            {
-                icache->has_parent_loop = true;
-                break;
-            }
-            seen.insert(parent_id);
-            ino_it = st_cli->inode_config.find(parent_id);
-            if (INODE_POOL(parent_id) == INODE_POOL(ino))
-            {
-                icache->chain.push_back(parent_id);
-                if (ino_it == st_cli->inode_config.end())
-                    chain_cfg.push_back(NULL);
-                else
-                {
-                    chain_cfg.push_back(&ino_it->second);
-                    if (!ino_it->second.enc_key.empty())
-                        enc_key_count++;
-                }
-            }
-            else if (!icache->other_pool_parent_id)
-                icache->other_pool_parent_id = parent_id;
-            if (ino_it == st_cli->inode_config.end())
-                break;
-            parent_id = ino_it->second.parent_id;
-        }
-    }
-    // Generate encryption key chain, if applicable
-    if (enc_key_count)
-    {
-        uint8_t *key_data = (uint8_t*)malloc_or_die(
-            AES_256_XTS_KEY_SIZE * enc_key_count +
-            sizeof(uint8_t*) * icache->chain.size() +
-            sizeof(osd_op_enc_t)
-        );
-        uint8_t **keys = (uint8_t**)(key_data + AES_256_XTS_KEY_SIZE * enc_key_count);
-        osd_op_enc_t *enc = (osd_op_enc_t*)((uint8_t*)keys + sizeof(uint8_t*)*icache->chain.size());
-        size_t key_pos = 0;
-        for (size_t i = 0; i <= chain_cfg.size(); i++)
-        {
-            inode_config_t *cfg = !i ? &inode_cfg : chain_cfg[i-1];
-            if (cfg && !cfg->enc_key.empty())
-            {
-                assert(key_pos < AES_256_XTS_KEY_SIZE * enc_key_count);
-                assert(cfg->enc_key.size() == AES_256_XTS_KEY_SIZE);
-                keys[i] = key_data + key_pos;
-                memcpy(key_data + key_pos, cfg->enc_key.data(), AES_256_XTS_KEY_SIZE);
-                key_pos += AES_256_XTS_KEY_SIZE;
-            }
-            else
-                keys[i] = NULL;
-        }
-        enc->key_chain = keys;
-        enc->chain_size = icache->chain.size();
-        enc->read_chain_bitmap_pos = pool_cfg.data_block_size/pool_cfg.bitmap_granularity/8;
-        enc->bitmap_granularity = pool_cfg.bitmap_granularity;
-        icache->key_data = key_data;
-        icache->op_enc = enc;
-    }
-    inode_cache[ino] = icache;
-    for (auto & parent: icache->chain)
-    {
-        if (parent != ino)
-            inode_cache_children.insert(std::make_pair(parent, ino));
-    }
-    return icache;
-}
-
 bool cluster_client_t::is_ready()
 {
     return pgs_loaded;
@@ -816,6 +680,10 @@ bool cluster_client_t::flush()
 {
     if (!ringloop)
     {
+        if (vault_loading)
+        {
+            return false;
+        }
         if (wb->writeback_queue.size())
         {
             wb->start_writebacks(this, 0);
@@ -838,7 +706,7 @@ bool cluster_client_t::flush()
         sync_done = true;
     };
     execute(sync);
-    while (!sync_done)
+    while (!sync_done || vault_loading)
     {
         ringloop->loop();
         if (!sync_done)
@@ -1175,6 +1043,21 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
                     break;
                 }
             }
+        }
+    }
+    if (icache && icache->err_code)
+    {
+        if (icache->err_code == EPERM)
+        {
+            op->retval = -EPERM;
+            auto cb = std::move(op->callback);
+            cb(op);
+            return false;
+        }
+        else if (icache->err_code == EAGAIN)
+        {
+            key_wait_ops.push_back(op);
+            return false;
         }
     }
     return true;

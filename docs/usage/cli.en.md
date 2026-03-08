@@ -135,6 +135,7 @@ Create an image. Options:
   If parent is not a snapshot, it must be a read-only image.
 * `--enc-key random` - Generate a new random AES-256-XTS encryption key for the new image.
 * `--enc-key HEX` - Set a specified AES-256-XTS key (64 bytes in hex) for the new image.
+* `--enc-key vault:ID` - Use an encryption key from an external Vault secret with specified ID.
 
 ```
 vitastor-cli create --snapshot <snapshot> [OPTIONS] <image>
@@ -147,7 +148,7 @@ Options:
 
 * `-p|--pool POOL` - Move image to pool POOL, leaving the snapshot in the old pool.
 * `--enc-key random` - Change image encryption key to a new random AES-256-XTS key.
-* `--enc-key HEX` - Change image encryption key to a specified key or to an empty key.
+* `--enc-key KEY` - Change image encryption key to a specified key, Vault key or to an empty key.
   By default, the image retains its old encryption key when taking a snapshot.
 
 See also about [how to export snapshots](qemu.en.md#exporting-snapshots).

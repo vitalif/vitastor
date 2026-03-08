@@ -51,6 +51,7 @@ add_library(vitastor_client SHARED
 	cluster_client_real.cpp
 	cluster_client_list.cpp
 	cluster_client_wb.cpp
+	cluster_client_icache.cpp
 	vitastor_c.cpp
 )
 set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "client/vitastor_c.h")
@@ -126,7 +127,9 @@ add_executable(test_cluster_client
 	cluster_client.cpp
 	cluster_client_list.cpp
 	cluster_client_wb.cpp
+	cluster_client_icache.cpp
 	../test/mock/messenger.cpp
+	../test/mock/vault.cpp
 	etcd_state_client_mock.cpp
 )
 target_link_libraries(test_cluster_client vitastor_common ${LIBURING_LIBRARIES})
