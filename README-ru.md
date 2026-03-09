@@ -62,6 +62,7 @@ Vitastor поддерживает QEMU-драйвер, протоколы UBLK, 
     - [Дисковые параметры OSD](docs/config/layout-osd.ru.md)
     - [Прочие параметры OSD](docs/config/osd.ru.md)
     - [Параметры мониторов](docs/config/monitor.ru.md)
+    - [Безопасность](docs/config/security.ru.md)
   - [Настройки пулов](docs/config/pool.ru.md)
   - [Метаданные образов в etcd](docs/config/inode.ru.md)
 - Использование
@@ -72,6 +73,7 @@ Vitastor поддерживает QEMU-драйвер, протоколы UBLK, 
   - [NBD](docs/usage/nbd.ru.md) - старый интерфейс для монтирования ядром
   - [QEMU, qemu-img и VDUSE](docs/usage/qemu.ru.md)
   - [NFS](docs/usage/nfs.ru.md) кластерная файловая система и псевдо-ФС прокси
+  - [Безопасность](docs/usage/security.ru.md)
   - [Администрирование](docs/usage/admin.ru.md)
 - Производительность
   - [Понимание сути производительности](docs/performance/understanding.ru.md)

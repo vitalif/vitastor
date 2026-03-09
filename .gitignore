@@ -3,3 +3,4 @@
 package-lock.json
 fio
 qemu
+node_modules

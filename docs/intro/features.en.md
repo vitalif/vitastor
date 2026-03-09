@@ -41,6 +41,8 @@
 - [Built-in Prometheus metric exporter](../config/monitor.en.md#enable_prometheus)
 - [NFS RDMA support](../usage/nfs.en.md#rdma) (probably also usable for GPUDirect)
 - [S3](../installation/s3.en.md)
+- [Full transport encryption and access control](../usage/security.en.md)
+- [AES-256-XTS end-to-end image encryption](../usage/security.en.md#end-to-end-image-data-encryption-aes-xts) with [Vault support](../usage/security.en.md#vaultopenbao-setup) for key storage
 
 ## Plugins and tools
 

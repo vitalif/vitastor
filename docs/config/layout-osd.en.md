@@ -198,8 +198,14 @@ put a modified value into etcd key /vitastor/config/global.
 - Type: string
 - Default: none
 
-Data checksum type to use. May be "crc32c" or "none". Set to "crc32c" to
-enable data checksums.
+Data and metadata checksum type to use. May be "crc32c", "xxh3_32" or "none".
+Select crc32c or xxh3_32 and set csum_block_size to enable data checksums.
+
+Both crc32c and xxh3_32 are almost equally fast, xxh3_32 is safer. xxh3_32 is
+the xxhash3 algorithm truncated from 64 to 32 bits (which is still a good hash).
+
+Note that enabled data checksums either increase memory usage or reduce
+performance. Check details in [csum_block_size](#csum_block_size) description.
 
 ## csum_block_size
 

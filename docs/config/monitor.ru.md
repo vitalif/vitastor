@@ -50,6 +50,9 @@ antietcd_data_file или antietcd_data_dir). Все остальные пара
 node_id, cluster, cluster_key, persist_filter, stale_read также можно задавать
 в конфигурации Vitastor с префиксом `antietcd_`.
 
+Смотрите также настройки [antietcd_cert](security.ru.md#antietcd_cert),
+[antietcd_key](security.ru.md#antietcd_key) и [etcd_proxy](security.ru.md#etcd_proxyurls).
+
 Вы можете выгружать/загружать данные в или из antietcd с помощью его инструмента
 `anticli`:
 

@@ -233,11 +233,21 @@
   type: string
   default: none
   info: |
-    Data checksum type to use. May be "crc32c" or "none". Set to "crc32c" to
-    enable data checksums.
+    Data and metadata checksum type to use. May be "crc32c", "xxh3_32" or "none".
+    Select crc32c or xxh3_32 and set csum_block_size to enable data checksums.
+
+    Both crc32c and xxh3_32 are almost equally fast, xxh3_32 is safer. xxh3_32 is
+    the xxhash3 algorithm truncated from 64 to 32 bits (which is still a good hash).
+
+    Note that enabled data checksums either increase memory usage or reduce
+    performance. Check details in [csum_block_size](#csum_block_size) description.
   info_ru: |
-    Тип используемых OSD контрольных сумм данных. Может быть "crc32c" или "none".
-    Установите в "crc32c", чтобы включить расчёт и проверку контрольных сумм данных.
+    Тип используемых OSD контрольных сумм данных и метаданных. Может быть "crc32c",
+    "xxh3_32" или "none". Выберите crc32c или xxh3_32 и установите csum_block_size,
+    чтобы включить контрольные суммы данных.
+
+    И crc32c, и xxh3_32 примерно одинаково быстры, xxh3_32 надёжней. xxh3_32 - это
+    алгоритм xxhash3, обрезанный с 64 до 32 бит (это всё равно хороший хеш).
 
     Следует понимать, что контрольные суммы в зависимости от размера блока их
     расчёта либо увеличивают потребление памяти, либо снижают производительность.

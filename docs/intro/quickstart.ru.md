@@ -41,25 +41,23 @@
 ## Настройте мониторы
 
 На хостах, выделенных под мониторы:
-- Пропишите одинаковые etcd_address в `/etc/vitastor/vitastor.conf`. Например:
+- Создайте минимальную конфигурацию в `/etc/vitastor/vitastor.conf`:
   ```
   {
-    "etcd_address": ["10.200.1.10:2379","10.200.1.11:2379","10.200.1.12:2379"]
+    "etcd_address": ["http://10.200.1.10:2379","http://10.200.1.11:2379","http://10.200.1.12:2379"],
+    "osd_network": "10.200.1.0/24",
+    "use_perms": false
   }
   ```
+- Обратите внимание, что с помощью схемы `https://` и опции `use_perms` можно включить шифрование.
+  [Подробно](security.ru.md#быстрая-настройка) о настройке шифрования через make-etcd.
 - Инициализируйте сервисы etcd, запустив `/usr/lib/vitastor/mon/make-etcd`.\
   Либо, если вы установили Vitastor в Docker, запустите `systemctl start vitastor-host; docker exec vitastor make-etcd`.
 - Запустите etcd и мониторы: `systemctl enable --now vitastor-etcd vitastor-mon`
 
 ## Настройте OSD
 
-- Пропишите etcd_address и [osd_network](../config/network.ru.md#osd_network) в `/etc/vitastor/vitastor.conf`. Например:
-  ```
-  {
-    "etcd_address": ["10.200.1.10:2379","10.200.1.11:2379","10.200.1.12:2379"],
-    "osd_network": "10.200.1.0/24"
-  }
-  ```
+- Создайте/скопируйте с узлов с мониторами файл конфигурации `/etc/vitastor/vitastor.conf`.
 - Инициализуйте OSD:
   - Только SSD или только HDD: `vitastor-disk prepare /dev/sdXXX [/dev/sdYYY ...]`.
     Если вы используете десктопные SSD без конденсаторов, добавьте опцию `--disable_data_fsync off`,

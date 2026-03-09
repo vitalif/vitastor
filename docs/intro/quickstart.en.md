@@ -41,12 +41,16 @@
 ## Configure monitors
 
 On the monitor hosts:
-- Put identical etcd_address into `/etc/vitastor/vitastor.conf`. Example:
+- Create minimal configuration in `/etc/vitastor/vitastor.conf`:
   ```
   {
-    "etcd_address": ["10.200.1.10:2379","10.200.1.11:2379","10.200.1.12:2379"]
+    "etcd_address": ["http://10.200.1.10:2379","http://10.200.1.11:2379","http://10.200.1.12:2379"],
+    "osd_network": "10.200.1.0/24",
+    "use_perms": false
   }
   ```
+- Note that you can enable encryption by using `https://` and `use_perms` option.
+  [Details](security.en.md#quick-setup) about encryption setup with make-etcd.
 - Create systemd units for etcd by running: `/usr/lib/vitastor/mon/make-etcd`
   Or, if you installed Vitastor in Docker, run `systemctl start vitastor-host; docker exec vitastor make-etcd`.
 - Start etcd and monitors: `systemctl enable --now vitastor-etcd vitastor-mon`

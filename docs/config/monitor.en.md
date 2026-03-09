@@ -50,6 +50,9 @@ or antietcd_data_dir options). All other antietcd parameters
 cluster, cluster_key, persist_filter, stale_read can also be set in
 Vitastor configuration with `antietcd_` prefix.
 
+See also: [antietcd_cert](security.en.md#antietcd_cert),
+[antietcd_key](security.en.md#antietcd_key) and [etcd_proxy](security.en.md#etcd_proxyurls).
+
 You can dump/load data to or from antietcd using Antietcd `anticli` tool:
 
 ```

@@ -43,6 +43,8 @@
 - [Встроенный Prometheus-экспортер метрик](../config/monitor.ru.md#enable_prometheus)
 - [Поддержка NFS RDMA](../usage/nfs.ru.md#rdma) (вероятно, также подходящая для GPUDirect)
 - [S3](../installation/s3.ru.md)
+- [Полное транспортное шифрование и контроль доступа](../usage/security.ru.md)
+- [AES-256-XTS сквозное шифрование данных](../usage/security.ru.md#сквозное-шифрование-данных-образов-aes-xts) с [поддержкой Vault](../usage/security.ru.md#настройка-vaultopenbao) для хранения ключей
 
 ## Драйверы и инструменты
 

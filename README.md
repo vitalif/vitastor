@@ -62,6 +62,7 @@ Read more details in the documentation. You can start from here: [Quick Start](d
     - [OSD Disk Layout](docs/config/layout-osd.en.md)
     - [OSD Runtime Parameters](docs/config/osd.en.md)
     - [Monitor](docs/config/monitor.en.md)
+    - [Security](docs/config/security.en.md)
   - [Pool configuration](docs/config/pool.en.md)
   - [Image metadata in etcd](docs/config/inode.en.md)
 - Usage
@@ -72,6 +73,7 @@ Read more details in the documentation. You can start from here: [Quick Start](d
   - [NBD](docs/usage/nbd.en.md) - old interface for kernel mounts
   - [QEMU, qemu-img and VDUSE](docs/usage/qemu.en.md)
   - [NFS](docs/usage/nfs.en.md) clustered file system and pseudo-FS proxy
+  - [Security](docs/usage/security.en.md)
   - [Administration](docs/usage/admin.en.md)
 - Performance
   - [Understanding storage performance](docs/performance/understanding.en.md)

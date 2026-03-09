@@ -21,6 +21,9 @@
     cluster, cluster_key, persist_filter, stale_read can also be set in
     Vitastor configuration with `antietcd_` prefix.
 
+    See also: [antietcd_cert](security.en.md#antietcd_cert),
+    [antietcd_key](security.en.md#antietcd_key) and [etcd_proxy](security.en.md#etcd_proxyurls).
+
     You can dump/load data to or from antietcd using Antietcd `anticli` tool:
 
     ```
@@ -46,6 +49,9 @@
     (смотрите [по ссылке](https://git.yourcmc.ru/vitalif/antietcd/)), за исключением
     node_id, cluster, cluster_key, persist_filter, stale_read также можно задавать
     в конфигурации Vitastor с префиксом `antietcd_`.
+
+    Смотрите также настройки [antietcd_cert](security.ru.md#antietcd_cert),
+    [antietcd_key](security.ru.md#antietcd_key) и [etcd_proxy](security.ru.md#etcd_proxyurls).
 
     Вы можете выгружать/загружать данные в или из antietcd с помощью его инструмента
     `anticli`:

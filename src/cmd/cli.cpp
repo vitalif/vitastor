@@ -254,7 +254,7 @@ static const char* help_text =
     "\n"
     "vitastor-cli modify-user --type <type> --groups group1,group2,... <username>\n"
     "  Create or update user permissions. User names match CN of their certificates.\n"
-    "  --type TYPE      Set user type: client, admin, mon or osd. Default is client.\n"
+    "  --type TYPE      Set user type: client or admin. Default is client.\n"
     "  --groups GROUPS  Set user's groups.\n"
     "\n"
     "vitastor-cli rm-user|remove-user|delete-user <username>\n"

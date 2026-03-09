@@ -38,3 +38,4 @@ In the future, additional configuration methods may be added:
 - [OSD Disk Layout](config/layout-osd.en.md)
 - [OSD Runtime Parameters](config/osd.en.md)
 - [Monitor](config/monitor.en.md)
+- [Security Parameters](config/security.en.md)

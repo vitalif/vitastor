@@ -44,6 +44,8 @@
 
 {{../../config/monitor.en.md|indent=2}}
 
+{{../../config/security.en.md|indent=2}}
+
 {{../../config/pool.en.md|indent=2}}
 
 {{../../config/inode.en.md|indent=2}}
@@ -63,6 +65,8 @@
 {{../../usage/qemu.en.md}}
 
 {{../../usage/nfs.en.md}}
+
+{{../../usage/security.en.md}}
 
 {{../../usage/admin.en.md}}
 

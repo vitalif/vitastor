@@ -44,6 +44,8 @@
 
 {{../../config/monitor.ru.md|indent=2}}
 
+{{../../config/security.ru.md|indent=2}}
+
 {{../../config/pool.ru.md|indent=2}}
 
 {{../../config/inode.ru.md|indent=2}}
@@ -63,6 +65,8 @@
 {{../../usage/qemu.ru.md}}
 
 {{../../usage/nfs.ru.md}}
+
+{{../../usage/security.ru.md}}
 
 {{../../usage/admin.ru.md}}
 

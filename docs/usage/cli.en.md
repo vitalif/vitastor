@@ -33,6 +33,11 @@ It supports the following commands:
 - [modify-pool](#modify-pool)
 - [ls-pools](#ls-pools)
 - [rm-pool](#rm-pool)
+- [ls-user](#ls-user)
+- [modify-user](#modify-user)
+- [rm-user](#rm-user)
+- [serve](#serve)
+- [cpubench](#cpubench)
 
 Global options:
 
@@ -107,6 +112,7 @@ Options:
 --sort FIELD    Sort by specified field (name, size, used_size, <read|write|delete>_<iops|bps|lat|queue>)
 -r|--reverse    Sort in descending order
 -n|--count N    Only list first N items
+--ids ID1,ID2   Only list images with specified full IDs
 --tree          Show image snapshot/clone tree
 ```
 
@@ -136,6 +142,10 @@ Create an image. Options:
 * `--enc-key random` - Generate a new random AES-256-XTS encryption key for the new image.
 * `--enc-key HEX` - Set a specified AES-256-XTS key (64 bytes in hex) for the new image.
 * `--enc-key vault:ID` - Use an encryption key from an external Vault secret with specified ID.
+* `--owner USERNAME` - Set image owner. The default owner is the current user taken from the
+  CN of the TLS certificate used to connect to the cluster.
+* `--owner-group NAME` - Set image owner group. Users in this group get full access to the image.
+* `--reader-group NAME` - Set image reader group. Users in this group get read-only access to the image.
 
 ```
 vitastor-cli create --snapshot <snapshot> [OPTIONS] <image>
@@ -165,6 +175,9 @@ You should resize file system in the image, if present, before shrinking it.
 * `-f|--force` - Proceed with shrinking or setting readwrite flag even if the image has children.
 * `--down-ok` - Proceed with shrinking even if some data will be left on unavailable OSDs.
 * `--enc-key HEX` - Change image encryption key (allowed only with `--force`).
+* `--owner USERNAME` - Change image owner.
+* `--owner-group NAME` - Change image owner group name.
+* `--reader-group NAME` - Change image reader group name.
 
 ## dd
 
@@ -420,6 +433,7 @@ Optional parameters:
 | `--used_for_app s3:<name>`     | Mark pool as used for S3 location with name `<name>`                       |
 | `--pg_stripe_size <number>`    | Increase object grouping stripe                                            |
 | `--max_osd_combinations 10000` | Maximum number of random combinations for LP solver input                  |
+| `--creator_group <group>`      | User group allowed to create images in this pool                           |
 | `--wait`                       | Wait for the new pool to come online                                       |
 | `-f` or `--force`              | Do not check that cluster has enough OSDs to create the pool               |
 
@@ -439,8 +453,9 @@ Modify an existing pool. Modifiable parameters:
 
 ```
 [-s|--pg_size <number>] [--pg_minsize <number>] [-n|--pg_count <count>]
-[--failure_domain <level>] [--root_node <node>] [--osd_tags <tags>] [--no_inode_stats 0|1]
+[--failure_domain <level>] [--root_node <node>] [--osd_tags <tags>] [--used_for_app <type>:<name>]
 [--max_osd_combinations <number>] [--primary_affinity_tags <tags>] [--scrub_interval <time>]
+[--level_placement <rules>] [--raw_placement <rules>] [--creator_group <group>]
 ```
 
 Non-modifiable parameters (changing them WILL lead to data loss):
@@ -468,7 +483,7 @@ Remove a pool. Refuses to remove pools with images without `--force`.
 
 ## ls-pools
 
-`vitastor-cli ls-pools|pool-ls|ls-pool|pools [-l] [--detail] [--sort FIELD] [-r] [-n N] [--stats] [<glob> ...]`
+`vitastor-cli ls-pools|pool-ls|ls-pool|pools [-l] [--detail] [--sort FIELD] [-r] [-n N] [<glob> ...]`
 
 List pools (only matching <glob> patterns if passed).
 
@@ -479,3 +494,78 @@ List pools (only matching <glob> patterns if passed).
 | `--sort FIELD`       | Sort by specified field (see fields in --json output) |
 | `-r` or `--reverse`  | Sort in descending order                              |
 | `-n` or `--count N`  | Only list first N items                               |
+
+## ls-user
+
+`vitastor-cli ls-users|user-ls|ls-user|list-users [<name> ...]`
+
+List users. If names are passed, only list users with those names. User names must
+match CN (Common Name) of TLS client certificates used to connect to the cluster.
+
+See [Users and access rights](security.en.md#users-and-access-rights) for details on
+the Vitastor authorization model.
+
+## modify-user
+
+`vitastor-cli modify-user --type <type> --groups <group1,group2,...> <username>`
+
+Create or update a user with the given name (matching TLS certificate CN).
+
+Options:
+
+* `--type TYPE` - Set user type: `client` or `admin`. Default is `client`.
+  Administrators (`admin`) have full access to all cluster operations; clients (`client`)
+  have limited access based on ownership and group membership of images.
+* `--groups GROUPS` - Set user's groups (comma-separated). Groups are used together with
+  `--owner-group` / `--reader-group` fields of images and `--creator_group` of the pool to
+  authorize operations. Pass an empty string to clear the groups.
+
+## rm-user
+
+`vitastor-cli rm-user|remove-user|delete-user <username>`
+
+Remove a user.
+
+## serve
+
+`vitastor-cli serve`
+
+Start an HTTP server that handles vitastor-cli commands over a REST API in JSON format.
+
+Options:
+
+| <!-- -->             | <!-- -->                                                                    |
+|----------------------|-----------------------------------------------------------------------------|
+| `--bind_address ADDR` | Server IP address(es), separated by space. Default is `127.0.0.1`.         |
+| `--port 8080`         | Server port. Default is `8080`.                                            |
+| `--api_cert FILE`     | Path to server TLS certificate file (PEM format). Required for HTTPS.      |
+| `--api_pkey FILE`     | Path to server TLS private key file (PEM format). Required for HTTPS.      |
+| `--client_ca FILE`    | Path to file with TLS CA certificates used to validate client connections. |
+
+When `api_cert`/`api_pkey` are set the server operates in HTTPS mode. If `client_ca`
+is also set, connecting clients are authenticated by their TLS certificates.
+When [use_perms](../config/security.en.md#use_perms) is enabled, HTTPS with client
+authentication is mandatory and per-user permissions are enforced.
+
+The vitastor-cli process itself must be authenticated as an admin user (its own client
+`cert`/`pkey` must belong to a user of `type=admin`) to be able to serve requests.
+For regular clients the server only allows operations on images that the user owns
+or has group access to; all other operations require administrator rights.
+
+`vitastor-cli serve` exposes a full OpenAPI specification at `/openapi` endpoint.
+Start the server and check it out for the information about available API methods.
+
+See also [Security in Vitastor](security.en.md) for the full picture of how authentication
+and authorization work.
+
+## cpubench
+
+`vitastor-cli cpubench [--json]`
+
+Run CPU crypto performance tests: AES-256-GCM, AES-256-XTS and xxhash3. This benchmark
+does not connect to the cluster — it only measures encryption/hashing speed locally.
+
+Specify `--json` to get the output as machine-readable JSON.
+
+See [Encryption performance](security.en.md#encryption-performance) for example results
+on modern and older CPUs.

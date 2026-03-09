@@ -64,7 +64,7 @@ for (const file of params_files)
         let out = '\n';
         for (const c of cfg)
         {
-            out += `\n- [${c.name}](#${c.name})`;
+            out += `\n- [${c.name}](#${c.name.replace(/\./g, '')})`;
         }
         for (const c of cfg)
         {

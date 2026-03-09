@@ -41,3 +41,4 @@
 - [Дисковые параметры OSD](config/layout-osd.ru.md)
 - [Прочие параметры OSD](config/osd.ru.md)
 - [Параметры мониторов](config/monitor.ru.md)
+- [Параметры безопасности](config/security.ru.md)
