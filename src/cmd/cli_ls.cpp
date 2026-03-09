@@ -59,28 +59,7 @@ struct image_lister_t
             {
                 continue;
             }
-            auto pool_it = parent->cli->st_cli->pool_config.find(INODE_POOL(ic.second.num));
-            bool good_pool = pool_it != parent->cli->st_cli->pool_config.end();
-            auto item = json11::Json::object {
-                { "name", ic.second.name },
-                { "size", ic.second.size },
-                { "readonly", ic.second.readonly },
-                { "pool_id", (uint64_t)INODE_POOL(ic.second.num) },
-                { "pool_name", good_pool ? pool_it->second.name : "? (ID:"+std::to_string(INODE_POOL(ic.second.num))+")" },
-                { "inode_num", INODE_NO_POOL(ic.second.num) },
-                { "inode_id", ic.second.num },
-                { "deleted", ic.second.deleted },
-            };
-            if (ic.second.parent_id)
-            {
-                auto p_it = parent->cli->st_cli->inode_config.find(ic.second.parent_id);
-                item["parent_name"] = p_it != parent->cli->st_cli->inode_config.end()
-                    ? p_it->second.name : "";
-                item["parent_pool_id"] = (uint64_t)INODE_POOL(ic.second.parent_id);
-                item["parent_inode_num"] = INODE_NO_POOL(ic.second.parent_id);
-                item["parent_inode_id"] = ic.second.parent_id;
-            }
-            stats[ic.second.num] = item;
+            stats[ic.second.num] = parent->format_image(ic.second);
         }
     }
 
@@ -384,7 +363,7 @@ resume_1:
             }
         }
         cols.push_back(json11::Json::object{
-            { "key", "ro" },
+            { "key", "flags" },
             { "title", "FLAGS" },
             { "right", true },
         });
@@ -412,8 +391,14 @@ resume_1:
                 kv.second["delete_q"] = format_q(kv.second["delete_queue"].number_value());
             }
             kv.second["size_fmt"] = format_size(kv.second["size"].uint64_value());
-            kv.second["ro"] = kv.second["deleted"].bool_value() ? "DEL" :
-                (kv.second["readonly"].bool_value() ? "RO" : "-");
+            std::string flags;
+            if (kv.second["deleted"].bool_value())
+                flags += "DEL";
+            if (kv.second["readonly"].bool_value())
+                flags += (flags.empty() ? "RO" : ",RO");
+            if (kv.second["encrypted"].bool_value())
+                flags += (flags.empty() ? "ENC" : ",ENC");
+            kv.second["flags"] = flags;
         }
         result.text = print_table(tree ? to_tree(to_list()) : to_list(), cols, parent->color);
         state = 100;

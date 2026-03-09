@@ -739,7 +739,9 @@
                     "size": { "type": "integer", "format": "uint64", "description": "Image size in bytes" },
                     "used_size": { "type": "integer", "format": "uint64", "description": "Used space in bytes" },
                     "readonly": { "type": "boolean", "description": "Readonly flag" },
-                    "deleted": { "type": "boolean", "description": "Deleted flag" }
+                    "deleted": { "type": "boolean", "description": "Deleted flag" },
+                    "encrypted": { "type": "boolean", "description": "Encrypted flag" },
+                    "enc_key_id": { "type": "boolean", "description": "Vault key ID" }
                 }
             },
             "ImageList": {

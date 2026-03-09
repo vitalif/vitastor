@@ -202,27 +202,7 @@ resume_3:
         // Save into inode_config for library users to be able to take it from there immediately
         new_cfg.mod_revision = parent->etcd_result["header"]["revision"].uint64_value();
         parent->cli->st_cli->insert_inode_config(new_cfg);
-        auto img = json11::Json::object {
-            { "inode_id", INODE_WITH_POOL(new_pool_id, new_id) },
-            { "inode_num", new_id },
-            { "name", image_name },
-            { "pool_id", (uint64_t)new_pool_id },
-            { "size", size },
-        };
-        {
-            auto new_pool_it = parent->cli->st_cli->pool_config.find(new_pool_id);
-            if (new_pool_it != parent->cli->st_cli->pool_config.end())
-            {
-                img["pool_name"] = new_pool_it->second.name;
-            }
-        }
-        if (new_parent_id)
-        {
-            img["parent_name"] = new_parent;
-            img["parent_inode_id"] = new_parent_id;
-            img["parent_inode_num"] = INODE_NO_POOL(new_parent_id);
-            img["parent_pool_id"] = (uint64_t)INODE_POOL(new_parent_id);
-        }
+        auto img = parent->format_image(new_cfg);
         result = (cli_result_t){
             .err = 0,
             .text = "Image "+image_name+" created",

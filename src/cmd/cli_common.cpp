@@ -6,6 +6,41 @@
 #include "cluster_client.h"
 #include "cli.h"
 
+json11::Json::object cli_tool_t::format_image(const inode_config_t & cfg)
+{
+    auto pool_it = cli->st_cli->pool_config.find(INODE_POOL(cfg.num));
+    bool good_pool = pool_it != cli->st_cli->pool_config.end();
+    auto img = json11::Json::object {
+        { "name", cfg.name },
+        { "size", cfg.size },
+        { "inode_id", cfg.num },
+        { "inode_num", INODE_NO_POOL(cfg.num) },
+        { "pool_id", (uint64_t)INODE_POOL(cfg.num) },
+        { "pool_name", good_pool ? pool_it->second.name : "? (ID:"+std::to_string(INODE_POOL(cfg.num))+")" },
+        { "readonly", cfg.readonly },
+        { "deleted", cfg.deleted },
+    };
+    if (!cfg.enc_key.empty())
+    {
+        img["encrypted"] = true;
+        // Only show Vault key IDs
+        if (cfg.enc_key.substr(0, strlen(VAULT_KEY_PREFIX)) == VAULT_KEY_PREFIX)
+            img["enc_key_id"] = cfg.enc_key;
+    }
+    if (cfg.parent_id)
+    {
+        auto parent_it = cli->st_cli->inode_config.find(cfg.parent_id);
+        if (parent_it != cli->st_cli->inode_config.end())
+        {
+            img["parent_name"] = parent_it->second.name;
+        }
+        img["parent_inode_id"] = cfg.parent_id;
+        img["parent_inode_num"] = INODE_NO_POOL(cfg.parent_id);
+        img["parent_pool_id"] = (uint64_t)INODE_POOL(cfg.parent_id);
+    }
+    return img;
+}
+
 void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *result)
 {
     auto cur_cfg_it = cli->st_cli->inode_config.find(cur);

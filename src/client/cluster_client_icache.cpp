@@ -94,6 +94,7 @@ std::shared_ptr<inode_cache_t> cluster_client_t::inode_cache_get(inode_t ino)
     icache->readonly = inode_cfg.readonly;
     icache->chain.push_back(ino);
     std::vector<inode_config_t*> chain_cfg;
+    // FIXME: Allow unencrypted read & write when all chain is encrypted with the same key
     int enc_key_count = !inode_cfg.enc_key.empty() ? 1 : 0;
     if (inode_cfg.parent_id)
     {
