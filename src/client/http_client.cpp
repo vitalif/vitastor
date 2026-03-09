@@ -162,6 +162,71 @@ void http_ares_cb(void *data, ares_socket_t socket_fd, int readable, int writabl
     });
 }
 
+#ifdef WITH_OPENSSL
+bool openssl_ctx_use_ca(SSL_CTX *ssl_ctx, const std::string & file_or_pem)
+{
+    if (file_or_pem.substr(0, 5) == "-----")
+    {
+        BIO *bio = BIO_new_mem_buf(file_or_pem.data(), file_or_pem.size());
+        if (!bio)
+            return false;
+        X509 *x509 = PEM_read_bio_X509(bio, NULL, 0, NULL);
+        bool ok = !!x509;
+        if (x509)
+        {
+            X509_STORE *store = SSL_CTX_get_cert_store(ssl_ctx);
+            X509_STORE_add_cert(store, x509);
+            X509_free(x509);
+        }
+        BIO_free(bio);
+        return ok;
+    }
+    return file_or_pem.empty()
+        ? !!SSL_CTX_set_default_verify_paths(ssl_ctx)
+        : !!SSL_CTX_load_verify_locations(ssl_ctx, file_or_pem.c_str(), NULL);
+}
+
+bool openssl_ctx_use_cert(SSL_CTX *ssl_ctx, const std::string & file_or_pem)
+{
+    if (file_or_pem.substr(0, 5) == "-----")
+    {
+        BIO *bio = BIO_new_mem_buf(file_or_pem.data(), file_or_pem.size());
+        if (!bio)
+            return false;
+        X509 *x509 = PEM_read_bio_X509(bio, NULL, 0, NULL);
+        bool ok = !!x509;
+        if (x509)
+        {
+            ok = SSL_CTX_use_certificate(ssl_ctx, x509);
+            X509_free(x509);
+        }
+        BIO_free(bio);
+        return ok;
+    }
+    return !!SSL_CTX_use_certificate_file(ssl_ctx, file_or_pem.c_str(), SSL_FILETYPE_PEM);
+}
+
+bool openssl_ctx_use_key(SSL_CTX *ssl_ctx, const std::string & file_or_pem)
+{
+    if (file_or_pem.substr(0, 5) == "-----")
+    {
+        BIO *bio = BIO_new_mem_buf(file_or_pem.data(), file_or_pem.size());
+        if (!bio)
+            return false;
+        EVP_PKEY *pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
+        bool ok = !!pkey;
+        if (pkey)
+        {
+            ok = SSL_CTX_use_PrivateKey(ssl_ctx, pkey);
+            EVP_PKEY_free(pkey);
+        }
+        BIO_free(bio);
+        return ok;
+    }
+    return !!SSL_CTX_use_PrivateKey_file(ssl_ctx, file_or_pem.c_str(), SSL_FILETYPE_PEM);
+}
+#endif
+
 http_context_t* http_context_init(timerfd_manager_t *tfd, const std::string & ssl_cert, const std::string & ssl_key,
     const std::string & ssl_ca, bool verify_peer, std::string & error)
 {
@@ -183,13 +248,11 @@ http_context_t* http_context_init(timerfd_manager_t *tfd, const std::string & ss
     SSL_CTX_set_verify(ssl_ctx, verify_peer ? SSL_VERIFY_PEER : SSL_VERIFY_NONE, NULL);
     if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
         goto init_err;
-    if ((ssl_ca != "")
-        ? !SSL_CTX_load_verify_locations(ssl_ctx, ssl_ca.c_str(), NULL)
-        : !SSL_CTX_set_default_verify_paths(ssl_ctx))
+    if (!openssl_ctx_use_ca(ssl_ctx, ssl_ca))
         goto init_err;
     if (ssl_cert != "" && ssl_key != "" &&
-        (!SSL_CTX_use_certificate_file(ssl_ctx, ssl_cert.c_str(), SSL_FILETYPE_PEM) ||
-        !SSL_CTX_use_PrivateKey_file(ssl_ctx, ssl_key.c_str(), SSL_FILETYPE_PEM)))
+        (!openssl_ctx_use_cert(ssl_ctx, ssl_cert) ||
+        !openssl_ctx_use_key(ssl_ctx, ssl_key)))
         goto init_err;
 #endif
     return ctx;

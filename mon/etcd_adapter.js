@@ -24,11 +24,23 @@ class EtcdAdapter
     {
         this.parse_etcd_addresses(config.etcd_address||config.etcd_url);
         if (config.mon_etcd_client_cert || config.etcd_client_cert)
-            this.opts.cert = fs.readFileSync(config.mon_etcd_client_cert || config.etcd_client_cert, { encoding: 'utf-8' });
+        {
+            this.opts.cert = config.mon_etcd_client_cert || config.etcd_client_cert;
+            if (this.opts.cert.substr(0, 5) != '-----')
+                this.opts.cert = fs.readFileSync(this.opts.cert, { encoding: 'utf-8' });
+        }
         if (config.mon_etcd_client_key || config.etcd_client_key)
-            this.opts.key = fs.readFileSync(config.mon_etcd_client_key || config.etcd_client_key, { encoding: 'utf-8' });
+        {
+            this.opts.key = config.mon_etcd_client_key || config.etcd_client_key;
+            if (this.opts.key.substr(0, 5) != '-----')
+                this.opts.key = fs.readFileSync(this.opts.key, { encoding: 'utf-8' });
+        }
         if (config.etcd_ca)
-            this.opts.ca = fs.readFileSync(config.etcd_ca, { encoding: 'utf-8' });
+        {
+            this.opts.ca = config.etcd_ca;
+            if (this.opts.ca.substr(0, 5) != '-----')
+                this.opts.ca = fs.readFileSync(this.opts.ca, { encoding: 'utf-8' });
+        }
     }
 
     parse_etcd_addresses(addrs)

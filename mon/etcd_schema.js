@@ -48,6 +48,10 @@ const etcd_tree = {
             etcd_address: "http://10.0.115.10:2379/v3",
             etcd_client_cert: "",
             etcd_client_key: "",
+            osd_etcd_client_cert: "",
+            osd_etcd_client_key: "",
+            mon_etcd_client_cert: "",
+            mon_etcd_client_key: "",
             etcd_ca: "",
             // mon
             etcd_mon_ttl: 5, // min: 1
