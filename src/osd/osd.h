@@ -328,8 +328,8 @@ class osd_t
     void exec_show_config(osd_op_t *cur_op);
     void exec_secondary(osd_op_t *cur_op);
     void exec_secondary_real(osd_op_t *cur_op);
-    void exec_sec_read_bmp(osd_op_t *cur_op);
-    void exec_sec_lock(osd_op_t *cur_op);
+    void exec_sec_read_bmp(osd_op_t *cur_op, osd_client_t *cl);
+    void exec_sec_lock(osd_op_t *cur_op, osd_client_t *cl);
     void secondary_op_callback(osd_op_t *cur_op);
 
     // primary ops
