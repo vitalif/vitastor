@@ -30,8 +30,33 @@ Vitastor можно установить в Docker/Podman. При этом etcd,
    `docker run --rm -it -v /etc:/host-etc -v /usr/bin:/host-bin vitalif/vitastor:v3.0.5 install.sh`
 3. Перезагрузите правила udev: \
    `udevadm control --reload-rules`
+4. Включите сервис vitastor-host: \
+   `systemctl enable --now vitastor-host`
 
 После этого вы можете возвращаться к разделу [Быстрый старт](../intro/quickstart.ru.md).
+
+## Podman
+
+Если вы используете Podman, перед установкой контейнеров Vitastor выполните следующие
+команды от имени суперпользователя:
+
+```
+ln -s podman /usr/bin/docker
+
+mkdir -p /etc/systemd/system/systemd-udevd.service.d
+
+cat >/etc/systemd/system/systemd-udevd.service.d/override.conf <<EOF
+[Service]
+CapabilityBoundingSet=~
+SystemCallFilter=@mount capset
+EOF
+
+systemctl daemon-reload
+
+systemctl restart systemd-udevd
+```
+
+Без этих настроек udev не может делать вызовы внутрь Podman-контейнеров и определение дисков Vitastor не работает.
 
 ## Обновление контейнеров
 

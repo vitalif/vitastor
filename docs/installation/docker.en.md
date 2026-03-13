@@ -31,8 +31,32 @@ The instruction is very simple.
    `docker run --rm -it -v /etc:/host-etc -v /usr/bin:/host-bin vitalif/vitastor:v3.0.5 install.sh`
 3. Reload udev rules: \
    `udevadm control --reload-rules`
+4. Enable the vitastor-host service: \
+   `systemctl enable --now vitastor-host`
 
-And you can return to [Quick Start](../intro/quickstart.en.md).
+After these steps, you can return to [Quick Start](../intro/quickstart.en.md).
+
+## Podman
+
+If you use Podman, run the following commands as root before installing Vitastor containers:
+
+```
+ln -s podman /usr/bin/docker
+
+mkdir -p /etc/systemd/system/systemd-udevd.service.d
+
+cat >/etc/systemd/system/systemd-udevd.service.d/override.conf <<EOF
+[Service]
+CapabilityBoundingSet=~
+SystemCallFilter=@mount capset
+EOF
+
+systemctl daemon-reload
+
+systemctl restart systemd-udevd
+```
+
+Without it, udev fails to do calls into a Podman container and Vitastor disk detection doesn't work.
 
 ## Upgrading Containers
 
