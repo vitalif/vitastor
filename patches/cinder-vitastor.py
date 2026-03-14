@@ -275,7 +275,7 @@ class VitastorDriver(driver.CloneableImageVD,
             LOG.exception('error getting vitastor pool stats: '+str(e))
 
         self._stats = stats
-        
+
     def get_volume_stats(self, refresh=False):
         """Get volume stats.
         If 'refresh' is True, run update the stats first.
@@ -291,6 +291,14 @@ class VitastorDriver(driver.CloneableImageVD,
         else:
             return (1 + resp['kvs'][0]['value'], resp['kvs'][0]['mod_revision'])
 
+    def _cli(self, descr, *args):
+        args = [ 'vitastor-cli', *args, *(self._vitastor_args()) ]
+        try:
+            self._execute(*args)
+        except processutils.ProcessExecutionError as exc:
+            LOG.error("Failed to "+descr+": "+exc)
+            raise exception.VolumeBackendAPIException(data = exc.stderr)
+
     def create_volume(self, volume):
         """Creates a logical volume."""
 
@@ -302,7 +310,7 @@ class VitastorDriver(driver.CloneableImageVD,
 
         LOG.debug("creating volume '%s'", vol_name)
 
-        self._create_image(vol_name, { 'size': size })
+        self._cli('create volume', 'create', vol_name, '--size', size)
 
         if volume.encryption_key_id:
             self._create_encrypted_volume(volume, volume.obj_context)
@@ -346,7 +354,7 @@ class VitastorDriver(driver.CloneableImageVD,
         snap_name = utils.convert_str(snapshot.name)
         if snap_name.find('@') >= 0 or snap_name.find('/') >= 0:
             raise exception.VolumeBackendAPIException(data = '@ and / are forbidden in volume and snapshot names')
-        self._create_snapshot(vol_name, vol_name+'@'+snap_name)
+        self._cli('create snapshot', 'snap-create', vol_name+'@'+snap_name)
 
     def snapshot_revert_use_temp_snapshot(self):
         """Disable the use of a temporary snapshot on revert."""
@@ -359,21 +367,8 @@ class VitastorDriver(driver.CloneableImageVD,
         snap_name = utils.convert_str(snapshot.name)
 
         # Delete the image and recreate it from the snapshot
-        args = [ 'vitastor-cli', 'rm', vol_name, *(self._vitastor_args()) ]
-        try:
-            self._execute(*args)
-        except processutils.ProcessExecutionError as exc:
-            LOG.error("Failed to delete image "+vol_name+": "+exc)
-            raise exception.VolumeBackendAPIException(data = exc.stderr)
-        args = [
-            'vitastor-cli', 'create', '--parent', vol_name+'@'+snap_name,
-            vol_name, *(self._vitastor_args())
-        ]
-        try:
-            self._execute(*args)
-        except processutils.ProcessExecutionError as exc:
-            LOG.error("Failed to recreate image "+vol_name+" from "+vol_name+"@"+snap_name+": "+exc)
-            raise exception.VolumeBackendAPIException(data = exc.stderr)
+        self._cli('delete image', 'rm', vol_name)
+        self._cli('recreate image', 'create', '--parent', vol_name+'@'+snap_name, vol_name)
 
     def delete_snapshot(self, snapshot):
         """Deletes a snapshot."""
@@ -381,15 +376,7 @@ class VitastorDriver(driver.CloneableImageVD,
         vol_name = utils.convert_str(snapshot.volume_name)
         snap_name = utils.convert_str(snapshot.name)
 
-        args = [
-            'vitastor-cli', 'rm', vol_name+'@'+snap_name,
-            *(self._vitastor_args())
-        ]
-        try:
-            self._execute(*args)
-        except processutils.ProcessExecutionError as exc:
-            LOG.error("Failed to remove snapshot "+vol_name+'@'+snap_name+": "+exc)
-            raise exception.VolumeBackendAPIException(data = exc.stderr)
+        self._cli('remove snapshot', 'rm', vol_name+'@'+snap_name)
 
     def _child_count(self, parents):
         children = 0
@@ -427,13 +414,7 @@ class VitastorDriver(driver.CloneableImageVD,
         if src_vref.admin_metadata.get('readonly') == 'True':
             # source volume is a volume-image cache entry or other readonly volume
             # clone without intermediate snapshot
-            src = self._get_image(src_name)
-            LOG.debug("creating image '%s' from '%s'", dest_name, src_name)
-            new_cfg = self._create_image(dest_name, {
-                'size': size,
-                'parent_id': src['idx']['id'],
-                'parent_pool_id': src['idx']['pool_id'],
-            })
+            self._cli('create clone', 'create', '--parent', src_name, '--size', size, dest_name)
             return {}
 
         clone_snap = "%s@%s.clone_snap" % (src_name, dest_name)
@@ -446,15 +427,12 @@ class VitastorDriver(driver.CloneableImageVD,
             clone_snap = dest_name
             make_img = False
 
-        LOG.debug("creating layer '%s' under '%s'", clone_snap, src_name)
-        new_cfg = self._create_snapshot(src_name, clone_snap, True)
+        LOG.debug("creating snapshot '%s'", clone_snap)
+        self._cli('create base snapshot', 'snap-create', '--allow-existing', '1', clone_snap)
+
         if make_img:
             # Then create a clone from it
-            new_cfg = self._create_image(dest_name, {
-                'size': size,
-                'parent_id': new_cfg['parent_id'],
-                'parent_pool_id': new_cfg['parent_pool_id'],
-            })
+            self._cli('create clone', 'create', '--parent', clone_snap, '--size', size, dest_name)
 
         return {}
 
@@ -464,7 +442,8 @@ class VitastorDriver(driver.CloneableImageVD,
         vol_name = utils.convert_str(volume.name)
         snap_name = utils.convert_str(snapshot.name)
 
-        snap = self._get_image('volume-'+snapshot.volume_id+'@'+snap_name)
+        src_snap = 'volume-'+snapshot.volume_id+'@'+snap_name
+        snap = self._get_image(src_snap)
         if not snap:
             raise exception.SnapshotNotFound(snapshot_id = snap_name)
         snap_inode_id = int(resp['responses'][0]['kvs'][0]['value']['id'])
@@ -473,12 +452,8 @@ class VitastorDriver(driver.CloneableImageVD,
         size = snap['cfg']['size']
         if int(volume.size):
             size = int(volume.size) * units.Gi
-        new_cfg = self._create_image(vol_name, {
-            'size': size,
-            'parent_id': snap['idx']['id'],
-            'parent_pool_id': snap['idx']['pool_id'],
-        })
 
+        self._cli('create clone', 'create', vol_name, '--size', size, '--parent', src_snap)
         return {}
 
     def _vitastor_args(self):
@@ -505,49 +480,7 @@ class VitastorDriver(driver.CloneableImageVD,
         """Deletes a logical volume."""
 
         vol_name = utils.convert_str(volume.name)
-
-        # Find the volume and all its snapshots
-        range_end = b'index/image/' + vol_name.encode('utf-8')
-        range_end = range_end[0 : len(range_end)-1] + six.int2byte(range_end[len(range_end)-1] + 1)
-        resp = self._etcd_txn({ 'success': [
-            { 'request_range': { 'key': 'index/image/'+vol_name, 'range_end': range_end } },
-        ] })
-        if len(resp['responses'][0]['kvs']) == 0:
-            # already deleted
-            LOG.info("volume %s no longer exists in backend", vol_name)
-            return
-        layers = resp['responses'][0]['kvs']
-        layer_ids = {}
-        for kv in layers:
-            inode_id = int(kv['value']['id'])
-            pool_id = int(kv['value']['pool_id'])
-            inode_pool_id = (pool_id << 48) | (inode_id & 0xffffffffffff)
-            layer_ids[inode_pool_id] = True
-
-        # Check if the volume has clones and raise 'busy' if so
-        children = self._child_count(layer_ids)
-        if children > 0:
-            raise exception.VolumeIsBusy(volume_name = vol_name)
-
-        # Clear data
-        for kv in layers:
-            args = [
-                'vitastor-cli', 'rm-data', '--pool', str(kv['value']['pool_id']),
-                '--inode', str(kv['value']['id']), '--progress', '0',
-                *(self._vitastor_args())
-            ]
-            try:
-                self._execute(*args)
-            except processutils.ProcessExecutionError as exc:
-                LOG.error("Failed to remove layer "+kv['key']+": "+exc)
-                raise exception.VolumeBackendAPIException(data = exc.stderr)
-
-        # Delete all layers from etcd
-        requests = []
-        for kv in layers:
-            requests.append({ 'request_delete_range': { 'key': kv['key'] } })
-            requests.append({ 'request_delete_range': { 'key': 'config/inode/'+str(kv['value']['pool_id'])+'/'+str(kv['value']['id']) } })
-        self._etcd_txn({ 'success': requests })
+        self._cli('delete volume', 'rm', '--matching', vol_name, vol_name+'@*', '--progress', '0')
 
     def retype(self, context, volume, new_type, diff, host):
         """Change extra type specifications for a volume."""
@@ -566,98 +499,6 @@ class VitastorDriver(driver.CloneableImageVD,
     def remove_export(self, context, volume):
         """Removes an export for a logical volume."""
         pass
-
-    def _create_image(self, vol_name, cfg):
-        pool_s = str(self.cfg['pool_id'])
-        image_id = 0
-        while image_id == 0:
-            # check if the image already exists and find a free ID
-            resp = self._etcd_txn({ 'success': [
-                { 'request_range': { 'key': 'index/image/'+vol_name } },
-                { 'request_range': { 'key': 'index/maxid/'+pool_s } },
-            ] })
-            if len(resp['responses'][0]['kvs']) > 0:
-                # already exists
-                raise exception.VolumeBackendAPIException(data = 'Volume '+vol_name+' already exists')
-            image_id, id_mod = self._next_id(resp['responses'][1])
-            # try to create the image
-            resp = self._etcd_txn({ 'compare': [
-                { 'target': 'MOD', 'mod_revision': id_mod, 'key': 'index/maxid/'+pool_s },
-                { 'target': 'VERSION', 'version': 0, 'key': 'index/image/'+vol_name },
-                { 'target': 'VERSION', 'version': 0, 'key': 'config/inode/'+pool_s+'/'+str(image_id) },
-            ], 'success': [
-                { 'request_put': { 'key': 'index/maxid/'+pool_s, 'value': image_id } },
-                { 'request_put': { 'key': 'index/image/'+vol_name, 'value': json.dumps({
-                    'id': image_id, 'pool_id': self.cfg['pool_id']
-                }) } },
-                { 'request_put': { 'key': 'config/inode/'+pool_s+'/'+str(image_id), 'value': json.dumps({
-                    **cfg, 'name': vol_name,
-                }) } },
-            ] })
-            if not resp.get('succeeded'):
-                # repeat
-                image_id = 0
-
-    def _create_snapshot(self, vol_name, snap_vol_name, allow_existing = False):
-        while True:
-            # check if the image already exists and snapshot doesn't
-            resp = self._etcd_txn({ 'success': [
-                { 'request_range': { 'key': 'index/image/'+vol_name } },
-                { 'request_range': { 'key': 'index/image/'+snap_vol_name } },
-            ] })
-            if len(resp['responses'][0]['kvs']) == 0:
-                raise exception.VolumeBackendAPIException(data = 'Volume '+vol_name+' does not exist')
-            if len(resp['responses'][1]['kvs']) > 0:
-                if allow_existing:
-                    snap_idx = resp['responses'][1]['kvs'][0]['value']
-                    resp = self._etcd_txn({ 'success': [
-                        { 'request_range': { 'key': 'config/inode/'+str(snap_idx['pool_id'])+'/'+str(snap_idx['id']) } },
-                    ] })
-                    if len(resp['responses'][0]['kvs']) == 0:
-                        raise exception.VolumeBackendAPIException(data =
-                            'Volume '+snap_vol_name+' is already indexed, but does not exist'
-                        )
-                    return resp['responses'][0]['kvs'][0]['value']
-                raise exception.VolumeBackendAPIException(
-                    data = 'Volume '+snap_vol_name+' already exists'
-                )
-            vol_idx = resp['responses'][0]['kvs'][0]['value']
-            vol_idx_mod = resp['responses'][0]['kvs'][0]['mod_revision']
-            # get image inode config and find a new ID
-            resp = self._etcd_txn({ 'success': [
-                { 'request_range': { 'key': 'config/inode/'+str(vol_idx['pool_id'])+'/'+str(vol_idx['id']) } },
-                { 'request_range': { 'key': 'index/maxid/'+str(self.cfg['pool_id']) } },
-            ] })
-            if len(resp['responses'][0]['kvs']) == 0:
-                raise exception.VolumeBackendAPIException(data = 'Volume '+vol_name+' does not exist')
-            vol_cfg = resp['responses'][0]['kvs'][0]['value']
-            vol_mod = resp['responses'][0]['kvs'][0]['mod_revision']
-            new_id, id_mod = self._next_id(resp['responses'][1])
-            # try to redirect image to the new inode
-            new_cfg = {
-                **vol_cfg, 'name': vol_name, 'parent_id': vol_idx['id'], 'parent_pool_id': vol_idx['pool_id']
-            }
-            resp = self._etcd_txn({ 'compare': [
-                { 'target': 'MOD', 'mod_revision': vol_idx_mod, 'key': 'index/image/'+vol_name },
-                { 'target': 'MOD', 'mod_revision': vol_mod, 'key': 'config/inode/'+str(vol_idx['pool_id'])+'/'+str(vol_idx['id']) },
-                { 'target': 'MOD', 'mod_revision': id_mod, 'key': 'index/maxid/'+str(self.cfg['pool_id']) },
-                { 'target': 'VERSION', 'version': 0, 'key': 'index/image/'+snap_vol_name },
-                { 'target': 'VERSION', 'version': 0, 'key': 'config/inode/'+str(self.cfg['pool_id'])+'/'+str(new_id) },
-            ], 'success': [
-                { 'request_put': { 'key': 'index/maxid/'+str(self.cfg['pool_id']), 'value': new_id } },
-                { 'request_put': { 'key': 'index/image/'+vol_name, 'value': json.dumps({
-                    'id': new_id, 'pool_id': self.cfg['pool_id']
-                }) } },
-                { 'request_put': { 'key': 'config/inode/'+str(self.cfg['pool_id'])+'/'+str(new_id), 'value': json.dumps(new_cfg) } },
-                { 'request_put': { 'key': 'index/image/'+snap_vol_name, 'value': json.dumps({
-                    'id': vol_idx['id'], 'pool_id': vol_idx['pool_id']
-                }) } },
-                { 'request_put': { 'key': 'config/inode/'+str(vol_idx['pool_id'])+'/'+str(vol_idx['id']), 'value': json.dumps({
-                    **vol_cfg, 'name': snap_vol_name, 'readonly': True
-                }) } }
-            ] })
-            if resp.get('succeeded'):
-                return new_cfg
 
     def initialize_connection(self, volume, connector):
         data = {
@@ -697,13 +538,9 @@ class VitastorDriver(driver.CloneableImageVD,
                     size = int(volume.size) * units.Gi
                     dest_name = utils.convert_str(volume.name)
                     # Find or create the base snapshot
-                    snap_cfg = self._create_snapshot(base_vol.name, base_vol.name+'@.clone_snap', True)
+                    self._cli('create base snapshot', 'create', '--allow-existing', '1', base_vol.name+'@.clone_snap')
                     # Then create a clone from it
-                    new_cfg = self._create_image(dest_name, {
-                        'size': size,
-                        'parent_id': snap_cfg['parent_id'],
-                        'parent_pool_id': snap_cfg['parent_pool_id'],
-                    })
+                    self._cli('create clone', 'create', dest_name, '--size', size, '--parent', base_vol.name+'@.clone_snap')
                     return ({}, True)
         return ({}, False)
 
@@ -770,26 +607,8 @@ class VitastorDriver(driver.CloneableImageVD,
     def extend_volume(self, volume, new_size):
         """Extend an existing volume."""
         vol_name = utils.convert_str(volume.name)
-        while True:
-            vol = self._get_image(vol_name)
-            if not vol:
-                raise exception.VolumeBackendAPIException(data = 'Volume '+vol_name+' does not exist')
-            # change size
-            size = int(new_size) * units.Gi
-            if size == vol['cfg']['size']:
-                break
-            resp = self._etcd_txn({ 'compare': [ {
-                'target': 'MOD',
-                'mod_revision': vol['cfg_mod'],
-                'key': 'config/inode/'+str(vol['idx']['pool_id'])+'/'+str(vol['idx']['id']),
-            } ], 'success': [
-                { 'request_put': {
-                    'key': 'config/inode/'+str(vol['idx']['pool_id'])+'/'+str(vol['idx']['id']),
-                    'value': json.dumps({ **vol['cfg'], 'size': size }),
-                } },
-            ] })
-            if resp.get('succeeded'):
-                break
+        size = int(new_size) * units.Gi
+        self._cli('extend volume', 'modify', vol_name, '--resize', new_size)
         LOG.debug(
             "Extend volume from %(old_size)s GB to %(new_size)s GB.",
             {'old_size': volume.size, 'new_size': new_size}
@@ -862,28 +681,7 @@ class VitastorDriver(driver.CloneableImageVD,
         """
         from_name = self._get_existing_name(existing_ref)
         to_name = utils.convert_str(volume.name)
-        self._rename(from_name, to_name)
-
-    def _rename(self, from_name, to_name):
-        while True:
-            vol = self._get_image(from_name)
-            if not vol:
-                raise exception.VolumeBackendAPIException(data = 'Volume '+from_name+' does not exist')
-            to = self._get_image(to_name)
-            if to:
-                raise exception.VolumeBackendAPIException(data = 'Volume '+to_name+' already exists')
-            resp = self._etcd_txn({ 'compare': [
-                { 'target': 'MOD', 'mod_revision': vol['idx_mod'], 'key': 'index/image/'+vol['cfg']['name'] },
-                { 'target': 'MOD', 'mod_revision': vol['cfg_mod'], 'key': 'config/inode/'+str(vol['idx']['pool_id'])+'/'+str(vol['idx']['id']) },
-                { 'target': 'VERSION', 'version': 0, 'key': 'index/image/'+to_name },
-            ], 'success': [
-                { 'request_delete_range': { 'key': 'index/image/'+vol['cfg']['name'] } },
-                { 'request_put': { 'key': 'index/image/'+to_name, 'value': json.dumps(vol['idx']) } },
-                { 'request_put': { 'key': 'config/inode/'+str(vol['idx']['pool_id'])+'/'+str(vol['idx']['id']),
-                    'value': json.dumps({ **vol['cfg'], 'name': to_name }) } },
-            ] })
-            if resp.get('succeeded'):
-                break
+        self._cli('rename', 'modify', from_name, '--rename', to_name)
 
     def unmanage(self, volume):
         pass
@@ -956,7 +754,7 @@ class VitastorDriver(driver.CloneableImageVD,
         snap_name = self._get_existing_name(existing_ref)
         from_name = vol_name+'@'+snap_name
         to_name = vol_name+'@'+utils.convert_str(snapshot.name)
-        self._rename(from_name, to_name)
+        self._cli('rename', 'modify', from_name, '--rename', to_name)
 
     def unmanage_snapshot(self, snapshot):
         """Removes the specified snapshot from Cinder management."""
