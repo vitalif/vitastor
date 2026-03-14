@@ -16,7 +16,7 @@ async function create_http_server(cfg, handler)
         };
         if (cfg.mon_https_ca)
         {
-            tls.mon_https_ca = await fsp.readFile(cfg.mon_https_ca);
+            tls.ca = await fsp.readFile(cfg.mon_https_ca);
         }
         if (cfg.mon_https_client_auth)
         {
