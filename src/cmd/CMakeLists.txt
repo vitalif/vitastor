@@ -15,7 +15,6 @@ add_custom_command(
 add_library(vitastor_cli STATIC
 	cli_common.cpp
 	cli_alloc_osd.cpp
-	cli_status.cpp
 	cli_describe.cpp
 	cli_fix.cpp
 	cli_ls.cpp
@@ -23,6 +22,7 @@ add_library(vitastor_cli STATIC
 	cli_dd.cpp
 	cli_modify.cpp
 	cli_modify_osd.cpp
+	cli_modify_user.cpp
 	cli_osd_tree.cpp
 	cli_pg_ls.cpp
 	cli_flatten.cpp
@@ -38,6 +38,8 @@ add_library(vitastor_cli STATIC
 	cli_pool_rm.cpp
 	cli_raw_ls.cpp
 	cli_serve.cpp
+	cli_status.cpp
+	cli_user_ls.cpp
 	${OPENAPI_JSON_H}
 )
 target_compile_options(vitastor_cli PUBLIC -fPIC)

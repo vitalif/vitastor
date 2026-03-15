@@ -117,6 +117,7 @@
             "responses": {
                 "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Image" } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
+                "403": { "$ref": "#/components/responses/Forbidden" },
                 "409": { "$ref": "#/components/responses/UpdateConflict" },
                 "412": { "$ref": "#/components/responses/PreconditionFailed" }
             }
@@ -159,6 +160,7 @@
             "responses": {
                 "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Image" } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
+                "403": { "$ref": "#/components/responses/Forbidden" },
                 "409": { "$ref": "#/components/responses/UpdateConflict" },
                 "412": { "$ref": "#/components/responses/PreconditionFailed" }
             }
@@ -208,6 +210,7 @@
                     }
                 } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
+                "403": { "$ref": "#/components/responses/Forbidden" },
                 "409": { "$ref": "#/components/responses/UpdateConflict" },
                 "412": { "$ref": "#/components/responses/PreconditionFailed" }
             }
@@ -227,6 +230,7 @@
             "responses": {
                 "200": { "content": { "text/plain": { "schema": { "type": "string", "description": "Empty response" } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
+                "403": { "$ref": "#/components/responses/Forbidden" },
                 "409": { "$ref": "#/components/responses/UpdateConflict" },
                 "412": { "$ref": "#/components/responses/PreconditionFailed" }
             }
@@ -419,7 +423,7 @@
             }
         } },
         "/pool/delete": { "post": {
-            "summary": "Delete an pool",
+            "summary": "Delete a pool",
             "operationId": "poolDelete",
             "consumes": [ "application/json" ],
             "produces": [ "application/json" ],
@@ -429,6 +433,66 @@
                     "pool_id": { "type": "integer", "format": "uint64", "description": "Pool ID to delete" },
                     "pool_name": { "type": "string", "description": "Pool name to delete" },
                     "force": { "type": "boolean", "description": "Allow to delete non-empty pools" }
+                }
+            } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "type": "object",
+                    "properties": { "ok": { "type": "boolean" } }
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/user/list": { "get": {
+            "summary": "List users",
+            "operationId": "userListGet",
+            "produces": [ "application/json" ],
+            "parameters": [ {
+                "name": "params",
+                "in": "query",
+                "schema": { "$ref": "#/components/schemas/UserListParams" },
+                "style": "form",
+                "explode": true
+            } ],
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserList" } } } }
+            }
+        }, "post": {
+            "summary": "List users",
+            "operationId": "userListPost",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserListParams" } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserList" } } } }
+            }
+        } },
+        "/user/modify": { "post": {
+            "summary": "Modify a user",
+            "operationId": "userModify",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } },
+            "responses": {
+                "200": { "content": { "application/json": { "schema": {
+                    "$ref": "#/components/schemas/User"
+                } } } },
+                "400": { "$ref": "#/components/responses/Invalid" },
+                "409": { "$ref": "#/components/responses/UpdateConflict" },
+                "412": { "$ref": "#/components/responses/PreconditionFailed" }
+            }
+        } },
+        "/user/delete": { "post": {
+            "summary": "Delete a user",
+            "operationId": "userDelete",
+            "consumes": [ "application/json" ],
+            "produces": [ "application/json" ],
+            "requestBody": { "content": { "application/json": { "schema": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "User name to delete" }
                 }
             } } } },
             "responses": {
@@ -605,6 +669,14 @@
         "responses": {
             "Invalid": {
                 "description": "Invalid Arguments (EINVAL)",
+                "content": {
+                    "text/plain": {
+                        "schema": { "type": "string", "description": "Error text" }
+                    }
+                }
+            },
+            "Forbidden": {
+                "description": "Access Denied (EACCES)",
                 "content": {
                     "text/plain": {
                         "schema": { "type": "string", "description": "Error text" }
@@ -858,6 +930,24 @@
                         "delete_iops": { "type": "integer", "format": "uint64", "description": "Delete operations per second" },
                         "delete_lat": { "type": "integer", "format": "uint64", "description": "Average delete latency" }
                     } } ]
+                }
+            },
+            "UserListParams": {
+                "type": "object",
+                "properties": {
+                    "names": { "type": "array", "items": { "type": "string" }, "description": "User names to list" }
+                }
+            },
+            "UserList": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/User" }
+            },
+            "User": {
+                "type": "object",
+                "properties": {
+                    "name": { "type": "string", "description": "User name" },
+                    "type": { "type": "string", "enum": [ "osd", "mon", "admin", "client" ], "description": "User type" },
+                    "groups": { "type": "array", "items": { "type": "string" }, "description": "User group names" }
                 }
             },
             "PgListParams": {

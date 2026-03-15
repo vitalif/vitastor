@@ -249,6 +249,17 @@ static const char* help_text =
     "  -r|--reverse    Sort in descending order\n"
     "  -n|--count N    Only list first N items\n"
     "\n"
+    "vitastor-cli ls-users|user-ls|ls-user|list-users [<name> ...]\n"
+    "  List users (only with specified names if passed).\n"
+    "\n"
+    "vitastor-cli modify-user --type <type> --groups group1,group2,... <username>\n"
+    "  Create or update user permissions. User names match CN of their certificates.\n"
+    "  --type TYPE      Set user type: client, admin, mon or osd. Default is client.\n"
+    "  --groups GROUPS  Set user's groups.\n"
+    "\n"
+    "vitastor-cli rm-user|remove-user|delete-user <username>\n"
+    "  Remove a user.\n"
+    "\n"
     "vitastor-cli serve\n"
     "  Start HTTP server able to handle CLI commands over a REST API. Options:\n"
     "  --bind_address ADDR  Specify server IP address or addresses, separated by space. Default is 127.0.0.1.\n"
@@ -583,6 +594,35 @@ std::function<bool(cli_result_t &)> cli_tool_t::start(json11::Json::object cfg, 
             cfg["names"] = cmd;
         }
         action_cb = start_pool_ls(cfg);
+    }
+    else if (cmd[0] == "user-ls" || cmd[0] == "ls-user" || cmd[0] == "ls-users" || cmd[0] == "list-users")
+    {
+        // List users
+        if (cmd.size() > 1)
+        {
+            cmd.erase(cmd.begin(), cmd.begin()+1);
+            cfg["names"] = cmd;
+        }
+        action_cb = start_user_ls(cfg);
+    }
+    else if (cmd[0] == "modify-user" || cmd[0] == "user-modify")
+    {
+        // Create/update user
+        if (cmd.size() > 1)
+        {
+            cfg["name"] = cmd[1];
+        }
+        action_cb = start_modify_user(cfg);
+    }
+    else if (cmd[0] == "rm-user" || cmd[0] == "remove-user" || cmd[0] == "delete-user")
+    {
+        // Remove user
+        if (cmd.size() > 1)
+        {
+            cfg["name"] = cmd[1];
+        }
+        cfg["remove"] = true;
+        action_cb = start_modify_user(cfg);
     }
     else if (cmd[0] == "serve")
     {

@@ -59,6 +59,9 @@ struct cli_serve_t
         {"pool/delete",   {"rm-pool", false}},
         {"pool/list",     {"pools", true}},
         {"pool/modify",   {"modify-pool", false}},
+        {"user/delete",   {"remove-user", false}},
+        {"user/list",     {"ls-user", false}},
+        {"user/modify",   {"modify-user", false}},
         {"status",        {"status", true}},
     };
 

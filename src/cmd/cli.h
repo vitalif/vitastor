@@ -70,6 +70,7 @@ public:
     std::function<bool(cli_result_t &)> start_merge(json11::Json);
     std::function<bool(cli_result_t &)> start_modify(json11::Json);
     std::function<bool(cli_result_t &)> start_modify_osd(json11::Json);
+    std::function<bool(cli_result_t &)> start_modify_user(json11::Json);
     std::function<bool(cli_result_t &)> start_osd_tree(json11::Json);
     std::function<bool(cli_result_t &)> start_pg_list(json11::Json);
     std::function<bool(cli_result_t &)> start_pool_create(json11::Json);
@@ -82,6 +83,7 @@ public:
     std::function<bool(cli_result_t &)> start_rm_wildcard(json11::Json);
     std::function<bool(cli_result_t &)> start_serve(json11::Json);
     std::function<bool(cli_result_t &)> start_status(json11::Json);
+    std::function<bool(cli_result_t &)> start_user_ls(json11::Json);
 
     // Should be called like loop_and_wait(start_status(), <completion callback>)
     void loop_and_wait(std::function<bool(cli_result_t &)> loop_cb, std::function<void(const cli_result_t &)> complete_cb);
