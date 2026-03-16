@@ -154,3 +154,4 @@ TEST_NAME=old_csum_4k      OLD=1 OSD_ARGS="--data_csum_type crc32c" OFFSET_ARGS=
 
 ./test_nfs.sh
 ./test_nfs_unaligned_append.sh
+./test_nfs_multi_instance.sh

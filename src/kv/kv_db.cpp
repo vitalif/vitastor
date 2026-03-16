@@ -1106,7 +1106,8 @@ void kv_op_t::exec()
         path.clear();
         path.push_back((kv_path_t){ .offset = 0 });
     }
-    recheck_policy = (opcode == KV_GET ? KV_RECHECK_LEAF : KV_RECHECK_NONE);
+    // Keep KV_LIST strongly consistent across clients/instances: always recheck path blocks.
+    recheck_policy = (opcode == KV_GET ? KV_RECHECK_LEAF : (opcode == KV_LIST ? KV_RECHECK_ALL : KV_RECHECK_NONE));
     if (opcode == KV_GET || opcode == KV_GET_CACHED)
         get();
     else if (opcode == KV_SET || opcode == KV_DEL)
@@ -1974,8 +1975,8 @@ void kv_op_t::next_handle_block(int res, int refresh)
     }
     else
     {
-        // OK, leaf block found
-        recheck_policy = KV_RECHECK_NONE;
+        // Keep list traversal in recheck mode to avoid stale readdir views across instances.
+        recheck_policy = KV_RECHECK_ALL;
         next_get();
     }
 }
@@ -2002,7 +2003,7 @@ void kv_op_t::next_get()
     else if (blk->type == KV_LEAF_SPLIT)
     {
         // Left half finished, go to the right
-        recheck_policy = KV_RECHECK_LEAF;
+        recheck_policy = KV_RECHECK_ALL;
         key = blk->right_half;
         skip_equal = false;
         prev_key_ge = blk->right_half;
@@ -2036,7 +2037,7 @@ void kv_op_t::next_go_up()
         path.pop_back();
         cur_level--;
         cur_block = path[path.size()-1].offset;
-        recheck_policy = KV_RECHECK_LEAF;
+        recheck_policy = KV_RECHECK_ALL;
         // Check if we can resume listing from the next key
         auto pb_it = db->block_cache.find(cur_block);
         if (pb_it == db->block_cache.end())
