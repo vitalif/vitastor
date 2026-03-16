@@ -9,7 +9,8 @@ void osd_messenger_t::read_requests()
     {
         int peer_fd = read_ready_clients[i];
         auto cl_it = clients.find(peer_fd);
-        if (cl_it == clients.end() || !cl_it->second || cl_it->second->read_msg.msg_iovlen)
+        if (cl_it == clients.end() || !cl_it->second || cl_it->second->read_msg.msg_iovlen ||
+            cl_it->second->peer_state == PEER_RDMA || cl_it->second->peer_state == PEER_RDMA_CONNECTING)
         {
             continue;
         }
@@ -75,6 +76,10 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
     int peer_fd = cl->peer_fd;
     cl->read_msg.msg_iovlen = 0;
     cl->refs--;
+    if (cl->peer_state == PEER_RDMA)
+    {
+        return true;
+    }
     if (cl->peer_state == PEER_STOPPED)
     {
         if (cl->refs <= 0)

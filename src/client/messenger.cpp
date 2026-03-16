@@ -739,14 +739,6 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
                     fprintf(stderr, "Connected to OSD %ju using RDMA\n", cl->osd_num);
                 }
                 cl->peer_state = PEER_RDMA;
-                tfd->set_fd_handler(cl->peer_fd, false, [this](int peer_fd, int epoll_events)
-                {
-                    // Do not miss the disconnection!
-                    if (epoll_events & EPOLLRDHUP)
-                    {
-                        handle_peer_epoll(peer_fd, epoll_events);
-                    }
-                });
                 // Add the initial receive request
                 init_recv_rdma(cl);
             }

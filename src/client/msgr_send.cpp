@@ -251,7 +251,7 @@ void osd_messenger_t::send_replies()
     {
         int peer_fd = write_ready_clients[i];
         auto cl_it = clients.find(peer_fd);
-        if (cl_it != clients.end() && !try_send(cl_it->second))
+        if (cl_it != clients.end() && cl_it->second->peer_state != PEER_RDMA && !try_send(cl_it->second))
         {
             write_ready_clients.erase(write_ready_clients.begin(), write_ready_clients.begin() + i);
             return;
@@ -349,21 +349,12 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
 #ifdef WITH_RDMA
         if (cl->rdma_conn && !cl->outbox.size() && cl->peer_state == PEER_RDMA_CONNECTING)
         {
-            // FIXME: Do something better than just forgetting the FD
             // FIXME: Ignore pings during RDMA state transition
             if (log_level > 0)
             {
                 fprintf(stderr, "Successfully connected with client %d using RDMA\n", cl->peer_fd);
             }
             cl->peer_state = PEER_RDMA;
-            tfd->set_fd_handler(cl->peer_fd, false, [this](int peer_fd, int epoll_events)
-            {
-                // Do not miss the disconnection!
-                if (epoll_events & EPOLLRDHUP)
-                {
-                    handle_peer_epoll(peer_fd, epoll_events);
-                }
-            });
             // Add the initial receive request
             init_recv_rdma(cl);
         }

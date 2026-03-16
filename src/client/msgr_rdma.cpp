@@ -696,6 +696,10 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
                 continue;
             }
             osd_client_t *cl = cl_it->second;
+            if (cl->peer_state == PEER_STOPPED)
+            {
+                continue;
+            }
             auto rc = cl->rdma_conn;
             if (wc[i].status != IBV_WC_SUCCESS)
             {
