@@ -620,8 +620,7 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
     else if (from_journal)
     {
         // Don't scan bitmap - journal writes don't have holes (internal bitmap)!
-        uint8_t *csum = !dsk.csum_block_size ? 0 : (clean_entry_bitmap + dsk.clean_entry_bitmap_size +
-            item_start/dsk.csum_block_size*(dsk.data_csum_type & 0xFF));
+        uint8_t *csum = !dsk.csum_block_size ? 0 : (clean_entry_bitmap + dsk.clean_entry_bitmap_size);
         if (!fulfill_read(read_op, fulfilled, item_start, item_end,
             (BS_ST_BIG_WRITE | BS_ST_STABLE), 0, clean_loc + item_start, 0, csum, dyn_data))
         {
