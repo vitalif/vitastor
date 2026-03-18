@@ -96,7 +96,7 @@ std::string str_replace(const std::string & in, const std::string & needle, cons
     {
         res += in.substr(pos, p2-pos);
         res += replacement;
-        pos = p2 + replacement.size();
+        pos = p2 + needle.size();
     }
     if (!pos)
     {
