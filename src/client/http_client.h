@@ -48,6 +48,7 @@ struct http_co_t;
 
 http_context_t* http_context_init(timerfd_manager_t *tfd, const std::string & ssl_cert, const std::string & ssl_key,
     const std::string & ssl_ca, bool verify_peer, std::string & error);
+std::string http_context_get_ssl_cn(http_context_t *ctx);
 void http_resolve(http_context_t *ctx, bool ssl, std::string host,
     std::function<void(const std::string & error, const std::vector<std::string> & addrs)> cb);
 void http_context_destroy(http_context_t *ctx);

@@ -16,6 +16,11 @@ void etcd_state_client_mock_t::etcd_add_watch(json11::Json watch)
 {
 }
 
+std::string etcd_state_client_mock_t::get_username()
+{
+    return username;
+}
+
 void etcd_state_client_mock_t::etcd_call_oneshot(const std::string & etcd_address, const std::string & api, json11::Json payload,
     int timeout, std::function<void(std::string, json11::Json)> callback)
 {

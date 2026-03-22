@@ -206,7 +206,7 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
         {
             fprintf(stderr, "Client %ju socket write error: expected to send "
                 "%zu bytes with MSG_WAITALL but sent %u. Disconnecting client\n", cl->client_id, cl->send_list_size, result);
-            stop_client(cl->peer_fd);
+            stop_client(cl->client_id);
             return;
         }
         for (auto op: cl->send_free_ops)

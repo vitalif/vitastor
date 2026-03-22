@@ -91,7 +91,7 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
         }
         else if (key == "name" || key == "scheme" || key == "immediate_commit" ||
             key == "failure_domain" || key == "root_node" || key == "scrub_interval" || key == "used_for_app" ||
-            key == "used_for_fs" || key == "raw_placement" || key == "local_reads")
+            key == "used_for_fs" || key == "raw_placement" || key == "local_reads" || key == "creator_group")
         {
             if (!value.is_string())
             {

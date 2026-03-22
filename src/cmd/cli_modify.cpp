@@ -19,6 +19,7 @@ struct image_changer_t
     bool set_deleted = false, new_deleted = false;
     bool set_key = false;
     std::string enc_key;
+    json11::Json new_owner, new_owner_group, new_reader_group;
     bool down_ok = false;
     // interval between fsyncs
     int fsync_interval = 128;
@@ -151,6 +152,18 @@ resume_1:
         {
             cfg.name = new_name;
         }
+        if (new_owner.is_string())
+        {
+            cfg.owner = new_owner.string_value();
+        }
+        if (new_owner_group.is_string())
+        {
+            cfg.owner_group = new_owner_group.string_value();
+        }
+        if (new_reader_group.is_string())
+        {
+            cfg.reader_group = new_reader_group.string_value();
+        }
         if (set_key)
         {
             if (!force)
@@ -278,6 +291,9 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_modify(json11::Json cfg)
     if (!changer->fsync_interval)
         changer->fsync_interval = 128;
     changer->down_ok = cfg["down_ok"].bool_value();
+    changer->new_owner = cfg["owner"];
+    changer->new_owner_group = cfg["owner_group"];
+    changer->new_reader_group = cfg["reader_group"];
     // FIXME Check that the image doesn't have children when shrinking
     return [changer](cli_result_t & result)
     {

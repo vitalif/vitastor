@@ -7,6 +7,7 @@
 
 #include <ctype.h>
 #include "cli.h"
+#include "http_client.h"
 #include "cluster_client.h"
 #include "str_util.h"
 
@@ -35,6 +36,7 @@ struct image_creator_t
     bool force_size = false;
     std::string enc_key;
     bool set_key = false;
+    std::string new_owner, new_owner_group, new_reader_group;
 
     pool_id_t old_pool_id = 0;
     inode_t new_parent_id = 0;
@@ -442,6 +444,19 @@ resume_3:
         {
             new_cfg.enc_key = cur_cfg.enc_key;
         }
+        new_cfg.owner = parent->cli->st_cli->get_username();
+        if (!new_owner.empty())
+        {
+            new_cfg.owner = new_owner;
+        }
+        if (!new_owner_group.empty())
+        {
+            new_cfg.owner_group = new_owner_group;
+        }
+        if (!new_reader_group.empty())
+        {
+            new_cfg.reader_group = new_reader_group;
+        }
         json11::Json::array checks = json11::Json::array {
             json11::Json::object {
                 { "target", "VERSION" },
@@ -604,6 +619,9 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
             }
         }
     }
+    image_creator->new_owner = cfg["owner"].string_value();
+    image_creator->new_owner_group = cfg["owner_group"].string_value();
+    image_creator->new_reader_group = cfg["reader_group"].string_value();
     image_creator->new_parent = cfg["parent"].string_value();
     if (!cfg["size"].is_null())
     {

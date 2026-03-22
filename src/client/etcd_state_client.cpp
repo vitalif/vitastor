@@ -517,6 +517,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 pc.used_for_app = "fs:"+pc.used_for_app;
             else
                 pc.used_for_app = pool_item.second["used_for_app"].as_string();
+            // Create group permission
+            pc.creator_group = pool_item.second["creator_group"].string_value();
             // Local Read Configuration
             std::string local_reads = pool_item.second["local_reads"].string_value();
             if (local_reads == "nearest")
@@ -945,6 +947,18 @@ json11::Json::object etcd_state_client_t::serialize_inode_cfg(inode_config_t *cf
     {
         new_cfg["deleted"] = true;
     }
+    if (!cfg->owner.empty())
+    {
+        new_cfg["owner"] = cfg->owner;
+    }
+    if (!cfg->owner_group.empty())
+    {
+        new_cfg["owner_group"] = cfg->owner_group;
+    }
+    if (!cfg->reader_group.empty())
+    {
+        new_cfg["reader_group"] = cfg->reader_group;
+    }
     if (cfg->meta.is_object())
     {
         new_cfg["meta"] = cfg->meta;
@@ -991,6 +1005,9 @@ inode_config_t etcd_state_client_t::deserialize_inode_cfg(uint64_t inode_num, js
         .readonly = value["readonly"].bool_value(),
         .deleted = value["deleted"].bool_value(),
         .enc_key = std::move(enc_key),
+        .owner = value["owner"].string_value(),
+        .owner_group = value["owner_group"].string_value(),
+        .reader_group = value["reader_group"].string_value(),
         .meta = value["meta"],
         .mod_revision = mod_revision,
     };

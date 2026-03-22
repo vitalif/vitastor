@@ -208,6 +208,8 @@ const etcd_tree = {
                 primary_affinity_tags?: 'nvme' | [ 'nvme', ... ],
                 // scrub interval
                 scrub_interval?: '30d',
+                // users allowed to create images in this pool
+                creator_group?: '',
             },
             ...
         }, */
@@ -224,6 +226,10 @@ const etcd_tree = {
                     parent_id?: <inode_t>,
                     readonly?: boolean,
                     deleted?: boolean,
+                    enc_key?: string,
+                    owner?: string,
+                    owner_group?: string,
+                    reader_group?: string,
                 }
             }
         }, */

@@ -42,6 +42,7 @@ public:
     void etcd_call_selected(const std::string & api, json11::Json payload, int timeout,
         int retries, int interval, std::function<void(std::string, json11::Json)> callback);
     void etcd_add_watch(json11::Json watch) override;
+    std::string get_username() override;
     void load_global_config() override;
     void load_pgs() override;
     void parse_config(const json11::Json & config) override;

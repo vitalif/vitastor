@@ -46,6 +46,11 @@ void etcd_state_client_http_t::etcd_add_watch(json11::Json watch)
     }
 }
 
+std::string etcd_state_client_http_t::get_username()
+{
+    return http_context_get_ssl_cn(get_http_ctx());
+}
+
 http_context_t *etcd_state_client_http_t::get_http_ctx()
 {
     if (!http_ctx)

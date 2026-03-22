@@ -48,6 +48,7 @@ struct http_context_t
 
 #ifdef WITH_OPENSSL
     SSL_CTX *ssl_ctx = NULL;
+    std::string ssl_cn;
 #endif
 
     ~http_context_t()
@@ -186,24 +187,41 @@ bool openssl_ctx_use_ca(SSL_CTX *ssl_ctx, const std::string & file_or_pem)
         : !!SSL_CTX_load_verify_locations(ssl_ctx, file_or_pem.c_str(), NULL);
 }
 
-bool openssl_ctx_use_cert(SSL_CTX *ssl_ctx, const std::string & file_or_pem)
+bool openssl_ctx_use_cert(SSL_CTX *ssl_ctx, const std::string & file_or_pem, std::string & common_name)
 {
+    BIO *bio = NULL;
+    std::string contents;
     if (file_or_pem.substr(0, 5) == "-----")
+        bio = BIO_new_mem_buf(file_or_pem.data(), file_or_pem.size());
+    else
     {
-        BIO *bio = BIO_new_mem_buf(file_or_pem.data(), file_or_pem.size());
-        if (!bio)
+        contents = read_file(file_or_pem);
+        if (!contents.size())
             return false;
-        X509 *x509 = PEM_read_bio_X509(bio, NULL, 0, NULL);
-        bool ok = !!x509;
-        if (x509)
-        {
-            ok = SSL_CTX_use_certificate(ssl_ctx, x509);
-            X509_free(x509);
-        }
-        BIO_free(bio);
-        return ok;
+        bio = BIO_new_mem_buf(contents.data(), contents.size());
     }
-    return !!SSL_CTX_use_certificate_file(ssl_ctx, file_or_pem.c_str(), SSL_FILETYPE_PEM);
+    if (!bio)
+        return false;
+    X509 *x509 = PEM_read_bio_X509(bio, NULL, 0, NULL);
+    bool ok = !!x509;
+    if (x509)
+    {
+        ok = SSL_CTX_use_certificate(ssl_ctx, x509);
+        if (ok)
+        {
+            X509_NAME* subj = X509_get_subject_name(x509);
+            int pos = X509_NAME_get_index_by_NID(subj, NID_commonName, -1);
+            if (pos != -1)
+            {
+                X509_NAME_ENTRY* cn = X509_NAME_get_entry(subj, pos);
+                ASN1_STRING* str = X509_NAME_ENTRY_get_data(cn);
+                common_name = std::string((const char*)ASN1_STRING_get0_data(str), ASN1_STRING_length(str));
+            }
+        }
+        X509_free(x509);
+    }
+    BIO_free(bio);
+    return ok;
 }
 
 bool openssl_ctx_use_key(SSL_CTX *ssl_ctx, const std::string & file_or_pem)
@@ -243,6 +261,7 @@ http_context_t* http_context_init(timerfd_manager_t *tfd, const std::string & ss
     ctx->ssl_key = ssl_key;
     ctx->ssl_ca = ssl_ca;
     ctx->ssl_ctx = ssl_ctx;
+    ctx->ssl_cn = "";
     if (!ssl_ctx)
         goto init_err;
     SSL_CTX_set_verify(ssl_ctx, verify_peer ? SSL_VERIFY_PEER : SSL_VERIFY_NONE, NULL);
@@ -251,7 +270,7 @@ http_context_t* http_context_init(timerfd_manager_t *tfd, const std::string & ss
     if (!openssl_ctx_use_ca(ssl_ctx, ssl_ca))
         goto init_err;
     if (ssl_cert != "" && ssl_key != "" &&
-        (!openssl_ctx_use_cert(ssl_ctx, ssl_cert) ||
+        (!openssl_ctx_use_cert(ssl_ctx, ssl_cert, ctx->ssl_cn) ||
         !openssl_ctx_use_key(ssl_ctx, ssl_key)))
         goto init_err;
 #endif
@@ -260,6 +279,11 @@ init_err:
     error = std::string("openssl initialization failed: ")+ERR_error_string(ERR_get_error(), NULL);
     delete ctx;
     return NULL;
+}
+
+std::string http_context_get_ssl_cn(http_context_t *ctx)
+{
+    return ctx->ssl_cn;
 }
 
 struct http_ctx_resolve_t

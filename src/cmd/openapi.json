@@ -108,7 +108,10 @@
                             { "type": "string", "enum": [ "", "random" ] },
                             { "type": "string", "pattern": "^[0-9a-fA-F]{128}$|^vault:" }
                         ]
-                    }
+                    },
+                    "owner": { "type": "string", "description": "Set image owner" },
+                    "owner_group": { "type": "string", "description": "Set image owner group" },
+                    "reader_group": { "type": "string", "description": "Set image reader group" }
                 }
             } } } },
             "responses": {
@@ -146,6 +149,9 @@
                             { "type": "string", "pattern": "^[0-9a-fA-F]{128}$|^vault:" }
                         ]
                     },
+                    "owner": { "type": "string", "description": "Set image owner" },
+                    "owner_group": { "type": "string", "description": "Set image owner group" },
+                    "reader_group": { "type": "string", "description": "Set image reader group" },
                     "force": { "type": "boolean", "description": "Proceed with shrinking or setting readwrite flag even if the image has children" },
                     "down_ok": { "type": "boolean", "description": "Proceed with shrinking even if some data will be left on unavailable OSDs" }
                 }
@@ -812,7 +818,8 @@
                     "scrub_interval": { "type": "string", "pattern": "^\\d+[smhdMy]$", "description": "Automatic scrub interval" },
                     "level_placement": { "type": "string", "description": "Additional failure domain rules" },
                     "raw_placement": { "type": "string", "description": "Raw PG generation rules" },
-                    "max_osd_combinations": { "type": "integer", "format": "uint64", "description": "Maximum number of random combinations during PG generation" }
+                    "max_osd_combinations": { "type": "integer", "format": "uint64", "description": "Maximum number of random combinations during PG generation" },
+                    "creator_group": { "type": "string", "description": "User group allowed to create images in this pool" }
                 }
             },
             "PoolList": {

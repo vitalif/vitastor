@@ -69,6 +69,7 @@ struct pool_config_t
     std::map<pg_num_t, pg_config_t> pg_config;
     uint64_t scrub_interval = 0;
     std::string used_for_app;
+    std::string creator_group;
     int backfillfull = 0;
     int local_reads = 0;
 
@@ -87,6 +88,8 @@ struct inode_config_t
     bool readonly = false;
     bool deleted = false;
     std::string enc_key;
+    // Permissions
+    std::string owner, owner_group, reader_group;
     // Arbitrary metadata
     json11::Json meta;
     // Change revision of the metadata in etcd
@@ -178,6 +181,7 @@ public:
     void etcd_txn(json11::Json txn, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback);
     void etcd_txn_slow(json11::Json txn, std::function<void(std::string, json11::Json)> callback);
     virtual void etcd_add_watch(json11::Json watch) = 0;
+    virtual std::string get_username() = 0;
     void load_global_config(std::function<void(const std::string &)> cb);
     virtual void load_global_config() = 0;
     void load_pgs(std::function<void(const std::string &)> cb);
