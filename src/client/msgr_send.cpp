@@ -184,7 +184,7 @@ void osd_messenger_t::measure_exec(osd_op_t *cur_op)
 bool osd_messenger_t::try_send(osd_client_t *cl)
 {
     int peer_fd = cl->peer_fd;
-    if (!cl->send_list.size() || cl->write_msg.msg_iovlen > 0)
+    if (!cl->send_list.size() || cl->write_msg.msg_iovlen > 0 || cl->peer_state == PEER_STOPPED)
     {
         return true;
     }
@@ -274,7 +274,7 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
     {
         if (cl->refs <= 0)
         {
-            delete cl;
+            destroy_client(cl);
         }
         return;
     }

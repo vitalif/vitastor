@@ -43,6 +43,10 @@ void osd_op_t::cancel()
     }
 }
 
+// force_delete means stop the client anyway, even if there are refs to it in the event loop.
+// the flag should be used in the destructor.
+// why? - because yes, we could close the FD first and let it fail all requests in the event loop,
+// but in that case it can be quickly reopened and we can get old failed responses for the new FD.
 void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
 {
     assert(peer_fd != 0);
@@ -52,9 +56,16 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         return;
     }
     osd_client_t *cl = it->second;
-    // FIXME: This 'force' flag is probably an ugly reenterability hack - check its logic and maybe remove it
+    // FIXME "force" flag is required because otherwise a first failed operation
+    // may stop the client, make it start reconnecting, and then another failed
+    // operation may stop it again. The right fix would be to introduce unique peer ID
+    // and not use FDs for that.
     if (cl->peer_state == PEER_CONNECTING && !force || cl->peer_state == PEER_STOPPED)
     {
+        if (force_delete)
+        {
+            destroy_client(cl);
+        }
         return;
     }
     clear_immediate_ops(peer_fd);
@@ -98,28 +109,10 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
     }
 #endif
 #ifndef __MOCK__
-    // Then remove FD from the eventloop so we don't accidentally read something
-    tfd->set_fd_handler(peer_fd, false, NULL);
     if (cl->connect_timeout_id >= 0)
     {
         tfd->clear_timer(cl->connect_timeout_id);
         cl->connect_timeout_id = -1;
-    }
-    for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
-    {
-        if (*rit == peer_fd)
-        {
-            read_ready_clients.erase(rit);
-            break;
-        }
-    }
-    for (auto wit = write_ready_clients.begin(); wit != write_ready_clients.end(); wit++)
-    {
-        if (*wit == peer_fd)
-        {
-            write_ready_clients.erase(wit);
-            break;
-        }
     }
 #endif
     if (cl->in_osd_num && break_pg_locks)
@@ -135,17 +128,41 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         // so do not repeer on it.
         repeer_pgs(cl->osd_num);
     }
+    cl->refs--;
+    if (cl->refs <= 0 || force_delete)
+    {
+        destroy_client(cl);
+    }
+}
+
+void osd_messenger_t::destroy_client(osd_client_t *cl)
+{
     // Find the item again because it can be invalidated at this point
-    it = clients.find(peer_fd);
+    auto it = clients.find(cl->peer_fd);
     if (it != clients.end())
     {
         clients.erase(it);
     }
-    cl->refs--;
-    if (cl->refs <= 0 || force_delete)
+#ifndef __MOCK__
+    tfd->set_fd_handler(cl->peer_fd, false, NULL);
+    for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
     {
-        delete cl;
+        if (*rit == cl->peer_fd)
+        {
+            read_ready_clients.erase(rit);
+            break;
+        }
     }
+    for (auto wit = write_ready_clients.begin(); wit != write_ready_clients.end(); wit++)
+    {
+        if (*wit == cl->peer_fd)
+        {
+            write_ready_clients.erase(wit);
+            break;
+        }
+    }
+#endif
+    delete cl;
 }
 
 osd_client_t::~osd_client_t()
