@@ -60,6 +60,17 @@ class AntiEtcdAdapter
                     log_level: 1,
                     logs: { cluster: true },
                 };
+                if (config.use_auth)
+                {
+                    antietcd_config.client_cert_auth = true;
+                    antietcd_config.auth_filter = require('./vitastor_auth_filter.js');
+                    antietcd_config.peer_ca = config.antietcd_server_ca;
+                    if (!config.antietcd_server_ca || config.antietcd_server_ca == config.etcd_ca)
+                    {
+                        console.error('Secure setup requires separate antietcd_server_ca (for signing antietcd server certificates) and etcd_ca (for signing client certificates)');
+                        process.exit(1);
+                    }
+                }
                 for (const key in config)
                 {
                     if (key.substr(0, 9) === 'antietcd_')
@@ -184,7 +195,7 @@ class AntiEtcdAdapter
                     await new Promise(ok => setTimeout(ok, timeout-(Date.now()-prev)));
                 }
                 prev = Date.now();
-                const res = await this.antietcd.api(path.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\/+/g, '_'), body);
+                const res = await this.antietcd.api(path.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\/+/g, '_'), body, { username: 'root' });
                 if (res.error)
                 {
                     console.error('Failed to query antietcd '+path+' (retry '+retry+'/'+retries+'): '+res.error);
