@@ -35,34 +35,35 @@ struct cli_serve_path_t
 {
     std::string cmd;
     bool allow_get;
+    bool allow_client;
 };
 
 // Serve vitastor-cli commands over HTTP in JSON format
 struct cli_serve_t
 {
     std::map<std::string, cli_serve_path_t> cmd_paths = {
-        {"data/delete",   {"rm-data", false}},
-        {"data/describe", {"describe", true}},
-        {"data/fix",      {"fix", false}},
-        {"data/merge",    {"merge-data", false}},
-        {"image/create",  {"create", false}},
-        {"image/delete",  {"rm", false}},
-        {"image/flatten", {"flatten", false}},
-        {"image/list",    {"ls", true}},
-        {"image/modify",  {"modify", false}},
-        {"osd/alloc",     {"alloc-osd", false}},
-        {"osd/delete",    {"rm-osd", false}},
-        {"osd/list",      {"ls-osd", true}},
-        {"osd/modify",    {"modify-osd", false}},
-        {"pg/list",       {"ls-pgs", true}},
-        {"pool/create",   {"create-pool", false}},
-        {"pool/delete",   {"rm-pool", false}},
-        {"pool/list",     {"pools", true}},
-        {"pool/modify",   {"modify-pool", false}},
-        {"user/delete",   {"remove-user", false}},
-        {"user/list",     {"ls-user", false}},
-        {"user/modify",   {"modify-user", false}},
-        {"status",        {"status", true}},
+        {"data/delete",   {"rm-data",     false, false}},
+        {"data/describe", {"describe",    true,  false}},
+        {"data/fix",      {"fix",         false, false}},
+        {"data/merge",    {"merge-data",  false, false}},
+        {"image/create",  {"create",      false, true}},
+        {"image/delete",  {"rm",          false, true}},
+        {"image/flatten", {"flatten",     false, true}},
+        {"image/list",    {"ls",          true,  true}},
+        {"image/modify",  {"modify",      false, true}},
+        {"osd/alloc",     {"alloc-osd",   false, false}},
+        {"osd/delete",    {"rm-osd",      false, false}},
+        {"osd/list",      {"ls-osd",      true,  false}},
+        {"osd/modify",    {"modify-osd",  false, false}},
+        {"pg/list",       {"ls-pgs",      true,  false}},
+        {"pool/create",   {"create-pool", false, false}},
+        {"pool/delete",   {"rm-pool",     false, false}},
+        {"pool/list",     {"pools",       true,  false}},
+        {"pool/modify",   {"modify-pool", false, false}},
+        {"user/delete",   {"remove-user", false, false}},
+        {"user/list",     {"ls-user",     false, false}},
+        {"user/modify",   {"modify-user", false, false}},
+        {"status",        {"status",      true,  false}},
     };
 
     cli_tool_t *parent = NULL;
@@ -203,6 +204,12 @@ struct cli_serve_t
             if (text)
                 *text = "Bad Request";
         }
+        else if (err == EACCES)
+        {
+            code = 403;
+            if (text)
+                *text = "Forbidden";
+        }
         else if (err == EOPNOTSUPP)
         {
             code = 404;
@@ -337,6 +344,18 @@ struct cli_serve_t
         conn->request_path = std::move(req_line[1]);
         conn->request_body = std::move(msg->body);
         conn->response_type = "";
+        if (parent->cli->st_cli->use_auth)
+        {
+            auto user = std::make_unique<cli_user_t>();
+            user->name = msg->headers["_tls_common_name"];
+            auto user_it = parent->cli->st_cli->user_info.find(user->name);
+            auto userinfo = user_it == parent->cli->st_cli->user_info.end() ? user_it->second : json11::Json();
+            user->type = user->name == "root" ? "admin" : userinfo["type"].string_value();
+            for (auto & gr: userinfo["groups"].array_items())
+            {
+                user->groups.insert(gr.string_value());
+            }
+        }
         auto ctype = msg->headers["content-type"];
         if (conn->request_method != "GET" && conn->request_method != "POST")
         {
@@ -364,6 +383,32 @@ struct cli_serve_t
             {
                 conn->response_type = "application/json";
                 conn->result = { .text = openapi_description };
+                if (parent->cli->st_cli->use_auth)
+                {
+                    // Filter available paths by privileges
+                    if (conn->p->user->type == "client")
+                    {
+                        std::string error;
+                        auto openapi = json11::Json::parse(openapi_description, error).object_items();
+                        json11::Json::object paths;
+                        for (auto & kv: openapi["paths"].object_items())
+                        {
+                            auto cmd_it = cmd_paths.find(kv.first.substr(1));
+                            if (cmd_it != cmd_paths.end() && cmd_it->second.allow_client)
+                            {
+                                paths[kv.first] = kv.second;
+                            }
+                        }
+                        openapi["paths"] = paths;
+                        conn->response_type = "application/json";
+                        conn->result = { .text = json11::Json(openapi).dump() };
+                    }
+                    else if (conn->p->user->type != "admin")
+                    {
+                        conn->response_type = "";
+                        conn->result = { .err = EACCES, .text = "Access denied" };
+                    }
+                }
             }
             else if (cmd_it == cmd_paths.end())
             {
@@ -372,6 +417,10 @@ struct cli_serve_t
             else if (conn->request_method == "GET" && !cmd_it->second.allow_get)
             {
                 conn->result = { .err = ENOSYS, .text = "method /"+uri[0]+" only allows POST requests" };
+            }
+            else if (parent->cli->st_cli->use_auth && conn->p->user->type == "client" && !cmd_it->second.allow_client)
+            {
+                conn->result = { .err = EACCES, .text = "Access denied" };
             }
             else
             {

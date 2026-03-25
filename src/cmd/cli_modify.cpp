@@ -77,6 +77,12 @@ struct image_changer_t
             state = 100;
             return;
         }
+        if (!parent->check_image_perm(cfg, true))
+        {
+            result = (cli_result_t){ .err = EACCES, .text = "Image permission denied" };
+            state = 100;
+            return;
+        }
         for (auto & ic: parent->cli->st_cli->inode_config)
         {
             if (ic.second.parent_id == inode_num)

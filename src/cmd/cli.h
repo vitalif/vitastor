@@ -9,6 +9,7 @@
 #include "object_id.h"
 #include "ringloop.h"
 #include <functional>
+#include <set>
 
 struct rm_inode_t;
 struct snap_merger_t;
@@ -26,6 +27,13 @@ struct cli_result_t
     json11::Json data;
 };
 
+struct cli_user_t
+{
+    std::string name;
+    std::string type;
+    std::set<std::string> groups;
+};
+
 class cli_tool_t
 {
 public:
@@ -36,6 +44,8 @@ public:
     int log_level = 0;
     bool is_command_line = false;
     bool color = false;
+
+    std::unique_ptr<cli_user_t> user; // for http mode
 
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;
@@ -52,6 +62,8 @@ public:
     json11::Json::object format_image(const inode_config_t & cfg);
     void change_parent(inode_t cur, inode_t new_parent, cli_result_t *result);
     inode_config_t* get_inode_cfg(const std::string & name);
+
+    bool check_image_perm(const inode_config_t & cfg, bool write);
 
     friend struct rm_inode_t;
     friend struct snap_merger_t;

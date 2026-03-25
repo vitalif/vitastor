@@ -136,6 +136,7 @@ public:
     int etcd_slow_timeout = 5000;
     int etcd_min_reload_interval = 1000;
     bool infinite_start = true;
+    bool use_auth = false;
     uint64_t global_block_size = DEFAULT_BLOCK_SIZE;
     uint32_t global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     uint32_t global_immediate_commit = IMMEDIATE_NONE;
@@ -155,6 +156,7 @@ public:
     std::map<osd_num_t, json11::Json> peer_states;
     std::map<inode_t, inode_config_t> inode_config;
     std::map<std::string, inode_t> inode_by_name;
+    std::map<std::string, json11::Json> user_info;
     json11::Json node_placement;
 
     std::function<void(std::map<std::string, etcd_kv_t> &)> on_change_hook;

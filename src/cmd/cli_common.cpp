@@ -6,6 +6,15 @@
 #include "cluster_client.h"
 #include "cli.h"
 
+bool cli_tool_t::check_image_perm(const inode_config_t & cfg, bool write)
+{
+    return !user ||
+        user->type == "admin" ||
+        user->name == cfg.owner ||
+        cfg.owner_group != "" && user->groups.find(cfg.owner_group) != user->groups.end() ||
+        !write && cfg.reader_group != "" && user->groups.find(cfg.reader_group) != user->groups.end();
+}
+
 json11::Json::object cli_tool_t::format_image(const inode_config_t & cfg)
 {
     auto pool_it = cli->st_cli->pool_config.find(INODE_POOL(cfg.num));
@@ -20,6 +29,18 @@ json11::Json::object cli_tool_t::format_image(const inode_config_t & cfg)
         { "readonly", cfg.readonly },
         { "deleted", cfg.deleted },
     };
+    if (cfg.owner != "")
+    {
+        img["owner"] = cfg.owner;
+    }
+    if (cfg.owner_group != "")
+    {
+        img["owner_group"] = cfg.owner_group;
+    }
+    if (cfg.reader_group != "")
+    {
+        img["reader_group"] = cfg.reader_group;
+    }
     if (!cfg.enc_key.empty())
     {
         img["encrypted"] = true;

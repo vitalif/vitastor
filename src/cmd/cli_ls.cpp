@@ -53,13 +53,19 @@ struct image_lister_t
                 return;
             }
         }
-        for (auto & ic: parent->cli->st_cli->inode_config)
+        auto begin_it = list_pool_id
+            ? parent->cli->st_cli->inode_config.lower_bound(INODE_WITH_POOL(list_pool_id, 0))
+            : parent->cli->st_cli->inode_config.begin();
+        auto end_it = list_pool_id
+            ? parent->cli->st_cli->inode_config.lower_bound(INODE_WITH_POOL(list_pool_id+1, 0))
+            : parent->cli->st_cli->inode_config.end();
+        for (auto it = begin_it; it != end_it; it++)
         {
-            if (list_pool_id && INODE_POOL(ic.second.num) != list_pool_id)
+            if (!parent->check_image_perm(it->second, false))
             {
                 continue;
             }
-            stats[ic.second.num] = parent->format_image(ic.second);
+            stats[it->second.num] = parent->format_image(it->second);
         }
     }
 
@@ -106,6 +112,7 @@ resume_1:
             state = 100;
             return;
         }
+        // FIXME: Do not always read everything
         space_info = parent->etcd_result;
         std::map<pool_id_t, uint64_t> pool_pg_real_size;
         for (auto & kv_item: space_info["responses"][0]["response_range"]["kvs"].array_items())
@@ -139,6 +146,11 @@ resume_1:
             }
             inode_t inode_num = INODE_WITH_POOL(pool_id, only_inode_num);
             uint64_t used_size = kv.value["raw_used"].uint64_value();
+            auto stat_it = stats.find(inode_num);
+            if (parent->user && parent->user->type != "admin" && stat_it == stats.end())
+            {
+                continue;
+            }
             // save stats
             auto pool_it = parent->cli->st_cli->pool_config.find(pool_id);
             if (pool_it != parent->cli->st_cli->pool_config.end())
@@ -147,7 +159,6 @@ resume_1:
                 used_size = used_size / (pool_pg_real_size[pool_id] ? pool_pg_real_size[pool_id] : 1)
                     * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
             }
-            auto stat_it = stats.find(inode_num);
             if (stat_it == stats.end())
             {
                 stats[inode_num] = json11::Json::object {

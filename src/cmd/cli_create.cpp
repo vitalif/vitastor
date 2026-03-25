@@ -121,6 +121,23 @@ struct image_creator_t
             create_snapshot();
     }
 
+    bool check_pool_permission()
+    {
+        if (!parent->user || parent->user->type == "admin")
+        {
+            return true;
+        }
+        auto pool_it = parent->cli->st_cli->pool_config.find(new_pool_id);
+        if (pool_it == parent->cli->st_cli->pool_config.end() ||
+            (pool_it->second.creator_group == "" || parent->user->groups.find(pool_it->second.creator_group) == parent->user->groups.end()))
+        {
+            result = (cli_result_t){ .err = EACCES, .text = "Pool image create permission denied" };
+            state = 100;
+            return false;
+        }
+        return true;
+    }
+
     void create_image()
     {
         if (state == 2)
@@ -158,6 +175,10 @@ struct image_creator_t
         {
             result = (cli_result_t){ .err = EINVAL, .text = "Pool name or ID is missing" };
             state = 100;
+            return;
+        }
+        if (!check_pool_permission())
+        {
             return;
         }
         if (!size && !force_size)
@@ -251,10 +272,21 @@ resume_3:
                 state = 100;
                 return;
             }
+            if (!parent->check_image_perm(cur_cfg, true))
+            {
+                result = (cli_result_t){ .err = EACCES, .text = "Image permission denied" };
+                state = 100;
+                return;
+            }
             if (!new_pool_id)
             {
                 // Create snapshot in the same pool by default
                 new_pool_id = old_pool_id;
+            }
+            // Verify pool permissions if the pool is different from the original
+            if (new_pool_id != old_pool_id && !check_pool_permission())
+            {
+                return;
             }
             attempt_create();
             state = 4;

@@ -16,6 +16,7 @@ const etcd_allow = new RegExp('^'+[
     'config/pools',
     'config/osd/[1-9]\\d*',
     'config/pgs', // old name
+    'config/user/.*',
     'pg/config',
     'config/inode/[1-9]\\d*/[1-9]\\d*',
     'osd/state/[1-9]\\d*',
@@ -234,6 +235,13 @@ const etcd_tree = {
             }
         }, */
         inode: {},
+        /* user: {
+            <username>: {
+                type: 'osd'|'mon'|'admin'|'client',
+                groups: string[],
+            },
+        }, */
+        user: {},
     },
     osd: {
         state: {

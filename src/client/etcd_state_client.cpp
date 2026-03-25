@@ -140,6 +140,7 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
     }
     this->etcd_ca = config["etcd_ca"].string_value();
     this->etcd_prefix = config["etcd_prefix"].string_value();
+    this->use_auth = config["use_auth"].bool_value();
     if (this->etcd_prefix == "")
     {
         this->etcd_prefix = "/vitastor";
@@ -856,6 +857,14 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         node_placement = value;
         if (on_change_node_placement_hook)
             on_change_node_placement_hook();
+    }
+    else if (use_auth && key.substr(0, etcd_prefix.length()+13) == etcd_prefix+"/config/user/")
+    {
+        // <etcd_prefix>/config/user/<username>
+        if (!value.is_object())
+            user_info.erase(key.substr(etcd_prefix.length()+13));
+        else
+            user_info[key.substr(etcd_prefix.length()+13)] = value;
     }
 }
 

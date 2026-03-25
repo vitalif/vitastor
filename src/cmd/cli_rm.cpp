@@ -269,10 +269,17 @@ resume_100:
             {
                 char buf[1024];
                 snprintf(buf, 1024, "Parent inode of layer %s (id 0x%jx) not found", cur->name.c_str(), cur->parent_id);
+                result = (cli_result_t){ .err = ENOENT, .text = buf };
                 state = 100;
                 return;
             }
             cur = &it->second;
+            if (!parent->check_image_perm(*cur, true))
+            {
+                result = (cli_result_t){ .err = EACCES, .text = "Image permission denied" };
+                state = 100;
+                return;
+            }
             chain_list.push_back(cur->num);
         }
         if (cur->num != from_cfg->num)
@@ -297,6 +304,12 @@ resume_100:
             auto it = sources.find(ic.second.parent_id);
             if (it != sources.end() && sources.find(ic.second.num) == sources.end())
             {
+                if (!parent->check_image_perm(ic.second, true))
+                {
+                    result = (cli_result_t){ .err = EACCES, .text = "Image permission denied" };
+                    state = 100;
+                    return;
+                }
                 merge_children.push_back(ic.second.num);
                 if (ic.second.readonly || writers_stopped)
                 {

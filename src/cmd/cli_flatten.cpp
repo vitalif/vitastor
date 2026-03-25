@@ -35,6 +35,12 @@ struct snap_flattener_t
             state = 100;
             return;
         }
+        if (!parent->check_image_perm(*target_cfg, true))
+        {
+            result = (cli_result_t){ .err = EACCES, .text = "Image permission denied" };
+            state = 100;
+            return;
+        }
         target_id = target_cfg->num;
         std::vector<inode_t> chain_list;
         inode_config_t *cur = target_cfg;

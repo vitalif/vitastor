@@ -187,6 +187,19 @@ bool openssl_ctx_use_ca(SSL_CTX *ssl_ctx, const std::string & file_or_pem)
         : !!SSL_CTX_load_verify_locations(ssl_ctx, file_or_pem.c_str(), NULL);
 }
 
+static std::string openssl_get_cn(X509 *x509)
+{
+    X509_NAME* subj = X509_get_subject_name(x509);
+    int pos = X509_NAME_get_index_by_NID(subj, NID_commonName, -1);
+    if (pos != -1)
+    {
+        X509_NAME_ENTRY* cn = X509_NAME_get_entry(subj, pos);
+        ASN1_STRING* str = X509_NAME_ENTRY_get_data(cn);
+        return std::string((const char*)ASN1_STRING_get0_data(str), ASN1_STRING_length(str));
+    }
+    return "";
+}
+
 bool openssl_ctx_use_cert(SSL_CTX *ssl_ctx, const std::string & file_or_pem, std::string & common_name)
 {
     BIO *bio = NULL;
@@ -208,16 +221,7 @@ bool openssl_ctx_use_cert(SSL_CTX *ssl_ctx, const std::string & file_or_pem, std
     {
         ok = SSL_CTX_use_certificate(ssl_ctx, x509);
         if (ok)
-        {
-            X509_NAME* subj = X509_get_subject_name(x509);
-            int pos = X509_NAME_get_index_by_NID(subj, NID_commonName, -1);
-            if (pos != -1)
-            {
-                X509_NAME_ENTRY* cn = X509_NAME_get_entry(subj, pos);
-                ASN1_STRING* str = X509_NAME_ENTRY_get_data(cn);
-                common_name = std::string((const char*)ASN1_STRING_get0_data(str), ASN1_STRING_length(str));
-            }
-        }
+            common_name = openssl_get_cn(x509);
         X509_free(x509);
     }
     BIO_free(bio);
@@ -1146,6 +1150,11 @@ bool http_co_t::handle_read()
             }
             state = HTTP_CO_REQ_HDR_RECEIVED;
             parse_http_headers(response, &parsed, true);
+            if (ssl)
+            {
+                auto x509 = SSL_get0_peer_certificate(ssl_cli);
+                parsed.headers["_tls_common_name"] = openssl_get_cn(x509);
+            }
             auto conn_it = parsed.headers.find("connection");
             keepalive = (conn_it != parsed.headers.end() && conn_it->second == "keep-alive");
             auto enc_it = parsed.headers.find("transfer-encoding");
