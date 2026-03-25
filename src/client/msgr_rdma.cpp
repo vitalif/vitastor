@@ -710,7 +710,6 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
                 }
                 fprintf(stderr, " with status: %s, stopping client\n", ibv_wc_status_str(wc[i].status));
                 stop_client(client_id);
-                clear_immediate_ops(client_id);
                 continue;
             }
             if (!is_send)
@@ -721,8 +720,6 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
                 rc->cur_recv--;
                 if (!handle_read_buffer(cl, rc->recv_buffers[rc->next_recv_buf], wc[i].byte_len))
                 {
-                    // handle_read_buffer may stop the client
-                    clear_immediate_ops(client_id);
                     continue;
                 }
                 try_recv_rdma_wr(cl, rc->recv_buffers[rc->next_recv_buf]);

@@ -73,7 +73,6 @@ void osd_messenger_t::read_requests()
 bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
 {
     bool ret = false;
-    int peer_fd = cl->peer_fd;
     cl->read_msg.msg_iovlen = 0;
     cl->refs--;
     if (cl->peer_state == PEER_RDMA)
@@ -114,7 +113,6 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
         {
             if (!handle_read_buffer(cl, cl->in_buf, result))
             {
-                clear_immediate_ops(peer_fd);
                 handle_immediate_ops();
                 return false;
             }
@@ -128,7 +126,6 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
             {
                 if (!handle_finished_read(cl))
                 {
-                    clear_immediate_ops(peer_fd);
                     handle_immediate_ops();
                     return false;
                 }
