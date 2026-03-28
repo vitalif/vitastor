@@ -12,6 +12,7 @@
 #include <deque>
 #include <vector>
 
+#include "../util/robin_hood.h"
 #include "malloc_or_die.h"
 #include "json11/json11.hpp"
 #include "msgr_op.h"
@@ -86,7 +87,7 @@ struct osd_client_t
     std::vector<osd_op_t*> received_ops;
 
     // Outbound operations
-    std::map<uint64_t, osd_op_t*> sent_ops;
+    robin_hood::unordered_flat_map<uint64_t, osd_op_t*> sent_ops;
     uint64_t send_op_id = 0;
 
     // PGs dirtied by this client's primary-writes
@@ -202,8 +203,8 @@ protected:
     uint64_t rdma_max_sge = 0, rdma_max_send = 0, rdma_max_recv = 0;
     uint64_t rdma_max_msg = 0;
     rdma_event_channel *rdmacm_evch = NULL;
-    std::map<rdma_cm_id*, osd_client_t*> rdmacm_connections;
-    std::map<rdma_cm_id*, rdmacm_connecting_t*> rdmacm_connecting;
+    robin_hood::unordered_flat_map<rdma_cm_id*, osd_client_t*> rdmacm_connections;
+    robin_hood::unordered_flat_map<rdma_cm_id*, rdmacm_connecting_t*> rdmacm_connecting;
 #endif
 
     std::vector<msgr_iothread_t*> iothreads;
@@ -219,10 +220,10 @@ public:
     // osd_num_t is only for logging and asserts
     uint64_t next_client_id = 1;
     osd_num_t osd_num;
-    std::map<uint64_t, osd_client_t*> clients;
-    std::map<uint64_t, osd_client_t*> osd_peers;
-    std::map<int, osd_client_t*> clients_by_fd;
-    std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
+    robin_hood::unordered_flat_map<uint64_t, osd_client_t*> clients;
+    robin_hood::unordered_flat_map<uint64_t, osd_client_t*> osd_peers;
+    robin_hood::unordered_flat_map<int, osd_client_t*> clients_by_fd;
+    robin_hood::unordered_flat_map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     std::vector<std::string> osd_networks;
     std::vector<addr_mask_t> osd_network_masks;
     std::vector<std::string> osd_cluster_networks;

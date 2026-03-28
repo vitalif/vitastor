@@ -182,12 +182,13 @@ void osd_messenger_t::init()
     }
     keepalive_timer_id = tfd->set_timer(1000, true, [this](int)
     {
+        std::vector<uint64_t> clients_to_stop;
+        std::vector<osd_op_t*> ops_to_send;
         auto cl_it = clients.begin();
         while (cl_it != clients.end())
         {
             auto cl = cl_it->second;
             cl_it++;
-            auto client_id = cl->client_id;
             if (!cl->osd_num && !cl->in_osd_num || cl->peer_state != PEER_CONNECTED && cl->peer_state != PEER_RDMA)
             {
                 // Do not run keepalive on regular clients
@@ -201,9 +202,7 @@ void osd_messenger_t::init()
                     // Ping timed out, stop the client
                     fprintf(stderr, "Ping timed out for OSD %ju (client %ju), disconnecting peer\n",
                         cl->in_osd_num ? cl->in_osd_num : cl->osd_num, cl->client_id);
-                    stop_client(cl->client_id);
-                    // Restart iterator because it may be invalidated
-                    cl_it = clients.upper_bound(client_id);
+                    clients_to_stop.push_back(cl->client_id);
                 }
             }
             else if (cl->idle_time_remaining > 0)
@@ -242,15 +241,21 @@ void osd_messenger_t::init()
                     };
                     cl->ping_time_remaining = osd_ping_timeout;
                     cl->idle_time_remaining = osd_idle_timeout;
-                    outbox_push(op);
-                    // Restart iterator because it may be invalidated
-                    cl_it = clients.upper_bound(client_id);
+                    ops_to_send.push_back(op);
                 }
             }
             else
             {
                 cl->idle_time_remaining = osd_idle_timeout;
             }
+        }
+        for (uint64_t client_id: clients_to_stop)
+        {
+            stop_client(client_id);
+        }
+        for (osd_op_t *op: ops_to_send)
+        {
+            outbox_push(op);
         }
     });
 }

@@ -641,7 +641,7 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
     op_data->done = op_data->errors = op_data->errcode = 0;
     op_data->n_subops = n_osds;
     op_data->subops = subops;
-    std::map<uint64_t, osd_client_t*>::iterator peer_it;
+    robin_hood::unordered_flat_map<uint64_t, osd_client_t*>::iterator peer_it;
     for (int i = 0; i < n_osds; i++)
     {
         osd_num_t sync_osd = op_data->dirty_osds[i];
