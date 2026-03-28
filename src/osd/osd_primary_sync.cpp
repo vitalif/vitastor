@@ -247,9 +247,9 @@ resume_8:
     else
     {
 finish:
-        if (cur_op->peer_fd)
+        if (cur_op->client_id)
         {
-            auto it = msgr.clients.find(cur_op->peer_fd);
+            auto it = msgr.clients.find(cur_op->client_id);
             if (it != msgr.clients.end())
                 it->second->dirty_pgs.clear();
         }

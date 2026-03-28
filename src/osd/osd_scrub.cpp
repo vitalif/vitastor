@@ -3,7 +3,7 @@
 
 #include "osd_primary.h"
 
-#define SELF_FD -1
+#define SELF_CLIENT 0
 
 void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oid)
 {
@@ -16,7 +16,7 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
         // Self
         osd_op_t *op = new osd_op_t();
         op->op_type = 0;
-        op->peer_fd = SELF_FD;
+        op->client_id = SELF_CLIENT;
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_LIST;
@@ -61,7 +61,7 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
         // Peer
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
-        op->peer_fd = msgr.osd_peer_fds.at(role_osd);
+        op->client_id = msgr.osd_peers.at(role_osd)->client_id;
         op->req = (osd_any_op_t){
             .sec_list = {
                 .header = {
@@ -83,9 +83,9 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
             if (op->reply.hdr.retval < 0)
             {
                 printf("Failed to get object list from OSD %ju (retval=%jd), disconnecting peer\n", role_osd, op->reply.hdr.retval);
-                int fail_fd = op->peer_fd;
+                uint64_t fail_client_id = op->client_id;
                 delete op;
-                msgr.stop_client(fail_fd);
+                msgr.stop_client(fail_client_id);
                 return;
             }
             scrub_cur_list = {
@@ -224,7 +224,7 @@ void osd_t::submit_scrub_op(object_id oid)
 {
     auto osd_op = new osd_op_t();
     osd_op->op_type = OSD_OP_OUT;
-    osd_op->peer_fd = -1;
+    osd_op->client_id = SELF_CLIENT;
     osd_op->req = (osd_any_op_t){
         .rw = {
             .header = {

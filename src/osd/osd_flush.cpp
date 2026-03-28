@@ -4,6 +4,7 @@
 #include "osd.h"
 
 #define FLUSH_BATCH 512
+#define SELF_CLIENT 0
 
 void osd_t::submit_pg_flush_ops(pg_t & pg)
 {
@@ -91,11 +92,11 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
         else
         {
             printf("Error while doing flush on OSD %ju: %d (%s)\n", osd_num, retval, strerror(-retval));
-            auto fd_it = msgr.osd_peer_fds.find(peer_osd);
-            if (fd_it != msgr.osd_peer_fds.end())
+            auto peer_it = msgr.osd_peers.find(peer_osd);
+            if (peer_it != msgr.osd_peers.end())
             {
                 // Will repeer/stop this PG
-                msgr.stop_client(fd_it->second);
+                msgr.stop_client(peer_it->second->client_id);
             }
         }
     }
@@ -212,10 +213,10 @@ bool osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
             handle_flush_op(op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK, pool_id, pg_num, fb, peer_osd, op->reply.hdr.retval);
             delete op;
         };
-        auto peer_fd_it = msgr.osd_peer_fds.find(peer_osd);
-        if (peer_fd_it != msgr.osd_peer_fds.end())
+        auto peer_it = msgr.osd_peers.find(peer_osd);
+        if (peer_it != msgr.osd_peers.end())
         {
-            op->peer_fd = peer_fd_it->second;
+            op->client_id = peer_it->second->client_id;
             msgr.outbox_push(op);
         }
         else
@@ -307,7 +308,7 @@ void osd_t::submit_recovery_op(osd_recovery_op_t *op)
     {
         printf("Submitting recovery operation for %jx:%jx (%s)\n", op->oid.inode, op->oid.stripe, op->degraded ? "degraded" : "misplaced");
     }
-    op->osd_op->peer_fd = -1;
+    op->osd_op->client_id = SELF_CLIENT;
     op->osd_op->callback = [this, op](osd_op_t *osd_op)
     {
         ringloop->set_immediate([this, op]()

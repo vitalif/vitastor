@@ -27,7 +27,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     msgr.ringloop = ringloop;
     msgr.repeer_pgs = [this](osd_num_t peer_osd)
     {
-        if (msgr.osd_peer_fds.find(peer_osd) != msgr.osd_peer_fds.end())
+        if (msgr.osd_peers.find(peer_osd) != msgr.osd_peers.end())
         {
             // peer_osd just connected
             continue_ops();
@@ -47,8 +47,8 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     msgr.exec_op = [this](osd_op_t *op)
     {
         // Garbage in
-        fprintf(stderr, "Incoming garbage from peer %d\n", op->peer_fd);
-        msgr.stop_client(op->peer_fd);
+        fprintf(stderr, "Can't handle incoming operation from client %lu\n", op->client_id);
+        msgr.stop_client(op->client_id);
         delete op;
     };
     msgr.parse_config(config);
@@ -156,7 +156,7 @@ void cluster_client_t::continue_raw_ops(osd_num_t peer_osd)
     {
         auto op = it->second;
         op->op_type = OSD_OP_OUT;
-        op->peer_fd = msgr.osd_peer_fds.at(peer_osd);
+        op->client_id = msgr.osd_peers.at(peer_osd)->client_id;
         msgr.outbox_push(op);
         raw_ops.erase(it++);
     }
@@ -871,13 +871,13 @@ void cluster_client_t::execute_cas(cluster_op_t *op)
         if (op->retval != expected && op->retval >= 0)
             op->retval = -EIO;
         op->retval = op->retval == -EPIPE ? -EINTR : op->retval;
-        auto peer_it = msgr.osd_peer_fds.find(op->parts[0].osd_num);
+        auto peer_it = msgr.osd_peers.find(op->parts[0].osd_num);
         if (op->retval != 0 || (op->flags & OP_IMMEDIATE_COMMIT))
         {
             auto cb = std::move(op->callback);
             cb(op);
         }
-        else if (peer_it == msgr.osd_peer_fds.end())
+        else if (peer_it == msgr.osd_peers.end())
         {
             // Care must be taken to make sure that the client doesn't reconnect to the OSD
             // before executing the previously completed operation callback (!)
@@ -888,10 +888,10 @@ void cluster_client_t::execute_cas(cluster_op_t *op)
         else
         {
             // CAS writes have a built-in sync
-            auto peer_fd = peer_it->second;
+            osd_client_t *cl = peer_it->second;
             *part = (osd_op_t){
                 .op_type = OSD_OP_OUT,
-                .peer_fd = peer_fd,
+                .client_id = cl->client_id,
                 .req = {
                     .hdr = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
@@ -1004,11 +1004,11 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
 
 void cluster_client_t::execute_raw(osd_num_t osd_num, osd_op_t *op)
 {
-    auto fd_it = msgr.osd_peer_fds.find(osd_num);
-    if (fd_it != msgr.osd_peer_fds.end())
+    auto peer_it = msgr.osd_peers.find(osd_num);
+    if (peer_it != msgr.osd_peers.end())
     {
         op->op_type = OSD_OP_OUT;
-        op->peer_fd = fd_it->second;
+        op->client_id = peer_it->second->client_id;
         msgr.outbox_push(op);
     }
     else
@@ -1401,10 +1401,10 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
                 primary_osd = nearest_osd;
         }
         part->osd_num = primary_osd;
-        auto peer_it = msgr.osd_peer_fds.find(primary_osd);
-        if (peer_it != msgr.osd_peer_fds.end())
+        auto peer_it = msgr.osd_peers.find(primary_osd);
+        if (peer_it != msgr.osd_peers.end())
         {
-            int peer_fd = peer_it->second;
+            osd_client_t *cl = peer_it->second;
             part->flags |= PART_SENT|PART_VALID;
             op->inflight_count++;
             uint64_t pg_bitmap_size = (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8) * (
@@ -1419,7 +1419,7 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
             }
             part->op = (osd_op_t){
                 .op_type = OSD_OP_OUT,
-                .peer_fd = peer_fd,
+                .client_id = cl->client_id,
                 .req = { .rw = {
                     .header = {
                         .magic = SECONDARY_OSD_OP_MAGIC,
@@ -1468,8 +1468,8 @@ int cluster_client_t::continue_sync(cluster_op_t *op)
     for (auto do_it = dirty_osds.begin(); do_it != dirty_osds.end(); )
     {
         osd_num_t sync_osd = *do_it;
-        auto peer_it = msgr.osd_peer_fds.find(sync_osd);
-        if (peer_it == msgr.osd_peer_fds.end())
+        auto peer_it = msgr.osd_peers.find(sync_osd);
+        if (peer_it == msgr.osd_peers.end())
             dirty_osds.erase(do_it++);
         else
             do_it++;
@@ -1522,12 +1522,12 @@ resume_1:
 
 void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)
 {
-    auto peer_fd = msgr.osd_peer_fds.at(part->osd_num);
+    osd_client_t *cl = msgr.osd_peers.at(part->osd_num);
     part->flags |= PART_SENT;
     op->inflight_count++;
     part->op = (osd_op_t){
         .op_type = OSD_OP_OUT,
-        .peer_fd = peer_fd,
+        .client_id = cl->client_id,
         .req = {
             .hdr = {
                 .magic = SECONDARY_OSD_OP_MAGIC,
@@ -1567,10 +1567,10 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             // Error priority: EIO > ENOSPC > ETIMEDOUT > EPIPE
             op->retval = part->op.reply.hdr.retval;
         }
-        int stop_fd = -1;
+        uint64_t stop_client_id = 0;
         if (op->retval != -EINTR && op->retval != -EIO && op->retval != -ENOSPC)
         {
-            stop_fd = part->op.peer_fd;
+            stop_client_id = part->op.client_id;
             if (op->retval != -EPIPE || log_level > 0)
             {
                 fprintf(
@@ -1597,9 +1597,9 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
             op->retry_after = op->retval != -EPIPE ? client_eio_retry_interval : client_retry_interval;
         }
         reset_retry_timer(op->retry_after);
-        if (stop_fd >= 0)
+        if (stop_client_id)
         {
-            msgr.stop_client(stop_fd);
+            msgr.stop_client(stop_client_id);
         }
         op->inflight_count--;
         if (op->inflight_count == 0 && !op->retry_after)

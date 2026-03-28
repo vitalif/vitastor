@@ -493,7 +493,7 @@ int msgr_rdma_connection_t::connect(msgr_rdma_address_t *dest)
     return 0;
 }
 
-bool osd_messenger_t::connect_rdma(int peer_fd, std::string rdma_address, uint64_t client_max_msg)
+bool osd_messenger_t::connect_rdma(uint64_t client_id, std::string rdma_address, uint64_t client_max_msg)
 {
     // Try to connect to the peer using RDMA
     msgr_rdma_address_t addr;
@@ -503,12 +503,12 @@ bool osd_messenger_t::connect_rdma(int peer_fd, std::string rdma_address, uint64
         {
             client_max_msg = rdma_max_msg;
         }
-        auto cl = clients.at(peer_fd);
+        auto cl = clients.at(client_id);
         msgr_rdma_context_t *selected_ctx = choose_rdma_context(cl);
         if (!selected_ctx)
         {
             if (log_level > 0)
-                fprintf(stderr, "No RDMA context for peer %d, using only TCP\n", cl->peer_fd);
+                fprintf(stderr, "No RDMA context for peer %ju, using only TCP\n", client_id);
             return false;
         }
         msgr_rdma_connection_t *rdma_conn = msgr_rdma_connection_t::create(selected_ctx, rdma_max_send, rdma_max_recv, rdma_max_sge, client_max_msg);
@@ -519,14 +519,13 @@ bool osd_messenger_t::connect_rdma(int peer_fd, std::string rdma_address, uint64
             {
                 delete rdma_conn;
                 fprintf(
-                    stderr, "Failed to connect RDMA queue pair to %s (client %d)\n",
-                    addr.to_string().c_str(), peer_fd
+                    stderr, "Failed to connect RDMA queue pair to %s (client %ju)\n",
+                    addr.to_string().c_str(), client_id
                 );
             }
             else
             {
                 // Remember connection, but switch to RDMA only after sending the configuration response
-                auto cl = clients.at(peer_fd);
                 cl->rdma_conn = rdma_conn;
                 cl->peer_state = PEER_RDMA_CONNECTING;
                 return true;
@@ -540,7 +539,7 @@ static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
 {
     ibv_send_wr *bad_wr = NULL;
     ibv_send_wr wr = {
-        .wr_id = (uint64_t)(cl->peer_fd*2+1),
+        .wr_id = cl->client_id,
         .sg_list = sge,
         .num_sge = op_sge,
         .opcode = IBV_WR_SEND,
@@ -631,7 +630,7 @@ static void try_recv_rdma_wr(osd_client_t *cl, void *buf)
     };
     ibv_recv_wr *bad_wr = NULL;
     ibv_recv_wr wr = {
-        .wr_id = (uint64_t)(cl->peer_fd*2),
+        .wr_id = cl->client_id,
         .sg_list = &sge,
         .num_sge = 1,
     };
@@ -688,8 +687,8 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
         event_count = ibv_poll_cq(rdma_context->cq, RDMA_EVENTS_AT_ONCE, wc);
         for (int i = 0; i < event_count; i++)
         {
-            int client_id = wc[i].wr_id >> 1;
-            bool is_send = wc[i].wr_id & 1;
+            uint64_t client_id = wc[i].wr_id;
+            bool is_send = wc[i].opcode == IBV_WC_SEND;
             auto cl_it = clients.find(client_id);
             if (cl_it == clients.end())
             {
@@ -703,7 +702,7 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
             auto rc = cl->rdma_conn;
             if (wc[i].status != IBV_WC_SUCCESS)
             {
-                fprintf(stderr, "RDMA work request failed for client %d", client_id);
+                fprintf(stderr, "RDMA work request failed for client %ju", client_id);
                 if (cl->osd_num)
                 {
                     fprintf(stderr, " (OSD %ju)", cl->osd_num);

@@ -47,20 +47,15 @@ void osd_op_t::cancel()
 // the flag should be used in the destructor.
 // why? - because yes, we could close the FD first and let it fail all requests in the event loop,
 // but in that case it can be quickly reopened and we can get old failed responses for the new FD.
-void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
+void osd_messenger_t::stop_client(uint64_t client_id, bool force_delete)
 {
-    assert(peer_fd != 0);
-    auto it = clients.find(peer_fd);
-    if (it == clients.end())
+    auto it = clients.find(client_id);
+    if (!client_id || it == clients.end())
     {
         return;
     }
     osd_client_t *cl = it->second;
-    // FIXME "force" flag is required because otherwise a first failed operation
-    // may stop the client, make it start reconnecting, and then another failed
-    // operation may stop it again. The right fix would be to introduce unique peer ID
-    // and not use FDs for that.
-    if (cl->peer_state == PEER_CONNECTING && !force || cl->peer_state == PEER_STOPPED)
+    if (cl->peer_state == PEER_STOPPED)
     {
         if (force_delete)
         {
@@ -68,21 +63,20 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         }
         return;
     }
-    clear_immediate_ops(peer_fd);
     cl->received_ops.clear();
     if (log_level > 0)
     {
         if (cl->osd_num)
         {
-            fprintf(stderr, "[OSD %ju] Stopping client %d (OSD peer %ju)\n", osd_num, peer_fd, cl->osd_num);
+            fprintf(stderr, "[OSD %ju] Stopping client %ju (OSD peer %ju)\n", osd_num, client_id, cl->osd_num);
         }
         else if (cl->in_osd_num)
         {
-            fprintf(stderr, "[OSD %ju] Stopping client %d (incoming OSD peer %ju)\n", osd_num, peer_fd, cl->in_osd_num);
+            fprintf(stderr, "[OSD %ju] Stopping client %ju (incoming OSD peer %ju)\n", osd_num, client_id, cl->in_osd_num);
         }
         else
         {
-            fprintf(stderr, "[OSD %ju] Stopping client %d (regular client)\n", osd_num, peer_fd);
+            fprintf(stderr, "[OSD %ju] Stopping client %ju (regular client)\n", osd_num, client_id);
         }
     }
     // First set state to STOPPED so another stop_client() call doesn't try to free it again
@@ -91,11 +85,11 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
     cl->peer_state = PEER_STOPPED;
     if (cl->osd_num)
     {
-        auto osd_it = osd_peer_fds.find(cl->osd_num);
-        if (osd_it != osd_peer_fds.end() && osd_it->second == cl->peer_fd)
+        auto osd_it = osd_peers.find(cl->osd_num);
+        if (osd_it != osd_peers.end() && osd_it->second == cl)
         {
             // ...and forget OSD peer
-            osd_peer_fds.erase(osd_it);
+            osd_peers.erase(osd_it);
         }
     }
 #ifdef WITH_RDMA
@@ -128,6 +122,14 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
         // so do not repeer on it.
         repeer_pgs(cl->osd_num);
     }
+    if (cl->peer_fd >= 0)
+    {
+        int r = shutdown(cl->peer_fd, SHUT_RDWR);
+        if (r != 0 && errno != ENOTCONN)
+        {
+            fprintf(stderr, "[OSD %ju] failed to shutdown a socket: %s (code %d)\n", osd_num, strerror(errno), errno);
+        }
+    }
     cl->refs--;
     if (cl->refs <= 0 || force_delete)
     {
@@ -138,30 +140,30 @@ void osd_messenger_t::stop_client(int peer_fd, bool force, bool force_delete)
 void osd_messenger_t::destroy_client(osd_client_t *cl)
 {
     // Find the item again because it can be invalidated at this point
-    auto it = clients.find(cl->peer_fd);
-    if (it != clients.end())
+    clients.erase(cl->client_id);
+    if (cl->peer_fd >= 0)
     {
-        clients.erase(it);
-    }
 #ifndef __MOCK__
-    tfd->set_fd_handler(cl->peer_fd, false, NULL);
-    for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
-    {
-        if (*rit == cl->peer_fd)
-        {
-            read_ready_clients.erase(rit);
-            break;
-        }
-    }
-    for (auto wit = write_ready_clients.begin(); wit != write_ready_clients.end(); wit++)
-    {
-        if (*wit == cl->peer_fd)
-        {
-            write_ready_clients.erase(wit);
-            break;
-        }
-    }
+        tfd->set_fd_handler(cl->peer_fd, false, NULL);
 #endif
+        for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
+        {
+            if (*rit == cl->client_id)
+            {
+                read_ready_clients.erase(rit);
+                break;
+            }
+        }
+        for (auto wit = write_ready_clients.begin(); wit != write_ready_clients.end(); wit++)
+        {
+            if (*wit == cl->client_id)
+            {
+                write_ready_clients.erase(wit);
+                break;
+            }
+        }
+        clients_by_fd.erase(cl->peer_fd);
+    }
     delete cl;
 }
 

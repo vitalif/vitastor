@@ -128,7 +128,7 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         exec_sec_lock(cur_op);
         return;
     }
-    auto cl = msgr.clients.at(cur_op->peer_fd);
+    osd_client_t *cl = msgr.clients.at(cur_op->client_id);
     cur_op->bs_op = new blockstore_op_t();
     cur_op->bs_op->callback = [this, cur_op](blockstore_op_t* bs_op) { secondary_op_callback(cur_op); };
     cur_op->bs_op->opcode = (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ? BS_OP_READ
@@ -249,7 +249,7 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
 
 void osd_t::exec_sec_read_bmp(osd_op_t *cur_op)
 {
-    auto cl = msgr.clients.at(cur_op->peer_fd);
+    auto cl = msgr.clients.at(cur_op->client_id);
     int n = cur_op->req.sec_read_bmp.len / sizeof(obj_ver_id);
     if (n > 0)
     {
@@ -278,7 +278,7 @@ void osd_t::exec_sec_read_bmp(osd_op_t *cur_op)
 void osd_t::exec_sec_lock(osd_op_t *cur_op)
 {
     cur_op->reply.sec_lock.cur_primary = 0;
-    auto cl = msgr.clients.at(cur_op->peer_fd);
+    auto cl = msgr.clients.at(cur_op->client_id);
     if (!cl->in_osd_num ||
         cur_op->req.sec_lock.flags != OSD_SEC_LOCK_PG &&
         cur_op->req.sec_lock.flags != OSD_SEC_UNLOCK_PG ||
@@ -340,7 +340,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         ? json11::Json::parse(std::string((char *)cur_op->buf), json_err)
         : json11::Json();
     auto peer_osd_num = req_json["osd_num"].uint64_value();
-    auto cl = msgr.clients.at(cur_op->peer_fd);
+    auto cl = msgr.clients.at(cur_op->client_id);
     cl->in_osd_num = peer_osd_num;
     if (req_json["features"]["check_sequencing"].bool_value())
     {
@@ -369,7 +369,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         if (req_json["connect_rdma"].is_string())
         {
             // Peer is trying to connect using RDMA, try to satisfy him
-            bool ok = msgr.connect_rdma(cur_op->peer_fd, req_json["connect_rdma"].string_value(), req_json["rdma_max_msg"].uint64_value());
+            bool ok = msgr.connect_rdma(cur_op->client_id, req_json["connect_rdma"].string_value(), req_json["rdma_max_msg"].uint64_value());
             if (ok)
             {
                 auto rc = cl->rdma_conn;

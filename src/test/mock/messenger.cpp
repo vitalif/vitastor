@@ -15,13 +15,13 @@ osd_messenger_t::~osd_messenger_t()
 {
     while (clients.size() > 0)
     {
-        stop_client(clients.begin()->first, true, true);
+        stop_client(clients.begin()->first, true);
     }
 }
 
 void osd_messenger_t::outbox_push(osd_op_t *cur_op)
 {
-    auto cl = clients.at(cur_op->peer_fd);
+    auto cl = clients.at(cur_op->client_id);
     cur_op->req.hdr.id = ++cl->send_op_id;
     cl->sent_ops[cur_op->req.hdr.id] = cur_op;
 }
@@ -56,8 +56,4 @@ json11::Json::object osd_messenger_t::merge_configs(const json11::Json::object &
     const json11::Json::object & etcd_osd_config)
 {
     return cli_config;
-}
-
-void osd_messenger_t::clear_immediate_ops(int peer_fd)
-{
 }

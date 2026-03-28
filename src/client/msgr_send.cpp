@@ -9,8 +9,14 @@
 
 void osd_messenger_t::outbox_push(osd_op_t *cur_op)
 {
-    assert(cur_op->peer_fd);
-    osd_client_t *cl = clients.at(cur_op->peer_fd);
+    assert(cur_op->client_id);
+    auto cl_it = clients.find(cur_op->client_id);
+    if (cl_it == clients.end() || cl_it->second->peer_state == PEER_STOPPED)
+    {
+        delete cur_op;
+        return;
+    }
+    osd_client_t *cl = cl_it->second;
     if (cur_op->op_type == OSD_OP_OUT)
     {
         clock_gettime(CLOCK_REALTIME, &cur_op->tv_begin);
@@ -18,8 +24,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
     }
     else
     {
-        // Check that operation actually belongs to this client
-        // FIXME: Review if this is still needed
+        // Remove the operation from received op list
         bool found = false;
         for (auto it = cl->received_ops.begin(); it != cl->received_ops.end(); it++)
         {
@@ -30,11 +35,8 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
                 break;
             }
         }
-        if (!found)
-        {
-            delete cur_op;
-            return;
-        }
+        // Can't be not found because client IDs are unique
+        assert(found);
     }
     auto & to_send_list = cl->write_msg.msg_iovlen ? cl->next_send_list : cl->send_list;
     auto & to_outbox = cl->write_msg.msg_iovlen ? cl->next_outbox : cl->outbox;
@@ -126,7 +128,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         if ((cl->write_msg.msg_iovlen > 0 || !try_send(cl)) && (cl->write_state == 0))
         {
             cl->write_state = CL_WRITE_READY;
-            write_ready_clients.push_back(cur_op->peer_fd);
+            write_ready_clients.push_back(cur_op->client_id);
         }
         ringloop->wakeup();
     }
@@ -183,15 +185,14 @@ void osd_messenger_t::measure_exec(osd_op_t *cur_op)
 
 bool osd_messenger_t::try_send(osd_client_t *cl)
 {
-    int peer_fd = cl->peer_fd;
-    if (!cl->send_list.size() || cl->write_msg.msg_iovlen > 0 || cl->peer_state == PEER_STOPPED)
+    if (!cl->send_list.size() || cl->write_msg.msg_iovlen > 0 || cl->peer_state == PEER_STOPPED || cl->peer_fd < 0)
     {
         return true;
     }
     assert(cl->peer_state != PEER_RDMA);
     if (ringloop && !use_sync_send_recv)
     {
-        auto iothread = iothreads.size() ? iothreads[peer_fd % iothreads.size()] : NULL;
+        auto iothread = iothreads.size() ? iothreads[cl->peer_fd % iothreads.size()] : NULL;
         io_uring_sqe sqe_local;
         ring_data_t data_local;
         io_uring_sqe* sqe = (iothread ? &sqe_local : ringloop->get_sqe());
@@ -218,11 +219,11 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
         }
         if (use_zc)
         {
-            io_uring_prep_sendmsg_zc(sqe, peer_fd, &cl->write_msg, MSG_WAITALL);
+            io_uring_prep_sendmsg_zc(sqe, cl->peer_fd, &cl->write_msg, MSG_WAITALL);
         }
         else
         {
-            io_uring_prep_sendmsg(sqe, peer_fd, &cl->write_msg, MSG_WAITALL);
+            io_uring_prep_sendmsg(sqe, cl->peer_fd, &cl->write_msg, MSG_WAITALL);
         }
         if (iothread)
         {
@@ -234,7 +235,7 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
         cl->write_msg.msg_iov = cl->send_list.data();
         cl->write_msg.msg_iovlen = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
         cl->refs++;
-        int result = sendmsg(peer_fd, &cl->write_msg, MSG_NOSIGNAL);
+        int result = sendmsg(cl->peer_fd, &cl->write_msg, MSG_NOSIGNAL);
         if (result < 0)
         {
             result = -errno;
@@ -249,8 +250,8 @@ void osd_messenger_t::send_replies()
 {
     for (int i = 0; i < write_ready_clients.size(); i++)
     {
-        int peer_fd = write_ready_clients[i];
-        auto cl_it = clients.find(peer_fd);
+        uint64_t client_id = write_ready_clients[i];
+        auto cl_it = clients.find(client_id);
         if (cl_it != clients.end() && cl_it->second->peer_state != PEER_RDMA && !try_send(cl_it->second))
         {
             write_ready_clients.erase(write_ready_clients.begin(), write_ready_clients.begin() + i);
@@ -281,8 +282,8 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
     if (result < 0 && result != -EAGAIN && result != -EINTR)
     {
         // this is a client socket, so don't panic. just disconnect it
-        fprintf(stderr, "Client %d socket write error: %d (%s). Disconnecting client\n", cl->peer_fd, -result, strerror(-result));
-        stop_client(cl->peer_fd);
+        fprintf(stderr, "Client %ju socket write error: %d (%s). Disconnecting client\n", cl->client_id, -result, strerror(-result));
+        stop_client(cl->client_id);
         return;
     }
     if (result >= 0)
@@ -326,9 +327,9 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
             int expected = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
             if (done != expected)
             {
-                fprintf(stderr, "Client %d socket write error: expected to send "
-                    "%d iovecs with MSG_WAITALL but sent %d. Disconnecting client\n", cl->peer_fd, expected, done);
-                stop_client(cl->peer_fd);
+                fprintf(stderr, "Client %ju socket write error: expected to send "
+                    "%d iovecs with MSG_WAITALL but sent %d. Disconnecting client\n", cl->client_id, expected, done);
+                stop_client(cl->client_id);
                 return;
             }
             cl->zc_free_list.push_back(NULL); // end marker
@@ -352,7 +353,7 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
             // FIXME: Ignore pings during RDMA state transition
             if (log_level > 0)
             {
-                fprintf(stderr, "Successfully connected with client %d using RDMA\n", cl->peer_fd);
+                fprintf(stderr, "Successfully connected with client %ju using RDMA\n", cl->client_id);
             }
             cl->peer_state = PEER_RDMA;
             // Add the initial receive request
@@ -362,6 +363,6 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
     }
     if (cl->write_state != 0)
     {
-        write_ready_clients.push_back(cl->peer_fd);
+        write_ready_clients.push_back(cl->client_id);
     }
 }

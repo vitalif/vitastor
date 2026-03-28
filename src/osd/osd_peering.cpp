@@ -9,7 +9,7 @@
 #include "str_util.h"
 #include "osd.h"
 
-#define SELF_FD -1
+#define SELF_CLIENT 0
 
 // Peering loop
 void osd_t::handle_peers()
@@ -175,17 +175,17 @@ void osd_t::drop_dirty_pg_connections(pool_pg_num_t pg)
 {
     if (immediate_commit != IMMEDIATE_ALL)
     {
-        std::vector<int> to_stop;
+        std::vector<uint64_t> to_stop;
         for (auto & cp: msgr.clients)
         {
             if (cp.second->dirty_pgs.find(pg) != cp.second->dirty_pgs.end())
             {
-                to_stop.push_back(cp.first);
+                to_stop.push_back(cp.second->client_id);
             }
         }
-        for (auto peer_fd: to_stop)
+        for (auto client_id: to_stop)
         {
-            msgr.stop_client(peer_fd);
+            msgr.stop_client(client_id);
         }
     }
 }
@@ -203,7 +203,7 @@ void osd_t::start_pg_peering(pg_t & pg)
     for (auto pg_osd: pg.all_peers)
     {
         if (pg_osd != this->osd_num &&
-            msgr.osd_peer_fds.find(pg_osd) == msgr.osd_peer_fds.end())
+            msgr.osd_peers.find(pg_osd) == msgr.osd_peers.end())
         {
             if (msgr.wanted_peers.find(pg_osd) == msgr.wanted_peers.end())
                 msgr.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
@@ -224,7 +224,7 @@ void osd_t::start_pg_peering(pg_t & pg)
     for (int role = 0; role < pg.target_set.size(); role++)
     {
         pg.cur_set[role] = pg.target_set[role] == this->osd_num ||
-            msgr.osd_peer_fds.find(pg.target_set[role]) != msgr.osd_peer_fds.end() ? pg.target_set[role] : 0;
+            msgr.osd_peers.find(pg.target_set[role]) != msgr.osd_peers.end() ? pg.target_set[role] : 0;
         if (pg.cur_set[role] != 0)
         {
             pg.pg_cursize++;
@@ -246,7 +246,7 @@ void osd_t::start_pg_peering(pg_t & pg)
     std::set<osd_num_t> dead_peers;
     for (auto pg_osd: pg.all_peers)
     {
-        if (pg_osd == this->osd_num || msgr.osd_peer_fds.find(pg_osd) != msgr.osd_peer_fds.end())
+        if (pg_osd == this->osd_num || msgr.osd_peers.find(pg_osd) != msgr.osd_peers.end())
             cur_peers.insert(pg_osd);
         else
             dead_peers.insert(pg_osd);
@@ -266,7 +266,7 @@ void osd_t::start_pg_peering(pg_t & pg)
                 {
                     nonzero++;
                     if (history_osd == this->osd_num ||
-                        msgr.osd_peer_fds.find(history_osd) != msgr.osd_peer_fds.end())
+                        msgr.osd_peers.find(history_osd) != msgr.osd_peers.end())
                     {
                         found++;
                     }
@@ -435,8 +435,8 @@ void osd_t::relock_pg(pg_t & pg)
         bool unlock_peer = (i >= relock_osd_count);
         uint64_t new_state = unlock_peer ? 0 : pg.state;
         auto peer_osd = diff_osds[i];
-        auto peer_fd_it = msgr.osd_peer_fds.find(peer_osd);
-        if (peer_fd_it == msgr.osd_peer_fds.end())
+        auto peer_it = msgr.osd_peers.find(peer_osd);
+        if (peer_it == msgr.osd_peers.end())
         {
             if (unlock_peer)
             {
@@ -446,8 +446,7 @@ void osd_t::relock_pg(pg_t & pg)
             }
             continue;
         }
-        int peer_fd = peer_fd_it->second;
-        auto cl = msgr.clients.at(peer_fd);
+        auto cl = peer_it->second;
         if (!cl->enable_pg_locks)
         {
             // Peer does not support locking - just instantly remember the lock as successful
@@ -458,7 +457,7 @@ void osd_t::relock_pg(pg_t & pg)
         pg.inflight_locks++;
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
-        op->peer_fd = peer_fd;
+        op->client_id = cl->client_id;
         op->req = (osd_any_op_t){
             .sec_lock = {
                 .header = {
@@ -529,7 +528,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         // Self
         osd_op_t *op = new osd_op_t();
         op->op_type = 0;
-        op->peer_fd = SELF_FD;
+        op->client_id = SELF_CLIENT;
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
         op->bs_op = new blockstore_op_t();
         op->bs_op->opcode = BS_OP_LIST;
@@ -567,8 +566,8 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
     }
     else
     {
-        auto role_fd_it = msgr.osd_peer_fds.find(role_osd);
-        if (role_fd_it == msgr.osd_peer_fds.end())
+        auto peer_it = msgr.osd_peers.find(role_osd);
+        if (peer_it == msgr.osd_peers.end())
         {
             printf("Failed to get object list from OSD %ju because it is disconnected\n", role_osd);
             return;
@@ -576,7 +575,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         // Peer
         osd_op_t *op = new osd_op_t();
         op->op_type = OSD_OP_OUT;
-        op->peer_fd = role_fd_it->second;
+        op->client_id = peer_it->second->client_id;
         op->req = (osd_any_op_t){
             .sec_list = {
                 .header = {
@@ -595,10 +594,10 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             if (op->reply.hdr.retval < 0)
             {
                 printf("Failed to get object list from OSD %ju (retval=%jd), disconnecting peer\n", role_osd, op->reply.hdr.retval);
-                int fail_fd = op->peer_fd;
+                uint64_t fail_client_id = op->client_id;
                 ps->list_ops.erase(role_osd);
                 delete op;
-                msgr.stop_client(fail_fd);
+                msgr.stop_client(fail_client_id);
                 return;
             }
             printf(
@@ -622,7 +621,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
 
 void osd_t::discard_list_subop(osd_op_t *list_op)
 {
-    if (list_op->peer_fd == SELF_FD)
+    if (list_op->client_id == SELF_CLIENT)
     {
         // Self
         list_op->bs_op->callback = [list_op](blockstore_op_t *bs_op)

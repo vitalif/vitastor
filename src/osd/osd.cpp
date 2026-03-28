@@ -616,11 +616,11 @@ void osd_t::print_slow()
                 bufprintf("[OSD %ju] Slow op %jx", osd_num, (uint64_t)op);
                 if (kv.second->osd_num)
                 {
-                    bufprintf(" from peer OSD %ju (client %d)", kv.second->osd_num, kv.second->peer_fd);
+                    bufprintf(" from peer OSD %ju (client %ju)", kv.second->osd_num, kv.second->client_id);
                 }
                 else
                 {
-                    bufprintf(" from client %d", kv.second->peer_fd);
+                    bufprintf(" from client %ju", kv.second->client_id);
                 }
                 bufprintf(": %s id=%ju", osd_op_names[op->req.hdr.opcode], op->req.hdr.id);
                 if (op->req.hdr.opcode == OSD_OP_SEC_READ || op->req.hdr.opcode == OSD_OP_SEC_WRITE ||

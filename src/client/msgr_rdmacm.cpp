@@ -11,7 +11,7 @@
 struct rdmacm_connecting_t
 {
     rdma_cm_id *cmid = NULL;
-    int peer_fd = -1;
+    uint64_t client_id = 0;
     osd_num_t peer_osd = 0;
     std::string addr;
     sockaddr_storage parsed_addr = {};
@@ -117,9 +117,9 @@ void osd_messenger_t::handle_rdmacm_events()
             auto cli_it = rdmacm_connections.find(ev->id);
             if (cli_it != rdmacm_connections.end())
             {
-                fprintf(stderr, "Received %s event for peer %d, closing connection\n",
-                    event_type_name, cli_it->second->peer_fd);
-                stop_client(cli_it->second->peer_fd);
+                fprintf(stderr, "Received %s event for client %ju, closing connection\n",
+                    event_type_name, cli_it->second->client_id);
+                stop_client(cli_it->second->client_id);
             }
             else if (rdmacm_connecting.find(ev->id) != rdmacm_connecting.end())
             {
@@ -265,14 +265,6 @@ msgr_rdma_context_t* osd_messenger_t::rdmacm_create_qp(rdma_cm_id *cmid)
 
 void osd_messenger_t::rdmacm_accept(rdma_cm_event *ev)
 {
-    // Make a fake FD (FIXME: do not use FDs for identifying clients!)
-    int fake_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fake_fd < 0)
-    {
-        fprintf(stderr, "Failed to allocate a fake socket for RDMA-CM client: %s (code %d)\n", strerror(errno), errno);
-        rdma_destroy_id(ev->id);
-        return;
-    }
     auto rdma_context = rdmacm_create_qp(ev->id);
     if (!rdma_context)
     {
@@ -297,12 +289,12 @@ void osd_messenger_t::rdmacm_accept(rdma_cm_event *ev)
     // Wait for RDMA_CM_ESTABLISHED, and enable the connection only after it
     auto conn = new rdmacm_connecting_t;
     conn->cmid = ev->id;
-    conn->peer_fd = fake_fd;
+    conn->client_id = next_client_id++;
     conn->parsed_addr = *(sockaddr_storage*)rdma_get_peer_addr(ev->id);
     conn->rdma_context = rdma_context;
     rdmacm_set_conn_timeout(conn);
     rdmacm_connecting[ev->id] = conn;
-    fprintf(stderr, "[OSD %ju] new client %d: connection from %s via RDMA-CM\n", this->osd_num, conn->peer_fd,
+    fprintf(stderr, "[OSD %ju] new client %ju: connection from %s via RDMA-CM\n", this->osd_num, conn->client_id,
         addr_to_string(conn->parsed_addr).c_str());
 }
 
@@ -332,8 +324,6 @@ void osd_messenger_t::rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res)
     auto peer_osd = conn->peer_osd;
     if (conn->timeout_id >= 0)
         tfd->clear_timer(conn->timeout_id);
-    if (conn->peer_fd >= 0)
-        close(conn->peer_fd);
     if (conn->rdma_context)
         conn->rdma_context->reserve_cqe(-rdma_max_send-rdma_max_recv);
     if (conn->cmid)
@@ -354,7 +344,7 @@ void osd_messenger_t::rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res)
         else
         {
             // TCP is disabled
-            on_connect_peer(peer_osd, res == 0 ? -EINVAL : (res > 0 ? -res : res));
+            on_connect_peer(peer_osd, res == 0 ? -EINVAL : (res > 0 ? -res : res), 0);
         }
     }
 }
@@ -365,7 +355,7 @@ void osd_messenger_t::rdmacm_try_connect_peer(uint64_t peer_osd, const std::stri
     if (!string_to_addr(addr, false, rdmacm_port, &sa))
     {
         fprintf(stderr, "Address %s is invalid\n", addr.c_str());
-        on_connect_peer(peer_osd, -EINVAL);
+        on_connect_peer(peer_osd, -EINVAL, 0);
         return;
     }
     rdma_cm_id *cmid = NULL;
@@ -376,17 +366,7 @@ void osd_messenger_t::rdmacm_try_connect_peer(uint64_t peer_osd, const std::stri
         if (!disable_tcp)
             try_connect_peer_tcp(peer_osd, addr.c_str(), fallback_tcp_port);
         else
-            on_connect_peer(peer_osd, res);
-        return;
-    }
-    // Make a fake FD (FIXME: do not use FDs for identifying clients!)
-    int fake_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fake_fd < 0)
-    {
-        int res = -errno;
-        rdma_destroy_id(cmid);
-        // Can't create socket, pointless to try TCP
-        on_connect_peer(peer_osd, res);
+            on_connect_peer(peer_osd, res, 0);
         return;
     }
     if (log_level > 0)
@@ -394,7 +374,7 @@ void osd_messenger_t::rdmacm_try_connect_peer(uint64_t peer_osd, const std::stri
     auto conn = new rdmacm_connecting_t;
     rdmacm_connecting[cmid] = conn;
     conn->cmid = cmid;
-    conn->peer_fd = fake_fd;
+    conn->client_id = next_client_id++;
     conn->peer_osd = peer_osd;
     conn->addr = addr;
     conn->parsed_addr = sa;
@@ -511,13 +491,13 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
     auto cl = new osd_client_t();
     cl->peer_addr = conn->parsed_addr;
     cl->peer_port = conn->rdmacm_port;
-    cl->peer_fd = conn->peer_fd;
+    cl->client_id = conn->client_id;
     cl->peer_state = PEER_RDMA;
     cl->connect_timeout_id = -1;
     cl->osd_num = peer_osd;
     cl->in_buf = malloc_or_die(receive_buffer_size);
     cl->rdma_conn = rc;
-    clients[conn->peer_fd] = cl;
+    clients[conn->client_id] = cl;
     if (conn->timeout_id >= 0)
     {
         tfd->clear_timer(conn->timeout_id);

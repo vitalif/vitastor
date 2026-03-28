@@ -50,6 +50,7 @@ struct msgr_rdma_context_t;
 
 struct osd_client_t
 {
+    uint64_t client_id = 0;
     int refs = 0;
 
     sockaddr_storage peer_addr = {};
@@ -206,8 +207,8 @@ protected:
 #endif
 
     std::vector<msgr_iothread_t*> iothreads;
-    std::vector<int> read_ready_clients;
-    std::vector<int> write_ready_clients;
+    std::vector<uint64_t> read_ready_clients;
+    std::vector<uint64_t> write_ready_clients;
     // We don't use ringloop->set_immediate here because we may have no ringloop in client :)
     std::deque<osd_op_t*> set_immediate_ops;
 
@@ -216,10 +217,12 @@ public:
     ring_loop_t *ringloop = NULL;
     bool has_sendmsg_zc = false;
     // osd_num_t is only for logging and asserts
+    uint64_t next_client_id = 1;
     osd_num_t osd_num;
-    std::map<int, osd_client_t*> clients;
+    std::map<uint64_t, osd_client_t*> clients;
+    std::map<uint64_t, osd_client_t*> osd_peers;
+    std::map<int, osd_client_t*> clients_by_fd;
     std::map<osd_num_t, osd_wanted_peer_t> wanted_peers;
-    std::map<uint64_t, int> osd_peer_fds;
     std::vector<std::string> osd_networks;
     std::vector<addr_mask_t> osd_network_masks;
     std::vector<std::string> osd_cluster_networks;
@@ -232,7 +235,7 @@ public:
     void init();
     void parse_config(const json11::Json & config);
     void connect_peer(uint64_t osd_num, json11::Json peer_state);
-    void stop_client(int peer_fd, bool force = false, bool force_delete = false);
+    void stop_client(uint64_t client_id, bool force_delete = false);
     void destroy_client(osd_client_t *cl);
     void outbox_push(osd_op_t *cur_op);
     std::function<void(osd_op_t*)> exec_op;
@@ -252,7 +255,7 @@ public:
 
 #ifdef WITH_RDMA
     bool is_rdma_enabled();
-    bool connect_rdma(int peer_fd, std::string rdma_address, uint64_t client_max_msg);
+    bool connect_rdma(uint64_t client_id, std::string rdma_address, uint64_t client_max_msg);
 #endif
 #ifdef WITH_RDMACM
     bool is_use_rdmacm();
@@ -268,7 +271,7 @@ protected:
     void try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_host, int peer_port);
     void handle_peer_epoll(int peer_fd, int epoll_events);
     void handle_connect_epoll(int peer_fd);
-    void on_connect_peer(osd_num_t peer_osd, int peer_fd);
+    void on_connect_peer(osd_num_t peer_osd, int errcode, uint64_t client_id);
     void check_peer_config(osd_client_t *cl);
     void cancel_osd_ops(osd_client_t *cl);
     void cancel_op(osd_op_t *op);
@@ -283,7 +286,6 @@ protected:
     bool handle_reply_hdr(osd_client_t *cl);
     void handle_reply_ready(osd_op_t *op);
     void handle_immediate_ops();
-    void clear_immediate_ops(int peer_fd);
 
 #ifdef WITH_RDMA
     void try_send_rdma(osd_client_t *cl);

@@ -7,8 +7,8 @@ void osd_messenger_t::read_requests()
 {
     for (int i = 0; i < read_ready_clients.size(); i++)
     {
-        int peer_fd = read_ready_clients[i];
-        auto cl_it = clients.find(peer_fd);
+        uint64_t client_id = read_ready_clients[i];
+        auto cl_it = clients.find(client_id);
         if (cl_it == clients.end() || !cl_it->second || cl_it->second->read_msg.msg_iovlen ||
             cl_it->second->peer_state != PEER_CONNECTED)
         {
@@ -32,7 +32,7 @@ void osd_messenger_t::read_requests()
         cl->refs++;
         if (ringloop && !use_sync_send_recv)
         {
-            auto iothread = iothreads.size() ? iothreads[peer_fd % iothreads.size()] : NULL;
+            auto iothread = iothreads.size() ? iothreads[cl->peer_fd % iothreads.size()] : NULL;
             io_uring_sqe sqe_local;
             ring_data_t data_local;
             io_uring_sqe* sqe = (iothread ? &sqe_local : ringloop->get_sqe());
@@ -50,7 +50,7 @@ void osd_messenger_t::read_requests()
             }
             ring_data_t* data = ((ring_data_t*)sqe->user_data);
             data->callback = [this, cl](ring_data_t *data) { handle_read(data->res, cl); };
-            io_uring_prep_recvmsg(sqe, peer_fd, &cl->read_msg, 0);
+            io_uring_prep_recvmsg(sqe, cl->peer_fd, &cl->read_msg, 0);
             if (iothread)
             {
                 iothread->add_sqe(sqe_local);
@@ -58,7 +58,7 @@ void osd_messenger_t::read_requests()
         }
         else
         {
-            int result = recvmsg(peer_fd, &cl->read_msg, 0);
+            int result = recvmsg(cl->peer_fd, &cl->read_msg, 0);
             if (result < 0)
             {
                 result = -errno;
@@ -92,20 +92,20 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
         // this is a client socket, so don't panic on error. just disconnect it
         if (result != 0)
         {
-            fprintf(stderr, "Client %d socket read error: %d (%s). Disconnecting client\n", cl->peer_fd, -result, strerror(-result));
+            fprintf(stderr, "Client %ju socket read error: %d (%s). Disconnecting client\n", cl->client_id, -result, strerror(-result));
         }
-        stop_client(cl->peer_fd);
+        stop_client(cl->client_id);
         return false;
     }
     if (result == -EAGAIN || result == -EINTR || result < cl->read_iov.iov_len)
     {
         cl->read_ready--;
         if (cl->read_ready > 0)
-            read_ready_clients.push_back(cl->peer_fd);
+            read_ready_clients.push_back(cl->client_id);
     }
     else
     {
-        read_ready_clients.push_back(cl->peer_fd);
+        read_ready_clients.push_back(cl->client_id);
     }
     if (result > 0)
     {
@@ -140,26 +140,6 @@ bool osd_messenger_t::handle_read(int result, osd_client_t *cl)
     return ret;
 }
 
-void osd_messenger_t::clear_immediate_ops(int peer_fd)
-{
-    size_t i = 0, j = 0;
-    while (i < set_immediate_ops.size())
-    {
-        if (set_immediate_ops[i]->peer_fd == peer_fd && set_immediate_ops[i]->op_type == OSD_OP_IN)
-        {
-            delete set_immediate_ops[i];
-        }
-        else
-        {
-            if (i != j)
-                set_immediate_ops[j] = set_immediate_ops[i];
-            j++;
-        }
-        i++;
-    }
-    set_immediate_ops.resize(j);
-}
-
 void osd_messenger_t::handle_immediate_ops()
 {
     while (set_immediate_ops.size())
@@ -168,7 +148,11 @@ void osd_messenger_t::handle_immediate_ops()
         set_immediate_ops.pop_front();
         if (op->op_type == OSD_OP_IN)
         {
-            exec_op(op);
+            auto cl_it = clients.find(op->client_id);
+            if (cl_it != clients.end() && cl_it->second->peer_state != PEER_STOPPED)
+                exec_op(op);
+            else
+                delete op;
         }
         else
         {
@@ -186,7 +170,7 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, void *curbuf, int rem
         if (!cl->read_op)
         {
             cl->read_op = new osd_op_t;
-            cl->read_op->peer_fd = cl->peer_fd;
+            cl->read_op->client_id = cl->client_id;
             cl->read_op->op_type = OSD_OP_IN;
             cl->recv_list.push_back(cl->read_op->req.buf, OSD_PACKET_SIZE);
             cl->read_remaining = OSD_PACKET_SIZE;
@@ -240,8 +224,8 @@ bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
             {
                 if (cl->read_op->req.hdr.id != cl->read_op_id)
                 {
-                    fprintf(stderr, "Warning: operation sequencing is broken on client %d: expected num %ju, got %ju, stopping client\n", cl->peer_fd, cl->read_op_id, cl->read_op->req.hdr.id);
-                    stop_client(cl->peer_fd);
+                    fprintf(stderr, "Warning: operation sequencing is broken on client %ju: expected num %ju, got %ju, stopping client\n", cl->client_id, cl->read_op_id, cl->read_op->req.hdr.id);
+                    stop_client(cl->client_id);
                     return false;
                 }
                 cl->read_op_id++;
@@ -250,8 +234,8 @@ bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
         }
         else
         {
-            fprintf(stderr, "Received garbage: magic=%jx id=%ju opcode=%jx from %d\n", cl->read_op->req.hdr.magic, cl->read_op->req.hdr.id, cl->read_op->req.hdr.opcode, cl->peer_fd);
-            stop_client(cl->peer_fd);
+            fprintf(stderr, "Received garbage: magic=%jx id=%ju opcode=%jx from client %ju\n", cl->read_op->req.hdr.magic, cl->read_op->req.hdr.id, cl->read_op->req.hdr.opcode, cl->client_id);
+            stop_client(cl->client_id);
             return false;
         }
     }
@@ -367,8 +351,8 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     if (req_it == cl->sent_ops.end())
     {
         // Command out of sync. Drop connection
-        fprintf(stderr, "Client %d command out of sync: id %ju\n", cl->peer_fd, cl->read_op->req.hdr.id);
-        stop_client(cl->peer_fd);
+        fprintf(stderr, "Client %ju command out of sync: id %ju\n", cl->client_id, cl->read_op->req.hdr.id);
+        stop_client(cl->client_id);
         return false;
     }
     osd_op_t *op = req_it->second;
@@ -382,10 +366,10 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         if (op->reply.hdr.retval >= 0 && (op->reply.hdr.retval != expected_size || bmp_len > op->bitmap_len))
         {
             // Check reply length to not overflow the buffer
-            fprintf(stderr, "Client %d read reply of different length: expected %u+%u, got %jd+%u\n",
-                cl->peer_fd, expected_size, op->bitmap_len, op->reply.hdr.retval, bmp_len);
+            fprintf(stderr, "Client %ju read reply of different length: expected %u+%u, got %jd+%u\n",
+                cl->client_id, expected_size, op->bitmap_len, op->reply.hdr.retval, bmp_len);
             cl->sent_ops[op->req.hdr.id] = op;
-            stop_client(cl->peer_fd);
+            stop_client(cl->client_id);
             return false;
         }
         if (bmp_len > 0)

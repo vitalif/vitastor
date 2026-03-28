@@ -187,7 +187,7 @@ void osd_messenger_t::init()
         {
             auto cl = cl_it->second;
             cl_it++;
-            auto peer_fd = cl->peer_fd;
+            auto client_id = cl->client_id;
             if (!cl->osd_num && !cl->in_osd_num || cl->peer_state != PEER_CONNECTED && cl->peer_state != PEER_RDMA)
             {
                 // Do not run keepalive on regular clients
@@ -199,10 +199,11 @@ void osd_messenger_t::init()
                 if (!cl->ping_time_remaining)
                 {
                     // Ping timed out, stop the client
-                    fprintf(stderr, "Ping timed out for OSD %ju (client %d), disconnecting peer\n", cl->in_osd_num ? cl->in_osd_num : cl->osd_num, cl->peer_fd);
-                    stop_client(peer_fd, true);
+                    fprintf(stderr, "Ping timed out for OSD %ju (client %ju), disconnecting peer\n",
+                        cl->in_osd_num ? cl->in_osd_num : cl->osd_num, cl->client_id);
+                    stop_client(cl->client_id);
                     // Restart iterator because it may be invalidated
-                    cl_it = clients.upper_bound(peer_fd);
+                    cl_it = clients.upper_bound(client_id);
                 }
             }
             else if (cl->idle_time_remaining > 0)
@@ -213,7 +214,7 @@ void osd_messenger_t::init()
                     // Connection is idle for <osd_idle_time>, send ping
                     osd_op_t *op = new osd_op_t();
                     op->op_type = OSD_OP_OUT;
-                    op->peer_fd = cl->peer_fd;
+                    op->client_id = cl->client_id;
                     op->req = (osd_any_op_t){
                         .hdr = {
                             .magic = SECONDARY_OSD_OP_MAGIC,
@@ -222,28 +223,28 @@ void osd_messenger_t::init()
                     };
                     op->callback = [this, cl](osd_op_t *op)
                     {
-                        auto cl_it = clients.find(op->peer_fd);
-                        if (cl_it == clients.end() || cl_it->second != cl)
+                        auto cl_it = clients.find(op->client_id);
+                        if (cl_it == clients.end())
                         {
                             // client is already dropped
                             delete op;
                             return;
                         }
-                        int fail_fd = (op->reply.hdr.retval != 0 ? op->peer_fd : -1);
+                        uint64_t fail_client_id = (op->reply.hdr.retval != 0 ? op->client_id : 0);
                         auto fail_osd_num = cl->in_osd_num ? cl->in_osd_num : cl->osd_num;
                         cl->ping_time_remaining = 0;
                         delete op;
-                        if (fail_fd >= 0)
+                        if (fail_client_id)
                         {
-                            fprintf(stderr, "Ping failed for OSD %ju (client %d), disconnecting peer\n", fail_osd_num, fail_fd);
-                            stop_client(fail_fd, true);
+                            fprintf(stderr, "Ping failed for OSD %ju (client %ju), disconnecting peer\n", fail_osd_num, fail_client_id);
+                            stop_client(fail_client_id);
                         }
                     };
                     cl->ping_time_remaining = osd_ping_timeout;
                     cl->idle_time_remaining = osd_idle_timeout;
                     outbox_push(op);
                     // Restart iterator because it may be invalidated
-                    cl_it = clients.upper_bound(peer_fd);
+                    cl_it = clients.upper_bound(client_id);
                 }
             }
             else
@@ -263,7 +264,7 @@ osd_messenger_t::~osd_messenger_t()
     }
     while (clients.size() > 0)
     {
-        stop_client(clients.begin()->first, true, true);
+        stop_client(clients.begin()->first, true);
     }
     if (iothreads.size())
     {
@@ -440,7 +441,7 @@ void osd_messenger_t::try_connect_peer(uint64_t peer_osd)
     {
         return;
     }
-    if (osd_peer_fds.find(peer_osd) != osd_peer_fds.end())
+    if (osd_peers.find(peer_osd) != osd_peers.end())
     {
         wanted_peers.erase(peer_osd);
         return;
@@ -467,20 +468,20 @@ void osd_messenger_t::try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_
 #ifdef WITH_RDMACM
     if (disable_tcp)
     {
-        on_connect_peer(peer_osd, -EINVAL);
+        on_connect_peer(peer_osd, -EINVAL, 0);
         return;
     }
 #endif
     struct sockaddr_storage addr;
     if (!string_to_addr(peer_host, 0, peer_port, &addr))
     {
-        on_connect_peer(peer_osd, -EINVAL);
+        on_connect_peer(peer_osd, -EINVAL, 0);
         return;
     }
     int peer_fd = socket(addr.ss_family, SOCK_STREAM, 0);
     if (peer_fd < 0)
     {
-        on_connect_peer(peer_osd, -errno);
+        on_connect_peer(peer_osd, -errno, 0);
         return;
     }
     fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
@@ -488,21 +489,25 @@ void osd_messenger_t::try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_
     if (r < 0 && errno != EINPROGRESS)
     {
         close(peer_fd);
-        on_connect_peer(peer_osd, -errno);
+        on_connect_peer(peer_osd, -errno, 0);
         return;
     }
-    clients[peer_fd] = new osd_client_t();
+    const uint64_t client_id = next_client_id++;
+    osd_client_t *cl = new osd_client_t();
     if (log_level > 0)
     {
-        fprintf(stderr, "Connecting to OSD %ju at %s:%d (client %d)\n", peer_osd, peer_host, peer_port, peer_fd);
+        fprintf(stderr, "Connecting to OSD %ju at %s:%d (client %ju, FD %d)\n", peer_osd, peer_host, peer_port, client_id, peer_fd);
     }
-    clients[peer_fd]->peer_addr = addr;
-    clients[peer_fd]->peer_port = peer_port;
-    clients[peer_fd]->peer_fd = peer_fd;
-    clients[peer_fd]->peer_state = PEER_CONNECTING;
-    clients[peer_fd]->connect_timeout_id = -1;
-    clients[peer_fd]->osd_num = peer_osd;
-    clients[peer_fd]->in_buf = malloc_or_die(receive_buffer_size);
+    cl->client_id = client_id;
+    cl->peer_addr = addr;
+    cl->peer_port = peer_port;
+    cl->peer_fd = peer_fd;
+    cl->peer_state = PEER_CONNECTING;
+    cl->connect_timeout_id = -1;
+    cl->osd_num = peer_osd;
+    cl->in_buf = malloc_or_die(receive_buffer_size);
+    clients[client_id] = cl;
+    clients_by_fd[peer_fd] = cl;
     tfd->set_fd_handler(peer_fd, true, [this](int peer_fd, int epoll_events)
     {
         // Either OUT (connected) or HUP
@@ -510,11 +515,11 @@ void osd_messenger_t::try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_
     });
     if (peer_connect_timeout > 0)
     {
-        clients[peer_fd]->connect_timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, peer_fd](int timer_id)
+        cl->connect_timeout_id = tfd->set_timer(1000*peer_connect_timeout, false, [this, client_id](int timer_id)
         {
-            osd_num_t peer_osd = clients.at(peer_fd)->osd_num;
-            stop_client(peer_fd, true);
-            on_connect_peer(peer_osd, -EPIPE);
+            osd_num_t peer_osd = clients.at(client_id)->osd_num;
+            stop_client(client_id);
+            on_connect_peer(peer_osd, -EPIPE, 0);
             return;
         });
     }
@@ -522,7 +527,7 @@ void osd_messenger_t::try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_
 
 void osd_messenger_t::handle_connect_epoll(int peer_fd)
 {
-    auto cl = clients[peer_fd];
+    auto cl = clients_by_fd.at(peer_fd);
     if (cl->connect_timeout_id >= 0)
     {
         tfd->clear_timer(cl->connect_timeout_id);
@@ -537,8 +542,8 @@ void osd_messenger_t::handle_connect_epoll(int peer_fd)
     }
     if (result != 0)
     {
-        stop_client(peer_fd, true);
-        on_connect_peer(peer_osd, -result);
+        stop_client(cl->client_id);
+        on_connect_peer(peer_osd, -result, 0);
         return;
     }
     int one = 1;
@@ -555,23 +560,23 @@ void osd_messenger_t::handle_connect_epoll(int peer_fd)
 void osd_messenger_t::handle_peer_epoll(int peer_fd, int epoll_events)
 {
     // Mark client as ready (i.e. some data is available)
+    auto cl = clients_by_fd.at(peer_fd);
     if (epoll_events & EPOLLRDHUP)
     {
         // Stop client
         if (log_level > 0)
         {
-            fprintf(stderr, "[OSD %ju] client %d disconnected\n", this->osd_num, peer_fd);
+            fprintf(stderr, "[OSD %ju] client %ju disconnected\n", this->osd_num, cl->client_id);
         }
-        stop_client(peer_fd, true);
+        stop_client(cl->client_id);
     }
     else if (epoll_events & EPOLLIN)
     {
         // Mark client as ready (i.e. some data is available)
-        auto cl = clients[peer_fd];
         cl->read_ready++;
         if (cl->read_ready == 1)
         {
-            read_ready_clients.push_back(cl->peer_fd);
+            read_ready_clients.push_back(cl->client_id);
             if (ringloop)
                 ringloop->wakeup();
             else
@@ -580,13 +585,13 @@ void osd_messenger_t::handle_peer_epoll(int peer_fd, int epoll_events)
     }
 }
 
-void osd_messenger_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
+void osd_messenger_t::on_connect_peer(osd_num_t peer_osd, int errcode, uint64_t client_id)
 {
     auto & wp = wanted_peers.at(peer_osd);
     wp.connecting = false;
-    if (peer_fd < 0)
+    if (errcode < 0)
     {
-        fprintf(stderr, "Failed to connect to peer OSD %ju address %s port %d: %s\n", peer_osd, wp.cur_addr.c_str(), wp.cur_port, strerror(-peer_fd));
+        fprintf(stderr, "Failed to connect to peer OSD %ju address %s port %d: %s\n", peer_osd, wp.cur_addr.c_str(), wp.cur_port, strerror(-errcode));
         if (wp.address_changed)
         {
             wp.address_changed = false;
@@ -613,7 +618,7 @@ void osd_messenger_t::on_connect_peer(osd_num_t peer_osd, int peer_fd)
     }
     if (log_level > 0)
     {
-        fprintf(stderr, "[OSD %ju] Connected with peer OSD %ju (client %d)\n", osd_num, peer_osd, peer_fd);
+        fprintf(stderr, "[OSD %ju] Connected with peer OSD %ju (client %ju)\n", osd_num, peer_osd, client_id);
     }
     wanted_peers.erase(peer_osd);
     repeer_pgs(peer_osd);
@@ -623,7 +628,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
 {
     osd_op_t *op = new osd_op_t();
     op->op_type = OSD_OP_OUT;
-    op->peer_fd = cl->peer_fd;
+    op->client_id = cl->client_id;
     op->req = (osd_any_op_t){
         .show_conf = {
             .header = {
@@ -647,7 +652,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         if (!selected_ctx)
         {
             if (log_level > 0)
-                fprintf(stderr, "No RDMA context for OSD %ju connection (peer %d), using only TCP\n", cl->osd_num, cl->peer_fd);
+                fprintf(stderr, "No RDMA context for OSD %ju connection (client %ju), using only TCP\n", cl->osd_num, cl->client_id);
         }
         else
         {
@@ -708,8 +713,8 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         if (err)
         {
             osd_num_t peer_osd = cl->osd_num;
-            stop_client(op->peer_fd);
-            on_connect_peer(peer_osd, -EINVAL);
+            stop_client(op->client_id);
+            on_connect_peer(peer_osd, -EINVAL, 0);
             delete op;
             return;
         }
@@ -744,8 +749,8 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             }
         }
 #endif
-        osd_peer_fds[cl->osd_num] = cl->peer_fd;
-        on_connect_peer(cl->osd_num, cl->peer_fd);
+        osd_peers[cl->osd_num] = cl;
+        on_connect_peer(cl->osd_num, 0, cl->client_id);
         delete op;
     };
     outbox_push(op);
@@ -760,13 +765,16 @@ void osd_messenger_t::accept_connections(int listen_fd)
     while ((peer_fd = accept(listen_fd, (sockaddr*)&addr, &peer_addr_size)) >= 0)
     {
         assert(peer_fd != 0);
-        fprintf(stderr, "[OSD %ju] new client %d: connection from %s\n", this->osd_num, peer_fd,
+        const uint64_t client_id = next_client_id++;
+        fprintf(stderr, "[OSD %ju] new client %ju (FD %d): connection from %s\n", this->osd_num, client_id, peer_fd,
             addr_to_string(addr).c_str());
         fcntl(peer_fd, F_SETFL, fcntl(peer_fd, F_GETFL, 0) | O_NONBLOCK);
         int one = 1;
         setsockopt(peer_fd, SOL_TCP, TCP_NODELAY, &one, sizeof(one));
         auto cl = new osd_client_t();
-        clients[peer_fd] = cl;
+        cl->client_id = client_id;
+        clients[cl->client_id] = cl;
+        clients_by_fd[peer_fd] = cl;
         cl->is_incoming = true;
         cl->peer_addr = addr;
         cl->peer_addr = addr;

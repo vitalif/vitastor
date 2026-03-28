@@ -991,7 +991,7 @@ void osd_t::apply_pg_config()
                     // Add peers
                     for (auto pg_osd: all_peers)
                     {
-                        if (pg_osd != this->osd_num && msgr.osd_peer_fds.find(pg_osd) == msgr.osd_peer_fds.end())
+                        if (pg_osd != this->osd_num && msgr.osd_peers.find(pg_osd) == msgr.osd_peers.end())
                         {
                             msgr.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
                         }

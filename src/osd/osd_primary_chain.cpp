@@ -312,16 +312,16 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
                     }
                     handle_primary_subop(subop, cur_op);
                 };
-                auto peer_fd_it = msgr.osd_peer_fds.find(subop_osd_num);
-                if (peer_fd_it != msgr.osd_peer_fds.end())
+                auto peer_it = msgr.osd_peers.find(subop_osd_num);
+                if (peer_it != msgr.osd_peers.end())
                 {
-                    subop->peer_fd = peer_fd_it->second;
+                    subop->client_id = peer_it->second->client_id;
                     msgr.outbox_push(subop);
                 }
                 else
                 {
                     // Fail it immediately
-                    subop->peer_fd = -1;
+                    subop->client_id = 0;
                     subop->reply.hdr.retval = -EPIPE;
                     ringloop->set_immediate([subop]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
                 }
@@ -607,7 +607,7 @@ void osd_t::send_chained_read_results(pg_t *pg, osd_op_t *cur_op)
         {
             if (cur > prev)
             {
-                // Send buffer in parts to avoid copying
+                 // Send buffer in parts to avoid copying
                 if (!prev_set)
                 {
                     while ((cur-prev) > zero_buffer_size/bs_bitmap_granularity)

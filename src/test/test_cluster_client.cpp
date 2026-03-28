@@ -118,11 +118,14 @@ void pretend_connected(cluster_client_t *cli, osd_num_t osd_num)
 {
     printf("OSD %ju connected\n", osd_num);
     int peer_fd = cli->msgr.clients.size() ? std::prev(cli->msgr.clients.end())->first+1 : 10;
-    cli->msgr.osd_peer_fds[osd_num] = peer_fd;
-    cli->msgr.clients[peer_fd] = new osd_client_t();
-    cli->msgr.clients[peer_fd]->osd_num = osd_num;
-    cli->msgr.clients[peer_fd]->peer_fd = peer_fd;
-    cli->msgr.clients[peer_fd]->peer_state = PEER_CONNECTED;
+    auto cl = new osd_client_t();
+    cl->client_id = cli->msgr.next_client_id++;
+    cl->osd_num = osd_num;
+    cl->peer_fd = peer_fd;
+    cl->peer_state = PEER_CONNECTED;
+    cli->msgr.osd_peers[osd_num] = cl;
+    cli->msgr.clients[cl->client_id] = cl;
+    cli->msgr.clients_by_fd[peer_fd] = cl;
     cli->msgr.wanted_peers.erase(osd_num);
     cli->msgr.repeer_pgs(osd_num);
 }
@@ -130,12 +133,12 @@ void pretend_connected(cluster_client_t *cli, osd_num_t osd_num)
 void pretend_disconnected(cluster_client_t *cli, osd_num_t osd_num)
 {
     printf("OSD %ju disconnected\n", osd_num);
-    cli->msgr.stop_client(cli->msgr.osd_peer_fds.at(osd_num));
+    cli->msgr.stop_client(cli->msgr.osd_peers.at(osd_num)->client_id);
 }
 
 void check_disconnected(cluster_client_t *cli, osd_num_t osd_num)
 {
-    if (cli->msgr.osd_peer_fds.find(osd_num) != cli->msgr.osd_peer_fds.end())
+    if (cli->msgr.osd_peers.find(osd_num) != cli->msgr.osd_peers.end())
     {
         printf("OSD %ju not disconnected as it ought to be\n", osd_num);
         assert(0);
@@ -144,8 +147,8 @@ void check_disconnected(cluster_client_t *cli, osd_num_t osd_num)
 
 void check_op_count(cluster_client_t *cli, osd_num_t osd_num, int ops)
 {
-    int peer_fd = cli->msgr.osd_peer_fds.at(osd_num);
-    int real_ops = cli->msgr.clients[peer_fd]->sent_ops.size();
+    osd_client_t *cl = cli->msgr.osd_peers.at(osd_num);
+    int real_ops = cl->sent_ops.size();
     if (real_ops != ops)
     {
         printf("error: %d ops expected, but %d queued\n", ops, real_ops);
@@ -155,9 +158,9 @@ void check_op_count(cluster_client_t *cli, osd_num_t osd_num, int ops)
 
 osd_op_t *find_op(cluster_client_t *cli, osd_num_t osd_num, uint64_t opcode, uint64_t offset, uint64_t len)
 {
-    int peer_fd = cli->msgr.osd_peer_fds.at(osd_num);
-    auto op_it = cli->msgr.clients[peer_fd]->sent_ops.begin();
-    while (op_it != cli->msgr.clients[peer_fd]->sent_ops.end())
+    osd_client_t *cl = cli->msgr.osd_peers.at(osd_num);
+    auto op_it = cl->sent_ops.begin();
+    while (op_it != cl->sent_ops.end())
     {
         auto op = op_it->second;
         if (op->req.hdr.opcode == opcode && (opcode == OSD_OP_SYNC ||
@@ -167,8 +170,8 @@ osd_op_t *find_op(cluster_client_t *cli, osd_num_t osd_num, uint64_t opcode, uin
         }
         op_it++;
     }
-    op_it = cli->msgr.clients[peer_fd]->sent_ops.begin();
-    while (op_it != cli->msgr.clients[peer_fd]->sent_ops.end())
+    op_it = cl->sent_ops.begin();
+    while (op_it != cl->sent_ops.end())
     {
         printf("Found opcode %ju offset %jx size %x\n", op_it->second->req.hdr.opcode, op_it->second->req.rw.offset, op_it->second->req.rw.len);
         op_it++;
@@ -183,8 +186,8 @@ void pretend_op_completed(cluster_client_t *cli, osd_op_t *op, int64_t retval)
     printf("Pretend completed %s %jx+%x\n", op->req.hdr.opcode == OSD_OP_SYNC
         ? "sync" : (op->req.hdr.opcode == OSD_OP_WRITE ? "write" : "read"), op->req.rw.offset, op->req.rw.len);
     uint64_t op_id = op->req.hdr.id;
-    int peer_fd = op->peer_fd;
-    cli->msgr.clients[peer_fd]->sent_ops.erase(op_id);
+    uint64_t client_id = op->client_id;
+    cli->msgr.clients[client_id]->sent_ops.erase(op_id);
     op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
     op->reply.hdr.id = op->req.hdr.id;
     op->reply.hdr.opcode = op->req.hdr.opcode;
@@ -264,7 +267,7 @@ void test1()
         uint64_t replay_start = UINT64_MAX;
         uint64_t replay_end = 0;
         std::vector<osd_op_t*> replay_ops;
-        auto osd_cl = cli->msgr.clients.at(cli->msgr.osd_peer_fds.at(1));
+        auto osd_cl = cli->msgr.osd_peers.at(1);
         for (auto & op_p: osd_cl->sent_ops)
         {
             auto op = op_p.second;

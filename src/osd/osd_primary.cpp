@@ -795,7 +795,7 @@ resume_5:
         {
             this->dirty_osds.insert(chunk.osd_num);
         }
-        for (auto cl_it = msgr.clients.find(cur_op->peer_fd); cl_it != msgr.clients.end(); )
+        for (auto cl_it = msgr.clients.find(cur_op->client_id); cl_it != msgr.clients.end(); )
         {
             cl_it->second->dirty_pgs.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
             break;

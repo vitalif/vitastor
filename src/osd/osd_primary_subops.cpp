@@ -3,7 +3,7 @@
 
 #include "osd_primary.h"
 
-#define SELF_FD -1
+#define SELF_CLIENT 0
 
 void osd_t::autosync()
 {
@@ -15,7 +15,7 @@ void osd_t::autosync()
         }
         autosync_op = new osd_op_t();
         autosync_op->op_type = OSD_OP_IN;
-        autosync_op->peer_fd = SELF_FD;
+        autosync_op->client_id = SELF_CLIENT;
         autosync_op->req = (osd_any_op_t){
             .sync = {
                 .header = {
@@ -90,7 +90,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     cur_op->reply.hdr.id = cur_op->req.hdr.id;
     cur_op->reply.hdr.opcode = cur_op->req.hdr.opcode;
     cur_op->reply.hdr.retval = retval;
-    if (cur_op->peer_fd == SELF_FD)
+    if (cur_op->client_id == SELF_CLIENT)
     {
         // Do not include internal primary writes (recovery/rebalance) into client op statistics
         if (cur_op->req.hdr.opcode != OSD_OP_WRITE)
@@ -103,7 +103,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     else
     {
         // FIXME add separate magic number for primary ops
-        auto cl_it = msgr.clients.find(cur_op->peer_fd);
+        auto cl_it = msgr.clients.find(cur_op->client_id);
         if (cl_it != msgr.clients.end())
         {
             msgr.outbox_push(cur_op);
@@ -243,7 +243,7 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
             .offset = wr ? si->write_start : si->read_start,
             .len = subop_len,
             .attr_len = wr ? clean_entry_bitmap_size : 0,
-            .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
+            .flags = cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
         };
 #ifdef OSD_DEBUG
         printf(
@@ -270,16 +270,16 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
         {
             handle_primary_subop(subop, cur_op);
         };
-        auto peer_fd_it = msgr.osd_peer_fds.find(si->osd_num);
-        if (peer_fd_it != msgr.osd_peer_fds.end())
+        auto peer_it = msgr.osd_peers.find(si->osd_num);
+        if (peer_it != msgr.osd_peers.end())
         {
-            subop->peer_fd = peer_fd_it->second;
+            subop->client_id = peer_it->second->client_id;
             msgr.outbox_push(subop);
         }
         else
         {
             // Fail it immediately
-            subop->peer_fd = -1;
+            subop->client_id = 0;
             subop->reply.hdr.retval = -EPIPE;
             ringloop->set_immediate([subop]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
         }
@@ -326,7 +326,7 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
         }
         throw std::runtime_error("local blockstore modification failed");
     }
-    bool recovery_related = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB;
+    bool recovery_related = cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB;
     add_bs_subop_stats(subop, recovery_related);
     subop->req.hdr.opcode = bs_op_to_osd_op[bs_op->opcode];
     subop->reply.hdr.retval = bs_op->retval;
@@ -339,7 +339,7 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
     }
     delete bs_op;
     subop->bs_op = NULL;
-    subop->peer_fd = SELF_FD;
+    subop->client_id = SELF_CLIENT;
     if (recovery_related && recovery_target_sleep_us)
     {
         tfd->set_timer_us(recovery_target_sleep_us, false, [=](int timer_id)
@@ -399,11 +399,15 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     {
         uint64_t version = subop->reply.sec_rw.version;
 #ifdef OSD_DEBUG
-        int64_t peer_osd = subop->peer_fd == SELF_FD ? osd_num :
-            (msgr.clients.find(subop->peer_fd) != msgr.clients.end()
-                ? msgr.clients[subop->peer_fd]->osd_num : -subop->peer_fd);
-        printf("subop %s %jx:%jx from osd %jd: version = %ju\n", osd_op_names[opcode],
-            subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, peer_osd, version);
+        if (subop->client_id == SELF_CLIENT)
+            printf("subop %s %jx:%jx from local: version = %ju\n", osd_op_names[opcode],
+                subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, version);
+        else if (msgr.clients.find(subop->client_id) != msgr.clients.end())
+            printf("subop %s %jx:%jx from osd %ju: version = %ju\n", osd_op_names[opcode],
+                subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, msgr.clients.at(subop->client_id)->osd_num, version);
+        else
+            printf("subop %s %jx:%jx from client %ju: version = %ju\n", osd_op_names[opcode],
+                subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, subop->client_id, version);
 #endif
         if (version != 0 && op_data->fact_ver != UINT64_MAX)
         {
@@ -422,16 +426,16 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     }
     if (retval != expected)
     {
-        int64_t peer_osd = (msgr.clients.find(subop->peer_fd) != msgr.clients.end()
-            ? msgr.clients[subop->peer_fd]->osd_num : 0);
+        int64_t peer_osd = (msgr.clients.find(subop->client_id) != msgr.clients.end()
+            ? msgr.clients.at(subop->client_id)->osd_num : 0);
         if (opcode == OSD_OP_SEC_READ || opcode == OSD_OP_SEC_WRITE || opcode == OSD_OP_SEC_WRITE_STABLE)
         {
             printf("%s subop to %jx:%jx v%ju failed ", osd_op_names[opcode],
                 subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, subop->req.sec_rw.version);
-            if (subop->peer_fd >= 0 && peer_osd > 0)
+            if (subop->client_id && peer_osd > 0)
                 printf("on osd %ju: retval = %d (expected %d)\n", peer_osd, retval, expected);
-            else if (peer_osd > 0)
-                printf("on peer %d: retval = %d (expected %d)\n", subop->peer_fd, retval, expected);
+            else if (subop->client_id)
+                printf("on client %ju: retval = %d (expected %d)\n", subop->client_id, retval, expected);
             else
                 printf("locally: retval = %d (expected %d)\n", retval, expected);
         }
@@ -446,7 +450,7 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         else
         {
             printf(
-                "%s subop failed on osd %jd: retval = %d (expected %d)\n",
+                "%s subop failed on osd %ju: retval = %d (expected %d)\n",
                 osd_op_names[opcode], peer_osd, retval, expected
             );
         }
@@ -460,12 +464,12 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         {
             op_data->errcode = retval;
         }
-        if (subop->peer_fd >= 0 && retval != -EDOM && retval != -ERANGE &&
+        if (subop->client_id && retval != -EDOM && retval != -ERANGE &&
             (retval != -ENOSPC || opcode != OSD_OP_SEC_WRITE && opcode != OSD_OP_SEC_WRITE_STABLE) &&
             (retval != -EIO || opcode != OSD_OP_SEC_READ))
         {
             // Drop connection on unexpected errors
-            msgr.stop_client(subop->peer_fd);
+            msgr.stop_client(subop->client_id);
             op_data->drops++;
         }
         // Increase op_data->errors after stop_client to prevent >= n_subops running twice
@@ -606,22 +610,22 @@ void osd_t::submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_
                 },
                 .oid = chunk.oid,
                 .version = chunk.version,
-                .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
+                .flags = cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
             } };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
                 handle_primary_subop(subop, cur_op);
             };
-            auto peer_fd_it = msgr.osd_peer_fds.find(chunk.osd_num);
-            if (peer_fd_it != msgr.osd_peer_fds.end())
+            auto peer_it = msgr.osd_peers.find(chunk.osd_num);
+            if (peer_it != msgr.osd_peers.end())
             {
-                subops[i].peer_fd = peer_fd_it->second;
+                subops[i].client_id = peer_it->second->client_id;
                 msgr.outbox_push(&subops[i]);
             }
             else
             {
                 // Fail it immediately
-                subops[i].peer_fd = -1;
+                subops[i].client_id = 0;
                 subops[i].reply.hdr.retval = -EPIPE;
                 ringloop->set_immediate([subop = &subops[i]]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
             }
@@ -637,7 +641,7 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
     op_data->done = op_data->errors = op_data->errcode = 0;
     op_data->n_subops = n_osds;
     op_data->subops = subops;
-    std::map<uint64_t, int>::iterator peer_it;
+    std::map<uint64_t, osd_client_t*>::iterator peer_it;
     for (int i = 0; i < n_osds; i++)
     {
         osd_num_t sync_osd = op_data->dirty_osds[i];
@@ -654,16 +658,16 @@ int osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
             });
             bs->enqueue_op(subops[i].bs_op);
         }
-        else if ((peer_it = msgr.osd_peer_fds.find(sync_osd)) != msgr.osd_peer_fds.end())
+        else if ((peer_it = msgr.osd_peers.find(sync_osd)) != msgr.osd_peers.end())
         {
             subops[i].op_type = OSD_OP_OUT;
-            subops[i].peer_fd = peer_it->second;
+            subops[i].client_id = peer_it->second->client_id;
             subops[i].req = (osd_any_op_t){ .sec_sync = {
                 .header = {
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .opcode = OSD_OP_SEC_SYNC,
                 },
-                .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
+                .flags = cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
             } };
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
@@ -722,23 +726,23 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                     .opcode = OSD_OP_SEC_STABILIZE,
                 },
                 .len = (uint64_t)(stab_osd.len * sizeof(obj_ver_id)),
-                .flags = cur_op->peer_fd == SELF_FD && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
+                .flags = cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
             } };
             subops[i].iov.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
             subops[i].callback = [cur_op, this](osd_op_t *subop)
             {
                 handle_primary_subop(subop, cur_op);
             };
-            auto peer_fd_it = msgr.osd_peer_fds.find(stab_osd.osd_num);
-            if (peer_fd_it != msgr.osd_peer_fds.end())
+            auto peer_it = msgr.osd_peers.find(stab_osd.osd_num);
+            if (peer_it != msgr.osd_peers.end())
             {
-                subops[i].peer_fd = peer_fd_it->second;
+                subops[i].client_id = peer_it->second->client_id;
                 msgr.outbox_push(&subops[i]);
             }
             else
             {
                 // Fail it immediately
-                subops[i].peer_fd = -1;
+                subops[i].client_id = 0;
                 subops[i].reply.hdr.retval = -EPIPE;
                 ringloop->set_immediate([subop = &subops[i]]() { std::function<void(osd_op_t*)>(subop->callback)(subop); });
             }
@@ -756,7 +760,7 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
     for (int role = 0; role < op_data->pg->pg_size; role++)
     {
         if (osd_set[role] != 0 && !stripes[role].read_error &&
-            (osd_set[role] == this->osd_num || msgr.osd_peer_fds.find(osd_set[role]) != msgr.osd_peer_fds.end()))
+            (osd_set[role] == this->osd_num || msgr.osd_peers.find(osd_set[role]) != msgr.osd_peers.end()))
         {
             n_subops++;
         }
@@ -773,7 +777,7 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
     for (int role = 0; role < op_data->pg->pg_size; role++)
     {
         if (osd_set[role] != 0 && !stripes[role].read_error &&
-            (osd_set[role] == this->osd_num || msgr.osd_peer_fds.find(osd_set[role]) != msgr.osd_peer_fds.end()))
+            (osd_set[role] == this->osd_num || msgr.osd_peers.find(osd_set[role]) != msgr.osd_peers.end()))
         {
             osd_op_t *subop = &op_data->subops[i];
             op_data->unstable_writes[i] = (obj_ver_id){
@@ -827,7 +831,7 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
                     op_data->oid.inode, op_data->oid.stripe | role, op_data->target_ver-1
                 );
 #endif
-                subop->peer_fd = msgr.osd_peer_fds.at(osd_set[role]);
+                subop->client_id = msgr.osd_peers.at(osd_set[role])->client_id;
                 msgr.outbox_push(subop);
             }
             i++;

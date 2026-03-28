@@ -295,7 +295,7 @@ int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
     bool conn = true;
     for (osd_num_t peer_osd: all_peers)
     {
-        if (msgr.osd_peer_fds.find(peer_osd) == msgr.osd_peer_fds.end())
+        if (msgr.osd_peers.find(peer_osd) == msgr.osd_peers.end())
         {
             // Initiate connection
             if (st_cli.peer_states[peer_osd].is_null())
@@ -340,7 +340,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
     osd_op_t *op = new osd_op_t();
     op->op_type = OSD_OP_OUT;
     // Already checked that it exists above, but anyway
-    op->peer_fd = msgr.osd_peer_fds.at(cur_list->osd_num);
+    op->client_id = msgr.osd_peers.at(cur_list->osd_num)->client_id;
     op->req = (osd_any_op_t){
         .sec_list = {
             .header = {
