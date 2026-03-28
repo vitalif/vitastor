@@ -347,7 +347,7 @@ class osd_t
     bool check_write_queue(osd_op_t *cur_op, pg_t & pg);
     pg_osd_set_state_t* add_object_to_set(pg_t & pg, const object_id oid, const pg_osd_set_t & osd_set,
         uint64_t old_pg_state, int log_at_level);
-    void remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t &pg, bool report = true);
+    bool remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t &pg, bool report = true);
     pg_osd_set_state_t *mark_object(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state, bool ref,
         std::function<int(pg_osd_set_t & new_set)> calc_set);
     pg_osd_set_state_t *mark_object_corrupted(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state,

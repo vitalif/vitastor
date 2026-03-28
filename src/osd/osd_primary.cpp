@@ -604,11 +604,11 @@ pg_osd_set_state_t* osd_t::add_object_to_set(pg_t & pg, const object_id oid, con
 }
 
 // Decrement pg_osd_set_state_t's object_count and change PG state accordingly
-void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t & pg, bool report)
+bool osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t & pg, bool report)
 {
     if (!*object_state)
     {
-        return;
+        return false;
     }
     pg_osd_set_state_t *recheck_state = NULL;
     get_object_osd_set(pg, oid, &recheck_state);
@@ -617,7 +617,7 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
         recheck_state->ref_count++;
         (*object_state)->ref_count--;
         *object_state = recheck_state;
-        return;
+        return false;
     }
     bool changed = false;
     (*object_state)->object_count--;
@@ -692,6 +692,7 @@ void osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
     {
         report_pg_state(pg);
     }
+    return changed;
 }
 
 void osd_t::deref_object_state(pg_t & pg, pg_osd_set_state_t **object_state, bool deref)

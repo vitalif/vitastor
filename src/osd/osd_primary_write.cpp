@@ -276,6 +276,7 @@ resume_12:
     {
         // Any kind of a non-clean object can have extra chunks, because we don't record objects
         // as degraded & misplaced or incomplete & misplaced at the same time. So try to remove extra chunks
+        bool changed = false;
         if (immediate_commit != IMMEDIATE_ALL)
         {
             // We can't remove extra chunks yet if fsyncs are explicit, because
@@ -303,13 +304,21 @@ resume_12:
             {
                 // PG can't be active+clean until extra copies aren't removed, so mark it as PG_HAS_MISPLACED
                 pg.state |= PG_HAS_MISPLACED;
-                //this->pg_state_dirty.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
+                changed = true;
+                this->pg_state_dirty.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
             }
         }
         // We must forget the unclean state of the object before deleting it
         // so the next reads don't accidentally read a deleted version
         // And it should be done at the same time as the removal of the version override
-        remove_object_from_state(op_data->oid, &op_data->object_state, pg);
+        if (remove_object_from_state(op_data->oid, &op_data->object_state, pg, false))
+        {
+            changed = true;
+        }
+        if (changed)
+        {
+            report_pg_state(pg);
+        }
         pg.clean_count++;
     }
 resume_6:
