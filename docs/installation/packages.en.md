@@ -17,6 +17,7 @@
   - Debian 10 (Buster): `deb https://vitastor.io/debian buster main`
   - Ubuntu 22.04 (Jammy): `deb https://vitastor.io/debian jammy main`
   - Ubuntu 24.04 (Noble): `deb https://vitastor.io/debian noble main`
+  - Ubuntu 26.04 (Resolute): `deb https://vitastor.io/debian resolute main`
   - Add `-oldstable` to bookworm/bullseye/buster in this line to install the last
     stable version from 0.9.x branch instead of 1.x
 - To always prefer vitastor-patched QEMU and Libvirt versions, add the following to `/etc/apt/preferences`:

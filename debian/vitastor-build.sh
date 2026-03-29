@@ -44,7 +44,7 @@ curl -s https://git.yourcmc.ru/vitalif/antietcd/archive/master.tar.gz | tar -zx
 curl -s https://git.yourcmc.ru/vitalif/tinyraft/archive/master.tar.gz | tar -zx
 
 cd /root/vitastor/packages/vitastor-$REL
-if [[ "$REL" = "trixie" && -e ../vitastor-bookworm/vitastor_$VER.orig.tar.xz ]]; then
+if [[ ( "$REL" = "trixie" || "$REL" = "resolute" ) && -e ../vitastor-bookworm/vitastor_$VER.orig.tar.xz ]]; then
     # Fucking shit, archives differ between bookworm (xz 5.4.1) and trixie (xz 5.8.1)
     cp ../vitastor-bookworm/vitastor_$VER.orig.tar.xz .
 else
