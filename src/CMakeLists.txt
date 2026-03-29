@@ -1,9 +1,8 @@
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 2.8...3.30)
 
 project(vitastor)
 
 include(GNUInstallDirs)
-include(CTest)
 include(CheckIncludeFile)
 
 find_package(PkgConfig)

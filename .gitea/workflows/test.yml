@@ -63,7 +63,7 @@ jobs:
     container: ${{env.TEST_IMAGE}}:${{github.sha}}
     steps:
     # leak sanitizer sometimes crashes
-    - run: cd /root/vitastor/build && ASAN_OPTIONS=detect_leaks=0 make -j16 test
+    - run: cd /root/vitastor/build && ASAN_OPTIONS=detect_leaks=0 make -j16 build_tests test
 
   npm_lint:
     runs-on: ubuntu-latest
