@@ -152,9 +152,6 @@ class __attribute__((visibility("default"))) cluster_client_t
     std::set<osd_num_t> dirty_osds;
     uint64_t dirty_bytes = 0, dirty_ops = 0;
 
-    void *scrap_buffer = NULL;
-    unsigned scrap_buffer_size = 0;
-
     // inodes require some extra state for read/write, it's stored here.
     // moreover, robin_hood access is slightly faster than std::map :)
     robin_hood::unordered_flat_map<inode_t, std::shared_ptr<inode_cache_t>> inode_cache;

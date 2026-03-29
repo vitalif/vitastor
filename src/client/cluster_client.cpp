@@ -71,9 +71,6 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         st_cli->infinite_start = config["client_infinite_start"].bool_value();
     }
     st_cli->load_global_config();
-
-    scrap_buffer_size = SCRAP_BUFFER_SIZE;
-    scrap_buffer = malloc_or_die(scrap_buffer_size);
 }
 
 cluster_client_t::~cluster_client_t()
@@ -96,7 +93,6 @@ cluster_client_t::~cluster_client_t()
     {
         ringloop->unregister_consumer(&consumer);
     }
-    free(scrap_buffer);
     delete wb;
     wb = NULL;
 }
@@ -1266,7 +1262,7 @@ resume_2:
     return 0;
 }
 
-static void add_iov(int size, bool skip, cluster_op_t *op, int &iov_idx, size_t &iov_pos, osd_op_buf_list_t &iov, void *scrap, int scrap_len)
+static void add_iov(int size, int skip, cluster_op_t *op, int &iov_idx, size_t &iov_pos, osd_op_buf_list_t &iov)
 {
     int left = size;
     while (left > 0 && iov_idx < op->iov.count)
@@ -1274,7 +1270,7 @@ static void add_iov(int size, bool skip, cluster_op_t *op, int &iov_idx, size_t 
         int cur_left = op->iov.buf[iov_idx].iov_len - iov_pos;
         if (cur_left < left)
         {
-            if (!skip)
+            if (skip == 0)
             {
                 iov.push_back((uint8_t*)op->iov.buf[iov_idx].iov_base + iov_pos, cur_left);
             }
@@ -1284,7 +1280,7 @@ static void add_iov(int size, bool skip, cluster_op_t *op, int &iov_idx, size_t 
         }
         else
         {
-            if (!skip)
+            if (skip == 0)
             {
                 iov.push_back((uint8_t*)op->iov.buf[iov_idx].iov_base + iov_pos, left);
             }
@@ -1293,16 +1289,10 @@ static void add_iov(int size, bool skip, cluster_op_t *op, int &iov_idx, size_t 
         }
     }
     assert(left == 0);
-    if (skip && scrap_len > 0)
+    if (skip == 1)
     {
-        // All skipped ranges are read into the same useless buffer
-        left = size;
-        while (left > 0)
-        {
-            int cur_left = scrap_len < left ? scrap_len : left;
-            iov.push_back(scrap, cur_left);
-            left -= cur_left;
-        }
+        // data read into a NULL buffer will be discarded by messenger
+        iov.push_back(NULL, size);
     }
 }
 
@@ -1368,10 +1358,10 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
                         {
                             begin = cur;
                             // Just advance iov_idx & iov_pos
-                            add_iov(cur-prev, true, op, iov_idx, iov_pos, op->parts[i].iov, NULL, 0);
+                            add_iov(cur-prev, 2, op, iov_idx, iov_pos, op->parts[i].iov);
                         }
                         else
-                            add_iov(cur-prev, skip_prev, op, iov_idx, iov_pos, op->parts[i].iov, scrap_buffer, scrap_buffer_size);
+                            add_iov(cur-prev, skip_prev ? 1 : 0, op, iov_idx, iov_pos, op->parts[i].iov);
                     }
                     skip_prev = skip;
                     prev = cur;
@@ -1382,11 +1372,11 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
             if (skip_prev)
             {
                 // Just advance iov_idx & iov_pos
-                add_iov(end-prev, true, op, iov_idx, iov_pos, op->parts[i].iov, NULL, 0);
+                add_iov(end-prev, 2, op, iov_idx, iov_pos, op->parts[i].iov);
                 end = prev;
             }
             else
-                add_iov(cur-prev, skip_prev, op, iov_idx, iov_pos, op->parts[i].iov, scrap_buffer, scrap_buffer_size);
+                add_iov(cur-prev, skip_prev ? 1 : 0, op, iov_idx, iov_pos, op->parts[i].iov);
             if (end == begin)
             {
                 op->done_count++;
@@ -1395,7 +1385,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
         }
         else if (op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_READ_CHAIN_BITMAP && op->opcode != OSD_OP_DELETE)
         {
-            add_iov(end-begin, false, op, iov_idx, iov_pos, op->parts[i].iov, NULL, 0);
+            add_iov(end-begin, 0, op, iov_idx, iov_pos, op->parts[i].iov);
         }
         op->parts[i].parent = op;
         op->parts[i].offset = begin;

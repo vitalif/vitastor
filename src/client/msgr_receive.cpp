@@ -462,7 +462,10 @@ size_t osd_messenger_t::op_copy_from(osd_client_t *cl, uint8_t *src, size_t src_
             size_t n = dst_len-from;
             if (n > src_len-done)
                 n = src_len-done;
-            memcpy(dst+from, src+done, n);
+            if (dst)
+                memcpy(dst+from, src+done, n);
+            else
+                assert(!this->osd_num); // NULL buffers are only used by clients
             done += n;
             cl->read_op_pos += n;
             from += n;
@@ -649,8 +652,17 @@ size_t osd_messenger_t::op_get_read_buffers(osd_client_t *cl, std::vector<iovec>
                     from = cl->read_op_inline_decrypt_in;
                 }
                 for (int i = 0; i < op->iov.count; i++)
+                {
+                    if (!op->iov.buf[i].iov_base)
+                    {
+                        // When we recvmsg directly into the operation without copying,
+                        // we need some place for all buffers, so we allocate temporary
+                        // buffers for all skipped parts
+                        op_alloc_temp_buffers(op, i);
+                    }
                     if (!op_read_buf((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len))
                         return done;
+                }
             }
         }
         else if (op->reply.hdr.opcode == OSD_OP_SEC_LIST && op->reply.hdr.retval > 0)
@@ -671,6 +683,30 @@ size_t osd_messenger_t::op_get_read_buffers(osd_client_t *cl, std::vector<iovec>
         }
     }
     return done;
+}
+
+void osd_messenger_t::op_alloc_temp_buffers(osd_op_t *op, int i)
+{
+    size_t total_skip = 0;
+    for (int j = i; j < op->iov.count; j++)
+    {
+        if (!op->iov.buf[j].iov_base)
+        {
+            total_skip += op->iov.buf[j].iov_len;
+        }
+    }
+    assert(total_skip);
+    assert(!op->rmw_buf);
+    op->rmw_buf = malloc_or_die(total_skip);
+    total_skip = 0;
+    for (int j = i; j < op->iov.count; j++)
+    {
+        if (!op->iov.buf[j].iov_base)
+        {
+            op->iov.buf[j].iov_base = (uint8_t*)op->rmw_buf + total_skip;
+            total_skip += op->iov.buf[j].iov_len;
+        }
+    }
 }
 
 void osd_messenger_t::handle_finished_op(osd_client_t *cl)

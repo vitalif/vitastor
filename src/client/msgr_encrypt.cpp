@@ -81,7 +81,6 @@ void op_aes_xts_encrypt_t::encrypt_block(uint8_t *in, uint8_t *out)
 #endif
 }
 
-// FIXME: Copy-paste
 void op_aes_xts_encrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out)
 {
     // Fucking AES-XTS implementations (all of them) don't have streaming support,
@@ -245,6 +244,8 @@ void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
 #endif
 }
 
+// out may be NULL, in this case all input is still decrypted to calculate checksums,
+// but part of it is skipped and not copied to out
 void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out)
 {
     // Fucking AES-XTS implementations (all of them) don't have streaming support,
@@ -258,7 +259,8 @@ void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
         assert(tmp);
         if (max_out > block_size - tmp_pos)
             max_out = block_size - tmp_pos;
-        memcpy(out, tmp + tmp_pos, max_out);
+        if (out)
+            memcpy(out, tmp + tmp_pos, max_out);
         done_out += max_out;
         tmp_pos += max_out;
         if (tmp_pos >= block_size)
@@ -276,7 +278,7 @@ void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
         done_in += max_in;
         offset += max_in;
     }
-    else if (max_out < block_size)
+    else if (max_out < block_size || !out)
     {
         // Accumulate and decrypt input in <tmp>, then copy part of it to <out>
         if (!tmp)
@@ -288,7 +290,8 @@ void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
         memcpy(tmp + offset%block_size, in, max_in);
         decrypt_block(tmp, tmp);
         decrypted = true;
-        memcpy(out, tmp, max_out);
+        if (out)
+            memcpy(out, tmp, max_out);
         tmp_pos = max_out;
         done_in += max_in;
         offset += max_in;
@@ -297,7 +300,8 @@ void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
     else if (!(offset%block_size))
     {
         // Full block - simplest case
-        decrypt_block(in, out);
+        if (out)
+            decrypt_block(in, out);
         done_in += block_size;
         offset += block_size;
         done_out += block_size;
@@ -308,6 +312,7 @@ void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
         assert(tmp);
         max_in = block_size - offset%block_size;
         memcpy(tmp + offset%block_size, in, max_in);
+        assert(out);
         decrypt_block(tmp, out);
         done_in += max_in;
         offset += max_in;
@@ -383,7 +388,8 @@ bool osd_messenger_t::op_decrypted_copy_data_from(osd_client_t* cl, uint8_t *enc
                 return false;
             size_t done_in = 0;
             size_t done_out = 0;
-            cl->decrypt_ctx->update(enc_buf+done, enc_len-done, plain+from, plain_len-from, done_in, done_out);
+            // plain == NULL means skip output
+            cl->decrypt_ctx->update(enc_buf+done, enc_len-done, plain ? plain+from : NULL, plain_len-from, done_in, done_out);
             done += done_in;
             cl->read_op_pos += done_out;
             cl->read_op_inline_decrypt_in += done_in;

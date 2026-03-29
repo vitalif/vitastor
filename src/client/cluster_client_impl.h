@@ -5,7 +5,6 @@
 
 #include "cluster_client.h"
 
-#define SCRAP_BUFFER_SIZE 4*1024*1024
 #define PART_SENT 1
 #define PART_DONE 2
 #define PART_ERROR 4

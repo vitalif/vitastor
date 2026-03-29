@@ -275,6 +275,7 @@ protected:
     bool allocate_reply_buffers(osd_client_t *cl, osd_op_t *op);
     size_t op_copy_from(osd_client_t *cl, uint8_t *src, size_t src_len, size_t & done);
     size_t op_get_read_buffers(osd_client_t *cl, std::vector<iovec> & lst);
+    void op_alloc_temp_buffers(osd_op_t *op, int i);
     void handle_finished_op(osd_client_t *cl);
     void handle_immediate_ops();
 
