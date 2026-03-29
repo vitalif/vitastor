@@ -26,9 +26,9 @@ at Vitastor Kubernetes operator: https://github.com/Antilles7227/vitastor-operat
 The instruction is very simple.
 
 1. Download a Docker image of the desired version: \
-   `docker pull vitalif/vitastor:v3.0.6`
+   `docker pull vitalif/vitastor:v3.0.8`
 2. Install scripts to the host system: \
-   `docker run --rm -it -v /etc:/host-etc -v /usr/bin:/host-bin vitalif/vitastor:v3.0.6 install.sh`
+   `docker run --rm -it -v /etc:/host-etc -v /usr/bin:/host-bin vitalif/vitastor:v3.0.8 install.sh`
 3. Reload udev rules: \
    `udevadm control --reload-rules`
 4. Enable the vitastor-host service: \
