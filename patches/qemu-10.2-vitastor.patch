@@ -11,10 +11,10 @@ index 34b1b2a306..24ca0f1e52 100644
    if m[0].found()
      module_ss = ss.source_set()
 diff --git a/meson.build b/meson.build
-index 50c774a195..e5c7a3a4b1 100644
+index d9293294d8..776a5becc6 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -1652,6 +1652,26 @@ if not get_option('rbd').auto() or have_block
+@@ -1665,6 +1665,26 @@ if not get_option('rbd').auto() or have_block
    endif
  endif
  
@@ -41,7 +41,7 @@ index 50c774a195..e5c7a3a4b1 100644
  glusterfs = not_found
  glusterfs_ftruncate_has_stat = false
  glusterfs_iocb_has_stat = false
-@@ -2547,6 +2567,7 @@ endif
+@@ -2509,6 +2529,7 @@ endif
  config_host_data.set('CONFIG_OPENGL', opengl.found())
  config_host_data.set('CONFIG_PLUGIN', get_option('plugins'))
  config_host_data.set('CONFIG_RBD', rbd.found())
@@ -49,7 +49,7 @@ index 50c774a195..e5c7a3a4b1 100644
  config_host_data.set('CONFIG_RDMA', rdma.found())
  config_host_data.set('CONFIG_RELOCATABLE', get_option('relocatable'))
  config_host_data.set('CONFIG_SAFESTACK', get_option('safe_stack'))
-@@ -4972,6 +4993,7 @@ summary_info += {'fdt support':       fdt_opt == 'internal' ? 'internal' : fdt}
+@@ -4948,6 +4969,7 @@ summary_info += {'fdt support':       fdt_opt == 'internal' ? 'internal' : fdt}
  summary_info += {'libcap-ng support': libcap_ng}
  summary_info += {'bpf support':       libbpf}
  summary_info += {'rbd support':       rbd}
@@ -58,10 +58,10 @@ index 50c774a195..e5c7a3a4b1 100644
  summary_info += {'U2F support':       u2f}
  summary_info += {'libusb':            libusb}
 diff --git a/meson_options.txt b/meson_options.txt
-index fff1521e58..f0844c0e00 100644
+index 2836156257..148086cc6f 100644
 --- a/meson_options.txt
 +++ b/meson_options.txt
-@@ -202,6 +202,8 @@ option('pvg', type: 'feature', value: 'auto',
+@@ -206,6 +206,8 @@ option('pvg', type: 'feature', value: 'auto',
         description: 'macOS paravirtualized graphics support')
  option('rbd', type : 'feature', value : 'auto',
         description: 'Ceph block device driver')
@@ -71,10 +71,10 @@ index fff1521e58..f0844c0e00 100644
         description: 'OpenGL support')
  option('rdma', type : 'feature', value : 'auto',
 diff --git a/qapi/block-core.json b/qapi/block-core.json
-index dc6eb4ae23..d043f4340e 100644
+index b82af74256..f25a6f5ce8 100644
 --- a/qapi/block-core.json
 +++ b/qapi/block-core.json
-@@ -3280,7 +3280,7 @@
+@@ -3351,7 +3351,7 @@
              'parallels', 'preallocate', 'qcow', 'qcow2', 'qed', 'quorum',
              'raw', 'rbd',
              { 'name': 'replication', 'if': 'CONFIG_REPLICATION' },
@@ -83,7 +83,7 @@ index dc6eb4ae23..d043f4340e 100644
              { 'name': 'virtio-blk-vfio-pci', 'if': 'CONFIG_BLKIO' },
              { 'name': 'virtio-blk-vhost-user', 'if': 'CONFIG_BLKIO' },
              { 'name': 'virtio-blk-vhost-vdpa', 'if': 'CONFIG_BLKIO' },
-@@ -4363,6 +4363,28 @@
+@@ -4434,6 +4434,28 @@
              '*key-secret': 'str',
              '*server': ['InetSocketAddressBase'] } }
  
@@ -112,7 +112,7 @@ index dc6eb4ae23..d043f4340e 100644
  ##
  # @ReplicationMode:
  #
-@@ -4831,6 +4853,7 @@
+@@ -4902,6 +4924,7 @@
        'throttle':   'BlockdevOptionsThrottle',
        'vdi':        'BlockdevOptionsGenericFormat',
        'vhdx':       'BlockdevOptionsGenericFormat',
@@ -120,7 +120,7 @@ index dc6eb4ae23..d043f4340e 100644
        'virtio-blk-vfio-pci':
                      { 'type': 'BlockdevOptionsVirtioBlkVfioPci',
                        'if': 'CONFIG_BLKIO' },
-@@ -5304,6 +5327,20 @@
+@@ -5376,6 +5399,20 @@
              '*cluster-size' :   'size',
              '*encrypt' :        'RbdEncryptionCreateOptions' } }
  
@@ -141,7 +141,7 @@ index dc6eb4ae23..d043f4340e 100644
  ##
  # @BlockdevVmdkSubformat:
  #
-@@ -5526,6 +5563,7 @@
+@@ -5598,6 +5635,7 @@
        'ssh':            'BlockdevCreateOptionsSsh',
        'vdi':            'BlockdevCreateOptionsVdi',
        'vhdx':           'BlockdevCreateOptionsVhdx',
@@ -150,10 +150,10 @@ index dc6eb4ae23..d043f4340e 100644
        'vpc':            'BlockdevCreateOptionsVpc'
    } }
 diff --git a/scripts/meson-buildoptions.sh b/scripts/meson-buildoptions.sh
-index 0ebe6bc52a..2c37ad3892 100644
+index 3d0d132344..65ee8c855e 100644
 --- a/scripts/meson-buildoptions.sh
 +++ b/scripts/meson-buildoptions.sh
-@@ -175,6 +175,7 @@ meson_options_help() {
+@@ -177,6 +177,7 @@ meson_options_help() {
    printf "%s\n" '  qga-vss         build QGA VSS support (broken with MinGW)'
    printf "%s\n" '  qpl             Query Processing Library support'
    printf "%s\n" '  rbd             Ceph block device driver'
@@ -161,7 +161,7 @@ index 0ebe6bc52a..2c37ad3892 100644
    printf "%s\n" '  rdma            Enable RDMA-based migration'
    printf "%s\n" '  replication     replication support'
    printf "%s\n" '  rust            Rust support'
-@@ -459,6 +460,8 @@ _meson_option_parse() {
+@@ -464,6 +465,8 @@ _meson_option_parse() {
      --disable-qpl) printf "%s" -Dqpl=disabled ;;
      --enable-rbd) printf "%s" -Drbd=enabled ;;
      --disable-rbd) printf "%s" -Drbd=disabled ;;
