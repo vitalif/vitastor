@@ -220,6 +220,11 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
             cl->zc_free_list.push_back(NULL); // end marker
         cl->send_free_ops.clear();
         cl->write_state = cl->write_op || cl->write_ops.size() ? CL_WRITE_READY : 0;
+        if (cl->proto_csum_status == MSGR_PEER_CSUM_IN && !cl->write_op && !cl->write_ops.size())
+        {
+            // Checksums negotiated, enable
+            cl->proto_csum_status = MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT;
+        }
 #ifdef WITH_RDMA
         if (cl->rdma_conn && !cl->write_op && !cl->write_ops.size() && cl->peer_state == PEER_RDMA_CONNECTING)
         {
@@ -240,36 +245,36 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
     }
 }
 
-static inline bool op_write_headers(osd_op_t *op, std::function<bool(uint8_t*, size_t)> op_write_buf)
+static inline bool op_write_headers(osd_op_t *op, std::function<bool(uint8_t*, size_t, bool)> op_write_buf)
 {
     // Header
-    if (!op_write_buf((op->op_type == OSD_OP_IN ? op->reply.buf : op->req.buf), OSD_PACKET_SIZE))
+    if (!op_write_buf((op->op_type == OSD_OP_IN ? op->reply.buf : op->req.buf), OSD_PACKET_SIZE, false))
         return false;
     // Bitmap
     if (op->op_type == OSD_OP_IN &&
         op->req.hdr.opcode == OSD_OP_SEC_READ &&
         op->reply.sec_rw.attr_len > 0)
     {
-        if (!op_write_buf((uint8_t*)op->bitmap, op->reply.sec_rw.attr_len))
+        if (!op_write_buf((uint8_t*)op->bitmap, op->reply.sec_rw.attr_len, false))
             return false;
     }
     else if (op->op_type == OSD_OP_OUT &&
         (op->req.hdr.opcode == OSD_OP_SEC_WRITE || op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE) &&
         op->req.sec_rw.attr_len > 0)
     {
-        if (!op_write_buf((uint8_t*)op->bitmap, op->req.sec_rw.attr_len))
+        if (!op_write_buf((uint8_t*)op->bitmap, op->req.sec_rw.attr_len, false))
             return false;
     }
     if (op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
     {
         if (op->op_type == OSD_OP_IN && op->reply.hdr.retval > 0)
         {
-            if (!op_write_buf((uint8_t*)op->buf, (size_t)op->reply.hdr.retval))
+            if (!op_write_buf((uint8_t*)op->buf, (size_t)op->reply.hdr.retval, false))
                 return false;
         }
         else if (op->op_type == OSD_OP_OUT && op->req.sec_read_bmp.len > 0)
         {
-            if (!op_write_buf((uint8_t*)op->buf, (size_t)op->req.sec_read_bmp.len))
+            if (!op_write_buf((uint8_t*)op->buf, (size_t)op->req.sec_read_bmp.len, false))
                 return false;
         }
     }
@@ -296,13 +301,15 @@ size_t osd_messenger_t::op_copy_to(osd_client_t *cl, uint8_t *dst, size_t dst_le
 {
     size_t done = 0;
     size_t from = cl->write_op_pos;
-    auto op_write_buf = [&](uint8_t *src, size_t src_len)
+    auto op_write_buf = [&](uint8_t *src, size_t src_len, bool skip_csum)
     {
         if (from < src_len)
         {
             size_t n = src_len-from;
             if (n > dst_len-done)
                 n = dst_len-done;
+            if (cl->write_csum_state && !skip_csum)
+                XXH3_64bits_update(cl->write_csum_state, src+from, n);
             memcpy(dst+done, src+from, n);
             done += n;
             cl->write_op_pos += n;
@@ -315,6 +322,12 @@ size_t osd_messenger_t::op_copy_to(osd_client_t *cl, uint8_t *dst, size_t dst_le
             from -= src_len;
         return true;
     };
+    if (cl->proto_csum_status == (MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT) && !from)
+    {
+        if (!cl->write_csum_state)
+            cl->write_csum_state = XXH3_createState();
+        XXH3_64bits_reset(cl->write_csum_state);
+    }
     if (!op_write_headers(cl->write_op, op_write_buf))
     {
         return done;
@@ -333,10 +346,17 @@ size_t osd_messenger_t::op_copy_to(osd_client_t *cl, uint8_t *dst, size_t dst_le
         {
             for (int i = 0; i < cl->write_op->iov.count; i++)
             {
-                if (!op_write_buf((uint8_t*)cl->write_op->iov.buf[i].iov_base, cl->write_op->iov.buf[i].iov_len))
+                if (!op_write_buf((uint8_t*)cl->write_op->iov.buf[i].iov_base, cl->write_op->iov.buf[i].iov_len, false))
                     return done;
             }
         }
+    }
+    if (cl->write_csum_state)
+    {
+        if (!from)
+            cl->write_op->csum = XXH3_64bits_digest(cl->write_csum_state);
+        if (!op_write_buf((uint8_t*)&cl->write_op->csum, 8, true))
+            return done;
     }
     cl->write_op = NULL;
     cl->write_op_pos = 0;
@@ -346,12 +366,14 @@ size_t osd_messenger_t::op_copy_to(osd_client_t *cl, uint8_t *dst, size_t dst_le
 void osd_messenger_t::op_get_write_buffers(osd_client_t *cl, std::vector<iovec> & lst)
 {
     size_t from = cl->write_op_pos;
-    auto op_write_buf = [&](uint8_t *src, size_t src_len)
+    auto op_write_buf = [&](uint8_t *src, size_t src_len, bool skip_csum)
     {
         if (lst.size() >= IOV_MAX)
             return false;
         if (from < src_len)
         {
+            if (cl->write_csum_state && !skip_csum)
+                XXH3_64bits_update(cl->write_csum_state, src+from, src_len-from);
             lst.push_back((iovec){ .iov_base = src+from, .iov_len = src_len-from });
             cl->write_op_pos += src_len-from;
             from = 0;
@@ -360,6 +382,12 @@ void osd_messenger_t::op_get_write_buffers(osd_client_t *cl, std::vector<iovec> 
             from -= src_len;
         return true;
     };
+    if (cl->proto_csum_status == (MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT) && !from)
+    {
+        if (!cl->write_csum_state)
+            cl->write_csum_state = XXH3_createState();
+        XXH3_64bits_reset(cl->write_csum_state);
+    }
     if (!op_write_headers(cl->write_op, op_write_buf))
     {
         return;
@@ -386,10 +414,17 @@ void osd_messenger_t::op_get_write_buffers(osd_client_t *cl, std::vector<iovec> 
         {
             for (int i = 0; i < cl->write_op->iov.count; i++)
             {
-                if (!op_write_buf((uint8_t*)cl->write_op->iov.buf[i].iov_base, cl->write_op->iov.buf[i].iov_len))
+                if (!op_write_buf((uint8_t*)cl->write_op->iov.buf[i].iov_base, cl->write_op->iov.buf[i].iov_len, false))
                     return;
             }
         }
+    }
+    if (cl->write_csum_state)
+    {
+        if (!from)
+            cl->write_op->csum = XXH3_64bits_digest(cl->write_csum_state);
+        if (!op_write_buf((uint8_t*)&cl->write_op->csum, 8, true))
+            return;
     }
     cl->write_op = NULL;
     cl->write_op_pos = 0;

@@ -356,6 +356,8 @@ bool osd_messenger_t::op_encrypted_copy_data_to(osd_client_t* cl, uint8_t *enc_b
             size_t done_in = 0;
             size_t done_out = 0;
             cl->encrypt_ctx->update(plain+from, plain_len-from, enc_buf+done, enc_len-done, done_in, done_out);
+            if (cl->write_csum_state && done_out > 0)
+                XXH3_64bits_update(cl->write_csum_state, enc_buf+done, done_out);
             done += done_out;
             op_pos += done_in;
             from += done_in;
@@ -390,6 +392,8 @@ bool osd_messenger_t::op_decrypted_copy_data_from(osd_client_t* cl, uint8_t *enc
             size_t done_out = 0;
             // plain == NULL means skip output
             cl->decrypt_ctx->update(enc_buf+done, enc_len-done, plain ? plain+from : NULL, plain_len-from, done_in, done_out);
+            if (cl->read_csum_state && done_in > 0)
+                XXH3_64bits_update(cl->read_csum_state, enc_buf+done, done_in);
             done += done_in;
             cl->read_op_pos += done_out;
             cl->read_op_inline_decrypt_in += done_in;

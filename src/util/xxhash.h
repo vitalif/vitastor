@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <stdint.h>
+#include <stddef.h>
+
 #if defined(__cplusplus) && !defined(XXH_NO_EXTERNC_GUARD)
 extern "C" {
 #endif

@@ -229,6 +229,7 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     this->max_aes_xts_pool_size = config["max_aes_xts_pool_size"].uint64_value();
     if (!this->max_aes_xts_pool_size)
         this->max_aes_xts_pool_size = 256;
+    this->use_proto_checksums = config["use_proto_checksums"].is_null() || config["use_proto_checksums"].bool_value();
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();
     else
@@ -553,7 +554,12 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         // Inform that we're OSD <osd_num>
         payload["osd_num"] = osd_num;
     }
-    payload["features"] = json11::Json::object{ { "check_sequencing", true } };
+    auto features = json11::Json::object{ { "check_sequencing", true } };
+    if (use_proto_checksums)
+    {
+        features["proto_checksums"] = true;
+    }
+    payload["features"] = features;
 #ifdef WITH_RDMA
     if (!use_rdmacm && rdma_contexts.size())
     {
@@ -627,6 +633,10 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             on_connect_peer(peer_osd, -EINVAL, 0);
             delete op;
             return;
+        }
+        if (use_proto_checksums && config["features"]["proto_checksums"].bool_value())
+        {
+            cl->proto_csum_status = MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT;
         }
 #ifdef WITH_RDMA
         if (!use_rdmacm && cl->rdma_conn && config["rdma_address"].is_string())

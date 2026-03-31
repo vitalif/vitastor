@@ -343,6 +343,12 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         cl->check_sequencing = true;
         cl->read_op_id = cur_op->req.hdr.id + 1;
     }
+    auto features = json11::Json::object{ { "pg_locks", true } };
+    if (req_json["features"]["proto_checksums"].bool_value() && msgr.use_proto_checksums)
+    {
+        cl->proto_csum_status = MSGR_PEER_CSUM_IN;
+        features["proto_checksums"] = true;
+    }
     // Expose sensitive configuration values so peers can check them
     json11::Json::object wire_config = json11::Json::object {
         { "osd_num", osd_num },
@@ -355,7 +361,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         { "immediate_commit", (immediate_commit == IMMEDIATE_ALL ? "all" :
             (immediate_commit == IMMEDIATE_SMALL ? "small" : "none")) },
         { "lease_timeout", etcd_report_interval+(st_cli->max_etcd_attempts*(2*st_cli->etcd_quick_timeout)+999)/1000 },
-        { "features", json11::Json::object{ { "pg_locks", true } } },
+        { "features", features },
     };
 #ifdef WITH_RDMA
     if (msgr.is_rdma_enabled())

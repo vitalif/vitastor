@@ -4,7 +4,7 @@ project(vitastor)
 
 # libvitastor_blk.a
 add_library(vitastor_blk STATIC
-	../util/allocator.cpp ../util/crc32c.c ../util/xxhash.c ../util/ringloop.cpp
+	../util/allocator.cpp ../util/crc32c.c ../util/ringloop.cpp
 	multilist.cpp blockstore_heap.cpp blockstore_disk.cpp
 	blockstore.cpp blockstore_impl.cpp blockstore_init.cpp blockstore_open.cpp
 	blockstore_flush.cpp blockstore_read.cpp blockstore_stable.cpp blockstore_sync.cpp blockstore_write.cpp

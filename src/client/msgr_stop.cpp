@@ -5,6 +5,7 @@
 #include <assert.h>
 
 #include "messenger.h"
+#include "../util/xxh_x86dispatch.h"
 
 void osd_client_t::cancel_ops()
 {
@@ -208,5 +209,15 @@ osd_client_t::~osd_client_t()
         {
             delete op;
         }
+    }
+    if (read_csum_state)
+    {
+        XXH3_freeState(read_csum_state);
+        read_csum_state = NULL;
+    }
+    if (write_csum_state)
+    {
+        XXH3_freeState(write_csum_state);
+        write_csum_state = NULL;
     }
 }

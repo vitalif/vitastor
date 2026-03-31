@@ -12,6 +12,7 @@
 #include <deque>
 #include <vector>
 
+#include "../util/xxh_x86dispatch.h"
 #include "../util/robin_hood.h"
 #include "malloc_or_die.h"
 #include "json11/json11.hpp"
@@ -30,6 +31,9 @@
 #define PEER_RDMA_CONNECTING 3
 #define PEER_RDMA 4
 #define PEER_STOPPED 5
+
+#define MSGR_PEER_CSUM_IN 1
+#define MSGR_PEER_CSUM_OUT 2
 
 #define VITASTOR_CONFIG_PATH "/etc/vitastor/vitastor.conf"
 
@@ -90,6 +94,8 @@ struct osd_client_t
     op_aes_xts_decrypt_t *decrypt_ctx = NULL;
     size_t read_op_inline_decrypt_pos = 0;
     size_t read_op_inline_decrypt_in = 0;
+    int proto_csum_status = 0;
+    XXH3_state_t* read_csum_state = NULL;
 
     // Incoming operations
     std::vector<osd_op_t*> received_ops;
@@ -112,6 +118,7 @@ struct osd_client_t
     std::deque<osd_op_t*> send_free_ops;
     std::vector<osd_op_t*> zc_free_list;
     op_aes_xts_encrypt_t *encrypt_ctx = NULL;
+    XXH3_state_t* write_csum_state = NULL;
 
     ~osd_client_t();
     void cancel_ops();
@@ -214,6 +221,7 @@ public:
     std::vector<addr_mask_t> osd_cluster_network_masks;
     std::vector<std::string> all_osd_networks;
     std::vector<addr_mask_t> all_osd_network_masks;
+    bool use_proto_checksums = true;
     // op statistics
     osd_op_stats_t stats, recovery_stats;
 
@@ -273,10 +281,10 @@ protected:
     bool handle_hdr(osd_client_t *cl);
     bool allocate_op_buffers(osd_client_t *cl);
     bool allocate_reply_buffers(osd_client_t *cl, osd_op_t *op);
-    size_t op_copy_from(osd_client_t *cl, uint8_t *src, size_t src_len, size_t & done);
-    size_t op_get_read_buffers(osd_client_t *cl, std::vector<iovec> & lst);
+    bool op_copy_from(osd_client_t *cl, uint8_t *src, size_t src_len, size_t & done);
+    void op_get_read_buffers(osd_client_t *cl, std::vector<iovec> & lst);
     void op_alloc_temp_buffers(osd_op_t *op, int i);
-    void handle_finished_op(osd_client_t *cl);
+    bool handle_finished_op(osd_client_t *cl);
     void handle_immediate_ops();
 
     bool op_encrypted_copy_data_to(osd_client_t* cl, uint8_t *buf, size_t len, size_t from, size_t & done);

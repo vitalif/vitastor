@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "../util/xxh_x86dispatch.h"
 // WITH_OPENSSL is left to possibly support other crypto libraries
 #ifdef WITH_OPENSSL
 #include <openssl/conf.h>
