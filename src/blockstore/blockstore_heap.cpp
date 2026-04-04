@@ -12,7 +12,7 @@
 #include "blockstore_heap.h"
 #include "../util/allocator.h"
 #include "../util/crc32c.h"
-#include "../util/xxhash.h"
+#include "../util/xxh_x86dispatch.h"
 #include "../util/malloc_or_die.h"
 
 #define BS_HEAP_FREE_MVCC 1

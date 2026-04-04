@@ -7,11 +7,40 @@
 extern "C" {
 #endif
 
+#if !defined(XXH_INLINE_ALL) && !defined(XXH_PRIVATE_API)
+#  if defined(_WIN32) && defined(_MSC_VER) && (defined(XXH_IMPORT) || defined(XXH_EXPORT))
+#    ifdef XXH_EXPORT
+#      define XXH_PUBLIC_API __declspec(dllexport)
+#    elif XXH_IMPORT
+#      define XXH_PUBLIC_API __declspec(dllimport)
+#    endif
+#  else
+#    define XXH_PUBLIC_API   /* do nothing */
+#  endif
+#endif
+
+#ifdef __has_attribute
+# define XXH_HAS_ATTRIBUTE(x) __has_attribute(x)
+#else
+# define XXH_HAS_ATTRIBUTE(x) 0
+#endif
+
+#if XXH_HAS_ATTRIBUTE(noescape)
+# define XXH_NOESCAPE __attribute__((__noescape__))
+#else
+# define XXH_NOESCAPE
+#endif
+
 typedef enum {
     XXH_OK = 0,
     XXH_ERROR
 } XXH_errorcode;
 typedef uint64_t XXH64_hash_t;
+typedef struct {
+    XXH64_hash_t low64;   /*!< `value & 0xFFFFFFFFFFFFFFFF` */
+    XXH64_hash_t high64;  /*!< `value >> 64` */
+} XXH128_hash_t;
+
 XXH64_hash_t XXH3_64bits(const void* input, size_t length);
 __attribute__((__pure__)) XXH64_hash_t XXH3_64bits( const void* input, size_t length);
 __attribute__((__pure__)) XXH64_hash_t XXH3_64bits_withSeed( const void* input, size_t length, XXH64_hash_t seed);
