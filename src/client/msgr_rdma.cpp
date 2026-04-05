@@ -571,33 +571,6 @@ static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
     cl->rdma_conn->cur_send++;
 }
 
-int osd_messenger_t::try_send_rdma_copy(osd_client_t *cl, uint8_t *dst, int dst_len)
-{
-    int total_dst_len = dst_len;
-    while (dst_len > 0 && (cl->write_op || cl->write_ops.size()))
-    {
-        if (!cl->write_op)
-        {
-            cl->write_op = cl->write_ops.front();
-            cl->write_ops.pop_front();
-        }
-        osd_op_t *op = cl->write_op;
-        size_t copied = op_copy_to(cl, dst, dst_len);
-        if (!copied)
-        {
-            break;
-        }
-        dst += copied;
-        dst_len -= copied;
-        if (!cl->write_op && op->op_type == OSD_OP_IN)
-        {
-            // this is a reply, free the op after sending it
-            cl->send_free_ops.push_back(op);
-        }
-    }
-    return total_dst_len-dst_len;
-}
-
 void osd_messenger_t::try_send_rdma(osd_client_t *cl)
 {
     auto rc = cl->rdma_conn;
@@ -625,7 +598,12 @@ void osd_messenger_t::try_send_rdma(osd_client_t *cl)
             : rc->send_done_pos-rc->send_out_pos);
         if (dst_len > rc->max_msg)
             dst_len = rc->max_msg;
-        copied = try_send_rdma_copy(cl, dst, dst_len);
+        copied = copy_ops_to(cl, dst, dst_len);
+        if (cl->io_error)
+        {
+            stop_client(cl->client_id);
+            return;
+        }
         if (copied > 0)
         {
             rc->send_out_pos += copied;

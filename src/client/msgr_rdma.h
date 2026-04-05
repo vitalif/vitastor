@@ -79,7 +79,7 @@ struct msgr_rdma_connection_t
     msgr_rdma_buf_t recv_buf;
     std::deque<uint64_t> send_sizes;
     msgr_rdma_buf_t send_out;
-    int send_out_pos = 0, send_done_pos = 0, send_out_size = 0;
+    size_t send_out_pos = 0, send_done_pos = 0, send_out_size = 0;
     bool send_out_full = false;
 
     ~msgr_rdma_connection_t();

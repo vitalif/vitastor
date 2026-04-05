@@ -130,9 +130,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             stripe_count * clean_entry_bitmap_size +
             // - 'missing' flags for chained reads
             (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 0 : pg_it->second.pg_size)
-        ) +
-        // read chain info
-        chain_info_len
+        )
     );
     void *data_buf = (uint8_t*)op_data + sizeof(osd_primary_op_data_t);
     op_data->pg_num = pg_num;
@@ -147,10 +145,17 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         split_stripes(pg_data_size, bs_block_size, (uint32_t)(cur_op->req.rw.offset - oid.stripe), cur_op->req.rw.len, op_data->stripes);
         // Resulting bitmaps have to survive op_data and be freed with the op itself
         assert(!cur_op->bitmap_buf);
-        cur_op->bitmap_buf = calloc_or_die(1, clean_entry_bitmap_size * stripe_count);
+        cur_op->bitmap_buf = (uint8_t*)calloc_or_die(1, clean_entry_bitmap_size*stripe_count + chain_info_len);
+        uint8_t *buf = cur_op->bitmap_buf;
         for (int i = 0; i < stripe_count; i++)
         {
-            op_data->stripes[i].bmp_buf = (uint8_t*)cur_op->bitmap_buf + clean_entry_bitmap_size * i;
+            op_data->stripes[i].bmp_buf = buf;
+            buf += clean_entry_bitmap_size;
+            if (i == pg_data_size-1 && chain_info_len)
+            {
+                op_data->chain_info = buf;
+                buf += chain_info_len;
+            }
         }
     }
     op_data->chain_size = chain_size;
@@ -164,11 +169,6 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         data_buf = (uint8_t*)data_buf + chain_size * stripe_count * clean_entry_bitmap_size;
         op_data->missing_flags = (uint8_t*)data_buf;
         data_buf = (uint8_t*)data_buf + chain_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 0 : pg_it->second.pg_size);
-        if (chain_info_len)
-        {
-            op_data->chain_info = (uint8_t*)data_buf;
-            data_buf = (uint8_t*)data_buf + chain_info_len;
-        }
         // Copy chain
         int chain_num = 0;
         op_data->read_chain[chain_num] = cur_op->req.rw.inode;
@@ -335,6 +335,7 @@ resume_2:
     }
     cur_op->reply.rw.version = op_data->fact_ver;
     cur_op->reply.rw.bitmap_len = (pg ? pg->pg_data_size : 1) * clean_entry_bitmap_size;
+    cur_op->bitmap = op_data->stripes[0].bmp_buf;
     if (op_data->flags & OP_DATA_DEGRADED)
     {
         // Reconstruct missing stripes
@@ -347,7 +348,6 @@ resume_2:
         {
             reconstruct_stripes_ec(stripes, pg->pg_size, pg->pg_data_size, clean_entry_bitmap_size);
         }
-        cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
         for (int role = 0; role < pg->pg_size; role++)
         {
             if (stripes[role].req_end != 0)
@@ -362,7 +362,6 @@ resume_2:
     }
     else
     {
-        cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
         cur_op->iov.push_back(cur_op->buf, cur_op->req.rw.len);
     }
     finish_op(cur_op, cur_op->req.rw.len);

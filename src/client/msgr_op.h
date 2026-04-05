@@ -183,7 +183,7 @@ struct __attribute__((visibility("default"))) osd_op_t
     void *bitmap = NULL;
     unsigned bitmap_len = 0;
     size_t bmp_data = 0;
-    void *bitmap_buf = NULL;
+    uint8_t *bitmap_buf = NULL;
     void *rmw_buf = NULL;
     std::shared_ptr<osd_op_enc_t> enc;
     uint8_t *enc_buf = NULL;

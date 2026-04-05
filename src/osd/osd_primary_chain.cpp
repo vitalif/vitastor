@@ -584,11 +584,10 @@ void osd_t::send_chained_read_results(pg_t *pg, osd_op_t *cur_op)
         }
     }
     // Send bitmap
+    cur_op->bitmap = op_data->stripes[0].bmp_buf;
     cur_op->reply.rw.bitmap_len = (pg ? pg->pg_data_size : 1) * clean_entry_bitmap_size;
-    cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
     if (cur_op->req.rw.flags & OSD_OP_RETURN_CHAIN)
     {
-        cur_op->iov.push_back(op_data->chain_info, (cur_op->req.rw.len / bs_bitmap_granularity));
         cur_op->reply.rw.bitmap_len += (cur_op->req.rw.len / bs_bitmap_granularity);
     }
     // And finally compose the result

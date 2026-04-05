@@ -27,6 +27,7 @@ ETCD_COUNT=${ETCD_COUNT:-1}
 ANTIETCD=${ANTIETCD}
 USE_RAMDISK=${USE_RAMDISK}
 ETCD_SCHEME=${ETCD_SCHEME:-http}
+OSD_TLS=${OSD_TLS}
 
 RAMDISK=/run/user/$(id -u)
 findmnt $RAMDISK >/dev/null || (sudo mkdir -p $RAMDISK && sudo mount -t tmpfs tmpfs $RAMDISK)
@@ -123,6 +124,23 @@ wait_condition()
 VITASTOR_CFG='"etcd_address":"'$ETCD_URL'"'"$VITASTOR_CFG"
 if [[ "$ETCD_SCHEME" = "https" ]]; then
     VITASTOR_CFG="$VITASTOR_CFG"',"etcd_ca":"'$(pwd)'/testdata/etcd.crt"'
+fi
+if [[ "$OSD_TLS" = "1" ]]; then
+    cd ./testdata
+    openssl req -days 3650 -x509 -new -newkey rsa:4096 -nodes -keyout client_ca.key -out client_ca.crt \
+        -subj '/C=RU/ST=Russia/L=Moscow/O=VitastorClientCA'
+    openssl req -days 3650 -x509 -new -newkey rsa:4096 -nodes -keyout osd.key -out osd.crt \
+        -subj '/C=RU/ST=Russia/L=Moscow/O=VitastorOSD' -addext "extendedKeyUsage = serverAuth, clientAuth"
+    openssl req -subj '/CN=test' -nodes -new -keyout cli.key -out cli.csr -addext "extendedKeyUsage = clientAuth"
+    openssl x509 -req -days 3650 -CA client_ca.crt -CAkey client_ca.key -CAcreateserial -in cli.csr -out cli.crt
+    rm cli.csr
+    cd $(dirname $0)/..
+    VITASTOR_CFG="$VITASTOR_CFG"',"osd_tls_cert":"'$(pwd)'/testdata/osd.crt"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"osd_tls_key":"'$(pwd)'/testdata/osd.key"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"osd_tls_ca":"'$(pwd)'/testdata/osd.crt"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"client_tls_ca":"'$(pwd)'/testdata/client_ca.crt"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"tls_cert":"'$(pwd)'/testdata/cli.crt"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"tls_key":"'$(pwd)'/testdata/cli.key"'
 fi
 echo "{$VITASTOR_CFG}" > ./testdata/vitastor.conf
 VITASTOR_CFG=./testdata/vitastor.conf

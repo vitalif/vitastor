@@ -415,7 +415,7 @@ void osd_t::submit_scrub_subops(osd_op_t *cur_op)
         }
     }
     assert(!cur_op->bitmap_buf);
-    cur_op->bitmap_buf = calloc_or_die(1, clean_entry_bitmap_size * op_data->stripe_count);
+    cur_op->bitmap_buf = (uint8_t*)calloc_or_die(1, clean_entry_bitmap_size * op_data->stripe_count);
     for (int i = 0; i < op_data->stripe_count; i++)
     {
         op_data->stripes[i].bmp_buf = (uint8_t*)cur_op->bitmap_buf + clean_entry_bitmap_size * i;

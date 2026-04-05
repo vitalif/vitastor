@@ -12,6 +12,10 @@
 #include <deque>
 #include <vector>
 
+#ifdef WITH_OPENSSL
+#include <openssl/types.h>
+#endif
+
 #include "../util/xxh_x86dispatch.h"
 #include "../util/robin_hood.h"
 #include "malloc_or_die.h"
@@ -58,6 +62,12 @@ struct op_aes_xts_decrypt_t;
 void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx);
 void destroy_aes_xts_decrypt(op_aes_xts_decrypt_t *decrypt_ctx);
 
+struct __attribute__((__packed__)) msgr_tls_record_hdr_t
+{
+    uint8_t encrypted;
+    uint32_t size;
+};
+
 struct osd_client_t
 {
     uint64_t client_id = 0;
@@ -80,7 +90,20 @@ struct osd_client_t
     msgr_rdma_connection_t *rdma_conn = NULL;
 #endif
 
+#ifdef WITH_OPENSSL
+    SSL *ssl_cli = NULL;
+    BIO *write_to_ssl = NULL;
+    // FIXME: use custom bio to avoid 1 more memory copy?
+    BIO *read_from_ssl = NULL;
+    uint8_t *ssl_out_buf = NULL;
+    size_t ssl_out_buf_size = 0, ssl_out_buf_cap = 0;
+    bool ssl_handshake_done = false;
+    msgr_tls_record_hdr_t ssl_read_record;
+    size_t ssl_read_record_size = 0;
+#endif
+
     // Read state
+    bool io_error = false;
     int read_ready = 0;
     osd_op_t *read_op = NULL;
     size_t read_op_size = 0;
@@ -88,7 +111,7 @@ struct osd_client_t
     iovec read_iov = { 0 };
     msghdr read_msg = { 0 };
     std::vector<iovec> recv_list;
-    size_t recv_list_size = 0;
+    std::vector<int> recv_flags;
     uint64_t read_op_id = 1;
     bool check_sequencing = false;
     bool enable_pg_locks = false;
@@ -161,9 +184,19 @@ struct osd_messenger_t;
 struct rdmacm_connecting_t;
 #endif
 
+class msgr_op_reader_t;
+class msgr_op_writer_t;
+
 struct __attribute__((visibility("default"))) osd_messenger_t
 {
 protected:
+    friend class copy_op_reader_t;
+    friend class ssl_op_reader_t;
+    friend class get_op_reader_t;
+    friend class copy_op_writer_t;
+    friend class ssl_op_writer_t;
+    friend class get_op_writer_t;
+
     int keepalive_timer_id = -1;
 
     uint32_t receive_buffer_size = 0;
@@ -176,6 +209,11 @@ protected:
     int min_zerocopy_send_size = DEFAULT_MIN_ZEROCOPY_SEND_SIZE;
     int iothread_count = 0;
     int max_aes_xts_pool_size = 256;
+
+    std::string tls_cert;
+    std::string tls_key;
+    std::string osd_tls_ca;
+    std::string client_tls_ca;
 
 #ifdef WITH_RDMA
     bool use_rdma = true;
@@ -191,6 +229,14 @@ protected:
     rdma_event_channel *rdmacm_evch = NULL;
     robin_hood::unordered_flat_map<rdma_cm_id*, osd_client_t*> rdmacm_connections;
     robin_hood::unordered_flat_map<rdma_cm_id*, rdmacm_connecting_t*> rdmacm_connecting;
+#endif
+
+#ifdef WITH_OPENSSL
+    SSL_CTX *ssl_ctx = NULL;
+    std::string tls_cn;
+
+    void ssl_init(osd_client_t *cl, bool server_mode);
+    bool ssl_do_handshake(osd_client_t *cl);
 #endif
 
     std::vector<msgr_iothread_t*> iothreads;
@@ -274,29 +320,30 @@ protected:
 
     bool try_send(osd_client_t *cl);
     void handle_send(int result, bool prev, bool more, osd_client_t *cl);
-    size_t op_copy_to(osd_client_t *cl, uint8_t *dst, size_t dst_len);
-    void op_get_write_buffers(osd_client_t *cl, std::vector<iovec> & lst);
+    bool op_write_to(osd_client_t *cl, msgr_op_writer_t & wr);
+    void next_write_op(osd_client_t *cl);
+    bool op_write_buf(osd_client_t *cl, uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_len, bool skip_csum, size_t & from, size_t & done);
+    bool op_copy_data_to(osd_client_t *cl, uint8_t *dst, size_t dst_len, size_t & from, size_t & done);
+    size_t copy_ops_to(osd_client_t *cl, uint8_t *dst, size_t dst_len);
 
     void handle_read(int result, osd_client_t *cl);
     bool handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size_t bufsize);
     bool handle_hdr(osd_client_t *cl);
     bool allocate_op_buffers(osd_client_t *cl);
     bool allocate_reply_buffers(osd_client_t *cl, osd_op_t *op);
-    bool op_copy_from(osd_client_t *cl, uint8_t *src, size_t src_len, size_t & done);
-    void op_get_read_buffers(osd_client_t *cl, std::vector<iovec> & lst);
-    void op_alloc_temp_buffers(osd_op_t *op, int i);
+    bool op_read_from(osd_client_t *cl, msgr_op_reader_t & rdr);
     bool handle_finished_op(osd_client_t *cl);
     void handle_immediate_ops();
 
-    bool op_encrypted_copy_data_to(osd_client_t* cl, uint8_t *buf, size_t len, size_t from, size_t & done);
-    bool op_decrypted_copy_data_from(osd_client_t* cl, uint8_t *buf, size_t len, size_t from, size_t & done);
+    void op_encrypted_copy_buf(osd_client_t *cl, uint8_t *enc_buf, size_t enc_len, uint8_t *plain, size_t plain_len, size_t & done_plain, size_t & done_enc);
+    void op_encrypt_free(osd_client_t* cl);
+    void op_decrypted_copy_buf(osd_client_t *cl, uint8_t *enc_buf, size_t enc_len, uint8_t *plain, size_t plain_len, size_t & done_plain, size_t & done_enc);
     void op_decrypt_start(osd_client_t* cl);
     void op_decrypt_inline(osd_client_t* cl);
     void op_decrypt_free(osd_client_t* cl);
 
 #ifdef WITH_RDMA
     void try_send_rdma(osd_client_t *cl);
-    int try_send_rdma_copy(osd_client_t *cl, uint8_t *dst, int dst_len);
     bool init_recv_rdma(osd_client_t *cl);
     void handle_rdma_events(msgr_rdma_context_t *rdma_context);
     msgr_rdma_context_t* choose_rdma_context(osd_client_t *cl);

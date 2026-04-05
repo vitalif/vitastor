@@ -325,86 +325,49 @@ void destroy_aes_xts_decrypt(op_aes_xts_decrypt_t *decrypt_ctx)
     delete decrypt_ctx;
 }
 
-bool osd_messenger_t::op_encrypted_copy_data_to(osd_client_t* cl, uint8_t *enc_buf, size_t enc_len, size_t from, size_t & done)
+void osd_messenger_t::op_encrypted_copy_buf(osd_client_t *cl, uint8_t *enc_buf, size_t enc_len, uint8_t *plain, size_t plain_len, size_t & done_plain, size_t & done_enc)
 {
-    auto op = cl->write_op;
-    auto & op_pos = cl->write_op_pos;
-    assert(op->req.hdr.opcode == OSD_OP_WRITE);
-    if (!from)
+    if (!cl->encrypt_ctx)
     {
-        if (!cl->encrypt_ctx)
+        if (encrypt_ctx_pool.size())
         {
-            if (encrypt_ctx_pool.size())
-            {
-                cl->encrypt_ctx = encrypt_ctx_pool.back();
-                encrypt_ctx_pool.pop_back();
-            }
-            else
-                cl->encrypt_ctx = new op_aes_xts_encrypt_t();
+            cl->encrypt_ctx = encrypt_ctx_pool.back();
+            encrypt_ctx_pool.pop_back();
         }
-        assert(op->enc->key_chain[0]);
-        cl->encrypt_ctx->start(op->enc->key_chain[0], op->req.rw.offset, op->enc->bitmap_granularity);
-    }
-    for (int i = 0; i < op->iov.count; i++)
-    {
-        uint8_t *plain = (uint8_t*)op->iov.buf[i].iov_base;
-        size_t plain_len = op->iov.buf[i].iov_len;
-        while (from < plain_len || cl->encrypt_ctx->has_buffered())
-        {
-            if (done >= enc_len)
-                return false;
-            size_t done_in = 0;
-            size_t done_out = 0;
-            cl->encrypt_ctx->update(plain+from, plain_len-from, enc_buf+done, enc_len-done, done_in, done_out);
-            if (cl->write_csum_state && done_out > 0)
-                XXH3_64bits_update(cl->write_csum_state, enc_buf+done, done_out);
-            done += done_out;
-            op_pos += done_in;
-            from += done_in;
-        }
-        from -= plain_len;
-    }
-    if (cl->encrypt_ctx)
-    {
-        if (encrypt_ctx_pool.size() > max_aes_xts_pool_size)
-            delete cl->encrypt_ctx;
         else
-            encrypt_ctx_pool.push_back(cl->encrypt_ctx);
-        cl->encrypt_ctx = NULL;
+            cl->encrypt_ctx = new op_aes_xts_encrypt_t();
+        assert(cl->write_op->enc->key_chain[0]);
+        cl->encrypt_ctx->start(cl->write_op->enc->key_chain[0], cl->write_op->req.rw.offset, cl->write_op->enc->bitmap_granularity);
     }
-    return true;
+    while (done_enc < enc_len && (done_plain < plain_len || cl->encrypt_ctx->has_buffered()))
+    {
+        size_t done_in = 0;
+        size_t done_out = 0;
+        cl->encrypt_ctx->update(plain+done_plain, plain_len-done_plain, enc_buf+done_enc, enc_len-done_enc, done_in, done_out);
+        if (cl->write_csum_state && done_out > 0)
+            XXH3_64bits_update(cl->write_csum_state, enc_buf+done_enc, done_out);
+        done_enc += done_out;
+        cl->write_op_pos += done_in;
+        done_plain += done_in;
+    }
 }
 
-bool osd_messenger_t::op_decrypted_copy_data_from(osd_client_t* cl, uint8_t *enc_buf, size_t enc_len, size_t from, size_t & done)
+void osd_messenger_t::op_decrypted_copy_buf(osd_client_t *cl, uint8_t *enc_buf, size_t enc_len, uint8_t *plain, size_t plain_len, size_t & done_plain, size_t & done_enc)
 {
     op_decrypt_start(cl);
-    auto op = cl->read_op;
-    assert(op->req.hdr.opcode == OSD_OP_READ);
-    for (int i = 0; i < op->iov.count; i++)
+    while (done_plain < plain_len && done_enc < enc_len)
     {
-        uint8_t *plain = (uint8_t*)op->iov.buf[i].iov_base;
-        size_t plain_len = op->iov.buf[i].iov_len;
-        while (from < plain_len)
-        {
-            if (done >= enc_len)
-                return false;
-            size_t done_in = 0;
-            size_t done_out = 0;
-            // plain == NULL means skip output
-            cl->decrypt_ctx->update(enc_buf+done, enc_len-done, plain ? plain+from : NULL, plain_len-from, done_in, done_out);
-            if (cl->read_csum_state && done_in > 0)
-                XXH3_64bits_update(cl->read_csum_state, enc_buf+done, done_in);
-            done += done_in;
-            cl->read_op_pos += done_out;
-            cl->read_op_inline_decrypt_in += done_in;
-            from += done_out;
-            if (!done_out)
-                return false;
-        }
-        from -= plain_len;
+        size_t done_in = 0;
+        size_t done_out = 0;
+        // plain == NULL means skip output
+        cl->decrypt_ctx->update(enc_buf+done_enc, enc_len-done_enc, plain ? plain+done_plain : NULL, plain_len-done_plain, done_in, done_out);
+        if (cl->read_csum_state && done_in > 0)
+            XXH3_64bits_update(cl->read_csum_state, enc_buf+done_enc, done_in);
+        done_enc += done_in;
+        cl->read_op_pos += done_out;
+        cl->read_op_inline_decrypt_in += done_in;
+        done_plain += done_out;
     }
-    op_decrypt_free(cl);
-    return true;
 }
 
 void osd_messenger_t::op_decrypt_start(osd_client_t* cl)
@@ -419,6 +382,7 @@ void osd_messenger_t::op_decrypt_start(osd_client_t* cl)
         else
             cl->decrypt_ctx = new op_aes_xts_decrypt_t();
         auto & enc = cl->read_op->enc;
+        assert(cl->read_op->req.hdr.opcode == OSD_OP_READ);
         cl->decrypt_ctx->start(enc->key_chain, enc->chain_size,
             (cl->read_op->req.rw.flags & OSD_OP_RETURN_CHAIN) ? (uint8_t*)cl->read_op->bitmap + enc->read_chain_bitmap_pos : 0,
             cl->read_op->req.rw.offset, enc->bitmap_granularity);
@@ -468,7 +432,6 @@ void osd_messenger_t::op_decrypt_inline(osd_client_t* cl)
             from_out += done_out;
     }
     assert(j >= op->iov.count);
-    op_decrypt_free(cl);
 }
 
 void osd_messenger_t::op_decrypt_free(osd_client_t* cl)
@@ -480,5 +443,17 @@ void osd_messenger_t::op_decrypt_free(osd_client_t* cl)
         else
             decrypt_ctx_pool.push_back(cl->decrypt_ctx);
         cl->decrypt_ctx = NULL;
+    }
+}
+
+void osd_messenger_t::op_encrypt_free(osd_client_t* cl)
+{
+    if (cl->encrypt_ctx)
+    {
+        if (encrypt_ctx_pool.size() > max_aes_xts_pool_size)
+            delete cl->encrypt_ctx;
+        else
+            encrypt_ctx_pool.push_back(cl->encrypt_ctx);
+        cl->encrypt_ctx = NULL;
     }
 }

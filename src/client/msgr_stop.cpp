@@ -6,6 +6,12 @@
 
 #include "messenger.h"
 #include "../util/xxh_x86dispatch.h"
+#ifdef WITH_OPENSSL
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/pem.h>
+#include <openssl/ssl.h>
+#endif
 
 void osd_client_t::cancel_ops()
 {
@@ -207,7 +213,10 @@ osd_client_t::~osd_client_t()
     {
         if (op)
         {
-            delete op;
+            if (!((size_t)op & 7))
+                delete op;
+            else
+                free((void*)((size_t)op & ~(size_t)7));
         }
     }
     if (read_csum_state)
@@ -220,4 +229,18 @@ osd_client_t::~osd_client_t()
         XXH3_freeState(write_csum_state);
         write_csum_state = NULL;
     }
+#ifdef WITH_OPENSSL
+    if (ssl_cli)
+    {
+        SSL_free(ssl_cli);
+        ssl_cli = NULL;
+        write_to_ssl = NULL;
+        read_from_ssl = NULL;
+    }
+    if (ssl_out_buf)
+    {
+        free(ssl_out_buf);
+        ssl_out_buf = NULL;
+    }
+#endif
 }
