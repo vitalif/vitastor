@@ -32,8 +32,9 @@
 #define PEER_RDMA 4
 #define PEER_STOPPED 5
 
-#define MSGR_PEER_CSUM_IN 1
-#define MSGR_PEER_CSUM_OUT 2
+#define MSGR_CSUM_PAYLOAD 1
+#define MSGR_CSUM_FULL 2
+#define MSGR_CSUM_NEG 4
 
 #define VITASTOR_CONFIG_PATH "/etc/vitastor/vitastor.conf"
 
@@ -221,7 +222,7 @@ public:
     std::vector<addr_mask_t> osd_cluster_network_masks;
     std::vector<std::string> all_osd_networks;
     std::vector<addr_mask_t> all_osd_network_masks;
-    bool use_proto_checksums = true;
+    int use_proto_checksums = 0;
     // op statistics
     osd_op_stats_t stats, recovery_stats;
 

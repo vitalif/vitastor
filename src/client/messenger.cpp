@@ -229,7 +229,14 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     this->max_aes_xts_pool_size = config["max_aes_xts_pool_size"].uint64_value();
     if (!this->max_aes_xts_pool_size)
         this->max_aes_xts_pool_size = 256;
-    this->use_proto_checksums = config["use_proto_checksums"].is_null() || config["use_proto_checksums"].bool_value();
+    if (config["proto_checksums"].is_null())
+        this->use_proto_checksums = MSGR_CSUM_PAYLOAD;
+    else if (config["proto_checksums"].is_bool())
+        this->use_proto_checksums = config["proto_checksums"].bool_value() ? MSGR_CSUM_FULL : 0;
+    else if (config["proto_checksums"].string_value() != "")
+        this->use_proto_checksums = config["proto_checksums"].string_value() == "full" ? MSGR_CSUM_FULL : MSGR_CSUM_PAYLOAD;
+    else
+        this->use_proto_checksums = 0;
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();
     else
@@ -557,7 +564,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
     auto features = json11::Json::object{ { "check_sequencing", true } };
     if (use_proto_checksums)
     {
-        features["proto_checksums"] = true;
+        features["proto_checksums"] = use_proto_checksums;
     }
     payload["features"] = features;
 #ifdef WITH_RDMA
@@ -634,9 +641,13 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             delete op;
             return;
         }
-        if (use_proto_checksums && config["features"]["proto_checksums"].bool_value())
+        if (use_proto_checksums)
         {
-            cl->proto_csum_status = MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT;
+            auto peer_csums = config["features"]["proto_checksums"].uint64_value();
+            if (peer_csums == MSGR_CSUM_FULL && use_proto_checksums == MSGR_CSUM_FULL)
+                cl->proto_csum_status = MSGR_CSUM_FULL;
+            else if (peer_csums && use_proto_checksums)
+                cl->proto_csum_status = MSGR_CSUM_PAYLOAD;
         }
 #ifdef WITH_RDMA
         if (!use_rdmacm && cl->rdma_conn && config["rdma_address"].is_string())

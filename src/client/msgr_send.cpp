@@ -220,10 +220,10 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
             cl->zc_free_list.push_back(NULL); // end marker
         cl->send_free_ops.clear();
         cl->write_state = cl->write_op || cl->write_ops.size() ? CL_WRITE_READY : 0;
-        if (cl->proto_csum_status == MSGR_PEER_CSUM_IN && !cl->write_op && !cl->write_ops.size())
+        if ((cl->proto_csum_status & MSGR_CSUM_NEG) && !cl->write_op && !cl->write_ops.size())
         {
             // Checksums negotiated, enable
-            cl->proto_csum_status = MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT;
+            cl->proto_csum_status = cl->proto_csum_status & (~MSGR_CSUM_NEG);
         }
 #ifdef WITH_RDMA
         if (cl->rdma_conn && !cl->write_op && !cl->write_ops.size() && cl->peer_state == PEER_RDMA_CONNECTING)
@@ -245,11 +245,12 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
     }
 }
 
-static inline bool op_write_headers(osd_op_t *op, std::function<bool(uint8_t*, size_t, bool)> op_write_buf)
+static inline bool op_write_headers(osd_op_t *op, std::function<bool(uint8_t*, size_t, bool)> op_write_buf, bool skip_hdr_csum)
 {
-    // Header
-    if (!op_write_buf((op->op_type == OSD_OP_IN ? op->reply.buf : op->req.buf), OSD_PACKET_SIZE, false))
+    if (!op_write_buf((op->op_type == OSD_OP_IN ? op->reply.buf : op->req.buf), OSD_PACKET_SIZE, skip_hdr_csum))
+    {
         return false;
+    }
     // Bitmap
     if (op->op_type == OSD_OP_IN &&
         op->req.hdr.opcode == OSD_OP_SEC_READ &&
@@ -322,13 +323,14 @@ size_t osd_messenger_t::op_copy_to(osd_client_t *cl, uint8_t *dst, size_t dst_le
             from -= src_len;
         return true;
     };
-    if (cl->proto_csum_status == (MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT) && !from)
+    if ((cl->proto_csum_status == MSGR_CSUM_FULL || cl->proto_csum_status == MSGR_CSUM_PAYLOAD) && !from)
     {
         if (!cl->write_csum_state)
             cl->write_csum_state = XXH3_createState();
         XXH3_64bits_reset(cl->write_csum_state);
     }
-    if (!op_write_headers(cl->write_op, op_write_buf))
+    // Header
+    if (!op_write_headers(cl->write_op, op_write_buf, cl->proto_csum_status != MSGR_CSUM_FULL))
     {
         return done;
     }
@@ -351,7 +353,8 @@ size_t osd_messenger_t::op_copy_to(osd_client_t *cl, uint8_t *dst, size_t dst_le
             }
         }
     }
-    if (cl->write_csum_state)
+    if (cl->proto_csum_status == MSGR_CSUM_FULL ||
+        cl->proto_csum_status == MSGR_CSUM_PAYLOAD && cl->write_op_pos > OSD_PACKET_SIZE)
     {
         if (!from)
             cl->write_op->csum = XXH3_64bits_digest(cl->write_csum_state);
@@ -382,13 +385,14 @@ void osd_messenger_t::op_get_write_buffers(osd_client_t *cl, std::vector<iovec> 
             from -= src_len;
         return true;
     };
-    if (cl->proto_csum_status == (MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT) && !from)
+    if ((cl->proto_csum_status == MSGR_CSUM_FULL || cl->proto_csum_status == MSGR_CSUM_PAYLOAD) && !from)
     {
         if (!cl->write_csum_state)
             cl->write_csum_state = XXH3_createState();
         XXH3_64bits_reset(cl->write_csum_state);
     }
-    if (!op_write_headers(cl->write_op, op_write_buf))
+    // Header
+    if (!op_write_headers(cl->write_op, op_write_buf, cl->proto_csum_status != MSGR_CSUM_FULL))
     {
         return;
     }
@@ -419,7 +423,8 @@ void osd_messenger_t::op_get_write_buffers(osd_client_t *cl, std::vector<iovec> 
             }
         }
     }
-    if (cl->write_csum_state)
+    if (cl->proto_csum_status == MSGR_CSUM_FULL ||
+        cl->proto_csum_status == MSGR_CSUM_PAYLOAD && cl->write_op_pos > OSD_PACKET_SIZE)
     {
         if (!from)
             cl->write_op->csum = XXH3_64bits_digest(cl->write_csum_state);

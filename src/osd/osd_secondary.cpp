@@ -344,10 +344,17 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         cl->read_op_id = cur_op->req.hdr.id + 1;
     }
     auto features = json11::Json::object{ { "pg_locks", true } };
-    if (req_json["features"]["proto_checksums"].bool_value() && msgr.use_proto_checksums)
+    if (msgr.use_proto_checksums)
     {
-        cl->proto_csum_status = MSGR_PEER_CSUM_IN;
-        features["proto_checksums"] = true;
+        auto peer_csums = req_json["features"]["proto_checksums"].uint64_value();
+        if (peer_csums == MSGR_CSUM_FULL || peer_csums == MSGR_CSUM_PAYLOAD)
+        {
+            if (msgr.use_proto_checksums == MSGR_CSUM_FULL && peer_csums == MSGR_CSUM_FULL)
+                cl->proto_csum_status = MSGR_CSUM_FULL|MSGR_CSUM_NEG;
+            else
+                cl->proto_csum_status = MSGR_CSUM_PAYLOAD|MSGR_CSUM_NEG;
+            features["proto_checksums"] = msgr.use_proto_checksums;
+        }
     }
     // Expose sensitive configuration values so peers can check them
     json11::Json::object wire_config = json11::Json::object {

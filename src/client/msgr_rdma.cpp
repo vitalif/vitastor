@@ -763,10 +763,10 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
                     cl->send_free_ops.pop_front();
                 }
                 cl->send_free_ops.pop_front();
-                if (cl->proto_csum_status == MSGR_PEER_CSUM_IN && !cl->write_op && !cl->write_ops.size())
+                if ((cl->proto_csum_status & MSGR_CSUM_NEG) && !cl->write_op && !cl->write_ops.size())
                 {
                     // Checksums negotiated, enable
-                    cl->proto_csum_status = MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT;
+                    cl->proto_csum_status = cl->proto_csum_status & (~MSGR_CSUM_NEG);
                 }
                 try_send_rdma(cl);
             }

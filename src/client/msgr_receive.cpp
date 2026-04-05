@@ -204,7 +204,7 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size
             cl->read_op_size = 0;
             cl->read_op_inline_decrypt_in = 0;
             cl->read_op_inline_decrypt_pos = (size_t)-1;
-            if (cl->proto_csum_status == (MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT))
+            if (cl->proto_csum_status == MSGR_CSUM_FULL || cl->proto_csum_status == MSGR_CSUM_PAYLOAD)
             {
                 if (!cl->read_csum_state)
                     cl->read_csum_state = XXH3_createState();
@@ -237,7 +237,7 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size
 
 bool osd_messenger_t::handle_hdr(osd_client_t *cl)
 {
-    if (cl->read_csum_state)
+    if (cl->proto_csum_status == MSGR_CSUM_FULL)
     {
         XXH3_64bits_update(cl->read_csum_state, cl->read_op->req.buf, OSD_PACKET_SIZE);
     }
@@ -392,7 +392,8 @@ bool osd_messenger_t::allocate_op_buffers(osd_client_t *cl)
         }
         cl->read_op_size = cur_op->req.show_conf.json_len;
     }
-    if (cl->proto_csum_status == (MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT))
+    if (cl->proto_csum_status == MSGR_CSUM_FULL ||
+        cl->read_op_size > 0 && cl->proto_csum_status == MSGR_CSUM_PAYLOAD)
     {
         cl->read_op_size += 8;
     }
@@ -469,7 +470,8 @@ bool osd_messenger_t::allocate_reply_buffers(osd_client_t *cl, osd_op_t *op)
         free(op->buf);
         op->buf = malloc_or_die(op->reply.describe.result_bytes);
     }
-    if (cl->proto_csum_status == (MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT))
+    if (cl->proto_csum_status == MSGR_CSUM_FULL ||
+        cl->read_op_size > 0 && cl->proto_csum_status == MSGR_CSUM_PAYLOAD)
     {
         cl->read_op_size += 8;
     }
@@ -594,7 +596,8 @@ bool osd_messenger_t::op_copy_from(osd_client_t *cl, uint8_t *src, size_t src_le
                 return true;
         }
     }
-    if (cl->proto_csum_status == (MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT))
+    if (cl->proto_csum_status == MSGR_CSUM_FULL ||
+        cl->read_op_size > 0 && cl->proto_csum_status == MSGR_CSUM_PAYLOAD)
     {
         if (!op_read_buf((uint8_t*)&op->csum, 8, true))
             return true;
@@ -716,7 +719,8 @@ void osd_messenger_t::op_get_read_buffers(osd_client_t *cl, std::vector<iovec> &
                 return;
         }
     }
-    if (cl->proto_csum_status == (MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT))
+    if (cl->proto_csum_status == MSGR_CSUM_FULL ||
+        cl->read_op_size > 0 && cl->proto_csum_status == MSGR_CSUM_PAYLOAD)
     {
         if (!op_read_buf((uint8_t*)&op->csum, 8))
             return;
@@ -750,7 +754,8 @@ void osd_messenger_t::op_alloc_temp_buffers(osd_op_t *op, int i)
 bool osd_messenger_t::handle_finished_op(osd_client_t *cl)
 {
     osd_op_t *op = cl->read_op;
-    if (cl->proto_csum_status == (MSGR_PEER_CSUM_IN|MSGR_PEER_CSUM_OUT))
+    if (cl->proto_csum_status == MSGR_CSUM_FULL ||
+        cl->read_op_size > 0 && cl->proto_csum_status == MSGR_CSUM_PAYLOAD)
     {
         uint64_t real_csum = XXH3_64bits_digest(cl->read_csum_state);
         if (op->csum != real_csum)
