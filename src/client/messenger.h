@@ -62,10 +62,12 @@ struct op_aes_xts_decrypt_t;
 void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx);
 void destroy_aes_xts_decrypt(op_aes_xts_decrypt_t *decrypt_ctx);
 
+// Standard TLS record header. We are only interested in the record size
 struct __attribute__((__packed__)) msgr_tls_record_hdr_t
 {
-    uint8_t encrypted;
-    uint32_t size;
+    uint8_t content_type;
+    uint16_t version;
+    uint16_t size;
 };
 
 struct osd_client_t
@@ -99,7 +101,7 @@ struct osd_client_t
     size_t ssl_out_buf_size = 0, ssl_out_buf_cap = 0;
     bool ssl_handshake_done = false;
     msgr_tls_record_hdr_t ssl_read_record;
-    size_t ssl_read_record_size = 0;
+    size_t ssl_read_header_size = 0;
 #endif
 
     // Read state

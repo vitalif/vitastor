@@ -102,21 +102,6 @@ public:
         from = cl->write_op_pos;
     }
 
-    static inline size_t ssl_copy_from_bio(BIO *bio, uint8_t *buf, size_t size)
-    {
-        if (size < sizeof(msgr_tls_record_hdr_t))
-            return 0;
-        int r = BIO_read(bio, buf+sizeof(msgr_tls_record_hdr_t), size-sizeof(msgr_tls_record_hdr_t));
-        if (r > 0)
-        {
-            msgr_tls_record_hdr_t *hdr = (msgr_tls_record_hdr_t*)buf;
-            hdr->encrypted = 1;
-            hdr->size = r;
-            return r+sizeof(msgr_tls_record_hdr_t);
-        }
-        return 0;
-    }
-
     void flush_ssl()
     {
         if (!cl->ssl_handshake_done)
@@ -124,7 +109,9 @@ public:
             if (!msgr->ssl_do_handshake(cl))
                 return;
         }
-        done += ssl_copy_from_bio(cl->read_from_ssl, curbuf+done, bufsize-done);
+        int r = BIO_read(cl->read_from_ssl, curbuf+done, bufsize-done);
+        if (r > 0)
+            done += r;
     }
 
     static inline bool write_to_ssl(osd_client_t *cl, uint8_t *src, size_t src_len, int flags, size_t & from)
@@ -195,7 +182,9 @@ public:
                 if (!write_to_ssl(cl, src, src_len, flags, from))
                     return false;
             }
-            done += ssl_copy_from_bio(cl->read_from_ssl, curbuf+done, bufsize-done);
+            int r = BIO_read(cl->read_from_ssl, curbuf+done, bufsize-done);
+            if (r > 0)
+                done += r;
         }
         if (from < src_len)
             return false;
@@ -242,8 +231,9 @@ class get_op_writer_t: public msgr_op_writer_t
         do
         {
             ssl_extend_buf();
-            cl->ssl_out_buf_size += ssl_op_writer_t::ssl_copy_from_bio(cl->read_from_ssl,
-                cl->ssl_out_buf+cl->ssl_out_buf_size, cl->ssl_out_buf_cap-cl->ssl_out_buf_size);
+            int r = BIO_read(cl->read_from_ssl, cl->ssl_out_buf+cl->ssl_out_buf_size, cl->ssl_out_buf_cap-cl->ssl_out_buf_size);
+            if (r > 0)
+                cl->ssl_out_buf_size += r;
         } while (cl->ssl_out_buf_size >= cl->ssl_out_buf_cap);
         if (cl->ssl_out_buf_size > prev_size)
         {

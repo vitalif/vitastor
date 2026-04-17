@@ -107,37 +107,49 @@ public:
         from = cl->read_op_pos;
     }
 
-    bool buffer_encrypted()
+    void buffer_encrypted()
     {
-        if (cl->ssl_read_record_size < sizeof(msgr_tls_record_hdr_t))
+        if (cl->ssl_read_header_size < sizeof(msgr_tls_record_hdr_t))
         {
-            size_t n = bufsize-done;
-            if (n > sizeof(msgr_tls_record_hdr_t)-cl->ssl_read_record_size)
-                n = sizeof(msgr_tls_record_hdr_t)-cl->ssl_read_record_size;
-            memcpy(((uint8_t*)&cl->ssl_read_record) + cl->ssl_read_record_size, curbuf+done, n);
+            size_t h = bufsize-done;
+            if (bufsize-done <= sizeof(msgr_tls_record_hdr_t)-cl->ssl_read_header_size)
+            {
+                // Less than record header or just record header
+                memcpy(((uint8_t*)&cl->ssl_read_record) + cl->ssl_read_header_size, curbuf+done, h);
+                cl->ssl_read_header_size += h;
+                if (cl->ssl_read_header_size == sizeof(msgr_tls_record_hdr_t))
+                    cl->ssl_read_record.size = ntohs(cl->ssl_read_record.size);
+                int r = BIO_write(cl->write_to_ssl, curbuf+done, h);
+                assert(r == h);
+                done += h;
+                return;
+            }
+            // Record header and at least some data - copy both to BIO in a one BIO_write() call
+            h = sizeof(msgr_tls_record_hdr_t)-cl->ssl_read_header_size;
+            memcpy(((uint8_t*)&cl->ssl_read_record) + cl->ssl_read_header_size, curbuf+done, h);
+            cl->ssl_read_header_size = sizeof(msgr_tls_record_hdr_t);
+            cl->ssl_read_record.size = ntohs(cl->ssl_read_record.size);
+            size_t n = h + cl->ssl_read_record.size;
+            if (n > bufsize-done)
+                n = bufsize-done;
+            int r = BIO_write(cl->write_to_ssl, curbuf+done, n);
+            assert(r == n);
             done += n;
-            cl->ssl_read_record_size += n;
-            if (done >= bufsize)
-                return true;
+            cl->ssl_read_record.size -= (n - h);
+            if (!cl->ssl_read_record.size)
+                cl->ssl_read_header_size = 0;
+            return;
         }
-        if (cl->ssl_read_record.encrypted != 1)
-        {
-            fprintf(stderr, "Client %ju got record with unknown type %u\n", cl->ssl_read_record.encrypted);
-            cl->io_error = true;
-            return false;
-        }
+        // Continued TLS data - buffer it to BIO
         size_t n = cl->ssl_read_record.size;
         if (n > bufsize-done)
             n = bufsize-done;
-        // Buffer all encrypted data
-        // FIXME Limit the amount of buffered data
         int r = BIO_write(cl->write_to_ssl, curbuf+done, n);
         assert(r == n);
         done += n;
         cl->ssl_read_record.size -= n;
         if (!cl->ssl_read_record.size)
-            cl->ssl_read_record_size = 0;
-        return true;
+            cl->ssl_read_header_size = 0;
     }
 
     bool read(uint8_t *dst, size_t dst_len, int flags) override
@@ -148,6 +160,8 @@ public:
             from -= dst_len;
             return true;
         }
+        if (done >= bufsize)
+            return false;
         size_t n = dst_len-from;
         if (!(flags & RDR_TLS) || !cl->ssl_cli)
         {
@@ -170,13 +184,19 @@ public:
                     memcpy(dst+from, curbuf+done, n);
                 done += n;
             }
+            cl->read_op_pos += n;
+            from += n;
+            if (from < dst_len)
+            {
+                return false;
+            }
         }
         else
         {
             // Here, dst == NULL is not allowed
             assert(dst != NULL);
-            if (!buffer_encrypted())
-                return false;
+buffer_again:
+            buffer_encrypted();
             if (!cl->ssl_handshake_done)
             {
                 if (!msgr->ssl_do_handshake(cl))
@@ -198,12 +218,17 @@ public:
             if (!ok)
             {
                 ok = SSL_get_error(cl->ssl_cli, ok);
-                if (ok == SSL_ERROR_ZERO_RETURN)
+                if (ok == SSL_ERROR_WANT_READ)
+                {
+                    if (done < bufsize)
+                        goto buffer_again;
+                }
+                else if (ok == SSL_ERROR_ZERO_RETURN)
                 {
                     fprintf(stderr, "Client %ju TLS disconnected\n", cl->client_id);
                     cl->io_error = true;
                 }
-                else if (ok != 0 && ok != SSL_ERROR_WANT_READ && ok != SSL_ERROR_WANT_WRITE)
+                else if (ok != 0 && ok != SSL_ERROR_WANT_WRITE)
                 {
                     fprintf(stderr, "Client %ju TLS read error: %s. Disconnecting client\n", cl->client_id, ERR_error_string(ERR_get_error(), NULL));
                     cl->io_error = true;
@@ -214,12 +239,14 @@ public:
             {
                 XXH3_64bits_update(cl->read_csum_state, dst+from, n);
             }
-        }
-        cl->read_op_pos += n;
-        from += n;
-        if (from < dst_len)
-        {
-            return false;
+            cl->read_op_pos += n;
+            from += n;
+            if (from < dst_len)
+            {
+                if (done < bufsize)
+                    goto buffer_again;
+                return false;
+            }
         }
         from = 0;
         return true;
