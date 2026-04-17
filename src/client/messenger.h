@@ -102,6 +102,7 @@ struct osd_client_t
     bool ssl_handshake_done = false;
     msgr_tls_record_hdr_t ssl_read_record;
     size_t ssl_read_header_size = 0;
+    bool ssl_more_to_buffer = false;
 #endif
 
     // Read state

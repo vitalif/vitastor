@@ -109,9 +109,27 @@ public:
             if (!msgr->ssl_do_handshake(cl))
                 return;
         }
+        _flush_ssl();
+    }
+
+    bool _flush_ssl()
+    {
         int r = BIO_read(cl->read_from_ssl, curbuf+done, bufsize-done);
         if (r > 0)
             done += r;
+        if (done >= bufsize)
+        {
+            // Check if we've sent all buffered TLS data
+            // ...Because we can't return true from this->write() if we haven't
+            char *bio_buf = NULL;
+            size_t bio_sz = BIO_get_mem_data(cl->read_from_ssl, &bio_buf);
+            if (bio_sz > 0)
+            {
+                cl->ssl_more_to_buffer = true;
+                return false;
+            }
+        }
+        return true;
     }
 
     static inline bool write_to_ssl(osd_client_t *cl, uint8_t *src, size_t src_len, int flags, size_t & from)
@@ -148,6 +166,8 @@ public:
     {
         if (from >= src_len)
         {
+            if (cl->ssl_more_to_buffer && !_flush_ssl())
+                return false;
             from -= src_len;
             return true;
         }
@@ -182,9 +202,8 @@ public:
                 if (!write_to_ssl(cl, src, src_len, flags, from))
                     return false;
             }
-            int r = BIO_read(cl->read_from_ssl, curbuf+done, bufsize-done);
-            if (r > 0)
-                done += r;
+            if (!_flush_ssl())
+                return false;
         }
         if (from < src_len)
             return false;
@@ -650,13 +669,6 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
         cl->write_state = 0;
         if (cl->write_op || cl->write_ops.size())
             cl->write_state = CL_WRITE_READY;
-        else if (cl->ssl_cli)
-        {
-            char *bio_buf = NULL;
-            size_t bio_sz = BIO_get_mem_data(cl->read_from_ssl, &bio_buf);
-            if (bio_sz > 0)
-                cl->write_state = CL_WRITE_READY;
-        }
         if ((cl->proto_csum_status & MSGR_CSUM_NEG) && !cl->write_op && !cl->write_ops.size())
         {
             // Checksums negotiated, enable
