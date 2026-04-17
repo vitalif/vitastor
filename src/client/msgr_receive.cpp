@@ -107,41 +107,37 @@ public:
         from = cl->read_op_pos;
     }
 
-    void buffer_encrypted()
+    bool buffer_encrypted()
     {
-        while (done < bufsize)
+        if (cl->ssl_read_record_size < sizeof(msgr_tls_record_hdr_t))
         {
-            if (cl->ssl_read_record_size < sizeof(msgr_tls_record_hdr_t))
-            {
-                size_t n = bufsize-done;
-                if (n > sizeof(msgr_tls_record_hdr_t)-cl->ssl_read_record_size)
-                    n = sizeof(msgr_tls_record_hdr_t)-cl->ssl_read_record_size;
-                memcpy(((uint8_t*)&cl->ssl_read_record) + cl->ssl_read_record_size, curbuf+done, n);
-                done += n;
-                cl->ssl_read_record_size += n;
-                if (done >= bufsize)
-                    return;
-            }
-            if (cl->ssl_read_record.encrypted)
-            {
-                size_t n = cl->ssl_read_record.size;
-                if (n > bufsize-done)
-                    n = bufsize-done;
-                // Buffer all encrypted data
-                // FIXME Limit the amount of buffered data
-                int r = BIO_write(cl->write_to_ssl, curbuf+done, n);
-                assert(r == n);
-                done += n;
-                cl->ssl_read_record.size -= n;
-                if (!cl->ssl_read_record.size)
-                    cl->ssl_read_record_size = 0;
-            }
-            else
-            {
-                // Unencrypted data
-                break;
-            }
+            size_t n = bufsize-done;
+            if (n > sizeof(msgr_tls_record_hdr_t)-cl->ssl_read_record_size)
+                n = sizeof(msgr_tls_record_hdr_t)-cl->ssl_read_record_size;
+            memcpy(((uint8_t*)&cl->ssl_read_record) + cl->ssl_read_record_size, curbuf+done, n);
+            done += n;
+            cl->ssl_read_record_size += n;
+            if (done >= bufsize)
+                return true;
         }
+        if (cl->ssl_read_record.encrypted != 1)
+        {
+            fprintf(stderr, "Client %ju got record with unknown type %u\n", cl->ssl_read_record.encrypted);
+            cl->io_error = true;
+            return false;
+        }
+        size_t n = cl->ssl_read_record.size;
+        if (n > bufsize-done)
+            n = bufsize-done;
+        // Buffer all encrypted data
+        // FIXME Limit the amount of buffered data
+        int r = BIO_write(cl->write_to_ssl, curbuf+done, n);
+        assert(r == n);
+        done += n;
+        cl->ssl_read_record.size -= n;
+        if (!cl->ssl_read_record.size)
+            cl->ssl_read_record_size = 0;
+        return true;
     }
 
     bool read(uint8_t *dst, size_t dst_len, int flags) override
@@ -155,21 +151,12 @@ public:
         size_t n = dst_len-from;
         if (!(flags & RDR_TLS) || !cl->ssl_cli)
         {
-            if (cl->ssl_cli && (cl->ssl_read_record_size < sizeof(msgr_tls_record_hdr_t) ||
-                cl->ssl_read_record.size < n || cl->ssl_read_record.encrypted))
-            {
-                fprintf(stderr, "Client %ju non-TLS data is too short, disconnecting\n", cl->client_id);
-                cl->io_error = true;
-                return false;
-            }
             if (n > bufsize-done)
                 n = bufsize-done;
             if (flags & RDR_XTS)
             {
-                size_t prev = done;
                 msgr->op_decrypted_copy_buf(cl, curbuf, bufsize, dst, dst_len, from, done);
                 n = 0;
-                cl->ssl_read_record.size -= (done-prev);
             }
             else
             {
@@ -182,16 +169,14 @@ public:
                 if (dst != NULL)
                     memcpy(dst+from, curbuf+done, n);
                 done += n;
-                cl->ssl_read_record.size -= n;
             }
-            if (!cl->ssl_read_record.size)
-                cl->ssl_read_record_size = 0;
         }
         else
         {
             // Here, dst == NULL is not allowed
             assert(dst != NULL);
-            buffer_encrypted();
+            if (!buffer_encrypted())
+                return false;
             if (!cl->ssl_handshake_done)
             {
                 if (!msgr->ssl_do_handshake(cl))
@@ -318,25 +303,10 @@ public:
             cl->read_op_pos = cl->read_op_inline_decrypt_in + OSD_PACKET_SIZE + cl->read_op->reply.rw.bitmap_len;
             from = cl->read_op_inline_decrypt_in;
         }
-        if (cl->ssl_cli)
-        {
-            if (cl->ssl_read_record_size < sizeof(msgr_tls_record_hdr_t))
-            {
-                return false;
-            }
-            if (cl->ssl_read_record.size < dst_len-from || cl->ssl_read_record.encrypted)
-            {
-                fprintf(stderr, "Client %ju non-TLS data is too short, disconnecting\n", cl->client_id);
-                cl->io_error = true;
-                return false;
-            }
-            cl->ssl_read_record.size -= (dst_len-from);
-            if (!cl->ssl_read_record.size)
-                cl->ssl_read_record_size = 0;
-        }
-        cl->recv_list.push_back((iovec){ dst+from, dst_len-from });
+        size_t n = dst_len-from;
+        cl->recv_list.push_back((iovec){ dst+from, n });
         cl->recv_flags.push_back(flags);
-        cl->read_op_pos += dst_len-from;
+        cl->read_op_pos += n;
         from = 0;
         return true;
     }

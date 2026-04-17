@@ -166,13 +166,6 @@ public:
         }
         if (!(flags & WR_TLS) || !cl->ssl_cli)
         {
-            if (cl->ssl_cli && from == 0 && done < bufsize-sizeof(msgr_tls_record_hdr_t)-1)
-            {
-                msgr_tls_record_hdr_t *hdr = (msgr_tls_record_hdr_t*)(curbuf+done);
-                hdr->encrypted = 0;
-                hdr->size = src_len;
-                done += sizeof(msgr_tls_record_hdr_t);
-            }
             if (flags & WR_XTS)
             {
                 msgr->op_encrypted_copy_buf(cl, curbuf, bufsize, src, src_len, from, done);
@@ -317,19 +310,6 @@ public:
                     return false;
                 from = 0;
                 return true;
-            }
-            else if (!from)
-            {
-                if (cl->send_list.size() >= IOV_MAX-1)
-                {
-                    return false;
-                }
-                ssl_extend_buf();
-                msgr_tls_record_hdr_t *hdr = (msgr_tls_record_hdr_t*)(cl->ssl_out_buf+cl->ssl_out_buf_size);
-                hdr->encrypted = 0;
-                hdr->size = src_len;
-                cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+cl->ssl_out_buf_size, .iov_len = sizeof(msgr_tls_record_hdr_t) });
-                cl->ssl_out_buf_size += sizeof(msgr_tls_record_hdr_t);
             }
         }
         if (flags & WR_XTS)
