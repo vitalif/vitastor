@@ -96,7 +96,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             if (inode_it->second.parent_id == cur_op->req.rw.inode ||
                 inode_it->second.parent_id == inode_it->second.num ||
                 chain_size > st_cli->inode_config.size() ||
-                chain_size > 255)
+                chain_size > UINT32_MAX)
             {
                 printf("Inode %ju from pool %u has too many parents, returning EINVAL in response to read\n",
                     INODE_NO_POOL(cur_op->req.rw.inode), INODE_POOL(cur_op->req.rw.inode));
@@ -111,7 +111,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             // Add the original inode
             chain_size++;
             chain_info_len = (cur_op->req.rw.flags & OSD_OP_RETURN_CHAIN
-                ? (cur_op->req.rw.len / bs_bitmap_granularity)
+                ? osd_op_rw_t::chain_info_bytes(chain_size) * (cur_op->req.rw.len / bs_bitmap_granularity)
                 : 0);
         }
     }
@@ -138,6 +138,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     op_data->oid = oid;
     op_data->stripes = (osd_rmw_stripe_t*)data_buf;
     op_data->stripe_count = stripe_count;
+    op_data->chain_info = NULL;
     data_buf = (uint8_t*)data_buf + sizeof(osd_rmw_stripe_t) * stripe_count;
     cur_op->op_data = op_data;
     if (cur_op->req.hdr.opcode != OSD_OP_SCRUB)

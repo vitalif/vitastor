@@ -186,13 +186,14 @@ op_aes_xts_decrypt_t::~op_aes_xts_decrypt_t()
         free(tmp);
 }
 
-void op_aes_xts_decrypt_t::start(uint8_t **key_chain, size_t chain_size, uint8_t *key_indexes, uint64_t start_offset, size_t block_size)
+void op_aes_xts_decrypt_t::start(uint8_t **key_chain, size_t chain_size, void *key_indexes, uint64_t start_offset, size_t block_size)
 {
     assert(!decrypted);
     this->start_offset = start_offset;
     this->key_chain = chain_size > 1 ? key_chain : 0;
     this->chain_size = chain_size > 1 ? chain_size : 0;
     this->key_indexes = chain_size > 1 ? key_indexes : NULL;
+    this->key_index_bytes = osd_op_rw_t::chain_info_bytes(chain_size);
     assert(chain_size <= 1 || key_indexes != NULL);
     this->block_size = block_size;
     this->offset = 0;
@@ -217,8 +218,15 @@ void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
     uint8_t *key = NULL;
     if (chain_size)
     {
-        assert(key_indexes[offset/block_size] < chain_size);
-        key = key_chain[key_indexes[offset/block_size]];
+        uint32_t key_index = key_index_bytes == 1
+            ? ((uint8_t*)key_indexes)[offset/block_size]
+            : (key_index_bytes == 2
+                ? ((uint16_t*)key_indexes)[offset/block_size]
+                : (key_index_bytes == 4
+                    ? ((uint32_t*)key_indexes)[offset/block_size]
+                    : UINT32_MAX));
+        assert(key_index < chain_size);
+        key = key_chain[key_index];
         if (!key)
         {
             if (in != out)

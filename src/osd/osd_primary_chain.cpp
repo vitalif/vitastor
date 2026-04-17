@@ -597,6 +597,7 @@ void osd_t::send_chained_read_results(pg_t *pg, osd_op_t *cur_op)
     int prev = (cur_op->req.rw.offset - op_data->oid.stripe) / bs_bitmap_granularity;
     int end = prev + cur_op->req.rw.len/bs_bitmap_granularity;
     int cur = prev;
+    size_t key_index_bytes = osd_op_rw_t::chain_info_bytes(op_data->chain_size);
     while (cur <= end)
     {
         bool has_bit = false;
@@ -608,7 +609,14 @@ void osd_t::send_chained_read_results(pg_t *pg, osd_op_t *cur_op)
                 if (has_bit)
                 {
                     if (op_data->chain_info)
-                        op_data->chain_info[cur] = pos;
+                    {
+                        if (key_index_bytes == 1)
+                            ((uint8_t*)op_data->chain_info)[cur] = pos;
+                        else if (key_index_bytes == 2)
+                            ((uint16_t*)op_data->chain_info)[cur] = pos;
+                        else
+                            ((uint32_t*)op_data->chain_info)[cur] = pos;
+                    }
                     break;
                 }
             }

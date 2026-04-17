@@ -46,7 +46,8 @@ class op_aes_xts_decrypt_t
     uint64_t start_offset = 0;
     uint8_t **key_chain = NULL;
     size_t chain_size = 0;
-    uint8_t *key_indexes = NULL;
+    void *key_indexes = NULL;
+    int key_index_bytes = 0;
     size_t offset = 0;
     size_t block_size = 0;
     uint8_t *tmp = NULL;
@@ -61,7 +62,7 @@ public:
     ~op_aes_xts_decrypt_t();
 
     inline bool has_buffered() { return decrypted; };
-    void start(uint8_t **key_chain, size_t chain_size, uint8_t *key_indexes, uint64_t start_offset, size_t block_size);
+    void start(uint8_t **key_chain, size_t chain_size, void *key_indexes, uint64_t start_offset, size_t block_size);
     void update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out);
 };
 

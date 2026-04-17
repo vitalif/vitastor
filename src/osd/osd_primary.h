@@ -60,7 +60,7 @@ struct osd_primary_op_data_t
             int chain_size;
             osd_chain_read_t *chain_reads;
             int chain_read_count;
-            uint8_t *chain_info;
+            void *chain_info;
         };
     };
 };

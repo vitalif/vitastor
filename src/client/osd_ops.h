@@ -231,12 +231,25 @@ struct __attribute__((__packed__)) osd_op_rw_t
     uint32_t len;
     // flags
     // OSD_OP_RETURN_CHAIN for chained reads: return parent number in chain for each block
+    // read_chain size comes after bitmap, takes 0 bytes / 1 byte / 2 byte / 4 byte per each block,
+    // depending on the number of parent inodes (0 parents = 0 bytes, up to 255 parents = 1 byte, etc)
     uint32_t flags;
     // inode metadata revision for chained reads
     uint64_t meta_revision;
     // object version for atomic "CAS" (compare-and-set) writes
     // writes and deletes fail with -EINTR if object version differs from (version-1)
     uint64_t version;
+
+    static inline size_t chain_info_bytes(size_t chain_size)
+    {
+        if (chain_size <= 1)
+            return 0;
+        if (chain_size <= 256)
+            return 1;
+        if (chain_size <= 65536)
+            return 2;
+        return 4;
+    }
 };
 
 struct __attribute__((__packed__)) osd_reply_rw_t

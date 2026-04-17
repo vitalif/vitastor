@@ -1315,8 +1315,8 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
         unsigned bitmap_mem = object_bitmap_size +
             op->parts.size() * pg_data_size *
             (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8
-            // read chain info - 1 byte per block
-            + (op->enc ? op->len/pool_cfg.bitmap_granularity : 0));
+            // read chain_info - max 4 bytes per block
+            + (op->enc ? osd_op_rw_t::chain_info_bytes(op->enc->chain_size)*op->len/pool_cfg.bitmap_granularity : 0));
         if (!op->bitmap_buf || op->bitmap_buf_size < bitmap_mem)
         {
             op->bitmap_buf = realloc_or_die(op->bitmap_buf, bitmap_mem);
@@ -1473,7 +1473,10 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
             op->inflight_count++;
             uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
             uint64_t pg_bitmap_size = pg_data_size * (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8
-                + (op->opcode == OSD_OP_READ && op->enc ? pool_cfg.data_block_size/pool_cfg.bitmap_granularity : 0));
+                // read chain_info - max 4 bytes per block
+                + (op->opcode == OSD_OP_READ && op->enc
+                    ? osd_op_rw_t::chain_info_bytes(op->enc->chain_size)*pool_cfg.data_block_size/pool_cfg.bitmap_granularity
+                    : 0));
             uint64_t meta_rev = 0;
             if (op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_DELETE && !op->deoptimise_snapshot)
             {

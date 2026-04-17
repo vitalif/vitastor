@@ -743,7 +743,7 @@ bool osd_messenger_t::allocate_reply_buffers(osd_client_t *cl, osd_op_t *op)
         // Read data. In this case we assume that the buffer is preallocated by the caller (!)
         uint32_t bmp_len = (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->reply.sec_rw.attr_len : op->reply.rw.bitmap_len);
         uint32_t expected_size = (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->req.sec_rw.len : op->req.rw.len);
-        if (op->reply.hdr.retval >= 0 && (op->reply.hdr.retval != expected_size || bmp_len > op->bitmap_len))
+        if (op->reply.hdr.retval >= 0 && (op->reply.hdr.retval != expected_size || bmp_len != op->bitmap_len))
         {
             // Check reply length to not overflow the buffer
             fprintf(stderr, "Error: peer %ju read reply has incorrect length: expected %u+%u, got %jd+%u, stopping\n",

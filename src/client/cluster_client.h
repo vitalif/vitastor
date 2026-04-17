@@ -86,7 +86,7 @@ class writeback_cache_t;
 
 struct inode_cache_t
 {
-    std::vector<inode_t> chain;
+    std::vector<inode_t> chain; // only parents from the same pool
     uint8_t *key_data = NULL;
     osd_op_enc_t *op_enc = NULL;
     bool readonly = false;
