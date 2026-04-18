@@ -23,6 +23,7 @@ class msgr_op_writer_t
 {
 public:
     virtual bool write(uint8_t *src, size_t src_len, int flags = 0) = 0;
+    virtual bool finish() = 0;
 };
 
 class copy_op_writer_t: public msgr_op_writer_t
@@ -72,6 +73,11 @@ public:
         if (from < src_len)
             return false;
         from = 0;
+        return true;
+    }
+
+    bool finish() override
+    {
         return true;
     }
 
@@ -211,12 +217,150 @@ public:
         return true;
     }
 
+    bool finish() override
+    {
+        return _flush_ssl();
+    }
+
     size_t get_done()
     {
         return done;
     }
 };
 
+class gcm_op_writer_t: public msgr_op_writer_t
+{
+    osd_messenger_t* msgr;
+    osd_client_t* cl;
+    size_t from;
+
+    uint8_t *curbuf;
+    size_t bufsize;
+    size_t done;
+
+public:
+    gcm_op_writer_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t *curbuf, size_t bufsize):
+        msgr(msgr), cl(cl), from(cl->write_op_pos), curbuf(curbuf), bufsize(bufsize), done(0)
+    {
+    }
+
+    void reset()
+    {
+        from = cl->write_op_pos;
+        uint8_t iv[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+        int r = EVP_EncryptInit_ex(cl->enc_ctx, NULL, NULL, (uint8_t*)msgr->test_osd_aes_key.data(), iv);
+        if (r != 1)
+        {
+            fprintf(stderr, "EncryptInit error: ");
+            ERR_print_errors_fp(stderr);
+            abort();
+        }
+    }
+
+    bool write(uint8_t *src, size_t src_len, int flags) override
+    {
+        if (from >= src_len)
+        {
+            from -= src_len;
+            return true;
+        }
+        if (!(flags & WR_TLS))
+        {
+            if (flags & WR_XTS)
+            {
+                msgr->op_encrypted_copy_buf(cl, curbuf, bufsize, src, src_len, from, done);
+            }
+            else
+            {
+                size_t n = src_len-from;
+                if (n > bufsize-done)
+                    n = bufsize-done;
+                if (!n)
+                    return false;
+                if (cl->write_csum_state && !(flags & WR_NO_CSUM))
+                    XXH3_64bits_update(cl->write_csum_state, src+from, n);
+                memcpy(curbuf+done, src+from, n);
+                done += n;
+                cl->write_op_pos += n;
+                from += n;
+            }
+        }
+        else
+        {
+            size_t n = src_len-from;
+            if (n > bufsize-done)
+                n = bufsize-done;
+            if (!n)
+                return false;
+            int actual_out;
+            if (EVP_EncryptUpdate(cl->enc_ctx, curbuf+done, &actual_out, src+from, n) != 1)
+            {
+                fprintf(stderr, "EncryptUpdate error: ");
+                ERR_print_errors_fp(stderr);
+                abort();
+            }
+            assert(actual_out == n);
+            if (cl->write_csum_state && !(flags & WR_NO_CSUM))
+                XXH3_64bits_update(cl->write_csum_state, src+from, n);
+            done += n;
+            cl->write_op_pos += n;
+            from += n;
+        }
+        if (from < src_len)
+            return false;
+        from = 0;
+        return true;
+    }
+
+    static void write_tag_to(osd_client_t *cl, uint8_t *dst)
+    {
+        int actual_out = 0;
+        int r = EVP_EncryptFinal_ex(cl->enc_ctx, NULL, &actual_out);
+        if (r != 1)
+        {
+            fprintf(stderr, "EncryptFinal error: ");
+            ERR_print_errors_fp(stderr);
+            abort();
+        }
+        assert(actual_out == 0);
+        r = EVP_CIPHER_CTX_ctrl(cl->enc_ctx, EVP_CTRL_GCM_GET_TAG, 16, dst);
+        assert(r == 1);
+    }
+
+    bool finish() override
+    {
+        // Tag is 16 bytes
+        if (done >= bufsize)
+            return false;
+        if (bufsize-done < 16 || cl->enc_tag_size)
+        {
+            // No space for the full tag, but msgr_rdma expects us to always fill the whole buffer
+            if (!cl->enc_tag_size)
+            {
+                write_tag_to(cl, cl->enc_tag);
+                cl->enc_tag_size = 16;
+            }
+            size_t n = bufsize-done;
+            if (n > cl->enc_tag_size)
+                n = cl->enc_tag_size;
+            memcpy(curbuf+done, cl->enc_tag+16-cl->enc_tag_size, n);
+            done += n;
+            cl->enc_tag_size -= n;
+            return !cl->enc_tag_size;
+        }
+        // The whole tag fits at once
+        write_tag_to(cl, curbuf+done);
+        done += 16;
+        return true;
+    }
+
+    size_t get_done()
+    {
+        return done;
+    }
+};
+
+// FIXME Split into 3 classes - basic, tls and gcm
 class get_op_writer_t: public msgr_op_writer_t
 {
     osd_messenger_t* msgr;
@@ -225,9 +369,11 @@ class get_op_writer_t: public msgr_op_writer_t
     size_t enc_size;
     size_t done_enc;
 
-    void ssl_extend_buf()
+    void ssl_extend_buf(size_t more = 0)
     {
         size_t min_cap = cl->ssl_out_buf_size*2;
+        if (min_cap < cl->ssl_out_buf_size+more)
+            min_cap = cl->ssl_out_buf_size+more;
         if (min_cap < 16384)
             min_cap = 16384;
         if (cl->ssl_out_buf_cap < min_cap)
@@ -271,6 +417,17 @@ public:
         from = cl->write_op_pos;
         enc_size = 0;
         done_enc = 0;
+        if (cl->enc_ctx)
+        {
+            uint8_t iv[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+            int r = EVP_EncryptInit_ex(cl->enc_ctx, NULL, NULL, (uint8_t*)msgr->test_osd_aes_key.data(), iv);
+            if (r != 1)
+            {
+                fprintf(stderr, "EncryptInit error: ");
+                ERR_print_errors_fp(stderr);
+                abort();
+            }
+        }
     }
 
     void flush_ssl()
@@ -299,9 +456,9 @@ public:
         {
             return false;
         }
-        if (cl->ssl_cli)
+        if (flags & WR_TLS)
         {
-            if (flags & WR_TLS)
+            if (cl->ssl_cli)
             {
                 if (!cl->ssl_handshake_done)
                 {
@@ -315,6 +472,30 @@ public:
                 }
                 // Copy data to client's temporary SSL output buffer
                 copy_ssl();
+                if (from < src_len)
+                    return false;
+                from = 0;
+                return true;
+            }
+            else if (cl->enc_ctx)
+            {
+                // Encrypt data to client's temporary output buffer (all at once)
+                size_t n = src_len-from;
+                ssl_extend_buf(n);
+                int actual_out;
+                if (EVP_EncryptUpdate(cl->enc_ctx, cl->ssl_out_buf+cl->ssl_out_buf_size, &actual_out, src+from, n) != 1)
+                {
+                    fprintf(stderr, "EncryptUpdate error: ");
+                    ERR_print_errors_fp(stderr);
+                    abort();
+                }
+                assert(actual_out == n);
+                if (cl->write_csum_state && !(flags & WR_NO_CSUM))
+                    XXH3_64bits_update(cl->write_csum_state, src+from, n);
+                cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+cl->ssl_out_buf_size, .iov_len = n });
+                cl->ssl_out_buf_size += n;
+                cl->write_op_pos += n;
+                from += n;
                 if (from < src_len)
                     return false;
                 from = 0;
@@ -349,6 +530,28 @@ public:
             cl->write_op_pos += src_len-from;
         }
         from = 0;
+        return true;
+    }
+
+    bool finish() override
+    {
+        if (cl->ssl_cli)
+        {
+            if (cl->send_list.size() >= IOV_MAX)
+                return false;
+            copy_ssl();
+        }
+        else if (cl->enc_ctx)
+        {
+            if (cl->send_list.size() >= IOV_MAX)
+                return false;
+            // Tag is 16 bytes
+            ssl_extend_buf(16);
+            gcm_op_writer_t::write_tag_to(cl, cl->ssl_out_buf+cl->ssl_out_buf_size);
+            // FIXME coalesce entries in ssl_out_buf
+            cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+cl->ssl_out_buf_size, .iov_len = 16 });
+            cl->ssl_out_buf_size += 16;
+        }
         return true;
     }
 };
@@ -539,8 +742,18 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
 
 size_t osd_messenger_t::copy_ops_to(osd_client_t *cl, uint8_t *dst, size_t dst_len)
 {
-    ssl_op_writer_t wr(this, cl, dst, dst_len);
-    while ((cl->write_op || cl->write_ops.size()) && wr.get_done() < dst_len)
+    if (cl->enc_ctx)
+    {
+        return copy_ops_to_with<gcm_op_writer_t>(cl, dst, dst_len);
+    }
+    return copy_ops_to_with<copy_op_writer_t>(cl, dst, dst_len);
+}
+
+template<typename T>
+size_t osd_messenger_t::copy_ops_to_with(osd_client_t *cl, uint8_t *dst, size_t dst_len)
+{
+    T wr(this, cl, dst, dst_len);
+    while (cl->write_op || cl->write_ops.size())
     {
         if (!cl->write_op)
         {
@@ -560,10 +773,10 @@ size_t osd_messenger_t::copy_ops_to(osd_client_t *cl, uint8_t *dst, size_t dst_l
             cl->send_free_ops.push_back(op);
         }
     }
-    if (!wr.get_done() && cl->ssl_cli)
+    /*FIXME if (!wr.get_done() && cl->ssl_cli)
     {
         wr.flush_ssl();
-    }
+    }*/
     return wr.get_done();
 }
 
@@ -783,6 +996,8 @@ bool osd_messenger_t::op_write_to(osd_client_t *cl, msgr_op_writer_t & wr)
         if (!wr.write((uint8_t*)&cl->write_op->csum, 8, WR_TLS|WR_NO_CSUM))
             return false;
     }
+    if (!wr.finish())
+        return false;
     op_encrypt_free(cl);
     cl->write_op = NULL;
     cl->write_op_pos = 0;

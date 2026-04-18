@@ -21,6 +21,7 @@ class msgr_op_reader_t
 {
 public:
     virtual bool read(uint8_t *dst, size_t dst_len, int flags = 0) = 0;
+    virtual bool finish() = 0;
 };
 
 class copy_op_reader_t: public msgr_op_reader_t
@@ -77,6 +78,11 @@ public:
         if (from < dst_len)
             return false;
         from = 0;
+        return true;
+    }
+
+    bool finish() override
+    {
         return true;
     }
 
@@ -252,6 +258,154 @@ buffer_again:
         return true;
     }
 
+    bool finish() override
+    {
+        return true;
+    }
+
+    size_t get_done()
+    {
+        return done;
+    }
+};
+
+class gcm_op_reader_t: public msgr_op_reader_t
+{
+    osd_messenger_t* msgr;
+    osd_client_t* cl;
+    size_t from;
+
+    uint8_t *curbuf;
+    size_t bufsize;
+    size_t done;
+
+public:
+    gcm_op_reader_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t *curbuf, size_t bufsize):
+        msgr(msgr), cl(cl), from(cl->read_op_pos), curbuf(curbuf), bufsize(bufsize), done(0)
+    {
+    }
+
+    void reset()
+    {
+        from = cl->read_op_pos;
+        uint8_t iv[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+        int r = EVP_DecryptInit_ex(cl->dec_ctx, NULL, NULL, (uint8_t*)msgr->test_osd_aes_key.data(), iv);
+        if (r != 1)
+        {
+            fprintf(stderr, "DecryptInit error: ");
+            ERR_print_errors_fp(stderr);
+            abort();
+        }
+    }
+
+    bool read(uint8_t *dst, size_t dst_len, int flags) override
+    {
+        if (from >= dst_len)
+        {
+            // Skip
+            from -= dst_len;
+            return true;
+        }
+        if (done >= bufsize)
+            return false;
+        size_t n = dst_len-from;
+        if (!(flags & RDR_TLS))
+        {
+            if (n > bufsize-done)
+                n = bufsize-done;
+            if (flags & RDR_XTS)
+            {
+                msgr->op_decrypted_copy_buf(cl, curbuf, bufsize, dst, dst_len, from, done);
+                n = 0;
+            }
+            else
+            {
+                if (cl->read_csum_state && !(flags & RDR_NO_CSUM))
+                {
+                    // data may be skipped if dst == NULL but checksum is still calculated
+                    XXH3_64bits_update(cl->read_csum_state, curbuf+done, n);
+                }
+                // Here, dst == NULL is allowed
+                if (dst != NULL)
+                    memcpy(dst+from, curbuf+done, n);
+                done += n;
+            }
+            cl->read_op_pos += n;
+            from += n;
+            if (from < dst_len)
+            {
+                return false;
+            }
+        }
+        else
+        {
+            // Here, dst == NULL is not allowed
+            assert(dst != NULL);
+            size_t n = dst_len-from;
+            if (n > bufsize-done)
+                n = bufsize-done;
+            int actual_out;
+            if (EVP_DecryptUpdate(cl->dec_ctx, dst+from, &actual_out, curbuf+done, n) != 1)
+            {
+                fprintf(stderr, "DecryptUpdate error: ");
+                ERR_print_errors_fp(stderr);
+                abort();
+            }
+            assert(actual_out == n);
+            if (cl->read_csum_state && !(flags & RDR_NO_CSUM))
+            {
+                XXH3_64bits_update(cl->read_csum_state, dst+from, n);
+            }
+            done += n;
+            from += n;
+            cl->read_op_pos += n;
+            if (from < dst_len)
+            {
+                return false;
+            }
+        }
+        from = 0;
+        return true;
+    }
+
+    bool finish() override
+    {
+        if (cl->dec_tag_size+bufsize-done < 16)
+        {
+            // Buffer part of the tag
+            memcpy(cl->dec_tag+cl->dec_tag_size, curbuf+done, bufsize-done);
+            cl->dec_tag_size += bufsize-done;
+            done = bufsize;
+            return false;
+        }
+        int r;
+        if (cl->dec_tag_size > 0)
+        {
+            // Tag is partially buffered, append to it and use it from there
+            memcpy(cl->dec_tag+cl->dec_tag_size, curbuf+done, 16-cl->dec_tag_size);
+            done += 16-cl->dec_tag_size;
+            r = EVP_CIPHER_CTX_ctrl(cl->dec_ctx, EVP_CTRL_GCM_SET_TAG, 16, cl->dec_tag);
+        }
+        else
+        {
+            // Take full tag directly from the source buffer
+            r = EVP_CIPHER_CTX_ctrl(cl->dec_ctx, EVP_CTRL_GCM_SET_TAG, 16, curbuf+done);
+            done += 16;
+        }
+        assert(r == 1);
+        int len = 0;
+        r = EVP_DecryptFinal_ex(cl->dec_ctx, NULL, &len);
+        if (r != 1)
+        {
+            fprintf(stderr, "Client %ju AES-GCM decryption failed\n", cl->client_id);
+            cl->io_error = true;
+            return false;
+        }
+        cl->dec_tag_size = 0;
+        assert(len == 0);
+        return true;
+    }
+
     size_t get_done()
     {
         return done;
@@ -308,6 +462,8 @@ public:
 
     bool read(uint8_t *dst, size_t dst_len, int flags) override
     {
+        if (cl->dec_ctx)
+            return false; // FIXME Only for tests, use copy-only with AES
         if (from >= dst_len)
         {
             // Skip
@@ -335,6 +491,13 @@ public:
         cl->recv_flags.push_back(flags);
         cl->read_op_pos += n;
         from = 0;
+        return true;
+    }
+
+    bool finish() override
+    {
+        if (cl->dec_ctx)
+            return false;
         return true;
     }
 };
@@ -529,11 +692,21 @@ void osd_messenger_t::handle_immediate_ops()
 
 bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size_t bufsize)
 {
+    if (cl->dec_ctx)
+    {
+        return handle_buffer_with<gcm_op_reader_t>(cl, curbuf, bufsize);
+    }
+    return handle_buffer_with<copy_op_reader_t>(cl, curbuf, bufsize);
+}
+
+template<typename T>
+bool osd_messenger_t::handle_buffer_with(osd_client_t *cl, uint8_t *curbuf, size_t bufsize)
+{
+    T rdr(this, cl, curbuf, bufsize);
     // Reset OSD ping state
     cl->ping_time_remaining = 0;
     cl->idle_time_remaining = osd_idle_timeout;
     // Compose operation(s) from the buffer
-    ssl_op_reader_t rdr(this, cl, curbuf, bufsize);
     while (true)
     {
         if (!cl->read_op)
@@ -821,7 +994,10 @@ bool osd_messenger_t::op_read_from(osd_client_t *cl, msgr_op_reader_t & rdr)
         if (hdr)
         {
             if (!handle_hdr(cl))
+            {
+                cl->io_error = true;
                 return false;
+            }
             op = cl->read_op;
             if (op->op_type == OSD_OP_OUT)
                 goto switched_type;
@@ -912,6 +1088,8 @@ switched_type:
         if (!rdr.read((uint8_t*)&op->csum, 8, RDR_TLS|RDR_NO_CSUM))
             return false;
     }
+    if (!rdr.finish())
+        return false;
     assert(cl->read_op_pos == cl->read_op_size+OSD_PACKET_SIZE);
     return true;
 }

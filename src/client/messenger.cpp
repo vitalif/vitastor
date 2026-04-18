@@ -10,6 +10,7 @@
 #include <stdexcept>
 
 #include "addr_util.h"
+#include "str_util.h"
 #include "messenger.h"
 #ifdef WITH_RDMA
 #include "msgr_rdma.h"
@@ -308,6 +309,9 @@ void osd_messenger_t::parse_config(const json11::Json & config)
         osd_tls_ca = config["osd_tls_ca"].string_value();
         client_tls_ca = config["client_tls_ca"].string_value();
     }
+    test_osd_aes_key.resize(32);
+    if (fromhexstr(config["test_osd_aes_key"].string_value(), 32, (uint8_t*)test_osd_aes_key.data()) != 32)
+        test_osd_aes_key.clear();
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();
     else
@@ -543,10 +547,7 @@ void osd_messenger_t::handle_connect_epoll(int peer_fd)
         handle_peer_epoll(peer_fd, epoll_events);
     });
     // Check OSD number
-    if (!tls_cert.empty())
-    {
-        ssl_init(cl, false);
-    }
+    ssl_init(cl, false);
     check_peer_config(cl);
 }
 
@@ -788,10 +789,7 @@ void osd_messenger_t::accept_connections(int listen_fd)
         cl->peer_fd = peer_fd;
         cl->peer_state = PEER_CONNECTED;
         cl->in_buf = (uint8_t*)malloc_or_die(receive_buffer_size);
-        if (!tls_cert.empty())
-        {
-            ssl_init(cl, true);
-        }
+        ssl_init(cl, true);
         // Add FD to epoll
         tfd->set_fd_handler(peer_fd, false, [this](int peer_fd, int epoll_events)
         {
@@ -808,27 +806,48 @@ void osd_messenger_t::accept_connections(int listen_fd)
 
 void osd_messenger_t::ssl_init(osd_client_t *cl, bool server_mode)
 {
-#ifdef WITH_OPENSSL
-    cl->write_to_ssl = BIO_new(BIO_s_mem());
-    cl->read_from_ssl = BIO_new(BIO_s_mem());
-    cl->ssl_cli = SSL_new(ssl_ctx);
-    if (!cl->ssl_cli)
+    if (!tls_cert.empty())
     {
-        fprintf(stderr, "OpenSSL initialization failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
-        exit(1);
+        cl->write_to_ssl = BIO_new(BIO_s_mem());
+        cl->read_from_ssl = BIO_new(BIO_s_mem());
+        cl->ssl_cli = SSL_new(ssl_ctx);
+        if (!cl->ssl_cli)
+        {
+            fprintf(stderr, "OpenSSL initialization failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
+            exit(1);
+        }
+        if (server_mode)
+        {
+            SSL_set_accept_state(cl->ssl_cli);
+        }
+        else
+        {
+            SSL_set_connect_state(cl->ssl_cli);
+        }
+        SSL_set_bio(cl->ssl_cli, cl->write_to_ssl, cl->read_from_ssl);
+        bool ok = ssl_do_handshake(cl);
+        assert(ok);
     }
-    if (server_mode)
+    else if (!test_osd_aes_key.empty())
     {
-        SSL_set_accept_state(cl->ssl_cli);
+        int r;
+        cl->enc_ctx = EVP_CIPHER_CTX_new();
+        assert(cl->enc_ctx);
+        r = EVP_EncryptInit_ex(cl->enc_ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
+        assert(r == 1);
+        r = EVP_CIPHER_CTX_set_padding(cl->enc_ctx, 0);
+        assert(r == 1);
+        r = EVP_CIPHER_CTX_ctrl(cl->enc_ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL);
+        assert(r == 1);
+        cl->dec_ctx = EVP_CIPHER_CTX_new();
+        assert(cl->dec_ctx);
+        r = EVP_DecryptInit_ex(cl->dec_ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
+        assert(r == 1);
+        r = EVP_CIPHER_CTX_set_padding(cl->dec_ctx, 0);
+        assert(r == 1);
+        r = EVP_CIPHER_CTX_ctrl(cl->dec_ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL);
+        assert(r == 1);
     }
-    else
-    {
-        SSL_set_connect_state(cl->ssl_cli);
-    }
-    SSL_set_bio(cl->ssl_cli, cl->write_to_ssl, cl->read_from_ssl);
-    bool ok = ssl_do_handshake(cl);
-    assert(ok);
-#endif
 }
 
 #ifdef WITH_RDMA

@@ -230,6 +230,16 @@ osd_client_t::~osd_client_t()
         write_csum_state = NULL;
     }
 #ifdef WITH_OPENSSL
+    if (enc_ctx)
+    {
+        EVP_CIPHER_CTX_free(enc_ctx);
+        enc_ctx = NULL;
+    }
+    if (dec_ctx)
+    {
+        EVP_CIPHER_CTX_free(dec_ctx);
+        dec_ctx = NULL;
+    }
     if (ssl_cli)
     {
         SSL_free(ssl_cli);

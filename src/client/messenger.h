@@ -103,6 +103,13 @@ struct osd_client_t
     msgr_tls_record_hdr_t ssl_read_record;
     size_t ssl_read_header_size = 0;
     bool ssl_more_to_buffer = false;
+
+    EVP_CIPHER_CTX *enc_ctx = NULL;
+    uint8_t enc_tag[16];
+    size_t enc_tag_size = 0;
+    EVP_CIPHER_CTX *dec_ctx = NULL;
+    uint8_t dec_tag[16];
+    size_t dec_tag_size = 0;
 #endif
 
     // Read state
@@ -195,9 +202,11 @@ struct __attribute__((visibility("default"))) osd_messenger_t
 protected:
     friend class copy_op_reader_t;
     friend class ssl_op_reader_t;
+    friend class gcm_op_reader_t;
     friend class get_op_reader_t;
     friend class copy_op_writer_t;
     friend class ssl_op_writer_t;
+    friend class gcm_op_writer_t;
     friend class get_op_writer_t;
 
     int keepalive_timer_id = -1;
@@ -217,6 +226,7 @@ protected:
     std::string tls_key;
     std::string osd_tls_ca;
     std::string client_tls_ca;
+    std::string test_osd_aes_key; // FIXME Insecure, only for PoC tests
 
 #ifdef WITH_RDMA
     bool use_rdma = true;
@@ -328,9 +338,11 @@ protected:
     bool op_write_buf(osd_client_t *cl, uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_len, bool skip_csum, size_t & from, size_t & done);
     bool op_copy_data_to(osd_client_t *cl, uint8_t *dst, size_t dst_len, size_t & from, size_t & done);
     size_t copy_ops_to(osd_client_t *cl, uint8_t *dst, size_t dst_len);
+    template<typename T> size_t copy_ops_to_with(osd_client_t *cl, uint8_t *dst, size_t dst_len);
 
     void handle_read(int result, osd_client_t *cl);
     bool handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size_t bufsize);
+    template<typename T> bool handle_buffer_with(osd_client_t *cl, uint8_t *curbuf, size_t bufsize);
     bool handle_hdr(osd_client_t *cl);
     bool allocate_op_buffers(osd_client_t *cl);
     bool allocate_reply_buffers(osd_client_t *cl, osd_op_t *op);
