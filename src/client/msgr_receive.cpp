@@ -288,6 +288,26 @@ public:
     void reset()
     {
         from = cl->read_op_pos;
+        if (!cl->dec_ctx)
+        {
+            if (msgr->decrypt_gcm_pool.size())
+            {
+                cl->dec_ctx = msgr->decrypt_gcm_pool.back();
+                msgr->decrypt_gcm_pool.pop_back();
+            }
+            else
+            {
+                cl->dec_ctx = EVP_CIPHER_CTX_new();
+                assert(cl->dec_ctx);
+                int r = EVP_DecryptInit_ex(cl->dec_ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
+                if (r != 1)
+                {
+                    fprintf(stderr, "DecryptInit error: ");
+                    ERR_print_errors_fp(stderr);
+                    abort();
+                }
+            }
+        }
         uint8_t iv[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
         int r = EVP_DecryptInit_ex(cl->dec_ctx, NULL, NULL, (uint8_t*)msgr->test_osd_aes_key.data(), iv);
         if (r != 1)
@@ -401,6 +421,11 @@ public:
             cl->io_error = true;
             return false;
         }
+        if (msgr->decrypt_gcm_pool.size() < msgr->max_cipher_pool_size)
+            msgr->decrypt_gcm_pool.push_back(cl->dec_ctx);
+        else
+            EVP_CIPHER_CTX_free(cl->dec_ctx);
+        cl->dec_ctx = NULL;
         cl->dec_tag_size = 0;
         assert(len == 0);
         return true;
@@ -462,7 +487,7 @@ public:
 
     bool read(uint8_t *dst, size_t dst_len, int flags) override
     {
-        if (cl->dec_ctx)
+        if (cl->gcm_enabled)
             return false; // FIXME Only for tests, use copy-only with AES
         if (from >= dst_len)
         {
@@ -496,7 +521,7 @@ public:
 
     bool finish() override
     {
-        if (cl->dec_ctx)
+        if (cl->gcm_enabled)
             return false;
         return true;
     }
@@ -692,7 +717,7 @@ void osd_messenger_t::handle_immediate_ops()
 
 bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size_t bufsize)
 {
-    if (cl->dec_ctx)
+    if (cl->gcm_enabled)
     {
         return handle_buffer_with<gcm_op_reader_t>(cl, curbuf, bufsize);
     }

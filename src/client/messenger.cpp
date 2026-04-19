@@ -236,15 +236,23 @@ osd_messenger_t::~osd_messenger_t()
         rdmacm_evch = NULL;
     }
 #endif
-    for (auto encrypt_ctx: encrypt_ctx_pool)
+    for (auto encrypt_ctx: encrypt_xts_pool)
     {
         destroy_aes_xts_encrypt(encrypt_ctx);
     }
-    for (auto decrypt_ctx: decrypt_ctx_pool)
+    for (auto decrypt_ctx: decrypt_xts_pool)
     {
         destroy_aes_xts_decrypt(decrypt_ctx);
     }
 #ifdef WITH_OPENSSL
+    for (EVP_CIPHER_CTX *ctx: encrypt_gcm_pool)
+    {
+        EVP_CIPHER_CTX_free(ctx);
+    }
+    for (EVP_CIPHER_CTX *ctx: decrypt_gcm_pool)
+    {
+        EVP_CIPHER_CTX_free(ctx);
+    }
     if (ssl_ctx)
     {
         SSL_CTX_free(ssl_ctx);
@@ -285,9 +293,9 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     if (!this->rdma_max_msg || this->rdma_max_msg > 128*1024*1024)
         this->rdma_max_msg = 129*1024;
 #endif
-    this->max_aes_xts_pool_size = config["max_aes_xts_pool_size"].uint64_value();
-    if (!this->max_aes_xts_pool_size)
-        this->max_aes_xts_pool_size = 256;
+    this->max_cipher_pool_size = config["max_cipher_pool_size"].uint64_value();
+    if (!this->max_cipher_pool_size)
+        this->max_cipher_pool_size = 256;
     if (config["proto_checksums"].is_null())
         this->use_proto_checksums = MSGR_CSUM_PAYLOAD;
     else if (config["proto_checksums"].is_bool())
@@ -830,23 +838,7 @@ void osd_messenger_t::ssl_init(osd_client_t *cl, bool server_mode)
     }
     else if (!test_osd_aes_key.empty())
     {
-        int r;
-        cl->enc_ctx = EVP_CIPHER_CTX_new();
-        assert(cl->enc_ctx);
-        r = EVP_EncryptInit_ex(cl->enc_ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
-        assert(r == 1);
-        r = EVP_CIPHER_CTX_set_padding(cl->enc_ctx, 0);
-        assert(r == 1);
-        r = EVP_CIPHER_CTX_ctrl(cl->enc_ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL);
-        assert(r == 1);
-        cl->dec_ctx = EVP_CIPHER_CTX_new();
-        assert(cl->dec_ctx);
-        r = EVP_DecryptInit_ex(cl->dec_ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
-        assert(r == 1);
-        r = EVP_CIPHER_CTX_set_padding(cl->dec_ctx, 0);
-        assert(r == 1);
-        r = EVP_CIPHER_CTX_ctrl(cl->dec_ctx, EVP_CTRL_GCM_SET_IVLEN, 12, NULL);
-        assert(r == 1);
+        cl->gcm_enabled = true;
     }
 }
 

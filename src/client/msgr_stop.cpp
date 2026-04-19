@@ -83,21 +83,21 @@ void osd_messenger_t::stop_client(uint64_t client_id, bool force_delete)
             fprintf(stderr, "[OSD %ju] Stopping client %ju (regular client)\n", osd_num, client_id);
         }
     }
-    if (cl->encrypt_ctx)
+    if (cl->xts_enc_ctx)
     {
-        if (encrypt_ctx_pool.size() > max_aes_xts_pool_size)
-            destroy_aes_xts_encrypt(cl->encrypt_ctx);
+        if (encrypt_xts_pool.size() > max_cipher_pool_size)
+            destroy_aes_xts_encrypt(cl->xts_enc_ctx);
         else
-            encrypt_ctx_pool.push_back(cl->encrypt_ctx);
-        cl->encrypt_ctx = NULL;
+            encrypt_xts_pool.push_back(cl->xts_enc_ctx);
+        cl->xts_enc_ctx = NULL;
     }
-    if (cl->decrypt_ctx)
+    if (cl->xts_dec_ctx)
     {
-        if (decrypt_ctx_pool.size() > max_aes_xts_pool_size)
-            destroy_aes_xts_decrypt(cl->decrypt_ctx);
+        if (decrypt_xts_pool.size() > max_cipher_pool_size)
+            destroy_aes_xts_decrypt(cl->xts_dec_ctx);
         else
-            decrypt_ctx_pool.push_back(cl->decrypt_ctx);
-        cl->decrypt_ctx = NULL;
+            decrypt_xts_pool.push_back(cl->xts_dec_ctx);
+        cl->xts_dec_ctx = NULL;
     }
     // First set state to STOPPED so another stop_client() call doesn't try to free it again
     cl->refs++;

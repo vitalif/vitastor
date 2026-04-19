@@ -104,6 +104,7 @@ struct osd_client_t
     size_t ssl_read_header_size = 0;
     bool ssl_more_to_buffer = false;
 
+    bool gcm_enabled = false;
     EVP_CIPHER_CTX *enc_ctx = NULL;
     uint8_t enc_tag[16];
     size_t enc_tag_size = 0;
@@ -125,7 +126,7 @@ struct osd_client_t
     uint64_t read_op_id = 1;
     bool check_sequencing = false;
     bool enable_pg_locks = false;
-    op_aes_xts_decrypt_t *decrypt_ctx = NULL;
+    op_aes_xts_decrypt_t *xts_dec_ctx = NULL;
     size_t read_op_inline_decrypt_pos = 0;
     size_t read_op_inline_decrypt_in = 0;
     int proto_csum_status = 0;
@@ -151,7 +152,7 @@ struct osd_client_t
     size_t send_list_size = 0;
     std::deque<osd_op_t*> send_free_ops;
     std::vector<osd_op_t*> zc_free_list;
-    op_aes_xts_encrypt_t *encrypt_ctx = NULL;
+    op_aes_xts_encrypt_t *xts_enc_ctx = NULL;
     XXH3_state_t* write_csum_state = NULL;
 
     ~osd_client_t();
@@ -220,7 +221,7 @@ protected:
     bool use_sync_send_recv = false;
     int min_zerocopy_send_size = DEFAULT_MIN_ZEROCOPY_SEND_SIZE;
     int iothread_count = 0;
-    int max_aes_xts_pool_size = 256;
+    int max_cipher_pool_size = 256;
 
     std::string tls_cert;
     std::string tls_key;
@@ -258,8 +259,11 @@ protected:
     // We don't use ringloop->set_immediate here because we may have no ringloop in client :)
     std::deque<osd_op_t*> set_immediate_ops;
 
-    std::vector<op_aes_xts_encrypt_t*> encrypt_ctx_pool;
-    std::vector<op_aes_xts_decrypt_t*> decrypt_ctx_pool;
+    std::vector<op_aes_xts_encrypt_t*> encrypt_xts_pool;
+    std::vector<op_aes_xts_decrypt_t*> decrypt_xts_pool;
+
+    std::vector<EVP_CIPHER_CTX*> encrypt_gcm_pool;
+    std::vector<EVP_CIPHER_CTX*> decrypt_gcm_pool;
 
 public:
     timerfd_manager_t *tfd = NULL;

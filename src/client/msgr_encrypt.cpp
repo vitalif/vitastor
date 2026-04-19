@@ -335,23 +335,23 @@ void destroy_aes_xts_decrypt(op_aes_xts_decrypt_t *decrypt_ctx)
 
 void osd_messenger_t::op_encrypted_copy_buf(osd_client_t *cl, uint8_t *enc_buf, size_t enc_len, uint8_t *plain, size_t plain_len, size_t & done_plain, size_t & done_enc)
 {
-    if (!cl->encrypt_ctx)
+    if (!cl->xts_enc_ctx)
     {
-        if (encrypt_ctx_pool.size())
+        if (encrypt_xts_pool.size())
         {
-            cl->encrypt_ctx = encrypt_ctx_pool.back();
-            encrypt_ctx_pool.pop_back();
+            cl->xts_enc_ctx = encrypt_xts_pool.back();
+            encrypt_xts_pool.pop_back();
         }
         else
-            cl->encrypt_ctx = new op_aes_xts_encrypt_t();
+            cl->xts_enc_ctx = new op_aes_xts_encrypt_t();
         assert(cl->write_op->enc->key_chain[0]);
-        cl->encrypt_ctx->start(cl->write_op->enc->key_chain[0], cl->write_op->req.rw.offset, cl->write_op->enc->bitmap_granularity);
+        cl->xts_enc_ctx->start(cl->write_op->enc->key_chain[0], cl->write_op->req.rw.offset, cl->write_op->enc->bitmap_granularity);
     }
-    while (done_enc < enc_len && (done_plain < plain_len || cl->encrypt_ctx->has_buffered()))
+    while (done_enc < enc_len && (done_plain < plain_len || cl->xts_enc_ctx->has_buffered()))
     {
         size_t done_in = 0;
         size_t done_out = 0;
-        cl->encrypt_ctx->update(plain+done_plain, plain_len-done_plain, enc_buf+done_enc, enc_len-done_enc, done_in, done_out);
+        cl->xts_enc_ctx->update(plain+done_plain, plain_len-done_plain, enc_buf+done_enc, enc_len-done_enc, done_in, done_out);
         if (cl->write_csum_state && done_out > 0)
             XXH3_64bits_update(cl->write_csum_state, enc_buf+done_enc, done_out);
         done_enc += done_out;
@@ -368,7 +368,7 @@ void osd_messenger_t::op_decrypted_copy_buf(osd_client_t *cl, uint8_t *enc_buf, 
         size_t done_in = 0;
         size_t done_out = 0;
         // plain == NULL means skip output
-        cl->decrypt_ctx->update(enc_buf+done_enc, enc_len-done_enc, plain ? plain+done_plain : NULL, plain_len-done_plain, done_in, done_out);
+        cl->xts_dec_ctx->update(enc_buf+done_enc, enc_len-done_enc, plain ? plain+done_plain : NULL, plain_len-done_plain, done_in, done_out);
         if (cl->read_csum_state && done_in > 0)
             XXH3_64bits_update(cl->read_csum_state, enc_buf+done_enc, done_in);
         done_enc += done_in;
@@ -380,18 +380,18 @@ void osd_messenger_t::op_decrypted_copy_buf(osd_client_t *cl, uint8_t *enc_buf, 
 
 void osd_messenger_t::op_decrypt_start(osd_client_t* cl)
 {
-    if (!cl->decrypt_ctx)
+    if (!cl->xts_dec_ctx)
     {
-        if (decrypt_ctx_pool.size())
+        if (decrypt_xts_pool.size())
         {
-            cl->decrypt_ctx = decrypt_ctx_pool.back();
-            decrypt_ctx_pool.pop_back();
+            cl->xts_dec_ctx = decrypt_xts_pool.back();
+            decrypt_xts_pool.pop_back();
         }
         else
-            cl->decrypt_ctx = new op_aes_xts_decrypt_t();
+            cl->xts_dec_ctx = new op_aes_xts_decrypt_t();
         auto & enc = cl->read_op->enc;
         assert(cl->read_op->req.hdr.opcode == OSD_OP_READ);
-        cl->decrypt_ctx->start(enc->key_chain, enc->chain_size,
+        cl->xts_dec_ctx->start(enc->key_chain, enc->chain_size,
             (cl->read_op->req.rw.flags & OSD_OP_RETURN_CHAIN) ? (uint8_t*)cl->read_op->bitmap + enc->read_chain_bitmap_pos : 0,
             cl->read_op->req.rw.offset, enc->bitmap_granularity);
     }
@@ -423,7 +423,7 @@ void osd_messenger_t::op_decrypt_inline(osd_client_t* cl)
         size_t out_len = op->iov.buf[j].iov_len - from_out;
         size_t done_in = 0;
         size_t done_out = 0;
-        cl->decrypt_ctx->update(in, in_len, out, out_len, done_in, done_out);
+        cl->xts_dec_ctx->update(in, in_len, out, out_len, done_in, done_out);
         if (done_in >= in_len)
         {
             i++;
@@ -444,24 +444,24 @@ void osd_messenger_t::op_decrypt_inline(osd_client_t* cl)
 
 void osd_messenger_t::op_decrypt_free(osd_client_t* cl)
 {
-    if (cl->decrypt_ctx)
+    if (cl->xts_dec_ctx)
     {
-        if (decrypt_ctx_pool.size() > max_aes_xts_pool_size)
-            delete cl->decrypt_ctx;
+        if (decrypt_xts_pool.size() > max_cipher_pool_size)
+            delete cl->xts_dec_ctx;
         else
-            decrypt_ctx_pool.push_back(cl->decrypt_ctx);
-        cl->decrypt_ctx = NULL;
+            decrypt_xts_pool.push_back(cl->xts_dec_ctx);
+        cl->xts_dec_ctx = NULL;
     }
 }
 
 void osd_messenger_t::op_encrypt_free(osd_client_t* cl)
 {
-    if (cl->encrypt_ctx)
+    if (cl->xts_enc_ctx)
     {
-        if (encrypt_ctx_pool.size() > max_aes_xts_pool_size)
-            delete cl->encrypt_ctx;
+        if (encrypt_xts_pool.size() > max_cipher_pool_size)
+            delete cl->xts_enc_ctx;
         else
-            encrypt_ctx_pool.push_back(cl->encrypt_ctx);
-        cl->encrypt_ctx = NULL;
+            encrypt_xts_pool.push_back(cl->xts_enc_ctx);
+        cl->xts_enc_ctx = NULL;
     }
 }
