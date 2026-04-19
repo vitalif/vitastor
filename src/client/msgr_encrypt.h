@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 
+#ifdef WITH_ISAL_CRYPTO
+#include <isa-l_crypto/aes_xts.h>
+#endif
+
 #include "../util/xxh_x86dispatch.h"
 #include <openssl/conf.h>
 #include <openssl/evp.h>
@@ -10,7 +14,9 @@
 
 class op_aes_xts_encrypt_t
 {
+#ifndef WITH_ISAL_CRYPTO
     EVP_CIPHER_CTX *ctx = NULL;
+#endif
     uint64_t start_offset = 0;
     uint8_t *key = NULL;
     size_t offset = 0;
@@ -34,7 +40,9 @@ void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx);
 
 class op_aes_xts_decrypt_t
 {
+#ifndef WITH_ISAL_CRYPTO
     EVP_CIPHER_CTX *ctx = NULL;
+#endif
     uint64_t start_offset = 0;
     uint8_t **key_chain = NULL;
     size_t chain_size = 0;

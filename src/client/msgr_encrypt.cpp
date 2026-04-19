@@ -3,12 +3,17 @@
 
 #include <assert.h>
 
+#ifdef WITH_ISAL_CRYPTO
+#include <isa-l_crypto/isal_crypto_api.h>
+#endif
+
 #include "etcd_state_client.h"
 #include "messenger.h"
 #include "msgr_encrypt.h"
 
 op_aes_xts_encrypt_t::op_aes_xts_encrypt_t()
 {
+#ifndef WITH_ISAL_CRYPTO
     if (!(ctx = EVP_CIPHER_CTX_new()))
     {
         ERR_print_errors_fp(stderr);
@@ -20,12 +25,15 @@ op_aes_xts_encrypt_t::op_aes_xts_encrypt_t()
         ERR_print_errors_fp(stderr);
         abort();
     }
+#endif
 }
 
 op_aes_xts_encrypt_t::~op_aes_xts_encrypt_t()
 {
     assert(!encrypted);
+#ifndef WITH_ISAL_CRYPTO
     EVP_CIPHER_CTX_free(ctx);
+#endif
     if (tmp)
         free(tmp);
 }
@@ -45,17 +53,23 @@ void op_aes_xts_encrypt_t::start(uint8_t *key, uint64_t start_offset, size_t blo
         tmp = NULL;
         tmp_size = 0;
     }
+#ifndef WITH_ISAL_CRYPTO
     if (EVP_EncryptInit_ex(ctx, NULL, NULL, key, NULL) != 1)
     {
         ERR_print_errors_fp(stderr);
         abort();
     }
+#endif
 }
 
 void op_aes_xts_encrypt_t::encrypt_block(uint8_t *in, uint8_t *out)
 {
     uint8_t iv[16] = { 0 };
     *((uint64_t*)iv) = start_offset + offset - offset%block_size;
+#ifdef WITH_ISAL_CRYPTO
+    int r = isal_aes_xts_enc_256(key+32, key, iv, block_size, in, out);
+    assert(r == 0 || r == ISAL_CRYPTO_ERR_XTS_SAME_KEYS);
+#else
     if (EVP_EncryptInit_ex(ctx, NULL, NULL, NULL, iv) != 1)
     {
         ERR_print_errors_fp(stderr);
@@ -68,6 +82,7 @@ void op_aes_xts_encrypt_t::encrypt_block(uint8_t *in, uint8_t *out)
         abort();
     }
     assert(actual_out == block_size);
+#endif
 }
 
 void op_aes_xts_encrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out)
@@ -150,6 +165,7 @@ void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx)
 
 op_aes_xts_decrypt_t::op_aes_xts_decrypt_t()
 {
+#ifndef WITH_ISAL_CRYPTO
     if (!(ctx = EVP_CIPHER_CTX_new()))
     {
         ERR_print_errors_fp(stderr);
@@ -161,12 +177,15 @@ op_aes_xts_decrypt_t::op_aes_xts_decrypt_t()
         ERR_print_errors_fp(stderr);
         abort();
     }
+#endif
 }
 
 op_aes_xts_decrypt_t::~op_aes_xts_decrypt_t()
 {
     assert(!decrypted);
+#ifndef WITH_ISAL_CRYPTO
     EVP_CIPHER_CTX_free(ctx);
+#endif
     if (tmp)
         free(tmp);
 }
@@ -175,9 +194,9 @@ void op_aes_xts_decrypt_t::start(uint8_t **key_chain, size_t chain_size, void *k
 {
     assert(!decrypted);
     this->start_offset = start_offset;
-    this->key_chain = chain_size > 1 ? key_chain : 0;
-    this->chain_size = chain_size > 1 ? chain_size : 0;
-    this->key_indexes = chain_size > 1 ? key_indexes : NULL;
+    this->key_chain = key_chain;
+    this->chain_size = chain_size;
+    this->key_indexes = key_indexes;
     this->key_index_bytes = osd_op_rw_t::chain_info_bytes(chain_size);
     assert(chain_size <= 1 || key_indexes != NULL);
     this->block_size = block_size;
@@ -189,17 +208,19 @@ void op_aes_xts_decrypt_t::start(uint8_t **key_chain, size_t chain_size, void *k
         tmp = NULL;
         tmp_size = 0;
     }
+#ifndef WITH_ISAL_CRYPTO
     if (chain_size == 1 && key_chain[0] && EVP_DecryptInit_ex(ctx, NULL, NULL, key_chain[0], NULL) != 1)
     {
         ERR_print_errors_fp(stderr);
         abort();
     }
+#endif
 }
 
 void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
 {
     uint8_t *key = NULL;
-    if (chain_size)
+    if (chain_size > 1)
     {
         uint32_t key_index = key_index_bytes == 1
             ? ((uint8_t*)key_indexes)[offset/block_size]
@@ -210,16 +231,24 @@ void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
                     : UINT32_MAX));
         assert(key_index < chain_size);
         key = key_chain[key_index];
-        if (!key)
-        {
-            if (in != out)
-                memcpy(out, in, block_size);
-            return;
-        }
+    }
+    else
+    {
+        key = key_chain[0];
+    }
+    if (!key)
+    {
+        if (in != out)
+            memcpy(out, in, block_size);
+        return;
     }
     uint8_t iv[16] = { 0 };
     *((uint64_t*)iv) = start_offset + offset - offset%block_size;
-    if (EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv) != 1)
+#ifdef WITH_ISAL_CRYPTO
+    int r = isal_aes_xts_dec_256(key+32, key, iv, block_size, in, out);
+    assert(r == 0 || r == ISAL_CRYPTO_ERR_XTS_SAME_KEYS);
+#else
+    if (EVP_DecryptInit_ex(ctx, NULL, NULL, chain_size == 1 ? NULL : key, iv) != 1)
     {
         ERR_print_errors_fp(stderr);
         abort();
@@ -231,6 +260,7 @@ void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
         abort();
     }
     assert(actual_out == block_size);
+#endif
 }
 
 // out may be NULL, in this case all input is still decrypted to calculate checksums,

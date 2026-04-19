@@ -134,7 +134,7 @@ add_executable(test_cluster_client
 	../test/mock/vault.cpp
 	etcd_state_client_mock.cpp
 )
-target_link_libraries(test_cluster_client vitastor_common ${LIBURING_LIBRARIES})
+target_link_libraries(test_cluster_client vitastor_common ${LIBURING_LIBRARIES} ${OPENSSL_LIBRARIES} ${ISAL_CRYPTO_LIBRARIES})
 target_include_directories(test_cluster_client BEFORE PUBLIC ${CMAKE_SOURCE_DIR}/src/test/mock)
 add_dependencies(build_tests test_cluster_client)
 add_test(NAME test_cluster_client COMMAND test_cluster_client)
