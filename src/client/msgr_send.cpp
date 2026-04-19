@@ -444,14 +444,14 @@ class get_op_writer_t: public msgr_op_writer_t
             min_cap = 16384;
         if (cl->ssl_out_buf_cap < min_cap)
         {
-            uint8_t *old_buf = cl->ssl_out_buf;
-            uint8_t *old_end = old_buf + cl->ssl_out_buf_cap;
+            uintptr_t old_buf = (uintptr_t)cl->ssl_out_buf;
+            uintptr_t old_end = old_buf + cl->ssl_out_buf_cap;
             cl->ssl_out_buf = (uint8_t*)realloc_or_die(cl->ssl_out_buf, min_cap);
             cl->ssl_out_buf_cap = min_cap;
             for (auto & iov: cl->send_list)
             {
-                if (iov.iov_base >= old_buf && iov.iov_base < old_end)
-                    iov.iov_base = cl->ssl_out_buf + ((uint8_t*)iov.iov_base - old_buf);
+                if ((uintptr_t)iov.iov_base >= old_buf && (uintptr_t)iov.iov_base < old_end)
+                    iov.iov_base = cl->ssl_out_buf + ((uintptr_t)iov.iov_base - old_buf);
             }
         }
     }
