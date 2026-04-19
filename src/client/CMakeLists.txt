@@ -19,7 +19,7 @@ add_library(vitastor_common STATIC
 	../util/xxh_x86dispatch.c
 )
 target_compile_options(vitastor_common PUBLIC -fPIC)
-target_link_libraries(vitastor_common ${OPENSSL_LIBRARIES})
+target_link_libraries(vitastor_common ${OPENSSL_LIBRARIES} ${ISAL_CRYPTO_LIBRARIES})
 
 # libvitastor_net.a
 set(MSGR_RDMA "")
@@ -63,6 +63,7 @@ target_link_libraries(vitastor_client
 	${IBVERBS_LIBRARIES}
 	${RDMACM_LIBRARIES}
 	${OPENSSL_LIBRARIES}
+	${ISAL_CRYPTO_LIBRARIES}
 )
 set_target_properties(vitastor_client PROPERTIES VERSION ${VITASTOR_VERSION} SOVERSION 0)
 configure_file(vitastor.pc.in vitastor.pc @ONLY)

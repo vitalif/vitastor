@@ -295,6 +295,9 @@ public:
             }
             else
             {
+#ifdef WITH_ISAL_CRYPTO
+                cl->dec_ctx = (isal_gcm_context_data*)malloc_or_die(sizeof(isal_gcm_context_data));
+#else
                 cl->dec_ctx = EVP_CIPHER_CTX_new();
                 assert(cl->dec_ctx);
                 int r = EVP_DecryptInit_ex(cl->dec_ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
@@ -304,9 +307,18 @@ public:
                     ERR_print_errors_fp(stderr);
                     abort();
                 }
+#endif
             }
         }
         uint8_t iv[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+#ifdef WITH_ISAL_CRYPTO
+        int r = isal_aes_gcm_init_256(&msgr->test_osd_aes_key_isal, cl->dec_ctx, iv, NULL, 0);
+        if (r != 0)
+        {
+            fprintf(stderr, "isal_aes_gcm_init_256 error %d\n", r);
+            abort();
+        }
+#else
         int r = EVP_DecryptInit_ex(cl->dec_ctx, NULL, NULL, (uint8_t*)msgr->test_osd_aes_key.data(), iv);
         if (r != 1)
         {
@@ -314,6 +326,7 @@ public:
             ERR_print_errors_fp(stderr);
             abort();
         }
+#endif
     }
 
     bool read(uint8_t *dst, size_t dst_len, int flags) override
@@ -362,6 +375,10 @@ public:
             size_t n = dst_len-from;
             if (n > bufsize-done)
                 n = bufsize-done;
+#ifdef WITH_ISAL_CRYPTO
+            int r = isal_aes_gcm_dec_256_update(&msgr->test_osd_aes_key_isal, cl->dec_ctx, dst+from, curbuf+done, n);
+            assert(!r);
+#else
             int actual_out;
             if (EVP_DecryptUpdate(cl->dec_ctx, dst+from, &actual_out, curbuf+done, n) != 1)
             {
@@ -370,6 +387,7 @@ public:
                 abort();
             }
             assert(actual_out == n);
+#endif
             if (cl->read_csum_state && !(flags & RDR_NO_CSUM))
             {
                 XXH3_64bits_update(cl->read_csum_state, dst+from, n);
@@ -396,23 +414,44 @@ public:
             done = bufsize;
             return false;
         }
+#ifdef WITH_ISAL_CRYPTO
+        uint8_t calc_tag[16];
+        int r = isal_aes_gcm_dec_256_finalize(&msgr->test_osd_aes_key_isal, cl->dec_ctx, calc_tag, 16);
+        assert(r == 0);
+        if (cl->dec_tag_size > 0)
+        {
+            // Tag is partially buffered, append to it and compare
+            memcpy(cl->dec_tag+cl->dec_tag_size, curbuf+done, 16-cl->dec_tag_size);
+            done += 16-cl->dec_tag_size;
+            r = !memcmp(calc_tag, cl->dec_tag, 16);
+        }
+        else
+        {
+            // Compare the full tag directly from the source buffer
+            r = !memcmp(calc_tag, curbuf+done, 16);
+            done += 16;
+        }
+#else
         int r;
         if (cl->dec_tag_size > 0)
         {
             // Tag is partially buffered, append to it and use it from there
             memcpy(cl->dec_tag+cl->dec_tag_size, curbuf+done, 16-cl->dec_tag_size);
-            done += 16-cl->dec_tag_size;
             r = EVP_CIPHER_CTX_ctrl(cl->dec_ctx, EVP_CTRL_GCM_SET_TAG, 16, cl->dec_tag);
+            assert(r == 1);
+            done += 16-cl->dec_tag_size;
         }
         else
         {
             // Take full tag directly from the source buffer
             r = EVP_CIPHER_CTX_ctrl(cl->dec_ctx, EVP_CTRL_GCM_SET_TAG, 16, curbuf+done);
+            assert(r == 1);
             done += 16;
         }
-        assert(r == 1);
         int len = 0;
         r = EVP_DecryptFinal_ex(cl->dec_ctx, NULL, &len);
+        assert(len == 0);
+#endif
         if (r != 1)
         {
             fprintf(stderr, "Client %ju AES-GCM decryption failed\n", cl->client_id);
@@ -422,10 +461,15 @@ public:
         if (msgr->decrypt_gcm_pool.size() < msgr->max_cipher_pool_size)
             msgr->decrypt_gcm_pool.push_back(cl->dec_ctx);
         else
+        {
+#ifdef WITH_ISAL_CRYPTO
+            free(cl->dec_ctx);
+#else
             EVP_CIPHER_CTX_free(cl->dec_ctx);
+#endif
+        }
         cl->dec_ctx = NULL;
         cl->dec_tag_size = 0;
-        assert(len == 0);
         return true;
     }
 

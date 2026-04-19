@@ -259,6 +259,9 @@ public:
             }
             else
             {
+#ifdef WITH_ISAL_CRYPTO
+                cl->enc_ctx = (isal_gcm_context_data*)malloc_or_die(sizeof(isal_gcm_context_data));
+#else
                 cl->enc_ctx = EVP_CIPHER_CTX_new();
                 assert(cl->enc_ctx);
                 int r = EVP_EncryptInit_ex(cl->enc_ctx, EVP_aes_256_gcm(), NULL, NULL, NULL);
@@ -268,9 +271,18 @@ public:
                     ERR_print_errors_fp(stderr);
                     abort();
                 }
+#endif
             }
         }
         uint8_t iv[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+#ifdef WITH_ISAL_CRYPTO
+        int r = isal_aes_gcm_init_256(&msgr->test_osd_aes_key_isal, cl->enc_ctx, iv, NULL, 0);
+        if (r != 0)
+        {
+            fprintf(stderr, "isal_aes_gcm_init_256 error %d\n", r);
+            abort();
+        }
+#else
         int r = EVP_EncryptInit_ex(cl->enc_ctx, NULL, NULL, (uint8_t*)msgr->test_osd_aes_key.data(), iv);
         if (r != 1)
         {
@@ -278,6 +290,7 @@ public:
             ERR_print_errors_fp(stderr);
             abort();
         }
+#endif
     }
 
     static void free_ctx(osd_messenger_t* msgr, osd_client_t *cl)
@@ -285,7 +298,13 @@ public:
         if (msgr->encrypt_gcm_pool.size() < msgr->max_cipher_pool_size)
             msgr->encrypt_gcm_pool.push_back(cl->enc_ctx);
         else
+        {
+#ifdef WITH_ISAL_CRYPTO
+            free(cl->enc_ctx);
+#else
             EVP_CIPHER_CTX_free(cl->enc_ctx);
+#endif
+        }
         cl->enc_ctx = NULL;
     }
 
@@ -324,6 +343,10 @@ public:
                 n = bufsize-done;
             if (!n)
                 return false;
+#ifdef WITH_ISAL_CRYPTO
+            int r = isal_aes_gcm_enc_256_update(&msgr->test_osd_aes_key_isal, cl->enc_ctx, curbuf+done, src+from, n);
+            assert(!r);
+#else
             int actual_out;
             if (EVP_EncryptUpdate(cl->enc_ctx, curbuf+done, &actual_out, src+from, n) != 1)
             {
@@ -332,6 +355,7 @@ public:
                 abort();
             }
             assert(actual_out == n);
+#endif
             if (cl->write_csum_state && !(flags & WR_NO_CSUM))
                 XXH3_64bits_update(cl->write_csum_state, src+from, n);
             done += n;
@@ -344,8 +368,12 @@ public:
         return true;
     }
 
-    static void write_tag_to(osd_client_t *cl, uint8_t *dst)
+    static void write_tag_to(osd_messenger_t *msgr, osd_client_t *cl, uint8_t *dst)
     {
+#ifdef WITH_ISAL_CRYPTO
+        int r = isal_aes_gcm_enc_256_finalize(&msgr->test_osd_aes_key_isal, cl->enc_ctx, dst, 16);
+        assert(!r);
+#else
         int actual_out = 0;
         int r = EVP_EncryptFinal_ex(cl->enc_ctx, NULL, &actual_out);
         if (r != 1)
@@ -357,6 +385,7 @@ public:
         assert(actual_out == 0);
         r = EVP_CIPHER_CTX_ctrl(cl->enc_ctx, EVP_CTRL_GCM_GET_TAG, 16, dst);
         assert(r == 1);
+#endif
     }
 
     bool finish() override
@@ -369,7 +398,7 @@ public:
             // No space for the full tag, but msgr_rdma expects us to always fill the whole buffer
             if (!cl->enc_tag_size)
             {
-                write_tag_to(cl, cl->enc_tag);
+                write_tag_to(msgr, cl, cl->enc_tag);
                 cl->enc_tag_size = 16;
             }
             size_t n = bufsize-done;
@@ -384,7 +413,7 @@ public:
         else
         {
             // The whole tag fits at once
-            write_tag_to(cl, curbuf+done);
+            write_tag_to(msgr, cl, curbuf+done);
             done += 16;
         }
         free_ctx(msgr, cl);
@@ -512,6 +541,10 @@ public:
                 // Encrypt data to client's temporary output buffer (all at once)
                 size_t n = src_len-from;
                 ssl_extend_buf(n);
+#ifdef WITH_ISAL_CRYPTO
+                int r = isal_aes_gcm_enc_256_update(&msgr->test_osd_aes_key_isal, cl->enc_ctx, cl->ssl_out_buf+cl->ssl_out_buf_size, src+from, n);
+                assert(!r);
+#else
                 int actual_out;
                 if (EVP_EncryptUpdate(cl->enc_ctx, cl->ssl_out_buf+cl->ssl_out_buf_size, &actual_out, src+from, n) != 1)
                 {
@@ -520,6 +553,7 @@ public:
                     abort();
                 }
                 assert(actual_out == n);
+#endif
                 if (cl->write_csum_state && !(flags & WR_NO_CSUM))
                     XXH3_64bits_update(cl->write_csum_state, src+from, n);
                 cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+cl->ssl_out_buf_size, .iov_len = n });
@@ -577,7 +611,7 @@ public:
                 return false;
             // Tag is 16 bytes
             ssl_extend_buf(16);
-            gcm_op_writer_t::write_tag_to(cl, cl->ssl_out_buf+cl->ssl_out_buf_size);
+            gcm_op_writer_t::write_tag_to(msgr, cl, cl->ssl_out_buf+cl->ssl_out_buf_size);
             // FIXME coalesce entries in ssl_out_buf
             cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+cl->ssl_out_buf_size, .iov_len = 16 });
             cl->ssl_out_buf_size += 16;

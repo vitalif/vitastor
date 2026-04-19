@@ -236,6 +236,16 @@ osd_messenger_t::~osd_messenger_t()
     {
         destroy_aes_xts_decrypt(decrypt_ctx);
     }
+#ifdef WITH_ISAL_CRYPTO
+    for (isal_gcm_context_data *ctx: encrypt_gcm_pool)
+    {
+        free(ctx);
+    }
+    for (isal_gcm_context_data *ctx: decrypt_gcm_pool)
+    {
+        free(ctx);
+    }
+#else
     for (EVP_CIPHER_CTX *ctx: encrypt_gcm_pool)
     {
         EVP_CIPHER_CTX_free(ctx);
@@ -244,6 +254,7 @@ osd_messenger_t::~osd_messenger_t()
     {
         EVP_CIPHER_CTX_free(ctx);
     }
+#endif
     if (ssl_ctx)
     {
         SSL_CTX_free(ssl_ctx);
@@ -310,6 +321,12 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     test_osd_aes_key.resize(32);
     if (fromhexstr(config["test_osd_aes_key"].string_value(), 32, (uint8_t*)test_osd_aes_key.data()) != 32)
         test_osd_aes_key.clear();
+    else
+    {
+#ifdef WITH_ISAL_CRYPTO
+        isal_aes_gcm_pre_256(test_osd_aes_key.data(), &test_osd_aes_key_isal);
+#endif
+    }
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();
     else

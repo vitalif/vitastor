@@ -229,12 +229,20 @@ osd_client_t::~osd_client_t()
     }
     if (enc_ctx)
     {
+#ifdef WITH_ISAL_CRYPTO
+        free(enc_ctx);
+#else
         EVP_CIPHER_CTX_free(enc_ctx);
+#endif
         enc_ctx = NULL;
     }
     if (dec_ctx)
     {
+#ifdef WITH_ISAL_CRYPTO
+        free(dec_ctx);
+#else
         EVP_CIPHER_CTX_free(dec_ctx);
+#endif
         dec_ctx = NULL;
     }
     if (ssl_cli)

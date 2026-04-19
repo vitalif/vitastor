@@ -12,20 +12,18 @@ ARG REL=
 WORKDIR /root
 
 RUN set -e -x; \
-    if [ "$REL" = "buster" ]; then \
-        perl -i -pe 's/deb.debian.org/archive.debian.org/' /etc/apt/sources.list; \
-        apt-get update; \
-        apt-get -y install wget; \
-        wget https://vitastor.io/debian/pubkey.gpg -O /etc/apt/trusted.gpg.d/vitastor.gpg; \
-        echo "deb https://vitastor.io/debian $REL main" >> /etc/apt/sources.list; \
-    fi; \
+    perl -i -pe 's/deb.debian.org/archive.debian.org/' /etc/apt/sources.list; \
+    apt-get update; \
+    apt-get -y install wget; \
+    wget https://vitastor.io/debian/pubkey.gpg -O /etc/apt/trusted.gpg.d/vitastor.gpg; \
+    echo "deb https://vitastor.io/debian $REL main" >> /etc/apt/sources.list; \
     grep '^deb ' /etc/apt/sources.list | perl -pe 's/^deb/deb-src/' >> /etc/apt/sources.list; \
     perl -i -pe 's/Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/*.sources || true; \
     echo 'APT::Install-Recommends false;' >> /etc/apt/apt.conf; \
     echo 'APT::Install-Suggests false;' >> /etc/apt/apt.conf
 
 RUN apt-get update && \
-    apt-get -y install fio libgoogle-perftools-dev devscripts libjerasure-dev cmake libc-ares-dev \
+    apt-get -y install fio libgoogle-perftools-dev devscripts libjerasure-dev cmake libc-ares-dev libisal-crypto-dev \
         libibverbs-dev librdmacm-dev libisal-dev libnl-3-dev libnl-genl-3-dev curl nodejs npm node-nan node-bindings && \
     apt-get -y build-dep fio && \
     apt-get --download-only source fio

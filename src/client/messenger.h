@@ -14,6 +14,10 @@
 
 #include <openssl/types.h>
 
+#ifdef WITH_ISAL_CRYPTO
+#include <isa-l_crypto/aes_gcm.h>
+#endif
+
 #include "../util/xxh_x86dispatch.h"
 #include "../util/robin_hood.h"
 #include "malloc_or_die.h"
@@ -102,10 +106,15 @@ struct osd_client_t
     bool ssl_more_to_buffer = false;
 
     bool gcm_enabled = false;
+#ifdef WITH_ISAL_CRYPTO
+    isal_gcm_context_data *enc_ctx = NULL;
+    isal_gcm_context_data *dec_ctx = NULL;
+#else
     EVP_CIPHER_CTX *enc_ctx = NULL;
+    EVP_CIPHER_CTX *dec_ctx = NULL;
+#endif
     uint8_t enc_tag[16];
     size_t enc_tag_size = 0;
-    EVP_CIPHER_CTX *dec_ctx = NULL;
     uint8_t dec_tag[16];
     size_t dec_tag_size = 0;
 
@@ -224,6 +233,9 @@ protected:
     std::string osd_tls_ca;
     std::string client_tls_ca;
     std::string test_osd_aes_key; // FIXME Insecure, only for PoC tests
+#ifdef WITH_ISAL_CRYPTO
+    isal_gcm_key_data test_osd_aes_key_isal;
+#endif
 
 #ifdef WITH_RDMA
     bool use_rdma = true;
@@ -256,8 +268,13 @@ protected:
     std::vector<op_aes_xts_encrypt_t*> encrypt_xts_pool;
     std::vector<op_aes_xts_decrypt_t*> decrypt_xts_pool;
 
+#ifdef WITH_ISAL_CRYPTO
+    std::vector<isal_gcm_context_data*> encrypt_gcm_pool;
+    std::vector<isal_gcm_context_data*> decrypt_gcm_pool;
+#else
     std::vector<EVP_CIPHER_CTX*> encrypt_gcm_pool;
     std::vector<EVP_CIPHER_CTX*> decrypt_gcm_pool;
+#endif
 
 public:
     timerfd_manager_t *tfd = NULL;
