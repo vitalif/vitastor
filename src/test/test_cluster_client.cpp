@@ -845,7 +845,7 @@ void test_msgr_encrypt()
     enc->start(key, 4096 * 114, 4096);
     in_pos = out_pos = 0;
     enc->update(src+4096, 4096, crypt2, 4095, in_pos, out_pos);
-    assert(in_pos == 4096);
+    assert(in_pos == 4095);
     assert(out_pos == 4095);
     enc->update(src+4096+in_pos, 4096-in_pos, crypt2+out_pos, 4096-out_pos, in_pos, out_pos);
     assert(in_pos == 4096);
@@ -876,10 +876,10 @@ void test_msgr_encrypt()
     assert(in_pos == 3000);
     assert(out_pos == 0);
     dec->update(crypt+4096+3000, 3000, decrypt, 500, in_pos, out_pos);
-    assert(in_pos == 4096);
+    assert(in_pos == 4095);
     assert(out_pos == 500);
     dec->update(crypt+4096+in_pos, 6000-in_pos, decrypt+out_pos, 3000, in_pos, out_pos);
-    assert(in_pos == 4096);
+    assert(in_pos == 4095);
     assert(out_pos == 3500);
     dec->update(crypt+4096+in_pos, 6000-in_pos, decrypt+out_pos, 1000, in_pos, out_pos);
     assert(in_pos == 4096);
@@ -888,10 +888,10 @@ void test_msgr_encrypt()
     assert(in_pos == 6000);
     assert(out_pos == 4096);
     dec->update(crypt+4096+in_pos, 8192-in_pos, decrypt+out_pos, 4500-out_pos, in_pos, out_pos);
-    assert(in_pos == 8192);
+    assert(in_pos == 8191);
     assert(out_pos == 4500);
     dec->update(crypt+4096+in_pos, 8192-in_pos, decrypt+out_pos, 7500-out_pos, in_pos, out_pos);
-    assert(in_pos == 8192);
+    assert(in_pos == 8191);
     assert(out_pos == 7500);
     dec->update(crypt+4096+in_pos, 8192-in_pos, decrypt+out_pos, 8192-out_pos, in_pos, out_pos);
     assert(in_pos == 8192);
