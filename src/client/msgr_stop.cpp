@@ -6,12 +6,10 @@
 
 #include "messenger.h"
 #include "../util/xxh_x86dispatch.h"
-#ifdef WITH_OPENSSL
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
-#endif
 
 void osd_client_t::cancel_ops()
 {
@@ -229,7 +227,6 @@ osd_client_t::~osd_client_t()
         XXH3_freeState(write_csum_state);
         write_csum_state = NULL;
     }
-#ifdef WITH_OPENSSL
     if (enc_ctx)
     {
         EVP_CIPHER_CTX_free(enc_ctx);
@@ -252,5 +249,4 @@ osd_client_t::~osd_client_t()
         free(ssl_out_buf);
         ssl_out_buf = NULL;
     }
-#endif
 }

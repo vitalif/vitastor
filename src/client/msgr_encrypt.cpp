@@ -9,7 +9,6 @@
 
 op_aes_xts_encrypt_t::op_aes_xts_encrypt_t()
 {
-#ifdef WITH_OPENSSL
     if (!(ctx = EVP_CIPHER_CTX_new()))
     {
         ERR_print_errors_fp(stderr);
@@ -21,18 +20,12 @@ op_aes_xts_encrypt_t::op_aes_xts_encrypt_t()
         ERR_print_errors_fp(stderr);
         abort();
     }
-#else
-    fprintf(stderr, "Error: Vitastor is built without encryption support\n");
-    abort();
-#endif
 }
 
 op_aes_xts_encrypt_t::~op_aes_xts_encrypt_t()
 {
     assert(!encrypted);
-#ifdef WITH_OPENSSL
     EVP_CIPHER_CTX_free(ctx);
-#endif
     if (tmp)
         free(tmp);
 }
@@ -52,18 +45,15 @@ void op_aes_xts_encrypt_t::start(uint8_t *key, uint64_t start_offset, size_t blo
         tmp = NULL;
         tmp_size = 0;
     }
-#ifdef WITH_OPENSSL
     if (EVP_EncryptInit_ex(ctx, NULL, NULL, key, NULL) != 1)
     {
         ERR_print_errors_fp(stderr);
         abort();
     }
-#endif
 }
 
 void op_aes_xts_encrypt_t::encrypt_block(uint8_t *in, uint8_t *out)
 {
-#ifdef WITH_OPENSSL
     uint8_t iv[16] = { 0 };
     *((uint64_t*)iv) = start_offset + offset - offset%block_size;
     if (EVP_EncryptInit_ex(ctx, NULL, NULL, NULL, iv) != 1)
@@ -78,7 +68,6 @@ void op_aes_xts_encrypt_t::encrypt_block(uint8_t *in, uint8_t *out)
         abort();
     }
     assert(actual_out == block_size);
-#endif
 }
 
 void op_aes_xts_encrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out)
@@ -158,7 +147,6 @@ void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx)
 
 op_aes_xts_decrypt_t::op_aes_xts_decrypt_t()
 {
-#ifdef WITH_OPENSSL
     if (!(ctx = EVP_CIPHER_CTX_new()))
     {
         ERR_print_errors_fp(stderr);
@@ -170,18 +158,12 @@ op_aes_xts_decrypt_t::op_aes_xts_decrypt_t()
         ERR_print_errors_fp(stderr);
         abort();
     }
-#else
-    fprintf(stderr, "Error: Vitastor is built without encryption support\n");
-    abort();
-#endif
 }
 
 op_aes_xts_decrypt_t::~op_aes_xts_decrypt_t()
 {
     assert(!decrypted);
-#ifdef WITH_OPENSSL
     EVP_CIPHER_CTX_free(ctx);
-#endif
     if (tmp)
         free(tmp);
 }
@@ -204,13 +186,11 @@ void op_aes_xts_decrypt_t::start(uint8_t **key_chain, size_t chain_size, void *k
         tmp = NULL;
         tmp_size = 0;
     }
-#ifdef WITH_OPENSSL
     if (chain_size == 1 && key_chain[0] && EVP_DecryptInit_ex(ctx, NULL, NULL, key_chain[0], NULL) != 1)
     {
         ERR_print_errors_fp(stderr);
         abort();
     }
-#endif
 }
 
 void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
@@ -234,7 +214,6 @@ void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
             return;
         }
     }
-#ifdef WITH_OPENSSL
     uint8_t iv[16] = { 0 };
     *((uint64_t*)iv) = start_offset + offset - offset%block_size;
     if (EVP_DecryptInit_ex(ctx, NULL, NULL, key, iv) != 1)
@@ -249,7 +228,6 @@ void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
         abort();
     }
     assert(actual_out == block_size);
-#endif
 }
 
 // out may be NULL, in this case all input is still decrypted to calculate checksums,

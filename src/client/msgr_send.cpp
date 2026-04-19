@@ -8,12 +8,10 @@
 #include "messenger.h"
 #include "msgr_iothread.h"
 
-#ifdef WITH_OPENSSL
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
-#endif
 
 #define WR_TLS     1
 #define WR_XTS     2

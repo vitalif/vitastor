@@ -75,9 +75,7 @@ if (RDMACM_LIBRARIES)
 endif (RDMACM_LIBRARIES)
 
 find_package(OpenSSL REQUIRED)
-if (OPENSSL_FOUND)
-	add_definitions(-DWITH_OPENSSL)
-endif (OPENSSL_FOUND)
+add_definitions(-DWITH_OPENSSL)
 
 pkg_check_modules(CARES REQUIRED libcares)
 include_directories(${CARES_INCLUDE_DIRS})

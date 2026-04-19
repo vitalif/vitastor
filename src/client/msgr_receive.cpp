@@ -6,12 +6,10 @@
 #include "messenger.h"
 #include "msgr_iothread.h"
 
-#ifdef WITH_OPENSSL
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
-#endif
 
 #define RDR_TLS     1
 #define RDR_XTS     2

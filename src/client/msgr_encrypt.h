@@ -4,18 +4,13 @@
 #include <stdint.h>
 
 #include "../util/xxh_x86dispatch.h"
-// WITH_OPENSSL is left to possibly support other crypto libraries
-#ifdef WITH_OPENSSL
 #include <openssl/conf.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
-#endif
 
 class op_aes_xts_encrypt_t
 {
-#ifdef WITH_OPENSSL
     EVP_CIPHER_CTX *ctx = NULL;
-#endif
     uint64_t start_offset = 0;
     uint8_t *key = NULL;
     size_t offset = 0;
@@ -40,9 +35,7 @@ void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx);
 
 class op_aes_xts_decrypt_t
 {
-#ifdef WITH_OPENSSL
     EVP_CIPHER_CTX *ctx = NULL;
-#endif
     uint64_t start_offset = 0;
     uint8_t **key_chain = NULL;
     size_t chain_size = 0;

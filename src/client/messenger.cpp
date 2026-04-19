@@ -16,23 +16,16 @@
 #include "msgr_rdma.h"
 #endif
 #include "http_client.h"
-#ifdef WITH_OPENSSL
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
-#endif
 
 void osd_messenger_t::init()
 {
     if (!tls_cert.empty() || !tls_key.empty() || !osd_tls_ca.empty() || !client_tls_ca.empty())
     {
         // Initialize TLS context
-        // FIXME: require OpenSSL
-#ifndef WITH_OPENSSL
-        fprintf(stderr, "Vitastor is built without OpenSSL support\n");
-        exit(1);
-#else
         if (tls_cert.empty() || tls_key.empty() || osd_tls_ca.empty() || osd_num && client_tls_ca.empty())
         {
             if (osd_num)
@@ -67,7 +60,6 @@ init_err:
                 goto init_err;
             }
         }
-#endif
     }
 #ifdef WITH_RDMACM
     if (use_rdmacm)
@@ -244,7 +236,6 @@ osd_messenger_t::~osd_messenger_t()
     {
         destroy_aes_xts_decrypt(decrypt_ctx);
     }
-#ifdef WITH_OPENSSL
     for (EVP_CIPHER_CTX *ctx: encrypt_gcm_pool)
     {
         EVP_CIPHER_CTX_free(ctx);
@@ -258,7 +249,6 @@ osd_messenger_t::~osd_messenger_t()
         SSL_CTX_free(ssl_ctx);
         ssl_ctx = NULL;
     }
-#endif
 }
 
 void osd_messenger_t::parse_config(const json11::Json & config)

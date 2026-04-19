@@ -12,9 +12,7 @@
 #include <deque>
 #include <vector>
 
-#ifdef WITH_OPENSSL
 #include <openssl/types.h>
-#endif
 
 #include "../util/xxh_x86dispatch.h"
 #include "../util/robin_hood.h"
@@ -92,7 +90,6 @@ struct osd_client_t
     msgr_rdma_connection_t *rdma_conn = NULL;
 #endif
 
-#ifdef WITH_OPENSSL
     SSL *ssl_cli = NULL;
     BIO *write_to_ssl = NULL;
     // FIXME: use custom bio to avoid 1 more memory copy?
@@ -111,7 +108,6 @@ struct osd_client_t
     EVP_CIPHER_CTX *dec_ctx = NULL;
     uint8_t dec_tag[16];
     size_t dec_tag_size = 0;
-#endif
 
     // Read state
     bool io_error = false;
@@ -245,13 +241,11 @@ protected:
     robin_hood::unordered_flat_map<rdma_cm_id*, rdmacm_connecting_t*> rdmacm_connecting;
 #endif
 
-#ifdef WITH_OPENSSL
     SSL_CTX *ssl_ctx = NULL;
     std::string tls_cn;
 
     void ssl_init(osd_client_t *cl, bool server_mode);
     bool ssl_do_handshake(osd_client_t *cl);
-#endif
 
     std::vector<msgr_iothread_t*> iothreads;
     std::vector<uint64_t> read_ready_clients;

@@ -1,9 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#ifdef WITH_OPENSSL
 #include <openssl/rand.h>
-#endif
 
 #include <ctype.h>
 #include "cli.h"
@@ -628,14 +626,12 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_create(json11::Json cfg)
     if (!cfg["enc_key"].is_null())
     {
         image_creator->set_key = true;
-#ifdef WITH_OPENSSL
         if (image_creator->enc_key == "random")
         {
             uint8_t newkey[64];
             RAND_bytes(newkey, 64);
             image_creator->enc_key = tohexstr(newkey, 64);
         }
-#endif
         else
         {
             image_creator->enc_key = cfg["enc_key"].string_value();

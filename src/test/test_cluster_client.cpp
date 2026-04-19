@@ -1,9 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#ifdef WITH_OPENSSL
 #include <openssl/rand.h>
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -809,7 +807,6 @@ void test_deoptimize_snapshot_read()
     printf("[ok] deoptimize snapshot read test\n");
 }
 
-#ifdef WITH_OPENSSL
 void test_msgr_encrypt()
 {
     const size_t sz = 1048576;
@@ -978,7 +975,6 @@ void test_msgr_decrypt_chain()
     free(src);
     printf("[ok] msgr aes-xts chained decrypt\n");
 }
-#endif
 
 void cluster_client_test_t::test_vault()
 {
@@ -1049,10 +1045,8 @@ int main(int narg, char *args[])
     test_writeback_merge();
     test_writeback_queue_split();
     test_deoptimize_snapshot_read();
-#ifdef WITH_OPENSSL
     test_msgr_encrypt();
     test_msgr_decrypt_chain();
-#endif
     cluster_client_test_t::test_vault();
     return 0;
 }
