@@ -456,20 +456,34 @@ class get_op_writer_t: public msgr_op_writer_t
         }
     }
 
+    void send_out_buf(size_t n)
+    {
+        if (cl->send_list.size() > 0)
+        {
+            iovec& last = cl->send_list.back();
+            if (last.iov_base+last.iov_len == cl->ssl_out_buf+cl->ssl_out_buf_size)
+            {
+                last.iov_len += n;
+                cl->ssl_out_buf_size += n;
+                return;
+            }
+        }
+        cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+cl->ssl_out_buf_size, .iov_len = n });
+        cl->ssl_out_buf_size += n;
+    }
+
     void copy_ssl()
     {
-        size_t prev_size = cl->ssl_out_buf_size;
+        size_t n = 0;
         do
         {
             ssl_extend_buf();
             int r = BIO_read(cl->read_from_ssl, cl->ssl_out_buf+cl->ssl_out_buf_size, cl->ssl_out_buf_cap-cl->ssl_out_buf_size);
             if (r > 0)
-                cl->ssl_out_buf_size += r;
-        } while (cl->ssl_out_buf_size >= cl->ssl_out_buf_cap);
-        if (cl->ssl_out_buf_size > prev_size)
-        {
-            cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+prev_size, .iov_len = cl->ssl_out_buf_size-prev_size });
-        }
+                n += r;
+        } while (cl->ssl_out_buf_size+n >= cl->ssl_out_buf_cap);
+        if (n > 0)
+            send_out_buf(n);
     }
 
 public:
@@ -556,8 +570,7 @@ public:
 #endif
                 if (cl->write_csum_state && !(flags & WR_NO_CSUM))
                     XXH3_64bits_update(cl->write_csum_state, src+from, n);
-                cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+cl->ssl_out_buf_size, .iov_len = n });
-                cl->ssl_out_buf_size += n;
+                send_out_buf(n);
                 cl->write_op_pos += n;
                 from += n;
                 if (from < src_len)
@@ -612,9 +625,7 @@ public:
             // Tag is 16 bytes
             ssl_extend_buf(16);
             gcm_op_writer_t::write_tag_to(msgr, cl, cl->ssl_out_buf+cl->ssl_out_buf_size);
-            // FIXME coalesce entries in ssl_out_buf
-            cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+cl->ssl_out_buf_size, .iov_len = 16 });
-            cl->ssl_out_buf_size += 16;
+            send_out_buf(16);
             gcm_op_writer_t::free_ctx(msgr, cl);
         }
         return true;
