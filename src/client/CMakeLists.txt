@@ -17,6 +17,7 @@ add_library(vitastor_common STATIC
 	../util/str_util.cpp
 	../util/json_util.cpp
 	../util/xxh_x86dispatch.c
+	 ../util/openssl_util.cpp
 )
 target_compile_options(vitastor_common PUBLIC -fPIC)
 target_link_libraries(vitastor_common ${OPENSSL_LIBRARIES} ${ISAL_CRYPTO_LIBRARIES})

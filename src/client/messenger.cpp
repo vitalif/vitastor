@@ -15,52 +15,10 @@
 #ifdef WITH_RDMA
 #include "msgr_rdma.h"
 #endif
-#include "http_client.h"
-#include <openssl/bio.h>
-#include <openssl/err.h>
-#include <openssl/pem.h>
-#include <openssl/ssl.h>
 
 void osd_messenger_t::init()
 {
-    if (!tls_cert.empty() || !tls_key.empty() || !osd_tls_ca.empty() || !client_tls_ca.empty())
-    {
-        // Initialize TLS context
-        if (tls_cert.empty() || tls_key.empty() || osd_tls_ca.empty() || osd_num && client_tls_ca.empty())
-        {
-            if (osd_num)
-                fprintf(stderr, "Vitastor OSD TLS requires osd_tls_cert, osd_tls_key, osd_tls_ca, client_tls_ca\n");
-            else
-                fprintf(stderr, "Vitastor client TLS requires tls_cert, tls_key and osd_tls_ca\n");
-            exit(1);
-        }
-        else
-        {
-            ssl_ctx = SSL_CTX_new(TLS_method());
-            if (!ssl_ctx)
-            {
-init_err:
-                fprintf(stderr, "OpenSSL initialization failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
-                exit(1);
-            }
-            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
-            bool ok = SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
-            ok = ok && openssl_ctx_add_ca(ssl_ctx, osd_tls_ca);
-            if (osd_num)
-            {
-                // OSD uses 2 separate root certificates to distinguish between clients and peer OSDs
-                ok = ok && openssl_ctx_add_ca(ssl_ctx, client_tls_ca);
-            }
-            ok = ok && openssl_ctx_use_cert(ssl_ctx, tls_cert, tls_cn);
-            ok = ok && openssl_ctx_use_key(ssl_ctx, tls_key);
-            if (!ok)
-            {
-                SSL_CTX_free(ssl_ctx);
-                ssl_ctx = NULL;
-                goto init_err;
-            }
-        }
-    }
+    init_tls();
 #ifdef WITH_RDMACM
     if (use_rdmacm)
     {
@@ -236,30 +194,7 @@ osd_messenger_t::~osd_messenger_t()
     {
         destroy_aes_xts_decrypt(decrypt_ctx);
     }
-#ifdef WITH_ISAL_CRYPTO
-    for (isal_gcm_context_data *ctx: encrypt_gcm_pool)
-    {
-        free(ctx);
-    }
-    for (isal_gcm_context_data *ctx: decrypt_gcm_pool)
-    {
-        free(ctx);
-    }
-#else
-    for (EVP_CIPHER_CTX *ctx: encrypt_gcm_pool)
-    {
-        EVP_CIPHER_CTX_free(ctx);
-    }
-    for (EVP_CIPHER_CTX *ctx: decrypt_gcm_pool)
-    {
-        EVP_CIPHER_CTX_free(ctx);
-    }
-#endif
-    if (ssl_ctx)
-    {
-        SSL_CTX_free(ssl_ctx);
-        ssl_ctx = NULL;
-    }
+    destroy_tls();
 }
 
 void osd_messenger_t::parse_config(const json11::Json & config)
@@ -562,7 +497,7 @@ void osd_messenger_t::handle_connect_epoll(int peer_fd)
         handle_peer_epoll(peer_fd, epoll_events);
     });
     // Check OSD number
-    ssl_init(cl, false);
+    init_tls_client(cl);
     check_peer_config(cl);
 }
 
@@ -804,7 +739,7 @@ void osd_messenger_t::accept_connections(int listen_fd)
         cl->peer_fd = peer_fd;
         cl->peer_state = PEER_CONNECTED;
         cl->in_buf = (uint8_t*)malloc_or_die(receive_buffer_size);
-        ssl_init(cl, true);
+        init_tls_client(cl);
         // Add FD to epoll
         tfd->set_fd_handler(peer_fd, false, [this](int peer_fd, int epoll_events)
         {
@@ -816,36 +751,6 @@ void osd_messenger_t::accept_connections(int listen_fd)
     if (peer_fd == -1 && errno != EAGAIN)
     {
         throw std::runtime_error(std::string("accept: ") + strerror(errno));
-    }
-}
-
-void osd_messenger_t::ssl_init(osd_client_t *cl, bool server_mode)
-{
-    if (!tls_cert.empty())
-    {
-        cl->write_to_ssl = BIO_new(BIO_s_mem());
-        cl->read_from_ssl = BIO_new(BIO_s_mem());
-        cl->ssl_cli = SSL_new(ssl_ctx);
-        if (!cl->ssl_cli)
-        {
-            fprintf(stderr, "OpenSSL initialization failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
-            exit(1);
-        }
-        if (server_mode)
-        {
-            SSL_set_accept_state(cl->ssl_cli);
-        }
-        else
-        {
-            SSL_set_connect_state(cl->ssl_cli);
-        }
-        SSL_set_bio(cl->ssl_cli, cl->write_to_ssl, cl->read_from_ssl);
-        bool ok = ssl_do_handshake(cl);
-        assert(ok);
-    }
-    else if (!test_osd_aes_key.empty())
-    {
-        cl->gcm_enabled = true;
     }
 }
 

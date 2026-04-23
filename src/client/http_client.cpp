@@ -19,6 +19,7 @@
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
+#include "openssl_util.h"
 #endif
 
 // libc-ares
@@ -162,105 +163,6 @@ void http_ares_cb(void *data, ares_socket_t socket_fd, int readable, int writabl
         ares_process_fd(ctx->ares, (epoll_events & (EPOLLIN|EPOLLRDHUP)) ? fd : 0, (epoll_events & EPOLLOUT) ? fd : 0);
     });
 }
-
-#ifdef WITH_OPENSSL
-bool openssl_ctx_add_ca(SSL_CTX *ssl_ctx, const std::string & file_or_pem)
-{
-    std::string pem;
-    BIO *bio = NULL;
-    if (file_or_pem.substr(0, 5) != "-----")
-    {
-        pem = read_file(file_or_pem);
-        bio = BIO_new_mem_buf(pem.data(), pem.size());
-    }
-    else
-        bio = BIO_new_mem_buf(file_or_pem.data(), file_or_pem.size());
-    if (!bio)
-        return false;
-    X509 *x509 = PEM_read_bio_X509(bio, NULL, 0, NULL);
-    bool ok = !!x509;
-    if (x509)
-    {
-        X509_STORE *store = SSL_CTX_get_cert_store(ssl_ctx);
-        X509_STORE_add_cert(store, x509);
-        X509_free(x509);
-    }
-    BIO_free(bio);
-    return ok;
-}
-
-bool openssl_ctx_use_ca(SSL_CTX *ssl_ctx, const std::string & file_or_pem)
-{
-    if (file_or_pem.substr(0, 5) == "-----")
-    {
-        return openssl_ctx_add_ca(ssl_ctx, file_or_pem);
-    }
-    return file_or_pem.empty()
-        ? !!SSL_CTX_set_default_verify_paths(ssl_ctx)
-        : !!SSL_CTX_load_verify_locations(ssl_ctx, file_or_pem.c_str(), NULL);
-}
-
-std::string openssl_get_cn(X509 *x509)
-{
-    X509_NAME* subj = X509_get_subject_name(x509);
-    int pos = X509_NAME_get_index_by_NID(subj, NID_commonName, -1);
-    if (pos != -1)
-    {
-        X509_NAME_ENTRY* cn = X509_NAME_get_entry(subj, pos);
-        ASN1_STRING* str = X509_NAME_ENTRY_get_data(cn);
-        return std::string((const char*)ASN1_STRING_get0_data(str), ASN1_STRING_length(str));
-    }
-    return "";
-}
-
-bool openssl_ctx_use_cert(SSL_CTX *ssl_ctx, const std::string & file_or_pem, std::string & common_name)
-{
-    BIO *bio = NULL;
-    std::string contents;
-    if (file_or_pem.substr(0, 5) == "-----")
-        bio = BIO_new_mem_buf(file_or_pem.data(), file_or_pem.size());
-    else
-    {
-        contents = read_file(file_or_pem);
-        if (!contents.size())
-            return false;
-        bio = BIO_new_mem_buf(contents.data(), contents.size());
-    }
-    if (!bio)
-        return false;
-    X509 *x509 = PEM_read_bio_X509(bio, NULL, 0, NULL);
-    bool ok = !!x509;
-    if (x509)
-    {
-        ok = SSL_CTX_use_certificate(ssl_ctx, x509);
-        if (ok)
-            common_name = openssl_get_cn(x509);
-        X509_free(x509);
-    }
-    BIO_free(bio);
-    return ok;
-}
-
-bool openssl_ctx_use_key(SSL_CTX *ssl_ctx, const std::string & file_or_pem)
-{
-    if (file_or_pem.substr(0, 5) == "-----")
-    {
-        BIO *bio = BIO_new_mem_buf(file_or_pem.data(), file_or_pem.size());
-        if (!bio)
-            return false;
-        EVP_PKEY *pkey = PEM_read_bio_PrivateKey(bio, NULL, NULL, NULL);
-        bool ok = !!pkey;
-        if (pkey)
-        {
-            ok = SSL_CTX_use_PrivateKey(ssl_ctx, pkey);
-            EVP_PKEY_free(pkey);
-        }
-        BIO_free(bio);
-        return ok;
-    }
-    return !!SSL_CTX_use_PrivateKey_file(ssl_ctx, file_or_pem.c_str(), SSL_FILETYPE_PEM);
-}
-#endif
 
 http_context_t* http_context_init(timerfd_manager_t *tfd, const std::string & ssl_cert, const std::string & ssl_key,
     const std::string & ssl_ca, bool verify_peer, std::string & error)

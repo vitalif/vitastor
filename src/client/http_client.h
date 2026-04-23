@@ -8,10 +8,6 @@
 #include <functional>
 #include "json11/json11.hpp"
 
-#ifdef WITH_OPENSSL
-#include <openssl/types.h>
-#endif
-
 #define WS_CONTINUATION 0
 #define WS_TEXT 1
 #define WS_BINARY 2
@@ -73,11 +69,3 @@ void http_close(http_co_t *co);
 void http_destroy(http_co_t *co);
 
 #pragma GCC visibility pop
-
-#ifdef WITH_OPENSSL
-bool openssl_ctx_add_ca(SSL_CTX *ssl_ctx, const std::string & file_or_pem);
-bool openssl_ctx_use_ca(SSL_CTX *ssl_ctx, const std::string & file_or_pem);
-std::string openssl_get_cn(X509 *x509);
-bool openssl_ctx_use_cert(SSL_CTX *ssl_ctx, const std::string & file_or_pem, std::string & common_name);
-bool openssl_ctx_use_key(SSL_CTX *ssl_ctx, const std::string & file_or_pem);
-#endif

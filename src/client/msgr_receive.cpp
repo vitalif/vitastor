@@ -5,13 +5,14 @@
 #include <limits.h>
 #include "messenger.h"
 #include "msgr_iothread.h"
+#include "openssl_util.h"
 
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/pem.h>
 #include <openssl/ssl.h>
 
-#define RDR_TLS     1
+#define RDR_GCM     1
 #define RDR_XTS     2
 #define RDR_NO_CSUM 4
 
@@ -167,7 +168,7 @@ public:
         if (done >= bufsize)
             return false;
         size_t n = dst_len-from;
-        if (!(flags & RDR_TLS) || !cl->ssl_cli)
+        if (!(flags & RDR_GCM) || !cl->ssl_cli)
         {
             if (n > bufsize-done)
                 n = bufsize-done;
@@ -203,20 +204,8 @@ buffer_again:
             buffer_encrypted();
             if (!cl->ssl_handshake_done)
             {
-                if (!msgr->ssl_do_handshake(cl))
+                if (!msgr->do_tls_handshake(cl, true))
                     return false;
-                if (cl->write_state == 0)
-                {
-                    // SSL_ERROR_WANT_WRITE is absolutely non-informative with memory BIO, it basically never happens
-                    // So we have to check memory BIO for outstanding data
-                    char *bio_buf = NULL;
-                    size_t bio_sz = BIO_get_mem_data(cl->read_from_ssl, &bio_buf);
-                    if (bio_sz > 0)
-                    {
-                        cl->write_state = CL_WRITE_READY;
-                        msgr->write_ready_clients.push_back(cl->client_id);
-                    }
-                }
             }
             int ok = SSL_read_ex(cl->ssl_cli, dst+from, n, &n);
             if (!ok)
@@ -340,7 +329,7 @@ public:
         if (done >= bufsize)
             return false;
         size_t n = dst_len-from;
-        if (!(flags & RDR_TLS))
+        if (!(flags & RDR_GCM))
         {
             if (n > bufsize-done)
                 n = bufsize-done;
@@ -529,17 +518,15 @@ public:
 
     bool read(uint8_t *dst, size_t dst_len, int flags) override
     {
-        if (cl->gcm_enabled)
-            return false; // FIXME Only for tests, use copy-only with AES
         if (from >= dst_len)
         {
             // Skip
             from -= dst_len;
             return true;
         }
-        if ((flags & RDR_TLS) && cl->ssl_cli)
+        if ((flags & RDR_GCM) && (cl->ssl_cli || cl->gcm_enabled))
         {
-            // Can't inplace read TLS data
+            // Can't inplace read TLS/GCM data
             return false;
         }
         if (cl->recv_list.size() >= IOV_MAX)
@@ -759,7 +746,11 @@ void osd_messenger_t::handle_immediate_ops()
 
 bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size_t bufsize)
 {
-    if (cl->gcm_enabled)
+    if (cl->ssl_cli)
+    {
+        return handle_buffer_with<ssl_op_reader_t>(cl, curbuf, bufsize);
+    }
+    else if (cl->gcm_enabled)
     {
         return handle_buffer_with<gcm_op_reader_t>(cl, curbuf, bufsize);
     }
@@ -1056,7 +1047,7 @@ bool osd_messenger_t::op_read_from(osd_client_t *cl, msgr_op_reader_t & rdr)
     bool hdr = (cl->read_op_pos < OSD_PACKET_SIZE);
     if (hdr || op->op_type == OSD_OP_IN)
     {
-        if (!rdr.read(op->req.buf, OSD_PACKET_SIZE, RDR_TLS | (cl->proto_csum_status == MSGR_CSUM_PAYLOAD ? RDR_NO_CSUM : 0)))
+        if (!rdr.read(op->req.buf, OSD_PACKET_SIZE, RDR_GCM | (cl->proto_csum_status == MSGR_CSUM_PAYLOAD ? RDR_NO_CSUM : 0)))
             return false;
         if (hdr)
         {
@@ -1072,7 +1063,7 @@ bool osd_messenger_t::op_read_from(osd_client_t *cl, msgr_op_reader_t & rdr)
         if (op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
             op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
         {
-            if (!rdr.read((uint8_t*)op->bitmap, op->req.sec_rw.attr_len, RDR_TLS))
+            if (!rdr.read((uint8_t*)op->bitmap, op->req.sec_rw.attr_len, RDR_GCM))
                 return false;
             if (!rdr.read((uint8_t*)op->buf, op->req.sec_rw.len, 0))
                 return false;
@@ -1080,12 +1071,12 @@ bool osd_messenger_t::op_read_from(osd_client_t *cl, msgr_op_reader_t & rdr)
         else if (op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
             op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
         {
-            if (!rdr.read((uint8_t*)op->buf, op->req.sec_stab.len, RDR_TLS))
+            if (!rdr.read((uint8_t*)op->buf, op->req.sec_stab.len, RDR_GCM))
                 return false;
         }
         else if (op->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
         {
-            if (!rdr.read((uint8_t*)op->buf, op->req.sec_read_bmp.len, RDR_TLS))
+            if (!rdr.read((uint8_t*)op->buf, op->req.sec_read_bmp.len, RDR_GCM))
                 return false;
         }
         else if (op->req.hdr.opcode == OSD_OP_WRITE)
@@ -1095,20 +1086,20 @@ bool osd_messenger_t::op_read_from(osd_client_t *cl, msgr_op_reader_t & rdr)
         }
         else if (op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
         {
-            if (!rdr.read((uint8_t*)op->buf, op->req.show_conf.json_len, RDR_TLS))
+            if (!rdr.read((uint8_t*)op->buf, op->req.show_conf.json_len, RDR_GCM))
                 return false;
         }
     }
     else
     {
-        if (!rdr.read(op->reply.buf, OSD_PACKET_SIZE, RDR_TLS | (cl->proto_csum_status == MSGR_CSUM_PAYLOAD ? RDR_NO_CSUM : 0)))
+        if (!rdr.read(op->reply.buf, OSD_PACKET_SIZE, RDR_GCM | (cl->proto_csum_status == MSGR_CSUM_PAYLOAD ? RDR_NO_CSUM : 0)))
             return false;
 switched_type:
         if (op->reply.hdr.opcode == OSD_OP_SEC_READ)
         {
             if (op->reply.sec_rw.attr_len > 0)
             {
-                if (!rdr.read((uint8_t*)op->bitmap, op->reply.sec_rw.attr_len, RDR_TLS))
+                if (!rdr.read((uint8_t*)op->bitmap, op->reply.sec_rw.attr_len, RDR_GCM))
                     return false;
             }
             if (op->reply.hdr.retval > 0)
@@ -1122,7 +1113,7 @@ switched_type:
         {
             if (op->reply.rw.bitmap_len > 0)
             {
-                if (!rdr.read((uint8_t*)op->bitmap, op->reply.rw.bitmap_len, RDR_TLS))
+                if (!rdr.read((uint8_t*)op->bitmap, op->reply.rw.bitmap_len, RDR_GCM))
                     return false;
             }
             if (op->reply.hdr.retval > 0)
@@ -1134,25 +1125,25 @@ switched_type:
         }
         else if (op->reply.hdr.opcode == OSD_OP_SEC_LIST && op->reply.hdr.retval > 0)
         {
-            if (!rdr.read((uint8_t*)op->buf, sizeof(obj_ver_id) * op->reply.hdr.retval, RDR_TLS))
+            if (!rdr.read((uint8_t*)op->buf, sizeof(obj_ver_id) * op->reply.hdr.retval, RDR_GCM))
                 return false;
         }
         else if ((op->reply.hdr.opcode == OSD_OP_SEC_READ_BMP ||
             op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG) && op->reply.hdr.retval > 0)
         {
-            if (!rdr.read((uint8_t*)op->buf, op->reply.hdr.retval, RDR_TLS))
+            if (!rdr.read((uint8_t*)op->buf, op->reply.hdr.retval, RDR_GCM))
                 return false;
         }
         else if (op->reply.hdr.opcode == OSD_OP_DESCRIBE && op->reply.describe.result_bytes > 0)
         {
-            if (!rdr.read((uint8_t*)op->buf, op->reply.describe.result_bytes, RDR_TLS))
+            if (!rdr.read((uint8_t*)op->buf, op->reply.describe.result_bytes, RDR_GCM))
                 return false;
         }
     }
     if (cl->proto_csum_status == MSGR_CSUM_FULL ||
         cl->read_op_size > 0 && cl->proto_csum_status == MSGR_CSUM_PAYLOAD)
     {
-        if (!rdr.read((uint8_t*)&op->csum, 8, RDR_TLS|RDR_NO_CSUM))
+        if (!rdr.read((uint8_t*)&op->csum, 8, RDR_GCM|RDR_NO_CSUM))
             return false;
     }
     if (!rdr.finish())

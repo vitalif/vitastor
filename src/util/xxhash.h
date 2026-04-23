@@ -34,6 +34,8 @@ extern "C" {
 # define XXH_NOESCAPE
 #endif
 
+#define XXH_SECRET_DEFAULT_SIZE 192
+
 typedef enum {
     XXH_OK = 0,
     XXH_ERROR

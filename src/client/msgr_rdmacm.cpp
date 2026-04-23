@@ -19,6 +19,7 @@ struct rdmacm_connecting_t
     int tcp_port = 0;
     int timeout_ms = 0;
     int timeout_id = -1;
+    bool is_incoming = false;
     msgr_rdma_context_t *rdma_context = NULL;
 };
 
@@ -292,6 +293,7 @@ void osd_messenger_t::rdmacm_accept(rdma_cm_event *ev)
     conn->client_id = next_client_id++;
     conn->parsed_addr = *(sockaddr_storage*)rdma_get_peer_addr(ev->id);
     conn->rdma_context = rdma_context;
+    conn->is_incoming = true;
     rdmacm_set_conn_timeout(conn);
     rdmacm_connecting[ev->id] = conn;
     fprintf(stderr, "[OSD %ju] new client %ju: connection from %s via RDMA-CM\n", this->osd_num, conn->client_id,
@@ -492,11 +494,13 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
     cl->peer_addr = conn->parsed_addr;
     cl->peer_port = conn->rdmacm_port;
     cl->client_id = conn->client_id;
+    cl->is_incoming = conn->is_incoming;
     cl->peer_state = PEER_RDMA;
     cl->connect_timeout_id = -1;
     cl->osd_num = peer_osd;
     cl->in_buf = (uint8_t*)malloc_or_die(receive_buffer_size);
     cl->rdma_conn = rc;
+    init_tls_client(cl);
     clients[conn->client_id] = cl;
     if (conn->timeout_id >= 0)
     {

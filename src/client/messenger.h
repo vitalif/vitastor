@@ -254,10 +254,15 @@ protected:
 #endif
 
     SSL_CTX *ssl_ctx = NULL;
+    X509 *tls_cert_obj = NULL;
+    X509 *osd_tls_ca_obj = NULL;
+    X509 *client_tls_ca_obj = NULL;
     std::string tls_cn;
 
-    void ssl_init(osd_client_t *cl, bool server_mode);
-    bool ssl_do_handshake(osd_client_t *cl);
+    void init_tls();
+    void destroy_tls();
+    void init_tls_client(osd_client_t *cl);
+    bool do_tls_handshake(osd_client_t *cl, bool from_recv = false);
 
     std::vector<msgr_iothread_t*> iothreads;
     std::vector<uint64_t> read_ready_clients;
