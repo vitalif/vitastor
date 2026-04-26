@@ -527,7 +527,6 @@ void osd_messenger_t::init_tls()
 {
     if (!tls_cert.empty() || !tls_key.empty() || !osd_tls_ca.empty() || !client_tls_ca.empty())
     {
-        // Initialize TLS context
         if (tls_cert.empty() || tls_key.empty() || osd_tls_ca.empty() || osd_num && client_tls_ca.empty())
         {
             if (osd_num)
@@ -536,41 +535,10 @@ void osd_messenger_t::init_tls()
                 fprintf(stderr, "Vitastor client TLS requires tls_cert, tls_key and osd_tls_ca\n");
             exit(1);
         }
-        else if (!gcm_enabled)
-        {
-            ssl_ctx = SSL_CTX_new(TLS_method());
-            if (!ssl_ctx)
-            {
-init_err:
-                fprintf(stderr, "OpenSSL initialization failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
-                exit(1);
-            }
-            // Always use TLS 1.3 with AES-256-GCM
-            SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
-            SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
-            SSL_CTX_set_ciphersuites(ssl_ctx, "TLS_AES_256_GCM_SHA384");
-            SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
-            bool ok = SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
-            ok = ok && (osd_tls_ca_obj = openssl_load_cert(osd_tls_ca));
-            ok = ok && X509_STORE_add_cert(SSL_CTX_get_cert_store(ssl_ctx), osd_tls_ca_obj);
-            if (osd_num)
-            {
-                // OSD uses 2 separate root certificates to distinguish between clients and peer OSDs
-                ok = ok && (client_tls_ca_obj = openssl_load_cert(client_tls_ca));
-                ok = ok && X509_STORE_add_cert(SSL_CTX_get_cert_store(ssl_ctx), client_tls_ca_obj);
-            }
-            ok = ok && openssl_ctx_use_cert(ssl_ctx, tls_cert, tls_cn);
-            ok = ok && openssl_ctx_use_key(ssl_ctx, tls_key);
-            if (!ok)
-            {
-                SSL_CTX_free(ssl_ctx);
-                ssl_ctx = NULL;
-                goto init_err;
-            }
-        }
         else
         {
 #ifndef __MOCK__
+            gcm_enabled = true;
             hs_ctx = msgr_handshake_ctx_i::create_ctx();
             if (!hs_ctx->init(tls_cert, tls_key, osd_tls_ca, client_tls_ca))
             {
@@ -598,55 +566,6 @@ void osd_messenger_t::init_tls_client(osd_client_t *cl)
             }
         }
     }
-    else if (!tls_cert.empty())
-    {
-        cl->write_to_ssl = BIO_new(BIO_s_mem());
-        cl->read_from_ssl = BIO_new(BIO_s_mem());
-        cl->ssl_cli = SSL_new(ssl_ctx);
-        if (!cl->ssl_cli)
-        {
-            fprintf(stderr, "OpenSSL initialization failed: %s\n", ERR_error_string(ERR_get_error(), NULL));
-            exit(1);
-        }
-        if (cl->is_incoming)
-        {
-            SSL_set_accept_state(cl->ssl_cli);
-        }
-        else
-        {
-            SSL_set_connect_state(cl->ssl_cli);
-        }
-        SSL_set_bio(cl->ssl_cli, cl->write_to_ssl, cl->read_from_ssl);
-        bool ok = do_tls_handshake(cl);
-        assert(ok);
-    }
-}
-
-bool osd_messenger_t::do_tls_handshake(osd_client_t *cl, bool from_recv)
-{
-    if (cl->handshake_done)
-        return true;
-    int r = SSL_do_handshake(cl->ssl_cli);
-    if (r > 0)
-    {
-        cl->handshake_done = true;
-    }
-    else
-    {
-        r = SSL_get_error(cl->ssl_cli, r);
-        if (r != 0 && r != SSL_ERROR_WANT_READ && r != SSL_ERROR_WANT_WRITE)
-        {
-            fprintf(stderr, "Client %ju TLS handshake error: %s, stopping client\n", cl->client_id, ERR_error_string(ERR_get_error(), NULL));
-            cl->io_error = true;
-            return false;
-        }
-    }
-    if (from_recv && cl->write_state == 0 && openssl_bio_nonempty(cl->read_from_ssl))
-    {
-        cl->write_state = CL_WRITE_READY;
-        write_ready_clients.push_back(cl->client_id);
-    }
-    return true;
 }
 
 void osd_messenger_t::destroy_tls()
@@ -670,21 +589,6 @@ void osd_messenger_t::destroy_tls()
         EVP_CIPHER_CTX_free(ctx);
     }
 #endif
-    if (osd_tls_ca_obj)
-    {
-        X509_free(osd_tls_ca_obj);
-        osd_tls_ca_obj = NULL;
-    }
-    if (client_tls_ca_obj)
-    {
-        X509_free(client_tls_ca_obj);
-        client_tls_ca_obj = NULL;
-    }
-    if (ssl_ctx)
-    {
-        SSL_CTX_free(ssl_ctx);
-        ssl_ctx = NULL;
-    }
     if (hs_ctx)
     {
         delete hs_ctx;

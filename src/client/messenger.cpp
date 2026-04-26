@@ -240,7 +240,6 @@ void osd_messenger_t::parse_config(const json11::Json & config)
         this->use_proto_checksums = config["proto_checksums"].string_value() == "full" ? MSGR_CSUM_FULL : MSGR_CSUM_PAYLOAD;
     else
         this->use_proto_checksums = 0;
-    gcm_enabled = true;
     if (!osd_num)
     {
         tls_cert = config["tls_cert"].string_value();

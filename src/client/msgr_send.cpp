@@ -8,10 +8,8 @@
 #include "messenger.h"
 #include "msgr_iothread.h"
 
-#include <openssl/bio.h>
+#include <openssl/evp.h>
 #include <openssl/err.h>
-#include <openssl/pem.h>
-#include <openssl/ssl.h>
 
 #define WR_GCM     1
 #define WR_XTS     2
@@ -36,8 +34,6 @@ protected:
     size_t done;
 
 public:
-    constexpr static bool is_ssl = false;
-
     copy_op_writer_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t *curbuf, size_t bufsize):
         msgr(msgr), cl(cl), from(cl->write_op_pos), curbuf(curbuf), bufsize(bufsize), done(0)
     {}
@@ -87,152 +83,6 @@ public:
     }
 };
 
-class ssl_op_writer_t: public msgr_op_writer_t
-{
-    osd_messenger_t* msgr;
-    osd_client_t* cl;
-    size_t from;
-
-    uint8_t *curbuf;
-    size_t bufsize;
-    size_t done;
-
-public:
-    constexpr static bool is_ssl = true;
-
-    ssl_op_writer_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t *curbuf, size_t bufsize):
-        msgr(msgr), cl(cl), from(cl->write_op_pos), curbuf(curbuf), bufsize(bufsize), done(0)
-    {
-    }
-
-    void reset()
-    {
-        from = cl->write_op_pos;
-    }
-
-    bool flush_ssl()
-    {
-        if (!cl->handshake_done)
-        {
-            if (!msgr->do_tls_handshake(cl))
-                return false;
-            return _flush_ssl();
-        }
-        return true;
-    }
-
-    bool _flush_ssl()
-    {
-        int r = BIO_read(cl->read_from_ssl, curbuf+done, bufsize-done);
-        if (r > 0)
-            done += r;
-        if (done >= bufsize)
-        {
-            // Check if we've sent all buffered TLS data
-            // ...Because we can't return true from this->write() if we haven't
-            char *bio_buf = NULL;
-            size_t bio_sz = BIO_get_mem_data(cl->read_from_ssl, &bio_buf);
-            if (bio_sz > 0)
-            {
-                cl->ssl_more_to_buffer = true;
-                return false;
-            }
-            else
-                cl->ssl_more_to_buffer = false;
-        }
-        return true;
-    }
-
-    static inline bool write_to_ssl(osd_client_t *cl, uint8_t *src, size_t src_len, int flags, size_t & from)
-    {
-        size_t n = src_len-from;
-        int ok = SSL_write_ex(cl->ssl_cli, src+from, n, &n);
-        if (ok)
-        {
-            if (cl->write_csum_state && !(flags & WR_NO_CSUM))
-                XXH3_64bits_update(cl->write_csum_state, src+from, n);
-            cl->write_op_pos += n;
-            from += n;
-        }
-        else
-        {
-            ok = SSL_get_error(cl->ssl_cli, ok);
-            if (ok == SSL_ERROR_ZERO_RETURN)
-            {
-                fprintf(stderr, "Client %ju TLS disconnected\n", cl->client_id);
-                cl->io_error = true;
-                return false;
-            }
-            else if (ok != SSL_ERROR_WANT_READ && ok != SSL_ERROR_WANT_WRITE)
-            {
-                fprintf(stderr, "Client %ju TLS write error: %s. Disconnecting client\n", cl->client_id, ERR_error_string(ERR_get_error(), NULL));
-                cl->io_error = true;
-                return false;
-            }
-        }
-        return true;
-    }
-
-    bool write(uint8_t *src, size_t src_len, int flags) override
-    {
-        if (from >= src_len)
-        {
-            if (cl->ssl_more_to_buffer && !_flush_ssl())
-                return false;
-            from -= src_len;
-            return true;
-        }
-        if (!(flags & WR_GCM) || !cl->ssl_cli)
-        {
-            if (flags & WR_XTS)
-            {
-                msgr->op_encrypted_copy_buf(cl, curbuf, bufsize, src, src_len, from, done);
-            }
-            else
-            {
-                size_t n = src_len-from;
-                if (n > bufsize-done)
-                    n = bufsize-done;
-                if (cl->write_csum_state && !(flags & WR_NO_CSUM))
-                    XXH3_64bits_update(cl->write_csum_state, src+from, n);
-                memcpy(curbuf+done, src+from, n);
-                done += n;
-                cl->write_op_pos += n;
-                from += n;
-            }
-        }
-        else
-        {
-            if (!cl->handshake_done)
-            {
-                if (!flush_ssl())
-                    return false;
-            }
-            if (cl->handshake_done)
-            {
-                if (!write_to_ssl(cl, src, src_len, flags, from))
-                    return false;
-            }
-            if (!_flush_ssl())
-                return false;
-        }
-        if (from < src_len)
-            return false;
-        from = 0;
-        return true;
-    }
-
-    bool finish() override
-    {
-        return _flush_ssl();
-    }
-
-    size_t get_done()
-    {
-        return done;
-    }
-};
-
 class gcm_op_writer_t: public msgr_op_writer_t
 {
     osd_messenger_t* msgr;
@@ -244,8 +94,6 @@ class gcm_op_writer_t: public msgr_op_writer_t
     size_t done;
 
 public:
-    constexpr static bool is_ssl = false;
-
     gcm_op_writer_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t *curbuf, size_t bufsize):
         msgr(msgr), cl(cl), from(cl->write_op_pos), curbuf(curbuf), bufsize(bufsize), done(0)
     {
@@ -452,27 +300,7 @@ class get_op_writer_t: public msgr_op_writer_t
     size_t enc_size;
     size_t done_enc;
 
-    void copy_ssl()
-    {
-        size_t n = 0;
-        do
-        {
-            ssl_extend_buf(cl);
-            int r = BIO_read(cl->read_from_ssl, cl->ssl_out_buf+cl->ssl_out_buf_size, cl->ssl_out_buf_cap-cl->ssl_out_buf_size);
-            if (r > 0)
-                n += r;
-        } while (cl->ssl_out_buf_size+n >= cl->ssl_out_buf_cap);
-        cl->ssl_more_to_buffer = false;
-        if (n > 0)
-        {
-            send_out_buf(cl, n);
-            done += n;
-        }
-    }
-
 public:
-    constexpr static bool is_ssl = true;
-
     get_op_writer_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t*, size_t):
         msgr(msgr), cl(cl), from(cl->write_op_pos), done(0), enc_size(0), done_enc(0)
     {
@@ -526,17 +354,6 @@ public:
         }
     }
 
-    bool flush_ssl()
-    {
-        if (cl->ssl_cli && !cl->handshake_done)
-        {
-            if (!msgr->do_tls_handshake(cl))
-                return false;
-            copy_ssl();
-        }
-        return true;
-    }
-
     bool write(uint8_t *src, size_t src_len, int flags) override
     {
         if (from >= src_len)
@@ -551,25 +368,6 @@ public:
         }
         if (flags & WR_GCM)
         {
-            if (cl->ssl_cli)
-            {
-                if (!cl->handshake_done)
-                {
-                    if (!flush_ssl())
-                        return false;
-                }
-                if (cl->handshake_done)
-                {
-                    if (!ssl_op_writer_t::write_to_ssl(cl, src, src_len, flags, from))
-                        return false;
-                }
-                // Copy data to client's temporary SSL output buffer
-                copy_ssl();
-                if (from < src_len)
-                    return false;
-                from = 0;
-                return true;
-            }
             if (cl->gcm_enabled)
             {
                 // Encrypt data to client's temporary output buffer (all at once)
@@ -635,13 +433,7 @@ public:
 
     bool finish() override
     {
-        if (cl->ssl_cli)
-        {
-            if (cl->send_list.size() >= IOV_MAX)
-                return false;
-            copy_ssl();
-        }
-        else if (cl->enc_ctx)
+        if (cl->enc_ctx)
         {
             if (cl->send_list.size() >= IOV_MAX)
                 return false;
@@ -823,10 +615,6 @@ copy_ops:
 
 size_t osd_messenger_t::copy_ops_to(osd_client_t *cl, uint8_t *dst, size_t dst_len)
 {
-    if (cl->ssl_cli)
-    {
-        return copy_ops_to_with<ssl_op_writer_t>(cl, dst, dst_len);
-    }
     if (cl->gcm_enabled)
     {
         if (cl->hs)
@@ -874,13 +662,6 @@ size_t osd_messenger_t::copy_ops_to_with(osd_client_t *cl, uint8_t *dst, size_t 
         {
             // this is a reply, free the op after sending it
             cl->send_free_ops.push_back(op);
-        }
-    }
-    if constexpr (T::is_ssl)
-    {
-        if (!wr.get_done())
-        {
-            wr.flush_ssl();
         }
     }
     return wr.get_done();

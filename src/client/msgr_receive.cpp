@@ -7,10 +7,8 @@
 #include "msgr_iothread.h"
 #include "openssl_util.h"
 
-#include <openssl/bio.h>
+#include <openssl/evp.h>
 #include <openssl/err.h>
-#include <openssl/pem.h>
-#include <openssl/ssl.h>
 
 #define RDR_GCM     1
 #define RDR_XTS     2
@@ -76,171 +74,6 @@ public:
         }
         if (from < dst_len)
             return false;
-        from = 0;
-        return true;
-    }
-
-    bool finish() override
-    {
-        return true;
-    }
-
-    size_t get_done()
-    {
-        return done;
-    }
-};
-
-class ssl_op_reader_t: public msgr_op_reader_t
-{
-    osd_messenger_t* msgr;
-    osd_client_t* cl;
-    size_t from;
-
-    uint8_t *curbuf;
-    size_t bufsize;
-    size_t done;
-
-public:
-    ssl_op_reader_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t *curbuf, size_t bufsize):
-        msgr(msgr), cl(cl), from(cl->read_op_pos), curbuf(curbuf), bufsize(bufsize), done(0)
-    {
-    }
-
-    void reset()
-    {
-        from = cl->read_op_pos;
-    }
-
-    void buffer_encrypted()
-    {
-        if (cl->ssl_read_header_size < sizeof(msgr_tls_record_hdr_t))
-        {
-            size_t h = bufsize-done;
-            if (bufsize-done <= sizeof(msgr_tls_record_hdr_t)-cl->ssl_read_header_size)
-            {
-                // Less than record header or just record header
-                memcpy(((uint8_t*)&cl->ssl_read_record) + cl->ssl_read_header_size, curbuf+done, h);
-                cl->ssl_read_header_size += h;
-                if (cl->ssl_read_header_size == sizeof(msgr_tls_record_hdr_t))
-                    cl->ssl_read_record.size = ntohs(cl->ssl_read_record.size);
-                int r = BIO_write(cl->write_to_ssl, curbuf+done, h);
-                assert(r == h);
-                done += h;
-                return;
-            }
-            // Record header and at least some data - copy both to BIO in a one BIO_write() call
-            h = sizeof(msgr_tls_record_hdr_t)-cl->ssl_read_header_size;
-            memcpy(((uint8_t*)&cl->ssl_read_record) + cl->ssl_read_header_size, curbuf+done, h);
-            cl->ssl_read_header_size = sizeof(msgr_tls_record_hdr_t);
-            cl->ssl_read_record.size = ntohs(cl->ssl_read_record.size);
-            size_t n = h + cl->ssl_read_record.size;
-            if (n > bufsize-done)
-                n = bufsize-done;
-            int r = BIO_write(cl->write_to_ssl, curbuf+done, n);
-            assert(r == n);
-            done += n;
-            cl->ssl_read_record.size -= (n - h);
-            if (!cl->ssl_read_record.size)
-                cl->ssl_read_header_size = 0;
-            return;
-        }
-        // Continued TLS data - buffer it to BIO
-        size_t n = cl->ssl_read_record.size;
-        if (n > bufsize-done)
-            n = bufsize-done;
-        int r = BIO_write(cl->write_to_ssl, curbuf+done, n);
-        assert(r == n);
-        done += n;
-        cl->ssl_read_record.size -= n;
-        if (!cl->ssl_read_record.size)
-            cl->ssl_read_header_size = 0;
-    }
-
-    bool read(uint8_t *dst, size_t dst_len, int flags) override
-    {
-        if (from >= dst_len)
-        {
-            // Skip
-            from -= dst_len;
-            return true;
-        }
-        if (done >= bufsize)
-            return false;
-        size_t n = dst_len-from;
-        if (!(flags & RDR_GCM) || !cl->ssl_cli)
-        {
-            if (n > bufsize-done)
-                n = bufsize-done;
-            if (flags & RDR_XTS)
-            {
-                msgr->op_decrypted_copy_buf(cl, curbuf, bufsize, dst, dst_len, from, done);
-                n = 0;
-            }
-            else
-            {
-                if (cl->read_csum_state && !(flags & RDR_NO_CSUM))
-                {
-                    // data may be skipped if dst == NULL but checksum is still calculated
-                    XXH3_64bits_update(cl->read_csum_state, curbuf+done, n);
-                }
-                // Here, dst == NULL is allowed
-                if (dst != NULL)
-                    memcpy(dst+from, curbuf+done, n);
-                done += n;
-            }
-            cl->read_op_pos += n;
-            from += n;
-            if (from < dst_len)
-            {
-                return false;
-            }
-        }
-        else
-        {
-            // Here, dst == NULL is not allowed
-            assert(dst != NULL);
-buffer_again:
-            buffer_encrypted();
-            if (!cl->handshake_done)
-            {
-                if (!msgr->do_tls_handshake(cl, true))
-                    return false;
-            }
-            int ok = SSL_read_ex(cl->ssl_cli, dst+from, n, &n);
-            if (!ok)
-            {
-                ok = SSL_get_error(cl->ssl_cli, ok);
-                if (ok == SSL_ERROR_WANT_READ)
-                {
-                    if (done < bufsize)
-                        goto buffer_again;
-                }
-                else if (ok == SSL_ERROR_ZERO_RETURN)
-                {
-                    fprintf(stderr, "Client %ju TLS disconnected\n", cl->client_id);
-                    cl->io_error = true;
-                }
-                else if (ok != 0 && ok != SSL_ERROR_WANT_WRITE)
-                {
-                    fprintf(stderr, "Client %ju TLS read error: %s. Disconnecting client\n", cl->client_id, ERR_error_string(ERR_get_error(), NULL));
-                    cl->io_error = true;
-                }
-                return false;
-            }
-            if (cl->read_csum_state && !(flags & RDR_NO_CSUM))
-            {
-                XXH3_64bits_update(cl->read_csum_state, dst+from, n);
-            }
-            cl->read_op_pos += n;
-            from += n;
-            if (from < dst_len)
-            {
-                if (done < bufsize)
-                    goto buffer_again;
-                return false;
-            }
-        }
         from = 0;
         return true;
     }
@@ -532,9 +365,9 @@ public:
             from -= dst_len;
             return true;
         }
-        if ((flags & RDR_GCM) && (cl->ssl_cli || cl->gcm_enabled))
+        if ((flags & RDR_GCM) && cl->gcm_enabled)
         {
-            // Can't inplace read TLS/GCM data
+            // Can't inplace read encrypted data
             return false;
         }
         if (cl->recv_list.size() >= IOV_MAX)
@@ -754,11 +587,7 @@ void osd_messenger_t::handle_immediate_ops()
 
 bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size_t bufsize)
 {
-    if (cl->ssl_cli)
-    {
-        return handle_buffer_with<ssl_op_reader_t>(cl, curbuf, bufsize);
-    }
-    else if (cl->gcm_enabled)
+    if (cl->gcm_enabled)
     {
         if (cl->hs)
         {

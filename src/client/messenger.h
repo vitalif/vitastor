@@ -68,14 +68,6 @@ struct op_aes_xts_decrypt_t;
 void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx);
 void destroy_aes_xts_decrypt(op_aes_xts_decrypt_t *decrypt_ctx);
 
-// Standard TLS record header. We are only interested in the record size
-struct __attribute__((__packed__)) msgr_tls_record_hdr_t
-{
-    uint8_t content_type;
-    uint16_t version;
-    uint16_t size;
-};
-
 struct osd_client_t
 {
     uint64_t client_id = 0;
@@ -98,16 +90,8 @@ struct osd_client_t
     msgr_rdma_connection_t *rdma_conn = NULL;
 #endif
 
-    SSL *ssl_cli = NULL;
-    BIO *write_to_ssl = NULL;
-    // FIXME: use custom bio to avoid 1 more memory copy?
-    BIO *read_from_ssl = NULL;
     uint8_t *ssl_out_buf = NULL;
     size_t ssl_out_buf_size = 0, ssl_out_buf_cap = 0;
-    bool handshake_done = false;
-    msgr_tls_record_hdr_t ssl_read_record;
-    size_t ssl_read_header_size = 0;
-    bool ssl_more_to_buffer = false;
 
     bool gcm_enabled = false;
     msgr_handshake_i *hs = NULL;
@@ -216,11 +200,9 @@ struct __attribute__((visibility("default"))) osd_messenger_t
 {
 protected:
     friend class copy_op_reader_t;
-    friend class ssl_op_reader_t;
     friend class gcm_op_reader_t;
     friend class get_op_reader_t;
     friend class copy_op_writer_t;
-    friend class ssl_op_writer_t;
     friend class gcm_op_writer_t;
     friend class get_op_writer_t;
 
@@ -257,12 +239,6 @@ protected:
     robin_hood::unordered_flat_map<rdma_cm_id*, osd_client_t*> rdmacm_connections;
     robin_hood::unordered_flat_map<rdma_cm_id*, rdmacm_connecting_t*> rdmacm_connecting;
 #endif
-
-    SSL_CTX *ssl_ctx = NULL;
-    X509 *tls_cert_obj = NULL;
-    X509 *osd_tls_ca_obj = NULL;
-    X509 *client_tls_ca_obj = NULL;
-    std::string tls_cn;
 
     bool gcm_enabled = false;
     msgr_handshake_ctx_i *hs_ctx = NULL;

@@ -6,10 +6,8 @@
 
 #include "messenger.h"
 #include "../util/xxh_x86dispatch.h"
-#include <openssl/bio.h>
-#include <openssl/err.h>
+#include <openssl/evp.h>
 #include <openssl/pem.h>
-#include <openssl/ssl.h>
 
 void osd_client_t::cancel_ops()
 {
@@ -244,13 +242,6 @@ osd_client_t::~osd_client_t()
         EVP_CIPHER_CTX_free(dec_ctx);
 #endif
         dec_ctx = NULL;
-    }
-    if (ssl_cli)
-    {
-        SSL_free(ssl_cli);
-        ssl_cli = NULL;
-        write_to_ssl = NULL;
-        read_from_ssl = NULL;
     }
     if (ssl_out_buf)
     {
