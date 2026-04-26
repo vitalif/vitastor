@@ -25,6 +25,7 @@
 #include "msgr_op.h"
 #include "timerfd_manager.h"
 #include "addr_util.h"
+#include "msgr_handshake.h"
 #include <ringloop.h>
 
 #define CL_READ_HDR 1
@@ -45,6 +46,9 @@
 #define VITASTOR_CONFIG_PATH "/etc/vitastor/vitastor.conf"
 
 #define DEFAULT_MIN_ZEROCOPY_SEND_SIZE 32*1024
+
+#define AES_256_GCM_KEY_SIZE 32
+#define AES_256_GCM_IV_SIZE 12
 
 #define MAX_SIMPLE_PAYLOAD_SIZE 1048576
 
@@ -100,13 +104,18 @@ struct osd_client_t
     BIO *read_from_ssl = NULL;
     uint8_t *ssl_out_buf = NULL;
     size_t ssl_out_buf_size = 0, ssl_out_buf_cap = 0;
-    bool ssl_handshake_done = false;
+    bool handshake_done = false;
     msgr_tls_record_hdr_t ssl_read_record;
     size_t ssl_read_header_size = 0;
     bool ssl_more_to_buffer = false;
 
     bool gcm_enabled = false;
+    msgr_handshake_i *hs = NULL;
+    msgr_handshake_result_t hs_result;
+    std::vector<uint8_t> my_key, peer_key;
+    uint64_t my_iv_ctr = 0, peer_iv_ctr = 0;
 #ifdef WITH_ISAL_CRYPTO
+    isal_gcm_key_data my_key_isal, peer_key_isal;
     isal_gcm_context_data *enc_ctx = NULL;
     isal_gcm_context_data *dec_ctx = NULL;
 #else
@@ -232,10 +241,6 @@ protected:
     std::string tls_key;
     std::string osd_tls_ca;
     std::string client_tls_ca;
-    std::string test_osd_aes_key; // FIXME Insecure, only for PoC tests
-#ifdef WITH_ISAL_CRYPTO
-    isal_gcm_key_data test_osd_aes_key_isal;
-#endif
 
 #ifdef WITH_RDMA
     bool use_rdma = true;
@@ -259,10 +264,14 @@ protected:
     X509 *client_tls_ca_obj = NULL;
     std::string tls_cn;
 
+    bool gcm_enabled = false;
+    msgr_handshake_ctx_i *hs_ctx = NULL;
+
     void init_tls();
     void destroy_tls();
     void init_tls_client(osd_client_t *cl);
     bool do_tls_handshake(osd_client_t *cl, bool from_recv = false);
+    bool derive_aes_keys(osd_client_t *cl, bool update_my, bool update_peer);
 
     std::vector<msgr_iothread_t*> iothreads;
     std::vector<uint64_t> read_ready_clients;

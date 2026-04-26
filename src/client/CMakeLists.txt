@@ -11,6 +11,7 @@ add_library(vitastor_common STATIC
 	osd_ops.cpp
 	pg_states.cpp
 	msgr_encrypt.cpp
+	msgr_handshake.cpp
 	../util/allocator.cpp
 	../util/addr_util.cpp
 	../util/timerfd_manager.cpp

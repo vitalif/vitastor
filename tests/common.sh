@@ -27,7 +27,7 @@ ETCD_COUNT=${ETCD_COUNT:-1}
 ANTIETCD=${ANTIETCD}
 USE_RAMDISK=${USE_RAMDISK}
 ETCD_SCHEME=${ETCD_SCHEME:-http}
-OSD_TLS=${OSD_TLS}
+OSD_TLS=${OSD_TLS:-1}
 
 RAMDISK=/run/user/$(id -u)
 findmnt $RAMDISK >/dev/null || (sudo mkdir -p $RAMDISK && sudo mount -t tmpfs tmpfs $RAMDISK)
@@ -142,7 +142,6 @@ if [[ "$OSD_TLS" = "1" ]]; then
     VITASTOR_CFG="$VITASTOR_CFG"',"tls_cert":"'$(pwd)'/testdata/cli.crt"'
     VITASTOR_CFG="$VITASTOR_CFG"',"tls_key":"'$(pwd)'/testdata/cli.key"'
 fi
-VITASTOR_CFG="$VITASTOR_CFG"',"test_osd_aes_key":"'$(openssl rand -hex 32)'"'
 echo "{$VITASTOR_CFG}" > ./testdata/vitastor.conf
 VITASTOR_CFG=./testdata/vitastor.conf
 VITASTOR_CLI="build/src/cmd/vitastor-cli --config_path $VITASTOR_CFG"

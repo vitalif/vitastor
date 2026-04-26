@@ -112,7 +112,7 @@ public:
 
     bool flush_ssl()
     {
-        if (!cl->ssl_handshake_done)
+        if (!cl->handshake_done)
         {
             if (!msgr->do_tls_handshake(cl))
                 return false;
@@ -203,12 +203,12 @@ public:
         }
         else
         {
-            if (!cl->ssl_handshake_done)
+            if (!cl->handshake_done)
             {
                 if (!flush_ssl())
                     return false;
             }
-            if (cl->ssl_handshake_done)
+            if (cl->handshake_done)
             {
                 if (!write_to_ssl(cl, src, src_len, flags, from))
                     return false;
@@ -283,16 +283,21 @@ public:
 #endif
             }
         }
-        uint8_t iv[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+        if (cl->my_iv_ctr >= AES_256_GCM_MAX_IV_CTR)
+        {
+            // Rotate key every 2^32 messages
+            bool ok = msgr->derive_aes_keys(cl, true, false);
+            assert(ok);
+        }
 #ifdef WITH_ISAL_CRYPTO
-        int r = isal_aes_gcm_init_256(&msgr->test_osd_aes_key_isal, cl->enc_ctx, iv, NULL, 0);
+        int r = isal_aes_gcm_init_256(&cl->my_key_isal, cl->enc_ctx, cl->my_key.data() + AES_256_GCM_KEY_SIZE, NULL, 0);
         if (r != 0)
         {
             fprintf(stderr, "isal_aes_gcm_init_256 error %d\n", r);
             abort();
         }
 #else
-        int r = EVP_EncryptInit_ex(cl->enc_ctx, NULL, NULL, (uint8_t*)msgr->test_osd_aes_key.data(), iv);
+        int r = EVP_EncryptInit_ex(cl->enc_ctx, NULL, NULL, (uint8_t*)cl->my_key.data(), cl->my_key.data() + AES_256_GCM_KEY_SIZE);
         if (r != 1)
         {
             fprintf(stderr, "EncryptInit error: ");
@@ -300,6 +305,9 @@ public:
             abort();
         }
 #endif
+        // Increase IV
+        cl->my_iv_ctr++;
+        (*(uint64_t*)(cl->my_key.data() + AES_256_GCM_KEY_SIZE))++;
     }
 
     static void free_ctx(osd_messenger_t* msgr, osd_client_t *cl)
@@ -353,7 +361,7 @@ public:
             if (!n)
                 return false;
 #ifdef WITH_ISAL_CRYPTO
-            int r = isal_aes_gcm_enc_256_update(&msgr->test_osd_aes_key_isal, cl->enc_ctx, curbuf+done, src+from, n);
+            int r = isal_aes_gcm_enc_256_update(&cl->my_key_isal, cl->enc_ctx, curbuf+done, src+from, n);
             assert(!r);
 #else
             int actual_out;
@@ -380,7 +388,7 @@ public:
     static void write_tag_to(osd_messenger_t *msgr, osd_client_t *cl, uint8_t *dst)
     {
 #ifdef WITH_ISAL_CRYPTO
-        int r = isal_aes_gcm_enc_256_finalize(&msgr->test_osd_aes_key_isal, cl->enc_ctx, dst, 16);
+        int r = isal_aes_gcm_enc_256_finalize(&cl->my_key_isal, cl->enc_ctx, dst, 16);
         assert(!r);
 #else
         int actual_out = 0;
@@ -444,7 +452,33 @@ class get_op_writer_t: public msgr_op_writer_t
     size_t enc_size;
     size_t done_enc;
 
-    void ssl_extend_buf(size_t more = 0)
+    void copy_ssl()
+    {
+        size_t n = 0;
+        do
+        {
+            ssl_extend_buf(cl);
+            int r = BIO_read(cl->read_from_ssl, cl->ssl_out_buf+cl->ssl_out_buf_size, cl->ssl_out_buf_cap-cl->ssl_out_buf_size);
+            if (r > 0)
+                n += r;
+        } while (cl->ssl_out_buf_size+n >= cl->ssl_out_buf_cap);
+        cl->ssl_more_to_buffer = false;
+        if (n > 0)
+        {
+            send_out_buf(cl, n);
+            done += n;
+        }
+    }
+
+public:
+    constexpr static bool is_ssl = true;
+
+    get_op_writer_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t*, size_t):
+        msgr(msgr), cl(cl), from(cl->write_op_pos), done(0), enc_size(0), done_enc(0)
+    {
+    }
+
+    static void ssl_extend_buf(osd_client_t *cl, size_t more = 0)
     {
         size_t min_cap = cl->ssl_out_buf_size*2;
         if (min_cap < cl->ssl_out_buf_size+more)
@@ -465,7 +499,7 @@ class get_op_writer_t: public msgr_op_writer_t
         }
     }
 
-    void send_out_buf(size_t n)
+    static void send_out_buf(osd_client_t *cl, size_t n)
     {
         if (cl->send_list.size() > 0)
         {
@@ -478,31 +512,7 @@ class get_op_writer_t: public msgr_op_writer_t
             }
         }
         cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+cl->ssl_out_buf_size, .iov_len = n });
-        done += n;
         cl->ssl_out_buf_size += n;
-    }
-
-    void copy_ssl()
-    {
-        size_t n = 0;
-        do
-        {
-            ssl_extend_buf();
-            int r = BIO_read(cl->read_from_ssl, cl->ssl_out_buf+cl->ssl_out_buf_size, cl->ssl_out_buf_cap-cl->ssl_out_buf_size);
-            if (r > 0)
-                n += r;
-        } while (cl->ssl_out_buf_size+n >= cl->ssl_out_buf_cap);
-        cl->ssl_more_to_buffer = false;
-        if (n > 0)
-            send_out_buf(n);
-    }
-
-public:
-    constexpr static bool is_ssl = true;
-
-    get_op_writer_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t*, size_t):
-        msgr(msgr), cl(cl), from(cl->write_op_pos), done(0), enc_size(0), done_enc(0)
-    {
     }
 
     void reset()
@@ -518,7 +528,7 @@ public:
 
     bool flush_ssl()
     {
-        if (cl->ssl_cli && !cl->ssl_handshake_done)
+        if (cl->ssl_cli && !cl->handshake_done)
         {
             if (!msgr->do_tls_handshake(cl))
                 return false;
@@ -543,12 +553,12 @@ public:
         {
             if (cl->ssl_cli)
             {
-                if (!cl->ssl_handshake_done)
+                if (!cl->handshake_done)
                 {
                     if (!flush_ssl())
                         return false;
                 }
-                if (cl->ssl_handshake_done)
+                if (cl->handshake_done)
                 {
                     if (!ssl_op_writer_t::write_to_ssl(cl, src, src_len, flags, from))
                         return false;
@@ -560,13 +570,13 @@ public:
                 from = 0;
                 return true;
             }
-            else if (cl->enc_ctx)
+            if (cl->gcm_enabled)
             {
                 // Encrypt data to client's temporary output buffer (all at once)
                 size_t n = src_len-from;
-                ssl_extend_buf(n);
+                ssl_extend_buf(cl, n);
 #ifdef WITH_ISAL_CRYPTO
-                int r = isal_aes_gcm_enc_256_update(&msgr->test_osd_aes_key_isal, cl->enc_ctx, cl->ssl_out_buf+cl->ssl_out_buf_size, src+from, n);
+                int r = isal_aes_gcm_enc_256_update(&cl->my_key_isal, cl->enc_ctx, cl->ssl_out_buf+cl->ssl_out_buf_size, src+from, n);
                 assert(!r);
 #else
                 int actual_out;
@@ -580,7 +590,8 @@ public:
 #endif
                 if (cl->write_csum_state && !(flags & WR_NO_CSUM))
                     XXH3_64bits_update(cl->write_csum_state, src+from, n);
-                send_out_buf(n);
+                send_out_buf(cl, n);
+                done += n;
                 cl->write_op_pos += n;
                 from += n;
                 if (from < src_len)
@@ -635,9 +646,10 @@ public:
             if (cl->send_list.size() >= IOV_MAX)
                 return false;
             // Tag is 16 bytes
-            ssl_extend_buf(16);
+            ssl_extend_buf(cl, 16);
             gcm_op_writer_t::write_tag_to(msgr, cl, cl->ssl_out_buf+cl->ssl_out_buf_size);
-            send_out_buf(16);
+            send_out_buf(cl, 16);
+            done += 16;
             gcm_op_writer_t::free_ctx(msgr, cl);
         }
         return true;
@@ -720,7 +732,28 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
         return false;
     }
     assert(cl->peer_state != PEER_RDMA);
-    copy_ops_to_with<get_op_writer_t>(cl, NULL, 0);
+    if (cl->hs)
+    {
+        // Send handshake message
+        if (cl->hs->get_out().size())
+        {
+            get_op_writer_t::ssl_extend_buf(cl, cl->hs->get_out().size());
+            memcpy(cl->ssl_out_buf+cl->ssl_out_buf_size, cl->hs->get_out().data(), cl->hs->get_out().size());
+            get_op_writer_t::send_out_buf(cl, cl->hs->get_out().size());
+            cl->hs->get_out().clear();
+        }
+        if (!cl->hs->get_out().size() && cl->hs->done())
+        {
+            delete cl->hs;
+            cl->hs = NULL;
+            goto copy_ops;
+        }
+    }
+    else
+    {
+copy_ops:
+        copy_ops_to_with<get_op_writer_t>(cl, NULL, 0);
+    }
     if (cl->io_error)
     {
         stop_client(cl->client_id);
@@ -796,6 +829,24 @@ size_t osd_messenger_t::copy_ops_to(osd_client_t *cl, uint8_t *dst, size_t dst_l
     }
     if (cl->gcm_enabled)
     {
+        if (cl->hs)
+        {
+            // Send handshake message
+            size_t n = 0;
+            if (cl->hs->get_out().size())
+            {
+                n = cl->hs->get_out().size() < dst_len ? cl->hs->get_out().size() : dst_len;
+                memcpy(dst, cl->hs->get_out().data(), n);
+                cl->hs->get_out().erase(cl->hs->get_out().begin(), cl->hs->get_out().begin() + n);
+            }
+            if (!cl->hs->get_out().size() && cl->hs->done())
+            {
+                delete cl->hs;
+                cl->hs = NULL;
+                n += copy_ops_to_with<gcm_op_writer_t>(cl, dst+n, dst_len-n);
+            }
+            return n;
+        }
         return copy_ops_to_with<gcm_op_writer_t>(cl, dst, dst_len);
     }
     return copy_ops_to_with<copy_op_writer_t>(cl, dst, dst_len);
@@ -809,8 +860,8 @@ size_t osd_messenger_t::copy_ops_to_with(osd_client_t *cl, uint8_t *dst, size_t 
     {
         if (!cl->write_op)
         {
-            next_write_op(cl);
             wr.reset();
+            next_write_op(cl);
         }
         osd_op_t *op = cl->write_op;
         if (!op_write_to(cl, wr))
@@ -843,7 +894,10 @@ void osd_messenger_t::next_write_op(osd_client_t *cl)
     {
         if (!cl->write_csum_state)
             cl->write_csum_state = XXH3_createState();
-        XXH3_64bits_reset(cl->write_csum_state);
+        if (cl->my_key.size() == AES_256_GCM_KEY_SIZE + AES_256_GCM_IV_SIZE + XXH_SECRET_DEFAULT_SIZE)
+            XXH3_64bits_reset_withSecret(cl->write_csum_state, cl->my_key.data() + AES_256_GCM_KEY_SIZE + AES_256_GCM_IV_SIZE, XXH_SECRET_DEFAULT_SIZE);
+        else
+            XXH3_64bits_reset(cl->write_csum_state);
     }
 }
 

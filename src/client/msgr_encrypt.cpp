@@ -486,6 +486,43 @@ void osd_messenger_t::op_encrypt_free(osd_client_t* cl)
     }
 }
 
+bool osd_messenger_t::derive_aes_keys(osd_client_t *cl, bool update_my, bool update_peer)
+{
+    if (!cl->hs_result.shared_secret.size())
+    {
+        cl->hs_result = cl->hs->get_result();
+    }
+    std::vector<uint8_t> old_my = cl->my_key, old_peer = cl->peer_key;
+    // Both keys include AES key and iv + xxhash3 secret
+    const auto len = AES_256_GCM_KEY_SIZE + AES_256_GCM_IV_SIZE + XXH_SECRET_DEFAULT_SIZE;
+    cl->my_key.resize(len);
+    cl->peer_key.resize(len);
+    bool ok = true;
+    if (update_my || !old_my.size())
+    {
+        ok = ok && hs_ctx->derive_kdf(cl->hs_result.shared_secret.data(), cl->hs_result.shared_secret.size(),
+            old_my.size() ? old_my.data() : NULL, old_my.size(),
+            cl->is_incoming ? "server key" : "client key", cl->my_key.data(), len);
+#ifdef WITH_ISAL_CRYPTO
+        if (ok)
+            isal_aes_gcm_pre_256(cl->my_key.data(), &cl->my_key_isal);
+#endif
+        cl->my_iv_ctr = 0;
+    }
+    if (update_peer || !old_peer.size())
+    {
+        ok = ok && hs_ctx->derive_kdf(cl->hs_result.shared_secret.data(), cl->hs_result.shared_secret.size(),
+            old_peer.size() ? old_peer.data() : NULL, old_peer.size(),
+            !cl->is_incoming ? "server key" : "client key", cl->peer_key.data(), len);
+#ifdef WITH_ISAL_CRYPTO
+        if (ok)
+            isal_aes_gcm_pre_256(cl->peer_key.data(), &cl->peer_key_isal);
+#endif
+        cl->peer_iv_ctr = 0;
+    }
+    return ok;
+}
+
 void osd_messenger_t::init_tls()
 {
     if (!tls_cert.empty() || !tls_key.empty() || !osd_tls_ca.empty() || !client_tls_ca.empty())
@@ -499,7 +536,7 @@ void osd_messenger_t::init_tls()
                 fprintf(stderr, "Vitastor client TLS requires tls_cert, tls_key and osd_tls_ca\n");
             exit(1);
         }
-        else
+        else if (!gcm_enabled)
         {
             ssl_ctx = SSL_CTX_new(TLS_method());
             if (!ssl_ctx)
@@ -531,12 +568,37 @@ init_err:
                 goto init_err;
             }
         }
+        else
+        {
+#ifndef __MOCK__
+            hs_ctx = msgr_handshake_ctx_i::create_ctx();
+            if (!hs_ctx->init(tls_cert, tls_key, osd_tls_ca, client_tls_ca))
+            {
+                fprintf(stderr, "Error: %s\n", hs_ctx->get_error().c_str());
+                exit(1);
+            }
+#endif
+        }
     }
 }
 
 void osd_messenger_t::init_tls_client(osd_client_t *cl)
 {
-    if (!tls_cert.empty())
+    if (gcm_enabled)
+    {
+        cl->gcm_enabled = true;
+        cl->hs = hs_ctx->create();
+        cl->hs->init(cl->is_incoming);
+        if (cl->hs->get_out().size())
+        {
+            if (cl->write_state == 0)
+            {
+                cl->write_state = CL_WRITE_READY;
+                write_ready_clients.push_back(cl->client_id);
+            }
+        }
+    }
+    else if (!tls_cert.empty())
     {
         cl->write_to_ssl = BIO_new(BIO_s_mem());
         cl->read_from_ssl = BIO_new(BIO_s_mem());
@@ -562,12 +624,12 @@ void osd_messenger_t::init_tls_client(osd_client_t *cl)
 
 bool osd_messenger_t::do_tls_handshake(osd_client_t *cl, bool from_recv)
 {
-    if (cl->ssl_handshake_done)
+    if (cl->handshake_done)
         return true;
     int r = SSL_do_handshake(cl->ssl_cli);
     if (r > 0)
     {
-        cl->ssl_handshake_done = true;
+        cl->handshake_done = true;
     }
     else
     {
@@ -622,5 +684,10 @@ void osd_messenger_t::destroy_tls()
     {
         SSL_CTX_free(ssl_ctx);
         ssl_ctx = NULL;
+    }
+    if (hs_ctx)
+    {
+        delete hs_ctx;
+        hs_ctx = NULL;
     }
 }

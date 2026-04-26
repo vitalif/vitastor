@@ -558,12 +558,12 @@ std::string urldecode(const std::string & orig)
     return res;
 }
 
-size_t fromhexstr(const std::string & from, size_t bytes, uint8_t *to)
+size_t fromhexstr(const char *from, size_t from_len, uint8_t *to, size_t to_len)
 {
-    if (bytes > from.size()/2)
-        bytes = from.size()/2;
+    if (to_len > from_len/2)
+        to_len = from_len/2;
     size_t i = 0;
-    while (i < bytes)
+    while (i < to_len)
     {
         uint8_t x = fromhexchar(from[2*i], 16);
         uint8_t y = fromhexchar(from[2*i+1], 16);
@@ -573,6 +573,11 @@ size_t fromhexstr(const std::string & from, size_t bytes, uint8_t *to)
         i++;
     }
     return i;
+}
+
+size_t fromhexstr(const std::string & from, size_t bytes, uint8_t *to)
+{
+    return fromhexstr(from.data(), from.size(), to, bytes);
 }
 
 std::string tohexstr(const uint8_t *from, size_t bytes)

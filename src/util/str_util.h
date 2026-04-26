@@ -37,6 +37,7 @@ std::string format_datetime(uint64_t unixtime);
 bool is_zero(void *buf, size_t size);
 bool memcheck(uint8_t *buf, uint8_t byte, size_t len);
 std::string urldecode(const std::string & orig);
+size_t fromhexstr(const char *from, size_t from_len, uint8_t *to, size_t to_len);
 size_t fromhexstr(const std::string & from, size_t bytes, uint8_t *to);
 std::string tohexstr(const uint8_t *from, size_t bytes);
 bool ishexstr(const std::string & str);

@@ -257,4 +257,14 @@ osd_client_t::~osd_client_t()
         free(ssl_out_buf);
         ssl_out_buf = NULL;
     }
+    if (hs)
+    {
+        delete hs;
+        hs = NULL;
+    }
+    if (hs_result.peer_cert)
+    {
+        X509_free(hs_result.peer_cert);
+        hs_result.peer_cert = NULL;
+    }
 }

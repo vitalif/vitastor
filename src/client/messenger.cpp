@@ -240,6 +240,7 @@ void osd_messenger_t::parse_config(const json11::Json & config)
         this->use_proto_checksums = config["proto_checksums"].string_value() == "full" ? MSGR_CSUM_FULL : MSGR_CSUM_PAYLOAD;
     else
         this->use_proto_checksums = 0;
+    gcm_enabled = true;
     if (!osd_num)
     {
         tls_cert = config["tls_cert"].string_value();
@@ -252,15 +253,6 @@ void osd_messenger_t::parse_config(const json11::Json & config)
         tls_key = config["osd_tls_key"].string_value();
         osd_tls_ca = config["osd_tls_ca"].string_value();
         client_tls_ca = config["client_tls_ca"].string_value();
-    }
-    test_osd_aes_key.resize(32);
-    if (fromhexstr(config["test_osd_aes_key"].string_value(), 32, (uint8_t*)test_osd_aes_key.data()) != 32)
-        test_osd_aes_key.clear();
-    else
-    {
-#ifdef WITH_ISAL_CRYPTO
-        isal_aes_gcm_pre_256(test_osd_aes_key.data(), &test_osd_aes_key_isal);
-#endif
     }
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();

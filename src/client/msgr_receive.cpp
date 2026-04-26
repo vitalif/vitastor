@@ -202,7 +202,7 @@ public:
             assert(dst != NULL);
 buffer_again:
             buffer_encrypted();
-            if (!cl->ssl_handshake_done)
+            if (!cl->handshake_done)
             {
                 if (!msgr->do_tls_handshake(cl, true))
                     return false;
@@ -299,16 +299,21 @@ public:
 #endif
             }
         }
-        uint8_t iv[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 };
+        if (cl->peer_iv_ctr >= AES_256_GCM_MAX_IV_CTR)
+        {
+            // Rotate key every 2^32 messages
+            bool ok = msgr->derive_aes_keys(cl, false, true);
+            assert(ok);
+        }
 #ifdef WITH_ISAL_CRYPTO
-        int r = isal_aes_gcm_init_256(&msgr->test_osd_aes_key_isal, cl->dec_ctx, iv, NULL, 0);
+        int r = isal_aes_gcm_init_256(&cl->peer_key_isal, cl->dec_ctx, cl->peer_key.data() + AES_256_GCM_KEY_SIZE, NULL, 0);
         if (r != 0)
         {
             fprintf(stderr, "isal_aes_gcm_init_256 error %d\n", r);
             abort();
         }
 #else
-        int r = EVP_DecryptInit_ex(cl->dec_ctx, NULL, NULL, (uint8_t*)msgr->test_osd_aes_key.data(), iv);
+        int r = EVP_DecryptInit_ex(cl->dec_ctx, NULL, NULL, cl->peer_key.data(), cl->peer_key.data() + AES_256_GCM_KEY_SIZE);
         if (r != 1)
         {
             fprintf(stderr, "DecryptInit error: ");
@@ -316,6 +321,9 @@ public:
             abort();
         }
 #endif
+        // Increase IV
+        cl->peer_iv_ctr++;
+        (*(uint64_t*)(cl->peer_key.data() + AES_256_GCM_KEY_SIZE))++;
     }
 
     bool read(uint8_t *dst, size_t dst_len, int flags) override
@@ -365,7 +373,7 @@ public:
             if (n > bufsize-done)
                 n = bufsize-done;
 #ifdef WITH_ISAL_CRYPTO
-            int r = isal_aes_gcm_dec_256_update(&msgr->test_osd_aes_key_isal, cl->dec_ctx, dst+from, curbuf+done, n);
+            int r = isal_aes_gcm_dec_256_update(&cl->peer_key_isal, cl->dec_ctx, dst+from, curbuf+done, n);
             assert(!r);
 #else
             int actual_out;
@@ -405,7 +413,7 @@ public:
         }
 #ifdef WITH_ISAL_CRYPTO
         uint8_t calc_tag[16];
-        int r = isal_aes_gcm_dec_256_finalize(&msgr->test_osd_aes_key_isal, cl->dec_ctx, calc_tag, 16);
+        int r = isal_aes_gcm_dec_256_finalize(&cl->peer_key_isal, cl->dec_ctx, calc_tag, 16);
         assert(r == 0);
         if (cl->dec_tag_size > 0)
         {
@@ -752,6 +760,47 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size
     }
     else if (cl->gcm_enabled)
     {
+        if (cl->hs)
+        {
+            ssize_t done = cl->hs->handle(curbuf, bufsize);
+            if (done < 0)
+            {
+                fprintf(stderr, "Client %ju handshake failed: %s\n", cl->client_id, cl->hs->get_error().c_str());
+                stop_client(cl->client_id);
+                return false;
+            }
+            if (cl->hs->done() && !derive_aes_keys(cl, true, true))
+            {
+                stop_client(cl->client_id);
+                return false;
+            }
+            curbuf += done;
+            bufsize -= done;
+            if (cl->hs->get_out().size())
+            {
+                if (cl->write_state == 0)
+                {
+                    cl->write_state = CL_WRITE_READY;
+                    write_ready_clients.push_back(cl->client_id);
+                }
+            }
+            if (cl->hs->done() && !cl->hs->get_out().size())
+            {
+                // Delete hs when done and nothing to send
+                delete cl->hs;
+                cl->hs = NULL;
+            }
+            else
+            {
+                if (done < bufsize)
+                {
+                    fprintf(stderr, "Client %ju extra data after handshake\n", cl->client_id);
+                    stop_client(cl->client_id);
+                    return false;
+                }
+                return true;
+            }
+        }
         return handle_buffer_with<gcm_op_reader_t>(cl, curbuf, bufsize);
     }
     return handle_buffer_with<copy_op_reader_t>(cl, curbuf, bufsize);
@@ -782,7 +831,10 @@ bool osd_messenger_t::handle_buffer_with(osd_client_t *cl, uint8_t *curbuf, size
         {
             if (!cl->read_csum_state)
                 cl->read_csum_state = XXH3_createState();
-            XXH3_64bits_reset(cl->read_csum_state);
+            if (cl->peer_key.size() == AES_256_GCM_KEY_SIZE + AES_256_GCM_IV_SIZE + XXH_SECRET_DEFAULT_SIZE)
+                XXH3_64bits_reset_withSecret(cl->read_csum_state, cl->peer_key.data() + AES_256_GCM_KEY_SIZE + AES_256_GCM_IV_SIZE, XXH_SECRET_DEFAULT_SIZE);
+            else
+                XXH3_64bits_reset(cl->read_csum_state);
         }
         if (!op_read_from(cl, rdr) || !handle_finished_op(cl))
         {
