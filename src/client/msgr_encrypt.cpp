@@ -530,9 +530,9 @@ void osd_messenger_t::init_tls()
         if (tls_cert.empty() || tls_key.empty() || osd_tls_ca.empty() || osd_num && client_tls_ca.empty())
         {
             if (osd_num)
-                fprintf(stderr, "Vitastor OSD TLS requires osd_tls_cert, osd_tls_key, osd_tls_ca, client_tls_ca\n");
+                fprintf(stderr, "Vitastor transport encryption requires osd_cert, osd_pkey, osd_ca, client_ca options for OSDs\n");
             else
-                fprintf(stderr, "Vitastor client TLS requires tls_cert, tls_key and osd_tls_ca\n");
+                fprintf(stderr, "Vitastor transport encryption requires cert, pkey and osd_ca options\n");
             exit(1);
         }
         else

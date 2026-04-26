@@ -135,12 +135,12 @@ if [[ "$OSD_TLS" = "1" ]]; then
     openssl x509 -req -days 3650 -CA client_ca.crt -CAkey client_ca.key -CAcreateserial -in cli.csr -out cli.crt
     rm cli.csr
     cd $(dirname $0)/..
-    VITASTOR_CFG="$VITASTOR_CFG"',"osd_tls_cert":"'$(pwd)'/testdata/osd.crt"'
-    VITASTOR_CFG="$VITASTOR_CFG"',"osd_tls_key":"'$(pwd)'/testdata/osd.key"'
-    VITASTOR_CFG="$VITASTOR_CFG"',"osd_tls_ca":"'$(pwd)'/testdata/osd.crt"'
-    VITASTOR_CFG="$VITASTOR_CFG"',"client_tls_ca":"'$(pwd)'/testdata/client_ca.crt"'
-    VITASTOR_CFG="$VITASTOR_CFG"',"tls_cert":"'$(pwd)'/testdata/cli.crt"'
-    VITASTOR_CFG="$VITASTOR_CFG"',"tls_key":"'$(pwd)'/testdata/cli.key"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"osd_cert":"'$(pwd)'/testdata/osd.crt"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"osd_pkey":"'$(pwd)'/testdata/osd.key"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"osd_ca":"'$(pwd)'/testdata/osd.crt"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"client_ca":"'$(pwd)'/testdata/client_ca.crt"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"cert":"'$(pwd)'/testdata/cli.crt"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"pkey":"'$(pwd)'/testdata/cli.key"'
 fi
 echo "{$VITASTOR_CFG}" > ./testdata/vitastor.conf
 VITASTOR_CFG=./testdata/vitastor.conf

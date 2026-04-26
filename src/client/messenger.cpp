@@ -242,16 +242,16 @@ void osd_messenger_t::parse_config(const json11::Json & config)
         this->use_proto_checksums = 0;
     if (!osd_num)
     {
-        tls_cert = config["tls_cert"].string_value();
-        tls_key = config["tls_key"].string_value();
-        osd_tls_ca = config["osd_tls_ca"].string_value();
+        tls_cert = config["cert"].string_value();
+        tls_key = config["pkey"].string_value();
+        osd_tls_ca = config["osd_ca"].string_value();
     }
     else
     {
-        tls_cert = config["osd_tls_cert"].string_value();
-        tls_key = config["osd_tls_key"].string_value();
-        osd_tls_ca = config["osd_tls_ca"].string_value();
-        client_tls_ca = config["client_tls_ca"].string_value();
+        tls_cert = config["osd_cert"].string_value();
+        tls_key = config["osd_pkey"].string_value();
+        osd_tls_ca = config["osd_ca"].string_value();
+        client_tls_ca = config["client_ca"].string_value();
     }
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();
