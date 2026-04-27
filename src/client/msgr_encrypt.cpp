@@ -491,6 +491,10 @@ bool osd_messenger_t::derive_aes_keys(osd_client_t *cl, bool update_my, bool upd
     if (!cl->hs_result.shared_secret.size())
     {
         cl->hs_result = cl->hs->get_result();
+        if (handshake_hook)
+        {
+            handshake_hook(cl);
+        }
     }
     std::vector<uint8_t> old_my = cl->my_key, old_peer = cl->peer_key;
     // Both keys include AES key and iv + xxhash3 secret

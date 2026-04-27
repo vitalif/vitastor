@@ -8,6 +8,7 @@
 #include "etcd_state_client.h"
 #include "addr_util.h"
 #include "str_util.h"
+#include "json_util.h"
 
 etcd_state_client_t::~etcd_state_client_t()
 {
@@ -49,6 +50,46 @@ std::vector<std::string> etcd_state_client_t::get_addresses()
     auto addrs = etcd_local;
     addrs.insert(addrs.end(), etcd_addresses.begin(), etcd_addresses.end());
     return addrs;
+}
+
+std::shared_ptr<user_info_t> etcd_state_client_t::get_user(const std::string & username)
+{
+    auto user_it = user_info.find(username);
+    if (user_it != user_info.end())
+    {
+        return user_it->second;
+    }
+    auto inf = std::make_shared<user_info_t>();
+    inf->name = username;
+    return inf;
+}
+
+bool etcd_state_client_t::check_image_perm(const std::shared_ptr<user_info_t> & user_info, inode_t inode_num, bool write)
+{
+    if (user_info->type == user_type_t::ADMIN)
+    {
+        return true;
+    }
+    auto cache_it = user_info->perm_cache.find(inode_num);
+    if (cache_it != user_info->perm_cache.end() &&
+        cache_it->second.mod_revision == user_perm_cache_revision)
+    {
+        return write ? (cache_it->second.perm == user_perm_t::OWNER) : (cache_it->second.perm != user_perm_t::DENY);
+    }
+    auto inode_it = inode_config.find(inode_num);
+    if (inode_it == inode_config.end())
+    {
+        return false;
+    }
+    // FIXME Implement cache reset after reworking etcd interaction to not keep everything in memory
+    auto & perm_item = user_info->perm_cache[inode_num];
+    perm_item.mod_revision = user_perm_cache_revision;
+    perm_item.perm = (user_info->name == inode_it->second.owner || inode_it->second.owner_group != "" &&
+        user_info->groups.find(inode_it->second.owner_group) != user_info->groups.end()
+        ? user_perm_t::OWNER : (inode_it->second.reader_group != "" &&
+            user_info->groups.find(inode_it->second.reader_group) != user_info->groups.end()
+            ? user_perm_t::READER : user_perm_t::DENY));
+    return write ? (perm_item.perm == user_perm_t::OWNER) : (perm_item.perm != user_perm_t::DENY);
 }
 
 void etcd_state_client_t::add_etcd_url(std::string etcd_address)
@@ -130,17 +171,21 @@ void etcd_state_client_t::parse_config(const json11::Json & config)
     }
     if (this->osd_num)
     {
-        this->etcd_client_cert = config["osd_etcd_client_cert"].string_value();
-        this->etcd_client_key = config["osd_etcd_client_key"].string_value();
+        this->etcd_client_cert = config["osd_cert"].string_value();
+        this->etcd_client_key = config["osd_pkey"].string_value();
     }
     else
+    {
+        this->etcd_client_cert = config["cert"].string_value();
+        this->etcd_client_key = config["pkey"].string_value();
+    }
+    if (this->etcd_client_cert == "")
     {
         this->etcd_client_cert = config["etcd_client_cert"].string_value();
         this->etcd_client_key = config["etcd_client_key"].string_value();
     }
     this->etcd_ca = config["etcd_ca"].string_value();
     this->etcd_prefix = config["etcd_prefix"].string_value();
-    this->use_auth = config["use_auth"].bool_value();
     if (this->etcd_prefix == "")
     {
         this->etcd_prefix = "/vitastor";
@@ -843,6 +888,10 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 {
                     on_inode_change_hook(inode_num, true);
                 }
+                if (this->inode_config.find(inode_num) != this->inode_config.end())
+                {
+                    user_perm_cache_revision = kv.mod_revision;
+                }
                 this->inode_config.erase(inode_num);
             }
             else
@@ -858,13 +907,39 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         if (on_change_node_placement_hook)
             on_change_node_placement_hook();
     }
-    else if (use_auth && key.substr(0, etcd_prefix.length()+13) == etcd_prefix+"/config/user/")
+    else if (key.substr(0, etcd_prefix.length()+13) == etcd_prefix+"/config/user/")
     {
         // <etcd_prefix>/config/user/<username>
+        auto name = key.substr(etcd_prefix.length()+13);
+        auto & inf = user_info[name];
         if (!value.is_object())
-            user_info.erase(key.substr(etcd_prefix.length()+13));
+        {
+            if (inf)
+            {
+                inf->type = user_type_t::CLIENT;
+                inf->groups.clear();
+                inf->perm_cache.clear();
+            }
+            user_info.erase(name);
+        }
         else
-            user_info[key.substr(etcd_prefix.length()+13)] = value;
+        {
+            if (!inf)
+            {
+                inf = std::make_shared<user_info_t>();
+                inf->name = name;
+            }
+            inf->type = value["type"] == "admin" ? user_type_t::ADMIN :
+                (value["type"] == "mon" ? user_type_t::MON :
+                (value["type"] == "osd" ? user_type_t::OSD : user_type_t::CLIENT));
+            inf->groups.clear();
+            for (auto & group: value["groups"].array_items())
+            {
+                if (group.string_value() != "")
+                    inf->groups.insert(group.string_value());
+            }
+            inf->perm_cache.clear();
+        }
     }
 }
 
@@ -888,7 +963,12 @@ uint32_t etcd_state_client_t::parse_scheme(const std::string & scheme)
 
 void etcd_state_client_t::insert_inode_config(const inode_config_t & cfg)
 {
-    this->inode_config[cfg.num] = cfg;
+    auto & cfg_ref = this->inode_config[cfg.num];
+    if (cfg_ref.mod_revision != cfg.mod_revision)
+    {
+        user_perm_cache_revision = cfg.mod_revision;
+    }
+    cfg_ref = cfg;
     if (cfg.name != "")
     {
         this->inode_by_name[cfg.name] = cfg.num;

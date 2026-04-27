@@ -3,8 +3,6 @@
 
 #include "osd_primary.h"
 
-#define SELF_CLIENT 0
-
 void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oid)
 {
     pool_id_t pool_id = pg_id.pool_id;

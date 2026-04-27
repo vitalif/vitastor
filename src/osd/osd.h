@@ -29,6 +29,8 @@
 #define OSD_RECOVERING 0x10
 #define OSD_SCRUBBING 0x20
 
+#define SELF_CLIENT 0
+
 #define MAX_AUTOSYNC_INTERVAL 3600
 #define DEFAULT_AUTOSYNC_INTERVAL 5
 #define DEFAULT_AUTOSYNC_WRITES 128
@@ -159,6 +161,7 @@ class osd_t
     std::unique_ptr<etcd_state_client_t> st_cli;
     std::function<blockstore_i*(blockstore_config_t & config)> bs_factory;
     osd_messenger_t msgr;
+    bool use_auth = false;
     int etcd_failed_attempts = 0;
     std::string etcd_lease_id;
     json11::Json self_state;

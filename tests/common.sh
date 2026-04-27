@@ -141,6 +141,7 @@ if [[ "$OSD_TLS" = "1" ]]; then
     VITASTOR_CFG="$VITASTOR_CFG"',"client_ca":"'$(pwd)'/testdata/client_ca.crt"'
     VITASTOR_CFG="$VITASTOR_CFG"',"cert":"'$(pwd)'/testdata/cli.crt"'
     VITASTOR_CFG="$VITASTOR_CFG"',"pkey":"'$(pwd)'/testdata/cli.key"'
+    VITASTOR_CFG="$VITASTOR_CFG"',"use_auth":false'
 fi
 echo "{$VITASTOR_CFG}" > ./testdata/vitastor.conf
 VITASTOR_CFG=./testdata/vitastor.conf

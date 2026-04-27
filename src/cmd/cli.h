@@ -27,12 +27,7 @@ struct cli_result_t
     json11::Json data;
 };
 
-struct cli_user_t
-{
-    std::string name;
-    std::string type;
-    std::set<std::string> groups;
-};
+struct user_info_t;
 
 class cli_tool_t
 {
@@ -45,7 +40,7 @@ public:
     bool is_command_line = false;
     bool color = false;
 
-    std::unique_ptr<cli_user_t> user; // for http mode
+    std::shared_ptr<user_info_t> user; // for http mode
 
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;

@@ -9,8 +9,6 @@
 #include "str_util.h"
 #include "osd.h"
 
-#define SELF_CLIENT 0
-
 // Peering loop
 void osd_t::handle_peers()
 {

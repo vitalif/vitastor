@@ -9,6 +9,7 @@
 #include "json11/json11.hpp"
 #include "object_id.h"
 #include "timerfd_manager.h"
+#include "../util/robin_hood.h"
 
 #define ETCD_CONFIG_WATCH_ID 1
 #define ETCD_OSD_STATE_WATCH_ID 2
@@ -110,6 +111,32 @@ struct http_url_t
     std::string path;
 };
 
+enum class user_type_t
+{
+    CLIENT = 0,
+    ADMIN = 1,
+    MON = 2,
+    OSD = 3,
+};
+
+struct user_perm_t
+{
+    enum class perm_type_t: uint8_t;
+    constexpr static perm_type_t DENY = (perm_type_t)0;
+    constexpr static perm_type_t READER = (perm_type_t)1;
+    constexpr static perm_type_t OWNER = (perm_type_t)2;
+    uint64_t mod_revision = 0;
+    perm_type_t perm = DENY;
+};
+
+struct user_info_t
+{
+    std::string name;
+    user_type_t type;
+    robin_hood::unordered_flat_set<std::string> groups;
+    robin_hood::unordered_flat_map<inode_t, user_perm_t> perm_cache;
+};
+
 struct http_co_t;
 
 struct __attribute__((visibility("default"))) etcd_state_client_t
@@ -136,7 +163,6 @@ public:
     int etcd_slow_timeout = 5000;
     int etcd_min_reload_interval = 1000;
     bool infinite_start = true;
-    bool use_auth = false;
     uint64_t global_block_size = DEFAULT_BLOCK_SIZE;
     uint32_t global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     uint32_t global_immediate_commit = IMMEDIATE_NONE;
@@ -156,7 +182,8 @@ public:
     std::map<osd_num_t, json11::Json> peer_states;
     std::map<inode_t, inode_config_t> inode_config;
     std::map<std::string, inode_t> inode_by_name;
-    std::map<std::string, json11::Json> user_info;
+    robin_hood::unordered_flat_map<std::string, std::shared_ptr<user_info_t>> user_info;
+    uint64_t user_perm_cache_revision = 0;
     json11::Json node_placement;
 
     std::function<void(std::map<std::string, etcd_kv_t> &)> on_change_hook;
@@ -178,6 +205,8 @@ public:
     inode_config_t deserialize_inode_cfg(uint64_t inode_num, json11::Json value, uint64_t mod_revision);
     etcd_kv_t parse_etcd_kv(const json11::Json & kv_json);
     std::vector<std::string> get_addresses();
+    std::shared_ptr<user_info_t> get_user(const std::string & username);
+    bool check_image_perm(const std::shared_ptr<user_info_t> & user_info, inode_t inode_num, bool write);
     virtual void etcd_call_oneshot(const std::string & etcd_address, const std::string & api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback) = 0;
     virtual void etcd_call(const std::string & api, json11::Json payload, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback) = 0;
     void etcd_txn(json11::Json txn, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback);

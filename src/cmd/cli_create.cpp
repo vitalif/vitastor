@@ -121,7 +121,7 @@ struct image_creator_t
 
     bool check_pool_permission()
     {
-        if (!parent->user || parent->user->type == "admin")
+        if (!parent->user || parent->user->type == user_type_t::ADMIN)
         {
             return true;
         }

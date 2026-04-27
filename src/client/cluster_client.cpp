@@ -51,7 +51,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         msgr.stop_client(op->client_id);
         delete op;
     };
-    msgr.parse_config(config);
+    msgr.parse_config(config, true);
 
     st_cli = std::move(st_cli_ptr);
     st_cli->on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
@@ -481,7 +481,7 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
     }
     // vault
     vault_parse_config();
-    msgr.parse_config(config);
+    msgr.parse_config(config, false);
     st_cli->parse_config(config);
     st_cli->load_pgs();
 }
@@ -1621,6 +1621,9 @@ static inline void mem_or(void *res, const void *r2, unsigned int len)
     }
 }
 
+// Error priority: others > EPERM > EIO > ENOSPC > ETIMEDOUT > EPIPE
+#define ERR_PRIO(e) (((e) == -EPERM ? 5 : ((e) == -EIO ? 4 : ((e) == -ENOSPC ? 3 : ((e) == -ETIMEDOUT ? 2 : ((e) == -EPIPE ? 1 : (!(e) ? 0 : 10)))))))
+
 void cluster_client_t::handle_op_part(cluster_op_part_t *part)
 {
     cluster_op_t *op = part->parent;
@@ -1629,15 +1632,10 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
     {
         // Operation failed, retry
         part->flags |= PART_ERROR;
-        if (!op->retval || op->retval == -EPIPE ||
-            part->op.reply.hdr.retval == -ENOSPC && op->retval == -ETIMEDOUT ||
-            part->op.reply.hdr.retval == -EIO)
-        {
-            // Error priority: EIO > ENOSPC > ETIMEDOUT > EPIPE
+        if (ERR_PRIO(part->op.reply.hdr.retval) > ERR_PRIO(op->retval))
             op->retval = part->op.reply.hdr.retval;
-        }
         uint64_t stop_client_id = 0;
-        if (op->retval != -EINTR && op->retval != -EIO && op->retval != -ENOSPC)
+        if (op->retval != -EINTR && op->retval != -EIO && op->retval != -ENOSPC && op->retval != -EPERM)
         {
             stop_client_id = part->op.client_id;
             if (op->retval != -EPIPE || log_level > 0)

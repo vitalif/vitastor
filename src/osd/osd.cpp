@@ -15,6 +15,7 @@
 #include "http_client.h"
 #include "str_util.h"
 #include "json_util.h"
+#include "openssl_util.h"
 
 osd_t::osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd,
     std::unique_ptr<etcd_state_client_t> st_cli_ptr, std::function<blockstore_i*(blockstore_config_t & config)> bs_factory)
@@ -71,6 +72,11 @@ void osd_t::start()
     msgr.repeer_pgs = [this](osd_num_t peer_osd) { repeer_pgs(peer_osd); };
     msgr.break_pg_locks = [this](osd_num_t peer_osd) { break_pg_locks(peer_osd); };
     msgr.check_config_hook = [this](osd_client_t *cl, json11::Json conf) { return check_peer_config(cl, conf); };
+    msgr.handshake_hook = [this](osd_client_t *cl)
+    {
+        if (!cl->hs_result.peer_is_osd)
+            cl->user_info = st_cli->get_user(openssl_get_cn(cl->hs_result.peer_cert));
+    };
     msgr.init();
 
     init_cluster();
@@ -182,9 +188,13 @@ void osd_t::parse_config(bool init)
         bs->parse_config(bs_cfg);
     }
     st_cli->parse_config(config);
-    msgr.parse_config(config);
+    msgr.parse_config(config, init);
     if (init)
     {
+        // use_auth is enabled by default when encryption is enabled
+        use_auth = (config["use_auth"].is_null()
+            ? msgr.is_encryption_enabled()
+            : json_is_true(config["use_auth"]));
         // Vital Blockstore parameters
         bs_block_size = config["block_size"].uint64_value();
         if (!bs_block_size)

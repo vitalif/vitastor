@@ -3,8 +3,6 @@
 
 #include "osd_primary.h"
 
-#define SELF_CLIENT 0
-
 void osd_t::autosync()
 {
     if (immediate_commit != IMMEDIATE_ALL && !autosync_op)

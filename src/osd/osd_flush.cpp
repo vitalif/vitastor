@@ -4,7 +4,6 @@
 #include "osd.h"
 
 #define FLUSH_BATCH 512
-#define SELF_CLIENT 0
 
 static_assert(FLUSH_BATCH <= MAX_SIMPLE_PAYLOAD_SIZE / sizeof(obj_ver_id));
 

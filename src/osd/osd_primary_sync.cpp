@@ -8,6 +8,16 @@ void osd_t::continue_primary_sync(osd_op_t *cur_op)
 {
     if (!cur_op->op_data)
     {
+        if (use_auth && cur_op->client_id != SELF_CLIENT)
+        {
+            osd_client_t *cl = msgr.clients.at(cur_op->client_id);
+            if (cl->hs_result.peer_is_osd)
+            {
+                // OSDs are not allowed to execute "primary" operations
+                finish_op(cur_op, -EPERM);
+                return;
+            }
+        }
         cur_op->op_data = (osd_primary_op_data_t*)calloc_or_die(1, sizeof(osd_primary_op_data_t));
     }
     osd_primary_op_data_t *op_data = cur_op->op_data;

@@ -27,7 +27,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
     cl->sent_ops[cur_op->req.hdr.id] = cur_op;
 }
 
-void osd_messenger_t::parse_config(const json11::Json & config)
+void osd_messenger_t::parse_config(const json11::Json & config, bool init)
 {
 }
 
@@ -78,6 +78,11 @@ bool osd_messenger_t::is_rdma_enabled()
     return false;
 }
 #endif
+
+bool osd_messenger_t::is_encryption_enabled()
+{
+    return false;
+}
 
 #ifdef WITH_RDMACM
 rdma_cm_id *osd_messenger_t::rdmacm_listen(const std::string & bind_address, int rdmacm_port, int *bound_port, int log_level)

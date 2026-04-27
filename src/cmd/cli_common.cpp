@@ -9,7 +9,7 @@
 bool cli_tool_t::check_image_perm(const inode_config_t & cfg, bool write)
 {
     return !user ||
-        user->type == "admin" ||
+        user->type == user_type_t::ADMIN ||
         user->name == cfg.owner ||
         cfg.owner_group != "" && user->groups.find(cfg.owner_group) != user->groups.end() ||
         !write && cfg.reader_group != "" && user->groups.find(cfg.reader_group) != user->groups.end();

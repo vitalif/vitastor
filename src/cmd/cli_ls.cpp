@@ -147,7 +147,7 @@ resume_1:
             inode_t inode_num = INODE_WITH_POOL(pool_id, only_inode_num);
             uint64_t used_size = kv.value["raw_used"].uint64_value();
             auto stat_it = stats.find(inode_num);
-            if (parent->user && parent->user->type != "admin" && stat_it == stats.end())
+            if (parent->user && parent->user->type != user_type_t::ADMIN && stat_it == stats.end())
             {
                 continue;
             }

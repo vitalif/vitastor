@@ -1,9 +1,14 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#include "json11/json11.hpp"
+
 #include "osd.h"
 
-#include "json11/json11.hpp"
+#ifdef WITH_RDMA
+#include "msgr_rdma.h"
+#endif
+#include "openssl_util.h"
 
 void osd_t::secondary_op_callback(osd_op_t *op)
 {
@@ -109,6 +114,31 @@ bool osd_t::sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid, uint3
 
 void osd_t::exec_secondary_real(osd_op_t *cur_op)
 {
+    osd_client_t *cl = msgr.clients.at(cur_op->client_id);
+    if (use_auth && !cl->hs_result.peer_is_osd)
+    {
+        // Non-OSDs are not allowed to execute "secondary" operations except LIST
+        bool allowed = false;
+        if (cur_op->req.hdr.opcode == OSD_OP_SEC_LIST)
+        {
+            if (cl->user_info->type == user_type_t::ADMIN)
+            {
+                // Admin is allowed to execute arbitrary listings
+                allowed = true;
+            }
+            else if (cl->user_info->type == user_type_t::CLIENT && cur_op->req.sec_list.min_inode &&
+                cur_op->req.sec_list.min_inode == cur_op->req.sec_list.max_inode)
+            {
+                // Clients are only allowed to execute listings for readable inodes
+                allowed = st_cli->check_image_perm(cl->user_info, cur_op->req.sec_list.min_inode, false);
+            }
+        }
+        if (!allowed)
+        {
+            finish_op(cur_op, -EPERM);
+            return;
+        }
+    }
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_LIST &&
         (cur_op->req.sec_list.flags & OSD_LIST_PRIMARY))
     {
@@ -125,7 +155,6 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         exec_sec_lock(cur_op);
         return;
     }
-    osd_client_t *cl = msgr.clients.at(cur_op->client_id);
     cur_op->bs_op = new blockstore_op_t();
     cur_op->bs_op->callback = [this, cur_op](blockstore_op_t* bs_op) { secondary_op_callback(cur_op); };
     cur_op->bs_op->opcode = (cur_op->req.hdr.opcode == OSD_OP_SEC_READ ? BS_OP_READ

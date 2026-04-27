@@ -68,6 +68,8 @@ struct op_aes_xts_decrypt_t;
 void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx);
 void destroy_aes_xts_decrypt(op_aes_xts_decrypt_t *decrypt_ctx);
 
+struct user_info_t;
+
 struct osd_client_t
 {
     uint64_t client_id = 0;
@@ -96,6 +98,7 @@ struct osd_client_t
     bool gcm_enabled = false;
     msgr_handshake_i *hs = NULL;
     msgr_handshake_result_t hs_result;
+    std::shared_ptr<user_info_t> user_info;
     std::vector<uint8_t> my_key, peer_key;
     uint64_t my_iv_ctr = 0, peer_iv_ctr = 0;
 #ifdef WITH_ISAL_CRYPTO
@@ -292,7 +295,7 @@ public:
 
     void init();
     void init_iothreads();
-    void parse_config(const json11::Json & config);
+    void parse_config(const json11::Json & config, bool init);
     void connect_peer(uint64_t osd_num, json11::Json peer_state);
     void stop_client(uint64_t client_id, bool force_delete = false);
     void destroy_client(osd_client_t *cl);
@@ -301,6 +304,7 @@ public:
     std::function<void(osd_num_t)> repeer_pgs;
     std::function<void(osd_num_t)> break_pg_locks;
     std::function<bool(osd_client_t*, json11::Json)> check_config_hook;
+    std::function<void(osd_client_t*)> handshake_hook;
     void read_requests();
     void send_replies();
     void accept_connections(int listen_fd);
@@ -322,6 +326,7 @@ public:
     rdma_cm_id *rdmacm_listen(const std::string & bind_address, int rdmacm_port, int *bound_port, int log_level);
     void rdmacm_destroy_listener(rdma_cm_id *listener);
 #endif
+    bool is_encryption_enabled();
 
     void inc_op_stats(osd_op_stats_t & stats, uint64_t opcode, timespec & tv_begin, timespec & tv_end, uint64_t len);
     void measure_exec(osd_op_t *cur_op);

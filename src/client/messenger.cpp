@@ -197,8 +197,41 @@ osd_messenger_t::~osd_messenger_t()
     destroy_tls();
 }
 
-void osd_messenger_t::parse_config(const json11::Json & config)
+void osd_messenger_t::parse_config(const json11::Json & config, bool init)
 {
+    this->max_cipher_pool_size = config["max_cipher_pool_size"].uint64_value();
+    if (!this->max_cipher_pool_size)
+        this->max_cipher_pool_size = 256;
+    if (config["proto_checksums"].is_null())
+        this->use_proto_checksums = MSGR_CSUM_PAYLOAD;
+    else if (config["proto_checksums"].is_bool())
+        this->use_proto_checksums = config["proto_checksums"].bool_value() ? MSGR_CSUM_FULL : 0;
+    else if (config["proto_checksums"].string_value() != "")
+        this->use_proto_checksums = config["proto_checksums"].string_value() == "full" ? MSGR_CSUM_FULL : MSGR_CSUM_PAYLOAD;
+    else
+        this->use_proto_checksums = 0;
+    this->receive_buffer_size = (uint32_t)config["tcp_header_buffer_size"].uint64_value();
+    if (!this->receive_buffer_size || this->receive_buffer_size > 1024*1024*1024)
+        this->receive_buffer_size = 65536;
+    this->min_zerocopy_send_size = config["min_zerocopy_send_size"].is_null()
+        ? DEFAULT_MIN_ZEROCOPY_SEND_SIZE
+        : (int)config["min_zerocopy_send_size"].int64_value();
+    this->peer_connect_interval = config["peer_connect_interval"].uint64_value();
+    if (!this->peer_connect_interval)
+        this->peer_connect_interval = 5;
+    this->peer_connect_timeout = config["peer_connect_timeout"].uint64_value();
+    if (!this->peer_connect_timeout)
+        this->peer_connect_timeout = 5;
+    this->osd_idle_timeout = config["osd_idle_timeout"].uint64_value();
+    if (!this->osd_idle_timeout)
+        this->osd_idle_timeout = 5;
+    this->osd_ping_timeout = config["osd_ping_timeout"].uint64_value();
+    if (!this->osd_ping_timeout)
+        this->osd_ping_timeout = 5;
+    this->log_level = config["log_level"].uint64_value();
+    // All other parameters are only set on init
+    if (!init)
+        return;
 #ifdef WITH_RDMA
     if (!config["use_rdma"].is_null())
     {
@@ -229,17 +262,6 @@ void osd_messenger_t::parse_config(const json11::Json & config)
     if (!this->rdma_max_msg || this->rdma_max_msg > 128*1024*1024)
         this->rdma_max_msg = 129*1024;
 #endif
-    this->max_cipher_pool_size = config["max_cipher_pool_size"].uint64_value();
-    if (!this->max_cipher_pool_size)
-        this->max_cipher_pool_size = 256;
-    if (config["proto_checksums"].is_null())
-        this->use_proto_checksums = MSGR_CSUM_PAYLOAD;
-    else if (config["proto_checksums"].is_bool())
-        this->use_proto_checksums = config["proto_checksums"].bool_value() ? MSGR_CSUM_FULL : 0;
-    else if (config["proto_checksums"].string_value() != "")
-        this->use_proto_checksums = config["proto_checksums"].string_value() == "full" ? MSGR_CSUM_FULL : MSGR_CSUM_PAYLOAD;
-    else
-        this->use_proto_checksums = 0;
     if (!osd_num)
     {
         tls_cert = config["cert"].string_value();
@@ -257,27 +279,8 @@ void osd_messenger_t::parse_config(const json11::Json & config)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();
     else
         this->iothread_count = (uint32_t)config["osd_iothread_count"].uint64_value();
-    this->receive_buffer_size = (uint32_t)config["tcp_header_buffer_size"].uint64_value();
-    if (!this->receive_buffer_size || this->receive_buffer_size > 1024*1024*1024)
-        this->receive_buffer_size = 65536;
     this->use_sync_send_recv = config["use_sync_send_recv"].bool_value() ||
         config["use_sync_send_recv"].uint64_value() || !ringloop;
-    this->min_zerocopy_send_size = config["min_zerocopy_send_size"].is_null()
-        ? DEFAULT_MIN_ZEROCOPY_SEND_SIZE
-        : (int)config["min_zerocopy_send_size"].int64_value();
-    this->peer_connect_interval = config["peer_connect_interval"].uint64_value();
-    if (!this->peer_connect_interval)
-        this->peer_connect_interval = 5;
-    this->peer_connect_timeout = config["peer_connect_timeout"].uint64_value();
-    if (!this->peer_connect_timeout)
-        this->peer_connect_timeout = 5;
-    this->osd_idle_timeout = config["osd_idle_timeout"].uint64_value();
-    if (!this->osd_idle_timeout)
-        this->osd_idle_timeout = 5;
-    this->osd_ping_timeout = config["osd_ping_timeout"].uint64_value();
-    if (!this->osd_ping_timeout)
-        this->osd_ping_timeout = 5;
-    this->log_level = config["log_level"].uint64_value();
     // OSD public & cluster networks
     this->osd_networks.clear();
     if (config["osd_network"].is_string())
@@ -623,6 +626,11 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             err = true;
             fprintf(stderr, "Failed to get config from OSD %ju (retval=%jd), disconnecting peer\n", cl->osd_num, op->reply.hdr.retval);
         }
+        else if (cl->gcm_enabled && !cl->hs_result.peer_is_osd)
+        {
+            err = true;
+            fprintf(stderr, "Client %ju is not authenticated as an OSD, disconnecting peer\n", cl->client_id);
+        }
         else
         {
             config = json11::Json::parse(std::string((char*)op->buf, op->reply.hdr.retval-1), json_err);
@@ -772,6 +780,11 @@ bool osd_messenger_t::is_use_rdmacm()
     return use_rdmacm;
 }
 #endif
+
+bool osd_messenger_t::is_encryption_enabled()
+{
+    return tls_cert != "" || tls_key != "" || osd_tls_ca != "";
+}
 
 json11::Json::object osd_messenger_t::read_config(const json11::Json & config)
 {

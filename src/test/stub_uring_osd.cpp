@@ -39,7 +39,7 @@ int main(int narg, char *args[])
     msgr->repeer_pgs = [](osd_num_t) {};
     msgr->exec_op = [msgr](osd_op_t *op) { stub_exec_op(msgr, op); };
     json11::Json config = json11::Json::object { { "log_level", 1 } };
-    msgr->parse_config(config);
+    msgr->parse_config(config, true);
     // Accept new connections
     int listen_fd = create_and_bind_socket("0.0.0.0", 11203, 128, NULL);
     fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);

@@ -71,6 +71,21 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         finish_op(cur_op, -EINVAL);
         return false;
     }
+    if (use_auth && cur_op->client_id != SELF_CLIENT)
+    {
+        osd_client_t *cl = msgr.clients.at(cur_op->client_id);
+        if (cl->hs_result.peer_is_osd)
+        {
+            // OSDs are not allowed to execute "primary" operations
+            finish_op(cur_op, -EPERM);
+            return false;
+        }
+        if (!st_cli->check_image_perm(cl->user_info, cur_op->req.rw.inode, (cur_op->req.hdr.opcode != OSD_OP_READ)))
+        {
+            finish_op(cur_op, -EPERM);
+            return false;
+        }
+    }
     int stripe_count = (cur_op->req.hdr.opcode == OSD_OP_SCRUB ? 0 :
         (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size));
     int chain_size = 0;
