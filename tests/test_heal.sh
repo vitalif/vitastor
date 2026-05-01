@@ -62,7 +62,7 @@ if ! diff -q ./testdata/bin/read.bin ./testdata/bin/mirror.bin; then
     format_error Data lost during self-heal
 fi
 
-if grep -qP 'Checksum mismatch|BUG' ./testdata/osd*.log; then
+if grep -qP 'Checksum mismatch|BUG|Received garbage' ./testdata/osd*.log; then
     format_error Checksum mismatches or BUGs detected during test
 fi
 
