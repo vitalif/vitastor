@@ -69,7 +69,7 @@ done
 $ETCDCTL del --prefix /vitastor/osd/state/
 
 for i in $(seq 1 $OSD_COUNT); do
-    build/src/osd/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $NO_SAME $OSD_ARGS \
+    build/src/osd/vitastor-osd --osd_num $i $NO_SAME $OSD_ARGS \
         --meta_format $meta_format \
         --data_device ./testdata/bin/test_osd$i.bin \
         --meta_offset 0 \

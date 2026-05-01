@@ -1350,6 +1350,24 @@ jobs:
           echo ""
         done
 
+  test_heal_ec_rdma:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 10
+      run: TEST_NAME=ec_rdma RDMA=1 SCHEME=ec /root/vitastor/tests/test_heal.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
   test_checksum:
     runs-on: ubuntu-latest
     needs: build

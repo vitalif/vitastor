@@ -15,7 +15,7 @@ OSD_COUNT=3
 OSD_ARGS="$OSD_ARGS"
 OFFSET_ARGS="$OFFSET_ARGS"
 for i in $(seq 1 $OSD_COUNT); do
-    build/src/osd/vitastor-osd --osd_num $i --bind_address 127.0.0.1 $OSD_ARGS \
+    build/src/osd/vitastor-osd --osd_num $i $OSD_ARGS \
         $(build/src/disk_tool/vitastor-disk simple-offsets --format options ./testdata/bin/test_osd$i.bin $OFFSET_ARGS 2>/dev/null) >>./testdata/osd$i.log 2>&1 &
     eval OSD${i}_PID=$!
 done

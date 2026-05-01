@@ -28,6 +28,7 @@ ANTIETCD=${ANTIETCD}
 USE_RAMDISK=${USE_RAMDISK}
 ETCD_SCHEME=${ETCD_SCHEME:-http}
 OSD_TLS=${OSD_TLS:-1}
+RDMA=${RDMA:-0}
 
 RAMDISK=/run/user/$(id -u)
 findmnt $RAMDISK >/dev/null || (sudo mkdir -p $RAMDISK && sudo mount -t tmpfs tmpfs $RAMDISK)
@@ -125,6 +126,8 @@ VITASTOR_CFG='"etcd_address":"'$ETCD_URL'"'"$VITASTOR_CFG"
 if [[ "$ETCD_SCHEME" = "https" ]]; then
     VITASTOR_CFG="$VITASTOR_CFG"',"etcd_ca":"'$(pwd)'/testdata/etcd.crt"'
 fi
+VITASTOR_CFG="$VITASTOR_CFG"',"osd_network":"'$ETCD_IP'/32"'
+VITASTOR_CFG="$VITASTOR_CFG"',"use_rdma":"'$RDMA'"'
 if [[ "$OSD_TLS" = "1" ]]; then
     cd ./testdata
     openssl req -days 3650 -x509 -new -newkey rsa:4096 -nodes -keyout client_ca.key -out client_ca.crt \

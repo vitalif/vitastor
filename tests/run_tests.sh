@@ -105,6 +105,7 @@ PG_SIZE=2 ./test_heal.sh
 TEST_NAME=local_read POOLCFG='"local_reads":"random",' ./test_heal.sh
 SCHEME=ec ./test_heal.sh
 ANTIETCD=1 ./test_heal.sh
+TEST_NAME=ec_rdma RDMA=1 SCHEME=ec ./test_heal.sh
 
 ./test_checksum.sh
 TEST_NAME=xxhash OSD_ARGS="--data_csum_type xxh3_32" ./test_checksum.sh

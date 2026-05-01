@@ -40,7 +40,7 @@ start_osd_on()
 {
     local i=$1
     local dev=$2
-    build/src/osd/vitastor-osd --osd_num $i --bind_address $ETCD_IP $NO_SAME $OSD_ARGS \
+    build/src/osd/vitastor-osd --osd_num $i $NO_SAME $OSD_ARGS \
         $(build/src/disk_tool/vitastor-disk simple-offsets --format options $OFFSET_ARGS $dev $OFFSET_ARGS 2>/dev/null) \
         >>./testdata/osd$i.log 2>&1 &
     eval OSD${i}_PID=$!
@@ -117,6 +117,14 @@ wait_up()
 
 if [[ $OSD_COUNT -gt 0 ]]; then
     wait_up 120
+fi
+
+if [[ "$RDMA" = 1 ]]; then
+    for i in $(seq 1 $OSD_COUNT); do
+        if ! grep 'RDMA initialized successfully' ./testdata/osd$i.log; then
+            format_error "OSD $i failed to initialize RDMA, please try to enable rdma-rxe on the host"
+        fi
+    done
 fi
 
 try_reweight()
