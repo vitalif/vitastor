@@ -732,7 +732,13 @@ bool osd_messenger_t::allocate_op_buffers(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
     cl->read_op_size = 0;
-    if (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
+    if (!osd_num)
+    {
+        if (log_level > 1)
+            fprintf(stderr, "Error: operation received from an OSD peer %ju, stopping\n", cl->client_id);
+        return false;
+    }
+    else if (cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE)
     {
         if (cur_op->req.sec_rw.attr_len > 0)
