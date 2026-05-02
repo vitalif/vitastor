@@ -946,7 +946,7 @@
                 "type": "object",
                 "properties": {
                     "name": { "type": "string", "description": "User name" },
-                    "type": { "type": "string", "enum": [ "osd", "mon", "admin", "client" ], "description": "User type" },
+                    "type": { "type": "string", "enum": [ "admin", "client" ], "description": "User type" },
                     "groups": { "type": "array", "items": { "type": "string" }, "description": "User group names" }
                 }
             },

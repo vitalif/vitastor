@@ -115,8 +115,6 @@ enum class user_type_t
 {
     CLIENT = 0,
     ADMIN = 1,
-    MON = 2,
-    OSD = 3,
 };
 
 struct user_perm_t

@@ -31,7 +31,7 @@ struct cli_modify_user_t
             goto resume_1;
         else if (state == 2)
             goto resume_2;
-        if (user_type != "client" && user_type != "admin" && user_type != "mon" && user_type != "osd")
+        if (user_type != "client" && user_type != "admin")
         {
             result = (cli_result_t){ .err = EINVAL, .text = "Unknown user type: "+user_type };
             state = 100;

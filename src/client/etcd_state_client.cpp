@@ -929,9 +929,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 inf = std::make_shared<user_info_t>();
                 inf->name = name;
             }
-            inf->type = value["type"] == "admin" ? user_type_t::ADMIN :
-                (value["type"] == "mon" ? user_type_t::MON :
-                (value["type"] == "osd" ? user_type_t::OSD : user_type_t::CLIENT));
+            inf->type = value["type"] == "admin" ? user_type_t::ADMIN : user_type_t::CLIENT;
             inf->groups.clear();
             for (auto & group: value["groups"].array_items())
             {
