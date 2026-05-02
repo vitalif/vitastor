@@ -288,23 +288,13 @@ void etcd_state_client_t::load_pgs(std::function<void(const std::string &)> cb)
     json11::Json::array txn = {
         json11::Json::object {
             { "request_range", json11::Json::object {
-                { "key", base64_encode(etcd_prefix+"/config/pools") },
-            } }
-        },
-        json11::Json::object {
-            { "request_range", json11::Json::object {
-                { "key", base64_encode(etcd_prefix+"/config/pgs") },
+                { "key", base64_encode(etcd_prefix+"/config/") },
+                { "range_end", base64_encode(etcd_prefix+"/config0") },
             } }
         },
         json11::Json::object {
             { "request_range", json11::Json::object {
                 { "key", base64_encode(etcd_prefix+"/pg/config") },
-            } }
-        },
-        json11::Json::object {
-            { "request_range", json11::Json::object {
-                { "key", base64_encode(etcd_prefix+"/config/inode/") },
-                { "range_end", base64_encode(etcd_prefix+"/config/inode0") },
             } }
         },
         json11::Json::object {
