@@ -95,7 +95,11 @@ struct image_changer_t
             (!set_readonly || cfg.readonly) &&
             (!set_deleted || cfg.deleted == new_deleted) &&
             (!new_size && !force_size || cfg.size == new_size || cfg.size >= new_size && inc_size) &&
-            (new_name == "" || new_name == image_name))
+            (new_name == "" || new_name == image_name) &&
+            (!new_owner.is_string() || new_owner.string_value() == cfg.owner) &&
+            (!new_owner_group.is_string() || new_owner_group.string_value() == cfg.owner_group) &&
+            (!new_reader_group.is_string() || new_reader_group.string_value() == cfg.reader_group) &&
+            !set_key)
         {
             result = (cli_result_t){ .err = 0, .text = "No change", .data = parent->format_image(cfg) };
             state = 100;
