@@ -3,6 +3,7 @@
 
 const AntiEtcd = require('antietcd');
 
+const vitastor_auth_filter = require('./vitastor_auth_filter.js');
 const vitastor_persist_filter = require('./vitastor_persist_filter.js');
 const { b64, local_ips } = require('./utils.js');
 
@@ -50,7 +51,7 @@ class AntiEtcdAdapter
                     port: selected[0].port,
                     cert: config.antietcd_cert,
                     key: config.antietcd_key,
-                    ca: config.etcd_ca,
+                    ca: config.antietcd_ca,
                     data: config.antietcd_data_file || ((config.antietcd_data_dir || '/var/lib/vitastor') + '/mon_'+selected[0].port+'.json.gz'),
                     persist_filter: vitastor_persist_filter({ vitastor_prefix: config.etcd_prefix || '/vitastor' }),
                     node_id: cluster[selected[0].idx].replace(/^(https?:\/\/)/, ''), // same as in <cluster> below
@@ -60,15 +61,38 @@ class AntiEtcdAdapter
                     log_level: 1,
                     logs: { cluster: true },
                 };
+                if (config.etcd_proxy)
+                {
+                    // Monitor may use the builtin etcd_proxy mode
+                    if (!config.etcd_proxy.urls)
+                    {
+                        console.error('etcd_proxy.urls are empty');
+                        process.exit(1);
+                    }
+                    antietcd_config.etcd_proxy = config.etcd_proxy.urls;
+                    antietcd_config.etcd_cert = config.etcd_proxy.cert;
+                    antietcd_config.etcd_key = config.etcd_proxy.key;
+                    antietcd_config.etcd_ca = config.etcd_proxy.ca;
+                    delete antietcd_config.data;
+                    delete antietcd_config.persist_filter;
+                    delete antietcd_config.cluster;
+                    delete antietcd_config.cluster_key;
+                }
                 if (config.use_auth)
                 {
                     antietcd_config.client_cert_auth = true;
-                    antietcd_config.auth_filter = require('./vitastor_auth_filter.js');
-                    antietcd_config.peer_ca = config.antietcd_server_ca;
-                    if (!config.antietcd_server_ca || config.antietcd_server_ca == config.etcd_ca)
+                    antietcd_config.auth_filter = vitastor_auth_filter;
+                    antietcd_config.ca = config.client_ca;
+                    antietcd_config.osd_ca = config.osd_ca;
+                    antietcd_config.mon_ca = config.mon_ca;
+                    if (!config.etcd_proxy)
                     {
-                        console.error('Secure setup requires separate antietcd_server_ca (for signing antietcd server certificates) and etcd_ca (for signing client certificates)');
-                        process.exit(1);
+                        antietcd_config.peer_ca = config.antietcd_server_ca;
+                        if (!config.antietcd_server_ca || config.antietcd_server_ca == config.client_ca)
+                        {
+                            console.error('Secure setup requires separate antietcd_server_ca (for signing antietcd server certificates) and client_ca (for signing client certificates)');
+                            process.exit(1);
+                        }
                     }
                 }
                 for (const key in config)
@@ -195,7 +219,7 @@ class AntiEtcdAdapter
                     await new Promise(ok => setTimeout(ok, timeout-(Date.now()-prev)));
                 }
                 prev = Date.now();
-                const res = await this.antietcd.api(path.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\/+/g, '_'), body, { username: 'root' });
+                const res = await this.antietcd.api(path.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\/+/g, '_'), body, { user_type: 'mon' });
                 if (res.error)
                 {
                     console.error('Failed to query antietcd '+path+' (retry '+retry+'/'+retries+'): '+res.error);

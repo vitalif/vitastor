@@ -6,16 +6,19 @@
 // 1. Users.
 //    Stored in /vitastor/config/user/<username>.
 //    Has 2 properties:
-//    - type, one of: osd, mon, admin, client.
-//      osd, mon types should be used by OSDs/monitors.
-//      admin should be used for administrative access from vitastor-cli.
-//      client should be used for regular clients.
+//    - type, one of: admin, client.
+//      admin has full access to all images and also to cluster config.
+//      client has r/w access to owned images and r/o access to images with reader_group.
 //    - groups, a list of group names the user is included in.
 // 2. Images.
 //    Stored in /vitastor/config/inode/<pool>/<inode>. Has the following properties:
 //    - owner (user name)
 //    - owner_group (group name)
 //    - reader_group
+// 3. Certificates.
+//    - osd, mon use their own trusted certificates.
+
+const { X509Certificate } = require('node:crypto');
 
 const static_perms = {
     invalid: {
@@ -24,7 +27,7 @@ const static_perms = {
     },
     osd: {
         keys: { '/pg/config': false },
-        prefixes: { '/osd/': true, '/pg/state/': true, '/pg/history/': true, '/pgstats/': true },
+        prefixes: { '/config/': false, '/osd/': true, '/pg/state/': true, '/pg/history/': true, '/pgstats/': true },
     },
     mon: {
         keys: { '/pg/config': true, '/stats': true, '/history/last_clean_pgs': true },
@@ -42,15 +45,15 @@ const static_perms = {
     },
     client: {
         keys: { '/config/global': false, '/config/node_placement': false, '/config/pools': false, '/pg/config': false },
-        prefixes: { '/osd/stats/': false, '/pg/state/': false, '/index/maxid/': false },
+        prefixes: { '/osd/state/': false, '/pg/state/': false, '/index/maxid/': false },
     },
 };
 
 const api_perms = {
-    osd: { lease_grant: true, lease_revoke: true, lease_keepalive: true },
-    mon: { lease_grant: true, lease_revoke: true, lease_keepalive: true },
+    osd: { lease_grant: true, lease_revoke: true, lease_keepalive: true, maintenance_status: true },
+    mon: { lease_grant: true, lease_revoke: true, lease_keepalive: true, maintenance_status: true },
     admin: { maintenance_status: true },
-    client: {},
+    client: { maintenance_status: true },
 };
 
 class VitastorAuthFilter
@@ -61,6 +64,43 @@ class VitastorAuthFilter
         this.antietcd = antietcd;
         this.prefix = this.cfg.vitastor_prefix || '/vitastor';
         this.prefix_parts = this.prefix.split('/');
+    }
+
+    async init()
+    {
+        if (!this.cfg.cert || !this.cfg.key || !this.cfg.osd_ca || !this.cfg.etcd_proxy && !this.cfg.peer_ca || !this.cfg.client_cert_auth)
+        {
+            throw new Error('Authenticated Vitastor setups require enabled client_cert_auth, cert, key'+
+                ' and separate ca (client CA), osd_ca'+(this.cfg.etcd_proxy ? '' : ', peer_ca')+' and optionally mon_ca');
+        }
+        this.osd_ca = await this.antietcd.readPEM(this.cfg.osd_ca);
+        this.osd_ca_obj = new X509Certificate(this.osd_ca);
+        this.antietcd.tls.ca.push(this.osd_ca);
+        if (this.cfg.mon_ca)
+        {
+            this.mon_ca = await this.antietcd.readPEM(this.cfg.mon_ca);
+            this.mon_ca_obj = new X509Certificate(this.mon_ca_obj);
+            this.antietcd.tls.ca.push(this.mon_ca);
+        }
+    }
+
+    init_context(context, clientCert)
+    {
+        let cert = clientCert;
+        while (cert)
+        {
+            if (cert.fingerprint256 == this.osd_ca_obj.fingerprint256)
+            {
+                context.user_type = 'osd';
+                break;
+            }
+            if (this.mon_ca_obj && cert.fingerprint256 == this.mon_ca_obj.fingerprint256)
+            {
+                context.user_type = 'mon';
+                break;
+            }
+            cert = cert.issuerCertificate;
+        }
     }
 
     _get(path, decode)
@@ -349,19 +389,31 @@ class VitastorAuthFilter
         return true;
     }
 
-    _get_user(username)
+    _get_user(context)
     {
-        if (!username)
+        if (context.user_type === 'osd' || context.user_type === 'mon')
         {
-            return null;
+            return {
+                name: context.user_type,
+                type: context.user_type,
+                perms: static_perms[context.user_type],
+            };
         }
-        let userInfo = this._get([ ...this.prefix_parts, 'config', 'user', username ], true);
+        if (!context.username)
+        {
+            return {};
+        }
+        let userInfo = this._get([ ...this.prefix_parts, 'config', 'user', context.username ], true);
         if (!userInfo)
         {
             userInfo = { type: 'client' };
         }
+        else if (userInfo.type !== 'client' && userInfo.type !== 'admin')
+        {
+            userInfo.type = 'client';
+        }
         userInfo.perms = static_perms[userInfo.type] || static_perms['invalid'];
-        userInfo.name = username;
+        userInfo.name = context.username;
         if (userInfo.groups instanceof Array)
         {
             userInfo.groups = userInfo.groups.reduce((a, c) => { a[c] = true; return a; }, {});
@@ -373,23 +425,27 @@ class VitastorAuthFilter
         return userInfo;
     }
 
-    filter_api(username, api/*, data*/)
+    filter_api(context, api/*, data*/)
     {
-        if (username === 'root')
+        let type = 'client';
+        if (context.user_type === 'osd' || context.user_type === 'mon')
         {
-            return true;
+            type = context.user_type;
         }
-        const userInfo = this._get([ ...this.prefix_parts, 'config', 'user', username ], true);
-        return userInfo && api_perms[userInfo.type] && api_perms[userInfo.type][api];
+        else if (context.username)
+        {
+            const userInfo = this._get([ ...this.prefix_parts, 'config', 'user', context.username ], true);
+            if (userInfo && userInfo.type === 'admin')
+            {
+                type = 'admin';
+            }
+        }
+        return api_perms[type] && api_perms[type][api];
     }
 
-    filter_txn(username, txn)
+    filter_txn(context, txn)
     {
-        if (username === 'root')
-        {
-            return true;
-        }
-        const userInfo = this._get_user(username);
+        const userInfo = this._get_user(context);
         if (!userInfo)
         {
             return null;
@@ -425,13 +481,13 @@ class VitastorAuthFilter
         return txn;
     }
 
-    filter_txn_response(username, txn, res)
+    filter_txn_response(context, txn, res)
     {
-        if (!res.responses || username === 'root')
+        if (!res.responses)
         {
             return;
         }
-        const userInfo = this._get_user(username);
+        const userInfo = this._get_user(context);
         if (!userInfo)
         {
             for (const resp of res.responses)
@@ -452,13 +508,13 @@ class VitastorAuthFilter
         }
     }
 
-    filter_watch_message(username, msg)
+    filter_watch_message(context, msg)
     {
-        if (!msg.result || !msg.result.events || username === 'root')
+        if (!msg.result || !msg.result.events)
         {
             return;
         }
-        const userInfo = this._get_user(username);
+        const userInfo = this._get_user(context);
         if (!userInfo)
         {
             msg.result.events = [];
