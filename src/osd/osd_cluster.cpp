@@ -743,7 +743,7 @@ void osd_t::apply_pg_count()
     for (auto & pool_item: st_cli->pool_config)
     {
         auto & pool_cfg = pool_item.second;
-        if (pool_cfg.real_pg_count == 0)
+        if (pool_cfg.real_pg_count == 0 || !pool_cfg.exists)
         {
             continue;
         }
