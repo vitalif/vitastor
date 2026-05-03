@@ -303,6 +303,18 @@ class VitastorAuthFilter
                 }
                 return false;
             }
+            if (key.substr(0, 13) == '/inode/stats/')
+            {
+                const [ pool_id, id ] = key.substr(13).split('/');
+                const inode = this._get([ ...this.prefix_parts, 'config', 'inode', pool_id, id ], true);
+                if (inode && (inode.reader_group && userInfo.groups[inode.reader_group] ||
+                    inode.owner_group && userInfo.groups[inode.owner_group] ||
+                    inode.owner === userInfo.name))
+                {
+                    return true;
+                }
+                return false;
+            }
         }
         return false;
     }
