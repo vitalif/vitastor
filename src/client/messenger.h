@@ -41,7 +41,8 @@
 
 #define MSGR_CSUM_PAYLOAD 1
 #define MSGR_CSUM_FULL 2
-#define MSGR_CSUM_NEG 4
+#define MSGR_CSUM_GCM 4
+#define MSGR_CSUM_NEG 8
 
 #define VITASTOR_CONFIG_PATH "/etc/vitastor/vitastor.conf"
 
@@ -91,9 +92,6 @@ struct osd_client_t
 #ifdef WITH_RDMA
     msgr_rdma_connection_t *rdma_conn = NULL;
 #endif
-
-    uint8_t *ssl_out_buf = NULL;
-    size_t ssl_out_buf_size = 0, ssl_out_buf_cap = 0;
 
     bool gcm_enabled = false;
     msgr_handshake_i *hs = NULL;
@@ -290,6 +288,7 @@ public:
     std::vector<std::string> all_osd_networks;
     std::vector<addr_mask_t> all_osd_network_masks;
     int use_proto_checksums = 0;
+    int force_proto_checksums = 0;
     // op statistics
     osd_op_stats_t stats, recovery_stats;
 

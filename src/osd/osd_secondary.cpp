@@ -376,13 +376,22 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
     if (msgr.use_proto_checksums)
     {
         auto peer_csums = req_json["features"]["proto_checksums"].uint64_value();
-        if (peer_csums == MSGR_CSUM_FULL || peer_csums == MSGR_CSUM_PAYLOAD)
+        if (peer_csums == MSGR_CSUM_FULL || peer_csums == MSGR_CSUM_PAYLOAD ||
+            cl->gcm_enabled && peer_csums == MSGR_CSUM_GCM)
         {
-            if (msgr.use_proto_checksums == MSGR_CSUM_FULL && peer_csums == MSGR_CSUM_FULL)
+            if (msgr.use_proto_checksums == MSGR_CSUM_GCM && peer_csums == MSGR_CSUM_GCM)
+                cl->proto_csum_status = MSGR_CSUM_GCM|MSGR_CSUM_NEG;
+            else if (msgr.use_proto_checksums == MSGR_CSUM_FULL && peer_csums == MSGR_CSUM_FULL)
                 cl->proto_csum_status = MSGR_CSUM_FULL|MSGR_CSUM_NEG;
             else
                 cl->proto_csum_status = MSGR_CSUM_PAYLOAD|MSGR_CSUM_NEG;
             features["proto_checksums"] = msgr.use_proto_checksums;
+        }
+        if (peer_csums < msgr.force_proto_checksums)
+        {
+            fprintf(stderr, "Error: Client %ju use_proto_checksums security level is lower than force_proto_checksums\n", cl->client_id);
+            msgr.stop_client(cl->client_id);
+            return;
         }
     }
     // Expose sensitive configuration values so peers can check them

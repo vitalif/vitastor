@@ -197,19 +197,34 @@ osd_messenger_t::~osd_messenger_t()
     destroy_tls();
 }
 
+static int parse_proto_checksums(const json11::Json & val, int default_value)
+{
+    if (val.is_string())
+    {
+        const auto & str = val.string_value();
+        if (str == "full")
+            return MSGR_CSUM_FULL;
+        else if (str == "payload")
+            return MSGR_CSUM_PAYLOAD;
+        else if (str == "gcm")
+            return MSGR_CSUM_GCM;
+        else if (str == "none")
+            return 0;
+        else if (str == "")
+            return default_value;
+    }
+    else if (val.is_null())
+        return default_value;
+    fprintf(stderr, "proto_checksums should be \"full\", \"payload\", \"gcm\", \"none\""
+        ", \"\" or null (default), but it is: %s\n", val.dump().c_str());
+    exit(1);
+}
+
 void osd_messenger_t::parse_config(const json11::Json & config, bool init)
 {
     this->max_cipher_pool_size = config["max_cipher_pool_size"].uint64_value();
     if (!this->max_cipher_pool_size)
         this->max_cipher_pool_size = 256;
-    if (config["proto_checksums"].is_null())
-        this->use_proto_checksums = MSGR_CSUM_PAYLOAD;
-    else if (config["proto_checksums"].is_bool())
-        this->use_proto_checksums = config["proto_checksums"].bool_value() ? MSGR_CSUM_FULL : 0;
-    else if (config["proto_checksums"].string_value() != "")
-        this->use_proto_checksums = config["proto_checksums"].string_value() == "full" ? MSGR_CSUM_FULL : MSGR_CSUM_PAYLOAD;
-    else
-        this->use_proto_checksums = 0;
     this->receive_buffer_size = (uint32_t)config["tcp_header_buffer_size"].uint64_value();
     if (!this->receive_buffer_size || this->receive_buffer_size > 1024*1024*1024)
         this->receive_buffer_size = 65536;
@@ -275,6 +290,8 @@ void osd_messenger_t::parse_config(const json11::Json & config, bool init)
         osd_tls_ca = config["osd_ca"].string_value();
         client_tls_ca = config["client_ca"].string_value();
     }
+    this->use_proto_checksums = parse_proto_checksums(config["proto_checksums"], MSGR_CSUM_PAYLOAD);
+    this->force_proto_checksums = parse_proto_checksums(config["force_proto_checksums"], tls_cert != "" ? MSGR_CSUM_PAYLOAD : 0);
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();
     else
@@ -658,6 +675,21 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
                 err = !check_config_hook(cl, config);
             }
         }
+        if (!err && use_proto_checksums)
+        {
+            auto peer_csums = config["features"]["proto_checksums"].uint64_value();
+            if (peer_csums == MSGR_CSUM_GCM && use_proto_checksums == MSGR_CSUM_GCM && cl->gcm_enabled)
+                cl->proto_csum_status = MSGR_CSUM_GCM;
+            else if (peer_csums == MSGR_CSUM_FULL && use_proto_checksums == MSGR_CSUM_FULL)
+                cl->proto_csum_status = MSGR_CSUM_FULL;
+            else if (peer_csums && use_proto_checksums)
+                cl->proto_csum_status = MSGR_CSUM_PAYLOAD;
+            if (cl->proto_csum_status < force_proto_checksums)
+            {
+                fprintf(stderr, "Error: OSD %ju use_proto_checksums security level is lower than force_proto_checksums\n", cl->osd_num);
+                err = true;
+            }
+        }
         if (err)
         {
             osd_num_t peer_osd = cl->osd_num;
@@ -665,14 +697,6 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             on_connect_peer(peer_osd, -EINVAL, 0);
             delete op;
             return;
-        }
-        if (use_proto_checksums)
-        {
-            auto peer_csums = config["features"]["proto_checksums"].uint64_value();
-            if (peer_csums == MSGR_CSUM_FULL && use_proto_checksums == MSGR_CSUM_FULL)
-                cl->proto_csum_status = MSGR_CSUM_FULL;
-            else if (peer_csums && use_proto_checksums)
-                cl->proto_csum_status = MSGR_CSUM_PAYLOAD;
         }
 #ifdef WITH_RDMA
         if (!use_rdmacm && cl->rdma_conn && config["rdma_address"].is_string())

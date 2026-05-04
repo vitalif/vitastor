@@ -18,6 +18,7 @@
 #include <openssl/err.h>
 
 #include "msgr_handshake.h"
+#include "malloc_or_die.h"
 #include "openssl_util.h"
 #include "str_util.h"
 
@@ -84,7 +85,8 @@ class msgr_handshake_t: public msgr_handshake_i
 
     std::vector<uint8_t> full_handshake;
     std::vector<uint8_t> in_buf;
-    std::vector<uint8_t> out_buf;
+    uint8_t *out_buf = NULL;
+    size_t out_buf_size = 0;
     std::string error;
 
     int state = 0;
@@ -125,7 +127,10 @@ public:
     bool init(bool server_mode) override;
     ssize_t handle(uint8_t* in_buf, size_t in_size) override;
     bool done() override;
-    std::vector<uint8_t>& get_out() override;
+    uint8_t *get_out() override;
+    size_t out_size() override;
+    void eat_out(size_t n) override;
+    void reset_out() override;
     msgr_handshake_result_t get_result() override;
     std::string get_error() override;
 };
@@ -247,6 +252,8 @@ bool msgr_handshake_ctx_t::derive_kdf(const uint8_t* insecret, size_t insecret_l
 
 msgr_handshake_t::~msgr_handshake_t()
 {
+    if (out_buf)
+        free(out_buf);
     if (peer_cert)
         X509_free(peer_cert);
     if (ec_key)
@@ -286,6 +293,12 @@ static void copy_to(std::vector<uint8_t> & buf, const void* src, uint32_t len)
     size_t old_size = buf.size();
     buf.resize(buf.size() + len);
     memcpy(buf.data() + old_size, src, len);
+}
+
+static void copy_to_raw(uint8_t* & buf, const void* src, size_t len)
+{
+    memcpy(buf, src, len);
+    buf += len;
 }
 
 static void copy_to_with_len(std::vector<uint8_t> & buf, const void* src, uint32_t len)
@@ -442,9 +455,10 @@ bool msgr_handshake_t::make_client_init()
     size_t key_len = EVP_PKEY_get1_encoded_public_key(ec_key, &key);
     if (!key_len)
         return on_error("EVP_PKEY_get1_encoded_public_key: ");
-    const size_t old_len = out_buf.size();
-    out_buf.resize(out_buf.size() + key_len + sizeof(msgr_handshake_hdr_t));
-    uint8_t *buf = out_buf.data() + old_len;
+    const size_t old_out_size = out_buf_size;
+    out_buf_size += key_len + sizeof(msgr_handshake_hdr_t);
+    out_buf = (uint8_t*)realloc_or_die(out_buf, out_buf_size);
+    uint8_t *buf = out_buf + old_out_size;
     msgr_handshake_hdr_t *hdr = (msgr_handshake_hdr_t *)buf;
     hdr->msg_len = key_len + sizeof(msgr_handshake_hdr_t);
     hdr->magic = MSGR_HS_MAGIC;
@@ -485,9 +499,12 @@ bool msgr_handshake_t::make_server_reply()
     }
     // Construct message
     hdr.msg_len = sizeof(msgr_handshake_hdr_t) + 4 + key_len + encrypt_data.size();
-    copy_to(out_buf, &hdr, sizeof(hdr));
-    copy_to_with_len(out_buf, key, key_len);
-    copy_to(out_buf, encrypt_data.data(), encrypt_data.size());
+    out_buf = (uint8_t*)realloc_or_die(out_buf, (out_buf_size += hdr.msg_len));
+    uint8_t *cur = out_buf + out_buf_size - hdr.msg_len;
+    copy_to_raw(cur, &hdr, sizeof(hdr));
+    copy_to_raw(cur, &key_len, 4);
+    copy_to_raw(cur, key, key_len);
+    copy_to_raw(cur, encrypt_data.data(), encrypt_data.size());
     OPENSSL_free(key);
     return true;
 }
@@ -510,8 +527,10 @@ bool msgr_handshake_t::make_client_reply()
         return false;
     // Construct message
     hdr.msg_len = sizeof(msgr_handshake_hdr_t) + encrypt_data.size();
-    copy_to(out_buf, &hdr, sizeof(hdr));
-    copy_to(out_buf, encrypt_data.data(), encrypt_data.size());
+    out_buf = (uint8_t*)realloc_or_die(out_buf, (out_buf_size += hdr.msg_len));
+    uint8_t *cur = out_buf + out_buf_size - hdr.msg_len;
+    copy_to_raw(cur, &hdr, sizeof(hdr));
+    copy_to_raw(cur, encrypt_data.data(), encrypt_data.size());
     return true;
 }
 
@@ -742,9 +761,35 @@ bool msgr_handshake_t::done()
     return (state == MSGR_HS_DONE);
 }
 
-std::vector<uint8_t>& msgr_handshake_t::get_out()
+uint8_t *msgr_handshake_t::get_out()
 {
     return out_buf;
+}
+
+size_t msgr_handshake_t::out_size()
+{
+    return out_buf_size;
+}
+
+void msgr_handshake_t::eat_out(size_t n)
+{
+    if (n >= out_buf_size)
+    {
+        free(out_buf);
+        out_buf = NULL;
+        out_buf_size = 0;
+    }
+    else
+    {
+        memmove(out_buf, out_buf + n, out_buf_size - n);
+        out_buf_size -= n;
+    }
+}
+
+void msgr_handshake_t::reset_out()
+{
+    out_buf = NULL;
+    out_buf_size = 0;
 }
 
 msgr_handshake_result_t msgr_handshake_t::get_result()

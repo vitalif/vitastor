@@ -202,7 +202,10 @@ osd_client_t::~osd_client_t()
     {
         if (op)
         {
-            delete op;
+            if (!((size_t)op & 7))
+                delete op;
+            else
+                free((void*)((size_t)op & ~(size_t)7));
         }
     }
     for (osd_op_t *op: zc_free_list)
@@ -242,11 +245,6 @@ osd_client_t::~osd_client_t()
         EVP_CIPHER_CTX_free(dec_ctx);
 #endif
         dec_ctx = NULL;
-    }
-    if (ssl_out_buf)
-    {
-        free(ssl_out_buf);
-        ssl_out_buf = NULL;
     }
     if (hs)
     {

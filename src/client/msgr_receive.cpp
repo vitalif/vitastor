@@ -170,41 +170,17 @@ public:
         if (done >= bufsize)
             return false;
         size_t n = dst_len-from;
-        if (!(flags & RDR_GCM))
+        if (n > bufsize-done)
+            n = bufsize-done;
+        if (flags & RDR_XTS)
         {
-            if (n > bufsize-done)
-                n = bufsize-done;
-            if (flags & RDR_XTS)
-            {
-                msgr->op_decrypted_copy_buf(cl, curbuf, bufsize, dst, dst_len, from, done);
-                n = 0;
-            }
-            else
-            {
-                if (cl->read_csum_state && !(flags & RDR_NO_CSUM))
-                {
-                    // data may be skipped if dst == NULL but checksum is still calculated
-                    XXH3_64bits_update(cl->read_csum_state, curbuf+done, n);
-                }
-                // Here, dst == NULL is allowed
-                if (dst != NULL)
-                    memcpy(dst+from, curbuf+done, n);
-                done += n;
-            }
-            cl->read_op_pos += n;
-            from += n;
-            if (from < dst_len)
-            {
-                return false;
-            }
+            msgr->op_decrypted_copy_buf(cl, curbuf, bufsize, dst, dst_len, from, done);
+            n = 0;
         }
-        else
+        else if (flags & RDR_GCM)
         {
             // Here, dst == NULL is not allowed
             assert(dst != NULL);
-            size_t n = dst_len-from;
-            if (n > bufsize-done)
-                n = bufsize-done;
 #ifdef WITH_ISAL_CRYPTO
             int r = isal_aes_gcm_dec_256_update(&cl->peer_key_isal, cl->dec_ctx, dst+from, curbuf+done, n);
             assert(!r);
@@ -223,12 +199,24 @@ public:
                 XXH3_64bits_update(cl->read_csum_state, dst+from, n);
             }
             done += n;
-            from += n;
-            cl->read_op_pos += n;
-            if (from < dst_len)
+        }
+        else
+        {
+            if (cl->read_csum_state && !(flags & RDR_NO_CSUM))
             {
-                return false;
+                // data may be skipped if dst == NULL but checksum is still calculated
+                XXH3_64bits_update(cl->read_csum_state, curbuf+done, n);
             }
+            // Here, dst == NULL is allowed
+            if (dst != NULL)
+                memcpy(dst+from, curbuf+done, n);
+            done += n;
+        }
+        cl->read_op_pos += n;
+        from += n;
+        if (from < dst_len)
+        {
+            return false;
         }
         from = 0;
         return true;
@@ -605,7 +593,7 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size
             }
             curbuf += done;
             bufsize -= done;
-            if (cl->hs->get_out().size())
+            if (cl->hs->out_size())
             {
                 if (cl->write_state == 0)
                 {
@@ -613,7 +601,7 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size
                     write_ready_clients.push_back(cl->client_id);
                 }
             }
-            if (cl->hs->done() && !cl->hs->get_out().size())
+            if (cl->hs->done() && !cl->hs->out_size())
             {
                 // Delete hs when done and nothing to send
                 delete cl->hs;
@@ -952,7 +940,7 @@ bool osd_messenger_t::op_read_from(osd_client_t *cl, msgr_op_reader_t & rdr)
         {
             if (!rdr.read((uint8_t*)op->bitmap, op->req.sec_rw.attr_len, RDR_GCM))
                 return false;
-            if (!rdr.read((uint8_t*)op->buf, op->req.sec_rw.len, 0))
+            if (!rdr.read((uint8_t*)op->buf, op->req.sec_rw.len, cl->proto_csum_status == MSGR_CSUM_GCM ? RDR_GCM : 0))
                 return false;
         }
         else if (op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
@@ -968,7 +956,7 @@ bool osd_messenger_t::op_read_from(osd_client_t *cl, msgr_op_reader_t & rdr)
         }
         else if (op->req.hdr.opcode == OSD_OP_WRITE)
         {
-            if (!rdr.read((uint8_t*)op->buf, op->req.rw.len, 0))
+            if (!rdr.read((uint8_t*)op->buf, op->req.rw.len, cl->proto_csum_status == MSGR_CSUM_GCM ? RDR_GCM : 0))
                 return false;
         }
         else if (op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
@@ -992,7 +980,7 @@ switched_type:
             if (op->reply.hdr.retval > 0)
             {
                 for (int i = 0; i < op->iov.count; i++)
-                    if (!rdr.read((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len, 0))
+                    if (!rdr.read((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len, (cl->proto_csum_status == MSGR_CSUM_GCM ? RDR_GCM : 0)))
                         return false;
             }
         }
@@ -1006,7 +994,7 @@ switched_type:
             if (op->reply.hdr.retval > 0)
             {
                 for (int i = 0; i < op->iov.count; i++)
-                    if (!rdr.read((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len, (op->enc ? RDR_XTS : 0)))
+                    if (!rdr.read((uint8_t*)op->iov.buf[i].iov_base, op->iov.buf[i].iov_len, (op->enc ? RDR_XTS : 0) | (cl->proto_csum_status == MSGR_CSUM_GCM ? RDR_GCM : 0)))
                         return false;
             }
         }

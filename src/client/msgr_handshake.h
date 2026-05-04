@@ -35,7 +35,10 @@ public:
     virtual bool init(bool server_mode) = 0;
     virtual ssize_t handle(uint8_t* in_buf, size_t in_size) = 0;
     virtual bool done() = 0;
-    virtual std::vector<uint8_t> & get_out() = 0;
+    virtual uint8_t *get_out() = 0;
+    virtual size_t out_size() = 0;
+    virtual void eat_out(size_t n) = 0;
+    virtual void reset_out() = 0;
     virtual msgr_handshake_result_t get_result() = 0;
     virtual std::string get_error() = 0;
 };

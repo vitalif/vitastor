@@ -44,9 +44,10 @@ op_aes_xts_encrypt_t::~op_aes_xts_encrypt_t()
         free(tmp);
 }
 
-void op_aes_xts_encrypt_t::start(uint8_t *key, uint64_t start_offset, size_t block_size)
+void op_aes_xts_encrypt_t::start(osd_client_t *cl, uint8_t *key, uint64_t start_offset, size_t block_size)
 {
     assert(!encrypted);
+    this->cl = cl;
     this->start_offset = start_offset;
     this->key = key;
     this->block_size = block_size;
@@ -91,6 +92,28 @@ void op_aes_xts_encrypt_t::encrypt_block(uint8_t *in, uint8_t *out)
 #endif
 }
 
+static inline void copy_or_gcm(osd_client_t *cl, uint8_t *out, uint8_t *in, size_t n)
+{
+    if (cl->proto_csum_status != MSGR_CSUM_GCM)
+        memcpy(out, in, n);
+    else
+    {
+#ifdef WITH_ISAL_CRYPTO
+        int r = isal_aes_gcm_enc_256_update(&cl->my_key_isal, cl->enc_ctx, out, in, n);
+        assert(!r);
+#else
+        int actual_out;
+        if (EVP_EncryptUpdate(cl->enc_ctx, out, &actual_out, in, n) != 1)
+        {
+            fprintf(stderr, "EncryptUpdate error: ");
+            ERR_print_errors_fp(stderr);
+            abort();
+        }
+        assert(actual_out == n);
+#endif
+    }
+}
+
 void op_aes_xts_encrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out)
 {
     // Fucking AES-XTS implementations (all of them) don't have streaming support,
@@ -104,7 +127,7 @@ void op_aes_xts_encrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
         assert(tmp);
         if (max_out > block_size - tmp_pos)
             max_out = block_size - tmp_pos;
-        memcpy(out, tmp + tmp_pos, max_out);
+        copy_or_gcm(cl, out, tmp + tmp_pos, max_out);
         done_out += max_out;
         tmp_pos += max_out;
         if (tmp_pos >= block_size)
@@ -137,7 +160,7 @@ void op_aes_xts_encrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
         memcpy(tmp + offset%block_size, in, max_in);
         encrypt_block(tmp, tmp);
         encrypted = true;
-        memcpy(out, tmp, max_out);
+        copy_or_gcm(cl, out, tmp, max_out);
         tmp_pos = max_out;
         done_in += max_in-1;
         offset += max_in;
@@ -147,6 +170,8 @@ void op_aes_xts_encrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
     {
         // Full block - simplest case
         encrypt_block(in, out);
+        if (cl->proto_csum_status == MSGR_CSUM_GCM)
+            copy_or_gcm(cl, out, out, block_size);
         done_in += block_size;
         offset += block_size;
         done_out += block_size;
@@ -158,6 +183,8 @@ void op_aes_xts_encrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
         max_in = block_size - offset%block_size;
         memcpy(tmp + offset%block_size, in, max_in);
         encrypt_block(tmp, out);
+        if (cl->proto_csum_status == MSGR_CSUM_GCM)
+            copy_or_gcm(cl, out, out, block_size);
         done_in += max_in;
         offset += max_in;
         done_out += block_size;
@@ -196,9 +223,10 @@ op_aes_xts_decrypt_t::~op_aes_xts_decrypt_t()
         free(tmp);
 }
 
-void op_aes_xts_decrypt_t::start(uint8_t **key_chain, size_t chain_size, void *key_indexes, uint64_t start_offset, size_t block_size)
+void op_aes_xts_decrypt_t::start(osd_client_t *cl, uint8_t **key_chain, size_t chain_size, void *key_indexes, uint64_t start_offset, size_t block_size)
 {
     assert(!decrypted);
+    this->cl = cl;
     this->start_offset = start_offset;
     this->key_chain = key_chain;
     this->chain_size = chain_size;
@@ -269,6 +297,23 @@ void op_aes_xts_decrypt_t::decrypt_block(uint8_t *in, uint8_t *out)
 #endif
 }
 
+static inline void gcm_dec(osd_client_t *cl, uint8_t *out, uint8_t *in, size_t n)
+{
+#ifdef WITH_ISAL_CRYPTO
+    int r = isal_aes_gcm_dec_256_update(&cl->peer_key_isal, cl->dec_ctx, out, in, n);
+    assert(!r);
+#else
+    int actual_out;
+    if (EVP_DecryptUpdate(cl->dec_ctx, out, &actual_out, in, n) != 1)
+    {
+        fprintf(stderr, "DecryptUpdate error: ");
+        ERR_print_errors_fp(stderr);
+        abort();
+    }
+    assert(actual_out == n);
+#endif
+}
+
 // out may be NULL, in this case all input is still decrypted to calculate checksums,
 // but part of it is skipped and not copied to out
 void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size_t max_out, size_t & done_in, size_t & done_out)
@@ -316,6 +361,8 @@ void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
         }
         max_in = block_size - offset%block_size;
         memcpy(tmp + offset%block_size, in, max_in);
+        if (cl->proto_csum_status == MSGR_CSUM_GCM)
+            gcm_dec(cl, tmp, tmp, block_size);
         decrypt_block(tmp, tmp);
         decrypted = true;
         if (out)
@@ -328,7 +375,18 @@ void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
     else if (!(offset%block_size))
     {
         // Full block - simplest case
-        if (out)
+        if (cl->proto_csum_status == MSGR_CSUM_GCM)
+        {
+            if (!tmp)
+            {
+                tmp = (uint8_t*)malloc_or_die(block_size);
+                tmp_size = block_size;
+            }
+            gcm_dec(cl, tmp, in, block_size);
+            if (out)
+                decrypt_block(tmp, out);
+        }
+        else
             decrypt_block(in, out);
         done_in += block_size;
         offset += block_size;
@@ -341,6 +399,8 @@ void op_aes_xts_decrypt_t::update(uint8_t *in, size_t max_in, uint8_t *out, size
         max_in = block_size - offset%block_size;
         memcpy(tmp + offset%block_size, in, max_in);
         assert(out);
+        if (cl->proto_csum_status == MSGR_CSUM_GCM)
+            gcm_dec(cl, tmp, tmp, block_size);
         decrypt_block(tmp, out);
         done_in += max_in;
         offset += max_in;
@@ -365,7 +425,7 @@ void osd_messenger_t::op_encrypted_copy_buf(osd_client_t *cl, uint8_t *enc_buf, 
         else
             cl->xts_enc_ctx = new op_aes_xts_encrypt_t();
         assert(cl->write_op->enc->key_chain[0]);
-        cl->xts_enc_ctx->start(cl->write_op->enc->key_chain[0], cl->write_op->req.rw.offset, cl->write_op->enc->bitmap_granularity);
+        cl->xts_enc_ctx->start(cl, cl->write_op->enc->key_chain[0], cl->write_op->req.rw.offset, cl->write_op->enc->bitmap_granularity);
     }
     while (done_plain < plain_len && done_enc < enc_len)
     {
@@ -411,7 +471,7 @@ void osd_messenger_t::op_decrypt_start(osd_client_t* cl)
             cl->xts_dec_ctx = new op_aes_xts_decrypt_t();
         auto & enc = cl->read_op->enc;
         assert(cl->read_op->req.hdr.opcode == OSD_OP_READ);
-        cl->xts_dec_ctx->start(enc->key_chain, enc->chain_size,
+        cl->xts_dec_ctx->start(cl, enc->key_chain, enc->chain_size,
             (cl->read_op->req.rw.flags & OSD_OP_RETURN_CHAIN) ? (uint8_t*)cl->read_op->bitmap + enc->read_chain_bitmap_pos : 0,
             cl->read_op->req.rw.offset, enc->bitmap_granularity);
     }
@@ -561,7 +621,7 @@ void osd_messenger_t::init_tls_client(osd_client_t *cl)
         cl->gcm_enabled = true;
         cl->hs = hs_ctx->create();
         cl->hs->init(cl->is_incoming);
-        if (cl->hs->get_out().size())
+        if (cl->hs->out_size())
         {
             if (cl->write_state == 0)
             {

@@ -792,6 +792,24 @@ jobs:
           echo ""
         done
 
+  test_snapshot_chain_enc_gcm:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: TEST_NAME=enc_gcm ENCRYPTED=1 VITASTOR_CFG=',"proto_checksums":"gcm"' /root/vitastor/tests/test_snapshot_chain.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
   test_old_snapshot_chain:
     runs-on: ubuntu-latest
     needs: build

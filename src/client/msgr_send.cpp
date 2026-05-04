@@ -15,6 +15,8 @@
 #define WR_XTS     2
 #define WR_NO_CSUM 4
 
+#define GCM_TMP_BUF_SIZE 4096
+
 class msgr_op_writer_t
 {
 public:
@@ -180,28 +182,11 @@ public:
             from -= src_len;
             return true;
         }
-        if (!(flags & WR_GCM))
+        if (flags & WR_XTS)
         {
-            if (flags & WR_XTS)
-            {
-                msgr->op_encrypted_copy_buf(cl, curbuf, bufsize, src, src_len, from, done);
-            }
-            else
-            {
-                size_t n = src_len-from;
-                if (n > bufsize-done)
-                    n = bufsize-done;
-                if (!n)
-                    return false;
-                if (cl->write_csum_state && !(flags & WR_NO_CSUM))
-                    XXH3_64bits_update(cl->write_csum_state, src+from, n);
-                memcpy(curbuf+done, src+from, n);
-                done += n;
-                cl->write_op_pos += n;
-                from += n;
-            }
+            msgr->op_encrypted_copy_buf(cl, curbuf, bufsize, src, src_len, from, done);
         }
-        else
+        else if (flags & WR_GCM)
         {
             size_t n = src_len-from;
             if (n > bufsize-done)
@@ -223,6 +208,20 @@ public:
 #endif
             if (cl->write_csum_state && !(flags & WR_NO_CSUM))
                 XXH3_64bits_update(cl->write_csum_state, src+from, n);
+            done += n;
+            cl->write_op_pos += n;
+            from += n;
+        }
+        else
+        {
+            size_t n = src_len-from;
+            if (n > bufsize-done)
+                n = bufsize-done;
+            if (!n)
+                return false;
+            if (cl->write_csum_state && !(flags & WR_NO_CSUM))
+                XXH3_64bits_update(cl->write_csum_state, src+from, n);
+            memcpy(curbuf+done, src+from, n);
             done += n;
             cl->write_op_pos += n;
             from += n;
@@ -297,61 +296,47 @@ class get_op_writer_t: public msgr_op_writer_t
     osd_client_t* cl;
     size_t from;
     size_t done;
+    size_t op_enc;
     size_t enc_size;
     size_t done_enc;
+    uint8_t *enc_buf;
 
 public:
     get_op_writer_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t*, size_t):
-        msgr(msgr), cl(cl), from(cl->write_op_pos), done(0), enc_size(0), done_enc(0)
+        msgr(msgr), cl(cl), from(cl->write_op_pos), done(0), enc_size(0), done_enc(0), enc_buf(NULL)
     {
-    }
-
-    static void ssl_extend_buf(osd_client_t *cl, size_t more = 0)
-    {
-        size_t min_cap = cl->ssl_out_buf_size*2;
-        if (min_cap < cl->ssl_out_buf_size+more)
-            min_cap = cl->ssl_out_buf_size+more;
-        if (min_cap < 16384)
-            min_cap = 16384;
-        if (cl->ssl_out_buf_cap < min_cap)
-        {
-            uintptr_t old_buf = (uintptr_t)cl->ssl_out_buf;
-            uintptr_t old_end = old_buf + cl->ssl_out_buf_cap;
-            cl->ssl_out_buf = (uint8_t*)realloc_or_die(cl->ssl_out_buf, min_cap);
-            cl->ssl_out_buf_cap = min_cap;
-            for (auto & iov: cl->send_list)
-            {
-                if ((uintptr_t)iov.iov_base >= old_buf && (uintptr_t)iov.iov_base < old_end)
-                    iov.iov_base = cl->ssl_out_buf + ((uintptr_t)iov.iov_base - old_buf);
-            }
-        }
-    }
-
-    static void send_out_buf(osd_client_t *cl, size_t n)
-    {
-        if (cl->send_list.size() > 0)
-        {
-            iovec& last = cl->send_list.back();
-            if (last.iov_base+last.iov_len == cl->ssl_out_buf+cl->ssl_out_buf_size)
-            {
-                last.iov_len += n;
-                cl->ssl_out_buf_size += n;
-                return;
-            }
-        }
-        cl->send_list.push_back((iovec){ .iov_base = cl->ssl_out_buf+cl->ssl_out_buf_size, .iov_len = n });
-        cl->ssl_out_buf_size += n;
     }
 
     void reset()
     {
+        op_enc = 0;
         from = cl->write_op_pos;
-        enc_size = 0;
-        done_enc = 0;
         if (cl->gcm_enabled)
         {
             gcm_op_writer_t::init_ctx(msgr, cl);
         }
+    }
+
+    void extend_tmp(size_t n)
+    {
+        if (!enc_buf || done_enc + n > enc_size)
+        {
+            enc_size = n < GCM_TMP_BUF_SIZE ? GCM_TMP_BUF_SIZE : n;
+            enc_buf = (uint8_t*)malloc_or_die(enc_size);
+            done_enc = 0;
+            assert(!((size_t)enc_buf & 7));
+            cl->send_free_ops.push_back((osd_op_t*)((size_t)enc_buf | 1));
+        }
+    }
+
+    void send_tmp(size_t n)
+    {
+        if (cl->send_list.size() && cl->send_list.back().iov_base == (enc_buf + done_enc))
+            cl->send_list.back().iov_len += n;
+        else
+            cl->send_list.push_back((iovec){ .iov_base = enc_buf + done_enc, .iov_len = n });
+        done += n;
+        done_enc += n;
     }
 
     bool write(uint8_t *src, size_t src_len, int flags) override
@@ -362,62 +347,53 @@ public:
             from -= src_len;
             return true;
         }
-        if (cl->send_list.size() >= IOV_MAX)
+        if (cl->send_list.size() >= IOV_MAX-1)
         {
+            // Make sure tag always fits
             return false;
-        }
-        if (flags & WR_GCM)
-        {
-            if (cl->gcm_enabled)
-            {
-                // Encrypt data to client's temporary output buffer (all at once)
-                size_t n = src_len-from;
-                ssl_extend_buf(cl, n);
-#ifdef WITH_ISAL_CRYPTO
-                int r = isal_aes_gcm_enc_256_update(&cl->my_key_isal, cl->enc_ctx, cl->ssl_out_buf+cl->ssl_out_buf_size, src+from, n);
-                assert(!r);
-#else
-                int actual_out;
-                if (EVP_EncryptUpdate(cl->enc_ctx, cl->ssl_out_buf+cl->ssl_out_buf_size, &actual_out, src+from, n) != 1)
-                {
-                    fprintf(stderr, "EncryptUpdate error: ");
-                    ERR_print_errors_fp(stderr);
-                    abort();
-                }
-                assert(actual_out == n);
-#endif
-                if (cl->write_csum_state && !(flags & WR_NO_CSUM))
-                    XXH3_64bits_update(cl->write_csum_state, src+from, n);
-                send_out_buf(cl, n);
-                done += n;
-                cl->write_op_pos += n;
-                from += n;
-                if (from < src_len)
-                    return false;
-                from = 0;
-                return true;
-            }
         }
         if (flags & WR_XTS)
         {
-            if (!cl->write_op->enc_buf)
+            // Allocate a temporary buffer and encrypt data to it
+            if (!op_enc)
             {
-                if (cl->send_list.size() >= IOV_MAX-1)
-                {
-                    // Make sure that 1 encrypted buffer and 1 checksum fits
-                    return false;
-                }
-                // No way except than to allocate a temporary buffer and encrypt data to it
                 assert(cl->write_op->req.hdr.opcode == OSD_OP_WRITE);
-                enc_size = cl->write_op->req.rw.len - from + (from % 16);
-                assert(enc_size > 0);
-                cl->write_op->enc_buf = (uint8_t*)malloc_or_die(enc_size);
-                cl->send_list.push_back((iovec){ .iov_base = cl->write_op->enc_buf, .iov_len = enc_size });
-                done += enc_size;
+                op_enc = cl->write_op->req.rw.len - from + (from % 16);
+                assert(op_enc > 0);
+                extend_tmp(op_enc);
             }
-            assert(enc_size > 0);
-            msgr->op_encrypted_copy_buf(cl, cl->write_op->enc_buf, enc_size, src, src_len, from, done_enc);
+            size_t new_done = done_enc;
+            msgr->op_encrypted_copy_buf(cl, enc_buf, enc_size, src, src_len, from, new_done);
+            send_tmp(new_done-done_enc);
             assert(from == src_len);
+        }
+        else if ((flags & WR_GCM) && cl->gcm_enabled)
+        {
+            // Allocate a temporary buffer and encrypt data to it
+            size_t n = src_len-from;
+            extend_tmp(n);
+#ifdef WITH_ISAL_CRYPTO
+            int r = isal_aes_gcm_enc_256_update(&cl->my_key_isal, cl->enc_ctx, enc_buf+done_enc, src+from, n);
+            assert(!r);
+#else
+            int actual_out;
+            if (EVP_EncryptUpdate(cl->enc_ctx, enc_buf+done_enc, &actual_out, src+from, n) != 1)
+            {
+                fprintf(stderr, "EncryptUpdate error: ");
+                ERR_print_errors_fp(stderr);
+                abort();
+            }
+            assert(actual_out == n);
+#endif
+            if (cl->write_csum_state && !(flags & WR_NO_CSUM))
+                XXH3_64bits_update(cl->write_csum_state, src+from, n);
+            send_tmp(n);
+            cl->write_op_pos += n;
+            from += n;
+            if (from < src_len)
+                return false;
+            from = 0;
+            return true;
         }
         else
         {
@@ -435,13 +411,10 @@ public:
     {
         if (cl->enc_ctx)
         {
-            if (cl->send_list.size() >= IOV_MAX)
-                return false;
             // Tag is 16 bytes
-            ssl_extend_buf(cl, 16);
-            gcm_op_writer_t::write_tag_to(msgr, cl, cl->ssl_out_buf+cl->ssl_out_buf_size);
-            send_out_buf(cl, 16);
-            done += 16;
+            extend_tmp(16);
+            gcm_op_writer_t::write_tag_to(msgr, cl, enc_buf + done_enc);
+            send_tmp(16);
             gcm_op_writer_t::free_ctx(msgr, cl);
         }
         return true;
@@ -527,14 +500,15 @@ bool osd_messenger_t::try_send(osd_client_t *cl)
     if (cl->hs)
     {
         // Send handshake message
-        if (cl->hs->get_out().size())
+        if (cl->hs->out_size())
         {
-            get_op_writer_t::ssl_extend_buf(cl, cl->hs->get_out().size());
-            memcpy(cl->ssl_out_buf+cl->ssl_out_buf_size, cl->hs->get_out().data(), cl->hs->get_out().size());
-            get_op_writer_t::send_out_buf(cl, cl->hs->get_out().size());
-            cl->hs->get_out().clear();
+            uint8_t *out = cl->hs->get_out();
+            cl->send_list.push_back((iovec){ .iov_base = out, .iov_len = cl->hs->out_size() });
+            assert(!((size_t)out & 7));
+            cl->send_free_ops.push_back((osd_op_t*)((size_t)out | 1));
+            cl->hs->reset_out();
         }
-        if (!cl->hs->get_out().size() && cl->hs->done())
+        if (!cl->hs->out_size() && cl->hs->done())
         {
             delete cl->hs;
             cl->hs = NULL;
@@ -621,13 +595,13 @@ size_t osd_messenger_t::copy_ops_to(osd_client_t *cl, uint8_t *dst, size_t dst_l
         {
             // Send handshake message
             size_t n = 0;
-            if (cl->hs->get_out().size())
+            if (cl->hs->out_size())
             {
-                n = cl->hs->get_out().size() < dst_len ? cl->hs->get_out().size() : dst_len;
-                memcpy(dst, cl->hs->get_out().data(), n);
-                cl->hs->get_out().erase(cl->hs->get_out().begin(), cl->hs->get_out().begin() + n);
+                n = cl->hs->out_size() < dst_len ? cl->hs->out_size() : dst_len;
+                memcpy(dst, cl->hs->get_out(), n);
+                cl->hs->eat_out(n);
             }
-            if (!cl->hs->get_out().size() && cl->hs->done())
+            if (!cl->hs->out_size() && cl->hs->done())
             {
                 delete cl->hs;
                 cl->hs = NULL;
@@ -750,24 +724,14 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
         for (auto op: cl->send_free_ops)
         {
             if (more)
-            {
-                assert(!((size_t)op & 7));
                 cl->zc_free_list.push_back(op);
-            }
-            else
+            else if (!((size_t)op & 7))
                 delete op;
+            else
+                free((void*)((size_t)op & ~(size_t)7));
         }
         if (more)
-        {
-            if (cl->ssl_out_buf_size)
-            {
-                cl->zc_free_list.push_back((osd_op_t*)((size_t)cl->ssl_out_buf | 1));
-                cl->ssl_out_buf = NULL;
-                cl->ssl_out_buf_cap = 0;
-            }
             cl->zc_free_list.push_back(NULL); // end marker
-        }
-        cl->ssl_out_buf_size = 0;
         cl->send_free_ops.clear();
         cl->write_state = 0;
         if (cl->write_op || cl->write_ops.size())
@@ -875,7 +839,7 @@ bool osd_messenger_t::op_write_to(osd_client_t *cl, msgr_op_writer_t & wr)
         for (int i = 0; i < cl->write_op->iov.count; i++)
         {
             auto & iov = cl->write_op->iov.buf[i];
-            if (!wr.write((uint8_t*)iov.iov_base, iov.iov_len, (op->enc ? WR_XTS : 0)))
+            if (!wr.write((uint8_t*)iov.iov_base, iov.iov_len, (op->enc ? WR_XTS : 0) | (cl->proto_csum_status == MSGR_CSUM_GCM ? WR_GCM : 0)))
                 return false;
         }
     }

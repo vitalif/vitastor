@@ -186,7 +186,6 @@ struct __attribute__((visibility("default"))) osd_op_t
     uint8_t *bitmap_buf = NULL;
     void *rmw_buf = NULL;
     std::shared_ptr<osd_op_enc_t> enc;
-    uint8_t *enc_buf = NULL;
     uint64_t csum = 0; // network layer checksum
     osd_primary_op_data_t* op_data = NULL;
     std::function<void(osd_op_t*)> callback;
