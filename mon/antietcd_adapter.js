@@ -78,7 +78,8 @@ class AntiEtcdAdapter
                     delete antietcd_config.cluster;
                     delete antietcd_config.cluster_key;
                 }
-                if (config.use_auth)
+                const use_auth = config.use_auth || config.use_auth == null && config.client_ca;
+                if (use_auth)
                 {
                     antietcd_config.client_cert_auth = true;
                     antietcd_config.auth_filter = vitastor_auth_filter;
