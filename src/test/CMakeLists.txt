@@ -62,9 +62,6 @@ target_link_libraries(test_cas
 add_executable(test_crc32
 	test_crc32.cpp
 )
-target_link_libraries(test_crc32
-	vitastor_blk ${ISAL_LIBRARIES}
-)
 
 # test_blockstore
 add_executable(test_blockstore EXCLUDE_FROM_ALL test_blockstore.cpp ringloop_mock.cpp)

@@ -126,7 +126,9 @@ VITASTOR_CFG='"etcd_address":"'$ETCD_URL'"'"$VITASTOR_CFG"
 if [[ "$ETCD_SCHEME" = "https" ]]; then
     VITASTOR_CFG="$VITASTOR_CFG"',"etcd_ca":"'$(pwd)'/testdata/etcd.crt"'
 fi
-VITASTOR_CFG="$VITASTOR_CFG"',"osd_network":"'$ETCD_IP'/32"'
+if [[ "$RDMA" = 1 ]]; then
+    VITASTOR_CFG="$VITASTOR_CFG"',"osd_network":"'$ETCD_IP'/32"'
+fi
 VITASTOR_CFG="$VITASTOR_CFG"',"use_rdma":"'$RDMA'"'
 if [[ "$OSD_TLS" = "1" ]]; then
     cd ./testdata

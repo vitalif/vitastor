@@ -1,38 +1,288 @@
 #!/usr/bin/node
-// Simple systemd unit generator for etcd
+// Simple Vitastor etcd / antietcd / TLS configurator
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: MIT
-
-// USAGE:
-// 1) Put the same etcd_address into /etc/vitastor/vitastor.conf on all monitor nodes
-// 2) Run ./make-etcd.js. It will create the etcd service on one of specified IPs
 
 const child_process = require('child_process');
 const fs = require('fs');
 const os = require('os');
+const path = require('path');
+const readline = require('readline');
 
 run().catch(e => { console.error(e); process.exit(1); });
 
+const help_text = `Initialize a Vitastor cluster (etcd, vitastor.conf and TLS certificates)
+(c) Vitaliy Filippov, 2026+ (MIT)
+
+USAGE:
+1) Create a minimal vitastor.conf with etcd_address, osd_network and (optionally) use_perms.
+   Non-encrypted: {"etcd_address":["http://10.0.0.10:2379","http://10.0.0.11:2379","http://10.0.0.12:2379"],"use_perms":false,"osd_network":"10.0.0.0/24"}
+   Encrypted: {"etcd_address":["https://10.0.0.10:2379","https://10.0.0.11:2379","https://10.0.0.12:2379"],"use_perms":true,"osd_network":"10.0.0.0/24"}
+   (Note https:// etcd URLs!)
+2) Run: ${process.argv[1]} [./vitastor.conf]
+   You can run it on etcd/monitor nodes or on an external node.
+   It configures etcd, generates TLS certificates (on the first or external node), copies
+   them to other etcd/monitor nodes, and updates vitastor.conf with TLS options.
+3) If you have OSD-only nodes, run:
+   ${process.argv[1]} --copy-to-osd-node NODE_NAME ./vitastor.conf
+   It copies vitastor.conf and required TLS certificates to that node.
+
+OPTIONS:
+--gen-certs
+    force certificate generation even if it's not the first node
+--no-certs
+    disable certificate generation
+--copy yes|no|ask
+    copy vitastor.conf and TLS certificates for monitor&etcd to monitor nodes using scp
+    (default is ask)
+--copy-to-osd-node NODE[,NODE2,...]
+    copy vitastor.conf and TLS certificates for OSDs to NODES using scp
+`;
+
 async function run()
 {
-    const config_path = process.argv[2] || '/etc/vitastor/vitastor.conf';
-    if (config_path == '-h' || config_path == '--help')
+    let config_path = '/etc/vitastor/vitastor.conf';
+    let config_dir = '/etc/vitastor/';
+    let gen_certs = 'auto';
+    let copy = 'ask';
+    let copy_to_osd = null;
+    for (let i = 2; i < process.argv.length; i++)
     {
-        console.log(
-            'Initialize systemd etcd service for Vitastor\n'+
-            '(c) Vitaliy Filippov, 2019+ (MIT)\n'+
-            '\n'+
-            'USAGE:\n'+
-            '1) Put the same etcd_address into /etc/vitastor/vitastor.conf on all monitor nodes\n'+
-            '2) Run '+process.argv[1]+' [config_path]\n'
-        );
-        process.exit(0);
+        const arg = process.argv[i];
+        if (arg == '-h' || arg == '--help')
+        {
+            console.log(help_text);
+            process.exit(0);
+        }
+        else if (arg == '--gen-certs')
+        {
+            gen_certs = true;
+        }
+        else if (arg == '--no-certs')
+        {
+            gen_certs = false;
+        }
+        else if (arg == '--copy-to-osd-node' && i < process.argv.length-1)
+        {
+            i++;
+            copy_to_osd = process.argv[i].split(/,/);
+        }
+        else if (arg == '--copy' && i < process.argv.length-1)
+        {
+            i++;
+            copy = process.argv[i];
+            if (copy !== 'ask' && copy !== 'yes' && copy !== 'no')
+            {
+                console.error('--copy should be "ask", "yes" or "no"');
+                process.exit(1);
+            }
+        }
+        else if (arg[0] == '-')
+        {
+            console.error('Unknown option: '+arg[0]);
+            process.exit(1);
+        }
+        else
+        {
+            config_path = arg;
+            config_dir = path.dirname(arg);
+        }
     }
     if (!fs.existsSync(config_path))
     {
         console.log(config_path+' is missing');
         process.exit(1);
     }
+    const config = JSON.parse(fs.readFileSync(config_path, { encoding: 'utf-8' }));
+    if (!config.etcd_address)
+    {
+        console.log("etcd_address is missing in "+config_path);
+        process.exit(1);
+    }
+    const etcds = (config.etcd_address instanceof Array ? config.etcd_address : (''+config.etcd_address).split(/,/))
+        .map(s => /^(https?):\/\/(\[[^\]]+\]|[^\[\]\:\/]+)(?::(\d+))?/.exec(s.toLowerCase()))
+        .filter(s => s)
+        .map(s => ({
+            scheme: s[1],
+            addr: s[2].indexOf(':') && s[2][0] != '[' ? '['+s[2]+']' : s[2],
+            ip: s[2][0] == '[' ? s[2].substr(1, s[2].length-2) : s[2],
+            port: s[3],
+        }));
+    const tls = etcds.filter(e => e.scheme === 'https').length > 0;
+    const use_perms = tls && config.use_perms;
+    const num = select_local_etcd(etcds);
+    if (tls)
+    {
+        if (copy_to_osd)
+        {
+            console.log('Copy certificates');
+        }
+        const etcd_ca = config_dir+'/'+path.basename(config.etcd_ca);
+        if (gen_certs === true)
+        {
+            console.log('Certificate generation is requested explicitly, generating');
+        }
+        else if (gen_certs === false)
+        {
+            console.log('Certificate generation is disabled explicitly, skipping');
+        }
+        else if (num < 0)
+        {
+            gen_certs = true;
+            console.log('No matching IPs in etcd_address from '+config_path+', only generating certificates');
+        }
+        else if (config.etcd_ca && fs.existsSync(etcd_ca))
+        {
+            gen_certs = false;
+            console.log(etcd_ca+' already exists, assuming certificates are already generated');
+        }
+        else if (num === 0)
+        {
+            gen_certs = true;
+            console.log('This is monitor node 1, generating certificates');
+        }
+        else
+        {
+            console.log('This is monitor node '+(num+1)+', '+etcd_ca+' does not exist, please copy certificates to this node');
+            process.exit(1);
+        }
+        if (gen_certs)
+        {
+            if (copy === 'ask')
+                copy = await ask_copy('Copy certificates and vitastor.conf to other nodes after generation?');
+            copy = (copy === 'y' || copy === 'yes');
+            await make_certs(config_dir, copy, etcds, use_perms);
+        }
+        await write_auth_config(config, config_path, etcds, use_perms);
+    }
+    if (num < 0)
+    {
+        console.log('No matching IPs in etcd_address from '+config_path);
+        process.exit(tls && gen_certs ? 0 : 1);
+    }
+    await configure_etcd(etcds, num, tls, use_perms);
+    process.exit(0);
+}
+
+async function ask_copy(question)
+{
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        prompt: '> ',
+    });
+    let copy;
+    while (copy != 'y' && copy != 'n' && copy != 'yes' && copy != 'no')
+    {
+        if (copy)
+            console.log('Please type "yes" or "no"');
+        copy = await new Promise(ok => rl.question(question, ok));
+    }
+    return copy;
+}
+
+async function make_certs(dir, copy, etcds, use_perms)
+{
+    console.log(`-----
+Generating certificates in ${dir}
+-----
+`);
+    await make_ca("/O=Vitastor etcd CA", dir+"etcd_ca");
+    await make_signed("/CN=Vitastor etcd", dir+"etcd", dir+"etcd_ca", etcds.map(e => "IP:"+e.ip).join(','));
+    if (use_perms)
+    {
+        await make_ca("/O=Vitastor Antietcd CA", dir+"antietcd_ca");
+        await make_signed("/CN=Vitastor Antietcd", dir+"antietcd", dir+"antietcd_ca", etcds.map(e => "IP:"+e.ip).join(','));
+        await make_ca("/CN=Vitastor OSD", dir+"osd");
+        await make_ca("/O=Vitastor Client CA", dir+"client_ca");
+        await make_signed("/CN=admin", dir+"admin", dir+"client_ca");
+    }
+    if (use_perms)
+    {
+        console.log(`-----
+Certificates generated, commands to copy them:
+- Monitor+OSD node:
+  cd ${dir} && scp antietcd_ca.crt antietcd.crt antietcd.key osd.crt osd.key client_ca.crt etcd_ca.crt etcd.crt etcd.key root@NODE:/etc/vitastor/
+- Monitor node:
+  cd ${dir} && scp antietcd_ca.crt antietcd.crt antietcd.key osd.crt client_ca.crt etcd_ca.crt etcd.crt etcd.key root@NODE:/etc/vitastor/
+- OSD node:
+  cd ${dir} && scp antietcd_ca.crt osd.crt osd.key client_ca.crt root@NODE:/etc/vitastor/
+-----
+`);
+    }
+    else
+    {
+        console.log(`-----
+Certificates generated, commands to copy them:
+- Monitor node:
+  cd ${dir} && scp etcd_ca.crt etcd.crt etcd.key root@NODE:/etc/vitastor/
+-----
+`);
+    }
+    if (copy)
+    {
+        const to_copy = use_perms
+            ? [ "antietcd_ca.crt", "antietcd.crt", "antietcd.key", "osd.crt", "osd.key", "client_ca.crt", "etcd_ca.crt", "etcd.crt", "etcd.key" ]
+            : [ "etcd_ca.crt", "etcd.crt", "etcd.key" ];
+        for (const node of etcds)
+        {
+            await system("scp "+dir+to_copy.join(" "+dir)+" root@"+node.ip+":/etc/vitastor/");
+        }
+    }
+    else
+    {
+        console.warn('Certificates generated in /etc/vitastor, please copy them to other nodes');
+    }
+}
+
+async function write_auth_config(config, config_path, etcds, use_perms)
+{
+    const auth = {};
+    if (use_perms)
+    {
+        auth["use_antietcd"] = true;
+        auth["etcd_proxy"] = {
+            urls: etcds.map(e => e.ip+':2381'),
+            cert: "/etc/vitastor/antietcd.crt",
+            key: "/etc/vitastor/antietcd.key",
+            ca: "/etc/vitastor/etcd_ca.crt",
+        };
+        auth["antietcd_cert"] = "/etc/vitastor/antietcd.crt";
+        auth["antietcd_key"] = "/etc/vitastor/antietcd.key";
+        auth["etcd_ca"] = "/etc/vitastor/antietcd_ca.crt";
+        auth["osd_cert"] = "/etc/vitastor/osd.crt";
+        auth["osd_pkey"] = "/etc/vitastor/osd.key";
+        auth["osd_ca"] = "/etc/vitastor/osd.crt";
+        auth["client_ca"] = "/etc/vitastor/client_ca.crt";
+        auth["cert"] = "/etc/vitastor/admin.crt";
+        auth["pkey"] = "/etc/vitastor/admin.key";
+    }
+    else
+    {
+        auth["etcd_ca"] = "/etc/vitastor/etcd.crt";
+    }
+    for (const k in auth)
+    {
+        if ((k in config) && JSON.stringify(auth[k]) != JSON.stringify(config[k]))
+        {
+            // Auth options already overridden with non-default
+            console.log(k+" is already overridden in "+config_path+", skipping config update");
+            return;
+        }
+    }
+    for (const k in auth)
+    {
+        config[k] = auth[k];
+    }
+    console.log(`-----
+Updating ${config_path}
+-----
+`);
+    fs.writeFileSync(config_path, JSON.stringify(config, 0, 4));
+}
+
+async function configure_etcd(etcds, num, tls, use_perms)
+{
     const in_docker = fs.existsSync("/etc/vitastor/etcd.conf") &&
         fs.existsSync("/etc/vitastor/docker.conf");
     if (!in_docker && fs.existsSync("/etc/systemd/system/vitastor-etcd.service"))
@@ -45,37 +295,55 @@ async function run()
         console.log("/etc/systemd/system/etcd.service already exists");
         process.exit(1);
     }
-    const config = JSON.parse(fs.readFileSync(config_path, { encoding: 'utf-8' }));
-    if (!config.etcd_address)
+    const etcd_url = etcds[num].scheme + '://' + etcds[num].addr;
+    const options = {
+        name: 'etcd'+etcds[num].ip.replace(/[^0-9a-z_]/ig, '_'),
+        advertise_client_urls: etcd_url+':'+(use_perms ? 2381 : 2379),
+        listen_client_urls: etcd_url+':'+(use_perms ? 2381 : 2379),
+        initial_advertise_peer_urls: etcd_url+':2380',
+        listen_peer_urls: etcd_url+':2380',
+        initial_cluster_token: 'vitastor-etcd-1',
+        initial_cluster_state: 'new',
+        initial_cluster: etcds.map(e => `etcd${e.ip.replace(/[^0-9a-z_]/ig, '_')}=${e.scheme}://${e.addr}:2380`).join(','),
+        snapshot_count: 10000,
+        max_txn_ops: 100000,
+        max_request_bytes: 104857600,
+        auto_compaction_retention: 10,
+        auto_compaction_mode: 'revision',
+    };
+    if (tls)
     {
-        console.log("etcd_address is missing in "+config_path);
-        process.exit(1);
+        options['cert_file'] = '/etc/vitastor/etcd.crt';
+        options['key_file'] = '/etc/vitastor/etcd.key';
+        if (use_perms)
+        {
+            options['client_cert_auth'] = '1';
+            options['trusted_ca_file'] = '/etc/vitastor/antietcd.crt';
+        }
+        options['peer_cert_file'] = '/etc/vitastor/etcd.crt';
+        options['peer_key_file'] = '/etc/vitastor/etcd.key';
+        if (use_perms)
+        {
+            options['peer_client_cert_auth'] = '1';
+            options['peer_trusted_ca_file'] = '/etc/vitastor/etcd.crt';
+        }
     }
-    const etcds = (config.etcd_address instanceof Array ? config.etcd_address : (''+config.etcd_address).split(/,/))
-        .map(s => (''+s).replace(/^https?:\/\/|(:\d+)?(\/.*)?$/g, '').replace(/^\[(.*)\]$/, '$1').toLowerCase());
-    const num = select_local_etcd(etcds);
-    if (num < 0)
+    let etcd_conf = fs.existsSync("/etc/vitastor/etcd.conf")
+        ? fs.readFileSync("/etc/vitastor/etcd.conf", { encoding: 'utf-8' })
+        : "";
+    for (const k in options)
     {
-        console.log('No matching IPs in etcd_address from '+config_path);
-        process.exit(0);
+        etcd_conf = replace_env(etcd_conf, 'ETCD_'+k.toUpperCase().replace(/-/, '_'), options[k]);
     }
-    const etcd_url = 'http://' + (etcds[num].indexOf(':') >= 0 ? '['+etcds[num]+']' : etcds[num]);
-    const etcd_name = 'etcd'+etcds[num].replace(/[^0-9a-z_]/ig, '_');
-    const etcd_cluster = etcds.map(e => `etcd${e.replace(/[^0-9a-z_]/ig, '_')}=http://${e.indexOf(':') >= 0 ? '['+e+']' : e}:2380`).join(',');
+    fs.writeFileSync("/etc/vitastor/etcd.conf", etcd_conf);
     if (in_docker)
     {
-        let etcd_conf = fs.readFileSync("/etc/vitastor/etcd.conf", { encoding: 'utf-8' });
-        etcd_conf = replace_env(etcd_conf, 'ETCD_NAME', etcd_name);
-        etcd_conf = replace_env(etcd_conf, 'ETCD_IP', etcds[num]);
-        etcd_conf = replace_env(etcd_conf, 'ETCD_INITIAL_CLUSTER', etcd_cluster);
-        fs.writeFileSync("/etc/vitastor/etcd.conf", etcd_conf);
         console.log('etcd for Vitastor configured. Run `systemctl enable --now vitastor-etcd` to start etcd');
         process.exit(0);
     }
     await system(`mkdir -p /var/lib/etcd/vitastor`);
     fs.writeFileSync(
-        "/etc/systemd/system/vitastor-etcd.service",
-`[Unit]
+        "/etc/systemd/system/vitastor-etcd.service", `[Unit]
 Description=etcd for vitastor
 After=network-online.target local-fs.target time-sync.target
 Wants=network-online.target local-fs.target time-sync.target
@@ -83,12 +351,8 @@ Wants=network-online.target local-fs.target time-sync.target
 [Service]
 Restart=always
 Environment=GOGC=50
-ExecStart=etcd --name ${etcd_name} --data-dir /var/lib/etcd/vitastor \\
-    --snapshot-count 10000 --advertise-client-urls ${etcd_url}:2379 --listen-client-urls ${etcd_url}:2379 \\
-    --initial-advertise-peer-urls ${etcd_url}:2380 --listen-peer-urls ${etcd_url}:2380 \\
-    --initial-cluster-token vitastor-etcd-1 --initial-cluster ${etcd_cluster} \\
-    --initial-cluster-state new --max-txn-ops=100000 --max-request-bytes=104857600 \\
-    --auto-compaction-retention=10 --auto-compaction-mode=revision
+EnvironmentFile=/etc/vitastor/etcd.conf
+ExecStart=etcd --data-dir /var/lib/etcd/vitastor
 WorkingDirectory=/var/lib/etcd/vitastor
 ExecStartPre=+chown -R etcd /var/lib/etcd/vitastor
 User=etcd
@@ -106,7 +370,6 @@ WantedBy=multi-user.target
     // Disable distribution etcd unit and enable our one
     await system(`systemctl disable --now etcd`);
     await system(`systemctl enable --now vitastor-etcd`);
-    process.exit(0);
 }
 
 function replace_env(text, key, value)
@@ -119,20 +382,49 @@ function replace_env(text, key, value)
 function select_local_etcd(etcds)
 {
     const ifaces = os.networkInterfaces();
+    const local = {};
     for (const ifname in ifaces)
+    {
         for (const iface of ifaces[ifname])
-            for (let i = 0; i < etcds.length; i++)
-                if (etcds[i] == iface.address.toLowerCase())
-                    return i;
+        {
+            const addr = iface.address;
+            if (iface.family == 'IPv6')
+                local[addr.toLowerCase()] = local['['+addr.toLowerCase()+']'] = true;
+            else
+                local[addr] = true;
+        }
+    }
+    for (let i = 0; i < etcds.length; i++)
+    {
+        if (local[etcds[i].addr])
+            return i;
+    }
     return -1;
 }
 
 async function system(cmd)
 {
+    console.log('Running '+cmd);
     const cp = child_process.spawn(cmd, { shell: true, stdio: [ 0, 1, 2 ] });
     let finish_cb;
     cp.on('exit', () => finish_cb && finish_cb());
     if (cp.exitCode == null)
         await new Promise(ok => finish_cb = ok);
     return cp.exitCode;
+}
+
+async function make_ca(subj, filename)
+{
+    if (await system("openssl req -days 3650 -x509 -subj '"+subj+"' -addext basicConstraints=critical,CA:TRUE,pathlen:1"+
+        " -new -newkey rsa:4096 -nodes -keyout "+filename+".key -out "+filename+".crt"))
+        process.exit(1);
+}
+
+async function make_signed(subj, f, ca, san)
+{
+    if (await system(`openssl req -subj '${subj}' ${san ? "-addext 'subjectAltName="+san+"'" : ""} -nodes -new -keyout ${f}.key -out ${f}.csr`))
+        process.exit(1);
+    if (await system(`openssl x509 -req -days 3650 -CA ${ca}.crt -CAkey ${ca}.key -CAcreateserial -in ${f}.csr -out ${f}.crt`))
+        process.exit(1);
+    fs.unlinkSync(f+".csr");
 }
