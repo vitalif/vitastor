@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include <ctype.h>
+#include <time.h>
 #include "cli.h"
 #include "cluster_client.h"
 #include "str_util.h"
@@ -33,7 +34,7 @@ struct image_creator_t
     pool_id_t old_pool_id = 0;
     inode_t new_parent_id = 0;
     inode_t new_id = 0, old_id = 0;
-    uint64_t max_id_mod_rev = 0, cfg_mod_rev = 0, idx_mod_rev = 0;
+    uint64_t max_id_mod_rev = 0, cfg_mod_rev = 0, idx_mod_rev = 0, old_create_ts = 0, snap_create_ts = 0;
     inode_config_t new_cfg;
 
     int state = 0;
@@ -202,6 +203,7 @@ resume_3:
                 { "pool", new_pool_name },
                 { "parent", new_parent },
                 { "size", size },
+                { "create_ts", new_cfg.create_ts },
             }
         };
         state = 100;
@@ -280,6 +282,7 @@ resume_4:
                 { "pool", (uint64_t)new_pool_id },
                 { "parent", new_parent },
                 { "size", size },
+                { "create_ts", snap_create_ts },
             }
         };
         state = 100;
@@ -357,6 +360,7 @@ resume_2:
         extract_next_id(parent->etcd_result["responses"][0]);
         old_id = 0;
         old_pool_id = 0;
+        old_create_ts = 0;
         cfg_mod_rev = idx_mod_rev = 0;
         if (parent->etcd_result["responses"][1]["response_range"]["kvs"].array_items().size() == 0)
         {
@@ -368,6 +372,7 @@ resume_2:
                     old_pool_id = INODE_POOL(ic.first);
                     size = ic.second.size;
                     new_parent_id = ic.second.parent_id;
+                    old_create_ts = ic.second.create_ts;
                     cfg_mod_rev = ic.second.mod_revision;
                     break;
                 }
@@ -414,6 +419,7 @@ resume_3:
                 auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
                 size = kv.value["size"].uint64_value();
                 new_parent_id = kv.value["parent_id"].uint64_value();
+                old_create_ts = kv.value["create_ts"].uint64_value();
                 uint64_t parent_pool_id = kv.value["parent_pool"].uint64_value();
                 if (new_parent_id)
                 {
@@ -432,6 +438,7 @@ resume_3:
             .size = size,
             .parent_id = (new_snap != "" ? INODE_WITH_POOL(old_pool_id, old_id) : new_parent_id),
             .readonly = false,
+            .create_ts = (new_snap != "" ? old_create_ts : (uint64_t)time(NULL)),
             .meta = new_meta,
         };
         json11::Json::array checks = json11::Json::array {
@@ -500,12 +507,14 @@ resume_3:
         };
         if (new_snap != "")
         {
+            snap_create_ts = (uint64_t)time(NULL);
             inode_config_t snap_cfg = {
                 .num = INODE_WITH_POOL(old_pool_id, old_id),
                 .name = image_name+"@"+new_snap,
                 .size = size,
                 .parent_id = new_parent_id,
                 .readonly = true,
+                .create_ts = snap_create_ts,
             };
             checks.push_back(json11::Json::object {
                 { "target", "MOD" },

@@ -11,7 +11,7 @@
 Вы можете даже создавать образы вручную:
 
 ```
-etcdctl --endpoints=<etcd> put /vitastor/config/inode/<pool>/<inode> '{"name":"<name>","size":<size>[,"parent_id":<parent_inode_number>][,"readonly":true]}'
+etcdctl --endpoints=<etcd> put /vitastor/config/inode/<pool>/<inode> '{"name":"<name>","size":<size>[,"parent_id":<parent_inode_number>][,"readonly":true][,"create_ts":<unix_timestamp>]}'
 ```
 
 Например:
@@ -19,6 +19,8 @@ etcdctl --endpoints=<etcd> put /vitastor/config/inode/<pool>/<inode> '{"name":"<
 ```
 etcdctl --endpoints=http://10.115.0.10:2379/v3 put /vitastor/config/inode/1/1 '{"name":"testimg","size":2147483648}'
 ```
+
+`create_ts`, если указан, хранит время создания образа или снимка в виде UNIX timestamp в секундах.
 
 Если вы зададите parent_id, то образ станет CoW-клоном, т.е. все новые запросы записи пойдут в новый инод, а запросы
 чтения будут проверять сначала его, а потом родительские слои по цепочке вверх. Чтобы случайно не перезаписать данные
