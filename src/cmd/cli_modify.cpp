@@ -53,7 +53,7 @@ struct image_changer_t
             state = 100;
             return;
         }
-        for (auto & ic: parent->cli->st_cli.inode_config)
+        for (auto & ic: parent->cli->st_cli->inode_config)
         {
             if (ic.second.name == image_name)
             {
@@ -74,7 +74,7 @@ struct image_changer_t
             state = 100;
             return;
         }
-        for (auto & ic: parent->cli->st_cli.inode_config)
+        for (auto & ic: parent->cli->st_cli->inode_config)
         {
             if (ic.second.parent_id == inode_num)
             {
@@ -153,7 +153,7 @@ resume_1:
             cfg.name = new_name;
         }
         {
-            std::string cur_cfg_key = base64_encode(parent->cli->st_cli.etcd_prefix+
+            std::string cur_cfg_key = base64_encode(parent->cli->st_cli->etcd_prefix+
                 "/config/inode/"+std::to_string(INODE_POOL(inode_num))+
                 "/"+std::to_string(INODE_NO_POOL(inode_num)));
             checks.push_back(json11::Json::object {
@@ -166,7 +166,7 @@ resume_1:
                 { "request_put", json11::Json::object {
                     { "key", cur_cfg_key },
                     { "value", base64_encode(json11::Json(
-                        parent->cli->st_cli.serialize_inode_cfg(&cfg)
+                        parent->cli->st_cli->serialize_inode_cfg(&cfg)
                     ).dump()) },
                 } }
             });
@@ -174,10 +174,10 @@ resume_1:
         if (new_name != "")
         {
             std::string old_idx_key = base64_encode(
-                parent->cli->st_cli.etcd_prefix+"/index/image/"+image_name
+                parent->cli->st_cli->etcd_prefix+"/index/image/"+image_name
             );
             std::string new_idx_key = base64_encode(
-                parent->cli->st_cli.etcd_prefix+"/index/image/"+new_name
+                parent->cli->st_cli->etcd_prefix+"/index/image/"+new_name
             );
             checks.push_back(json11::Json::object {
                 { "target", "MOD" },
@@ -229,9 +229,9 @@ resume_2:
         cfg.mod_revision = parent->etcd_result["header"]["revision"].uint64_value();
         if (new_name != "")
         {
-            parent->cli->st_cli.inode_by_name.erase(image_name);
+            parent->cli->st_cli->inode_by_name.erase(image_name);
         }
-        parent->cli->st_cli.insert_inode_config(cfg);
+        parent->cli->st_cli->insert_inode_config(cfg);
         result = (cli_result_t){
             .err = 0,
             .text = "Image "+image_name+" modified",

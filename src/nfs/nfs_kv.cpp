@@ -219,7 +219,7 @@ void nfs_kv_procs(nfs_client_t *self)
 void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
 {
     this->proxy = proxy;
-    auto & pool_cfg = proxy->cli->st_cli.pool_config.at(proxy->default_pool_id);
+    auto & pool_cfg = proxy->cli->st_cli->pool_config.at(proxy->default_pool_id);
     fs_kv_inode = cfg["fs"].uint64_value();
     if (fs_kv_inode)
     {
@@ -231,7 +231,7 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     }
     else
     {
-        for (auto & ic: proxy->cli->st_cli.inode_config)
+        for (auto & ic: proxy->cli->st_cli->inode_config)
         {
             if (ic.second.name == cfg["fs"].string_value())
             {
@@ -245,9 +245,9 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
             exit(1);
         }
     }
-    if (proxy->cli->st_cli.inode_config.find(fs_kv_inode) != proxy->cli->st_cli.inode_config.end())
+    if (proxy->cli->st_cli->inode_config.find(fs_kv_inode) != proxy->cli->st_cli->inode_config.end())
     {
-        auto & name = proxy->cli->st_cli.inode_config.at(fs_kv_inode).name;
+        auto & name = proxy->cli->st_cli->inode_config.at(fs_kv_inode).name;
         if (pool_cfg.used_for_app != "fs:"+name)
         {
             fprintf(stderr, "Please mark pool as used for this file system with `vitastor-cli modify-pool --used-for-app fs:%s %s`\n",
@@ -255,11 +255,11 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
             exit(1);
         }
     }
-    auto img_it = proxy->cli->st_cli.inode_config.lower_bound(INODE_WITH_POOL(proxy->default_pool_id+1, 0));
-    if (img_it != proxy->cli->st_cli.inode_config.begin())
+    auto img_it = proxy->cli->st_cli->inode_config.lower_bound(INODE_WITH_POOL(proxy->default_pool_id+1, 0));
+    if (img_it != proxy->cli->st_cli->inode_config.begin())
     {
         img_it--;
-        if (img_it != proxy->cli->st_cli.inode_config.begin() && INODE_POOL(img_it->first) == proxy->default_pool_id)
+        if (img_it != proxy->cli->st_cli->inode_config.begin() && INODE_POOL(img_it->first) == proxy->default_pool_id)
         {
             idgen[proxy->default_pool_id].min_id = INODE_NO_POOL(img_it->first) + 1;
         }

@@ -396,7 +396,7 @@ void vitastor_c_watch_inode(vitastor_c *client, char *image, VitastorIOHandler c
 {
     client->cli->on_ready([=]()
     {
-        auto watch = client->cli->st_cli.watch_inode(std::string(image));
+        auto watch = client->cli->st_cli->watch_inode(std::string(image));
         cb(opaque, (long)watch);
     });
     if (client->ringloop)
@@ -407,7 +407,7 @@ void vitastor_c_watch_inode(vitastor_c *client, char *image, VitastorIOHandler c
 
 void vitastor_c_close_watch(vitastor_c *client, void *handle)
 {
-    client->cli->st_cli.close_watch((inode_watch_t*)handle);
+    client->cli->st_cli->close_watch((inode_watch_t*)handle);
 }
 
 uint64_t vitastor_c_inode_get_size(void *handle)
@@ -424,8 +424,8 @@ uint64_t vitastor_c_inode_get_num(void *handle)
 
 uint32_t vitastor_c_inode_get_block_size(vitastor_c *client, uint64_t inode_num)
 {
-    auto pool_it = client->cli->st_cli.pool_config.find(INODE_POOL(inode_num));
-    if (pool_it == client->cli->st_cli.pool_config.end())
+    auto pool_it = client->cli->st_cli->pool_config.find(INODE_POOL(inode_num));
+    if (pool_it == client->cli->st_cli->pool_config.end())
         return 0;
     auto & pool_cfg = pool_it->second;
     uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
@@ -434,8 +434,8 @@ uint32_t vitastor_c_inode_get_block_size(vitastor_c *client, uint64_t inode_num)
 
 uint32_t vitastor_c_inode_get_bitmap_granularity(vitastor_c *client, uint64_t inode_num)
 {
-    auto pool_it = client->cli->st_cli.pool_config.find(INODE_POOL(inode_num));
-    if (pool_it == client->cli->st_cli.pool_config.end())
+    auto pool_it = client->cli->st_cli->pool_config.find(INODE_POOL(inode_num));
+    if (pool_it == client->cli->st_cli->pool_config.end())
         return 0;
     // FIXME: READ_BITMAP may fails if parent bitmap granularity differs from inode bitmap granularity
     return pool_it->second.bitmap_granularity;
@@ -471,8 +471,8 @@ uint64_t vitastor_c_inode_get_mod_revision(void *handle)
 
 uint32_t vitastor_c_inode_get_immediate_commit(vitastor_c *client, uint64_t inode_num)
 {
-    auto pool_it = client->cli->st_cli.pool_config.find(INODE_POOL(inode_num));
-    if (pool_it == client->cli->st_cli.pool_config.end())
+    auto pool_it = client->cli->st_cli->pool_config.find(INODE_POOL(inode_num));
+    if (pool_it == client->cli->st_cli->pool_config.end())
         return 0;
     return pool_it->second.immediate_commit;
 }

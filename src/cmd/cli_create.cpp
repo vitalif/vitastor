@@ -46,7 +46,7 @@ struct image_creator_t
 
     void loop()
     {
-        auto & pools = parent->cli->st_cli.pool_config;
+        auto & pools = parent->cli->st_cli->pool_config;
         if (state >= 1)
             goto resume_1;
         if (image_name == "")
@@ -117,7 +117,7 @@ struct image_creator_t
             goto resume_2;
         else if (state == 3)
             goto resume_3;
-        for (auto & ic: parent->cli->st_cli.inode_config)
+        for (auto & ic: parent->cli->st_cli->inode_config)
         {
             if (ic.second.name == image_name)
             {
@@ -193,7 +193,7 @@ resume_3:
         } while (!parent->etcd_result["succeeded"].bool_value());
         // Save into inode_config for library users to be able to take it from there immediately
         new_cfg.mod_revision = parent->etcd_result["header"]["revision"].uint64_value();
-        parent->cli->st_cli.insert_inode_config(new_cfg);
+        parent->cli->st_cli->insert_inode_config(new_cfg);
         result = (cli_result_t){
             .err = 0,
             .text = "Image "+image_name+" created",
@@ -215,8 +215,8 @@ resume_3:
             goto resume_3;
         else if (state == 4)
             goto resume_4;
-        // FIXME: take all info from etcd requests, not mixed with st_cli.inode_config
-        for (auto & ic: parent->cli->st_cli.inode_config)
+        // FIXME: take all info from etcd requests, not mixed with st_cli->inode_config
+        for (auto & ic: parent->cli->st_cli->inode_config)
         {
             if (ic.second.name == image_name+"@"+new_snap)
             {
@@ -271,7 +271,7 @@ resume_4:
         } while (!parent->etcd_result["succeeded"].bool_value());
         // Save into inode_config for library users to be able to take it from there immediately
         new_cfg.mod_revision = parent->etcd_result["header"]["revision"].uint64_value();
-        parent->cli->st_cli.insert_inode_config(new_cfg);
+        parent->cli->st_cli->insert_inode_config(new_cfg);
         result = (cli_result_t){
             .err = 0,
             .text = "Snapshot "+image_name+"@"+new_snap+" created",
@@ -291,7 +291,7 @@ resume_4:
         return json11::Json::object {
             { "request_range", json11::Json::object {
                 { "key", base64_encode(
-                    parent->cli->st_cli.etcd_prefix+"/index/maxid/"+std::to_string(new_pool_id)
+                    parent->cli->st_cli->etcd_prefix+"/index/maxid/"+std::to_string(new_pool_id)
                 ) },
             } },
         };
@@ -303,13 +303,13 @@ resume_4:
         max_id_mod_rev = 0;
         if (response["response_range"]["kvs"].array_items().size() > 0)
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(response["response_range"]["kvs"][0]);
+            auto kv = parent->cli->st_cli->parse_etcd_kv(response["response_range"]["kvs"][0]);
             new_id = 1+INODE_NO_POOL(kv.value.uint64_value());
             max_id_mod_rev = kv.mod_revision;
         }
         // Also check existing inodes - for the case when some inodes are created without changing /index/maxid
-        auto ino_it = parent->cli->st_cli.inode_config.lower_bound(INODE_WITH_POOL(new_pool_id+1, 0));
-        if (ino_it != parent->cli->st_cli.inode_config.begin())
+        auto ino_it = parent->cli->st_cli->inode_config.lower_bound(INODE_WITH_POOL(new_pool_id+1, 0));
+        if (ino_it != parent->cli->st_cli->inode_config.begin())
         {
             ino_it--;
             if (INODE_POOL(ino_it->first) == new_pool_id && new_id < 1+INODE_NO_POOL(ino_it->first))
@@ -325,7 +325,7 @@ resume_4:
             goto resume_3;
         if (!new_pool_id)
         {
-            for (auto & ic: parent->cli->st_cli.inode_config)
+            for (auto & ic: parent->cli->st_cli->inode_config)
             {
                 if (ic.second.name == image_name)
                 {
@@ -339,7 +339,7 @@ resume_4:
             json11::Json::object {
                 { "request_range", json11::Json::object {
                     { "key", base64_encode(
-                        parent->cli->st_cli.etcd_prefix+"/index/image/"+image_name
+                        parent->cli->st_cli->etcd_prefix+"/index/image/"+image_name
                     ) },
                 } },
             },
@@ -360,7 +360,7 @@ resume_2:
         cfg_mod_rev = idx_mod_rev = 0;
         if (parent->etcd_result["responses"][1]["response_range"]["kvs"].array_items().size() == 0)
         {
-            for (auto & ic: parent->cli->st_cli.inode_config)
+            for (auto & ic: parent->cli->st_cli->inode_config)
             {
                 if (ic.second.name == image_name)
                 {
@@ -377,7 +377,7 @@ resume_2:
         {
             // FIXME: Parse kvs in etcd_state_client automatically
             {
-                auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][1]["response_range"]["kvs"][0]);
+                auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][1]["response_range"]["kvs"][0]);
                 old_id = INODE_NO_POOL(kv.value["id"].uint64_value());
                 old_pool_id = (pool_id_t)kv.value["pool_id"].uint64_value();
                 idx_mod_rev = kv.mod_revision;
@@ -393,7 +393,7 @@ resume_2:
                     json11::Json::object {
                         { "request_range", json11::Json::object {
                             { "key", base64_encode(
-                                parent->cli->st_cli.etcd_prefix+"/config/inode/"+
+                                parent->cli->st_cli->etcd_prefix+"/config/inode/"+
                                 std::to_string(old_pool_id)+"/"+std::to_string(old_id)
                             ) },
                         } },
@@ -411,7 +411,7 @@ resume_3:
                 return;
             }
             {
-                auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
+                auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
                 size = kv.value["size"].uint64_value();
                 new_parent_id = kv.value["parent_id"].uint64_value();
                 uint64_t parent_pool_id = kv.value["parent_pool"].uint64_value();
@@ -439,7 +439,7 @@ resume_3:
                 { "target", "VERSION" },
                 { "version", 0 },
                 { "key", base64_encode(
-                    parent->cli->st_cli.etcd_prefix+"/config/inode/"+
+                    parent->cli->st_cli->etcd_prefix+"/config/inode/"+
                     std::to_string(new_pool_id)+"/"+std::to_string(new_id)
                 ) },
             },
@@ -447,31 +447,31 @@ resume_3:
                 { "target", "VERSION" },
                 { "version", 0 },
                 { "key", base64_encode(
-                    parent->cli->st_cli.etcd_prefix+"/index/image/"+image_name+
+                    parent->cli->st_cli->etcd_prefix+"/index/image/"+image_name+
                     (new_snap != "" ? "@"+new_snap : "")
                 ) },
             },
             json11::Json::object {
                 { "target", "MOD" },
                 { "mod_revision", max_id_mod_rev },
-                { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/index/maxid/"+std::to_string(new_pool_id)) },
+                { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/index/maxid/"+std::to_string(new_pool_id)) },
             },
         };
         json11::Json::array success = json11::Json::array {
             json11::Json::object {
                 { "request_put", json11::Json::object {
                     { "key", base64_encode(
-                        parent->cli->st_cli.etcd_prefix+"/config/inode/"+
+                        parent->cli->st_cli->etcd_prefix+"/config/inode/"+
                         std::to_string(new_pool_id)+"/"+std::to_string(new_id)
                     ) },
                     { "value", base64_encode(
-                        json11::Json(parent->cli->st_cli.serialize_inode_cfg(&new_cfg)).dump()
+                        json11::Json(parent->cli->st_cli->serialize_inode_cfg(&new_cfg)).dump()
                     ) },
                 } },
             },
             json11::Json::object {
                 { "request_put", json11::Json::object {
-                    { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/index/image/"+image_name) },
+                    { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/index/image/"+image_name) },
                     { "value", base64_encode(json11::Json(json11::Json::object{
                         { "id", new_id },
                         { "pool_id", (uint64_t)new_pool_id },
@@ -481,7 +481,7 @@ resume_3:
             json11::Json::object {
                 { "request_put", json11::Json::object {
                     { "key", base64_encode(
-                        parent->cli->st_cli.etcd_prefix+"/index/maxid/"+
+                        parent->cli->st_cli->etcd_prefix+"/index/maxid/"+
                         std::to_string(new_pool_id)
                     ) },
                     { "value", base64_encode(std::to_string(new_id)) }
@@ -492,7 +492,7 @@ resume_3:
             json11::Json::object {
                 { "request_range", json11::Json::object {
                     { "key", base64_encode(
-                        parent->cli->st_cli.etcd_prefix+"/index/image/"+
+                        parent->cli->st_cli->etcd_prefix+"/index/image/"+
                         image_name+(new_snap != "" ? "@"+new_snap : "")
                     ) },
                 } },
@@ -511,29 +511,29 @@ resume_3:
                 { "target", "MOD" },
                 { "mod_revision", cfg_mod_rev },
                 { "key", base64_encode(
-                    parent->cli->st_cli.etcd_prefix+"/config/inode/"+
+                    parent->cli->st_cli->etcd_prefix+"/config/inode/"+
                     std::to_string(old_pool_id)+"/"+std::to_string(old_id)
                 ) },
             });
             checks.push_back(json11::Json::object {
                 { "target", "MOD" },
                 { "mod_revision", idx_mod_rev },
-                { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/index/image/"+image_name) }
+                { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/index/image/"+image_name) }
             });
             success.push_back(json11::Json::object {
                 { "request_put", json11::Json::object {
                     { "key", base64_encode(
-                        parent->cli->st_cli.etcd_prefix+"/config/inode/"+
+                        parent->cli->st_cli->etcd_prefix+"/config/inode/"+
                         std::to_string(old_pool_id)+"/"+std::to_string(old_id)
                     ) },
                     { "value", base64_encode(
-                        json11::Json(parent->cli->st_cli.serialize_inode_cfg(&snap_cfg)).dump()
+                        json11::Json(parent->cli->st_cli->serialize_inode_cfg(&snap_cfg)).dump()
                     ) },
                 } },
             });
             success.push_back(json11::Json::object {
                 { "request_put", json11::Json::object {
-                    { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/index/image/"+image_name+"@"+new_snap) },
+                    { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/index/image/"+image_name+"@"+new_snap) },
                     { "value", base64_encode(json11::Json(json11::Json::object{
                         { "id", old_id },
                         { "pool_id", (uint64_t)old_pool_id },

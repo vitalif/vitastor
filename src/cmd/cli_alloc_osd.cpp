@@ -35,7 +35,7 @@ struct alloc_osd_t
                         { "target", "VERSION" },
                         { "version", 0 },
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/osd/stats/"+std::to_string(new_id)
+                            parent->cli->st_cli->etcd_prefix+"/osd/stats/"+std::to_string(new_id)
                         ) },
                     },
                 } },
@@ -43,7 +43,7 @@ struct alloc_osd_t
                     json11::Json::object {
                         { "request_put", json11::Json::object {
                             { "key", base64_encode(
-                                parent->cli->st_cli.etcd_prefix+"/osd/stats/"+std::to_string(new_id)
+                                parent->cli->st_cli->etcd_prefix+"/osd/stats/"+std::to_string(new_id)
                             ) },
                             { "value", base64_encode("{}") },
                         } },
@@ -52,8 +52,8 @@ struct alloc_osd_t
                 { "failure", json11::Json::array {
                     json11::Json::object {
                         { "request_range", json11::Json::object {
-                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/osd/stats/") },
-                            { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/osd/stats0") },
+                            { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/osd/stats/") },
+                            { "range_end", base64_encode(parent->cli->st_cli->etcd_prefix+"/osd/stats0") },
                             { "keys_only", true },
                         } },
                     },

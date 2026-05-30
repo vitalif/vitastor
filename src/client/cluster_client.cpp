@@ -53,23 +53,24 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     };
     msgr.parse_config(config);
 
-    st_cli.tfd = tfd;
-    st_cli.on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
-    st_cli.on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
-    st_cli.on_change_pool_config_hook = [this]() { on_change_pool_config_hook(); };
-    st_cli.on_change_pg_config_hook = [this]() { on_change_pool_config_hook(); };
-    st_cli.on_change_pg_state_hook = [this](pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary) { on_change_pg_state_hook(pool_id, pg_num, prev_primary); };
-    st_cli.on_change_node_placement_hook = [this]() { on_change_node_placement_hook(); };
-    st_cli.on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
-    st_cli.on_reload_hook = [this]() { st_cli.load_global_config(); };
+    st_cli = std::make_unique<etcd_state_client_t>();
+    st_cli->tfd = tfd;
+    st_cli->on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
+    st_cli->on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
+    st_cli->on_change_pool_config_hook = [this]() { on_change_pool_config_hook(); };
+    st_cli->on_change_pg_config_hook = [this]() { on_change_pool_config_hook(); };
+    st_cli->on_change_pg_state_hook = [this](pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary) { on_change_pg_state_hook(pool_id, pg_num, prev_primary); };
+    st_cli->on_change_node_placement_hook = [this]() { on_change_node_placement_hook(); };
+    st_cli->on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
+    st_cli->on_reload_hook = [this]() { st_cli->load_global_config(); };
 
-    st_cli.parse_config(config);
-    st_cli.infinite_start = false;
+    st_cli->parse_config(config);
+    st_cli->infinite_start = false;
     if (!config["client_infinite_start"].is_null())
     {
-        st_cli.infinite_start = config["client_infinite_start"].bool_value();
+        st_cli->infinite_start = config["client_infinite_start"].bool_value();
     }
-    st_cli.load_global_config();
+    st_cli->load_global_config();
 
     scrap_buffer_size = SCRAP_BUFFER_SIZE;
     scrap_buffer = malloc_or_die(scrap_buffer_size);
@@ -469,7 +470,7 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
         auto etcd_report_interval = config["etcd_report_interval"].uint64_value();
         if (!etcd_report_interval)
             etcd_report_interval = 5;
-        client_wait_up_timeout = 1+etcd_report_interval+(st_cli.max_etcd_attempts*(2*st_cli.etcd_quick_timeout)+999)/1000;
+        client_wait_up_timeout = 1+etcd_report_interval+(st_cli->max_etcd_attempts*(2*st_cli->etcd_quick_timeout)+999)/1000;
     }
     // log_level
     log_level = config["log_level"].uint64_value();
@@ -482,8 +483,8 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
         client_hostname = new_hostname;
     }
     msgr.parse_config(config);
-    st_cli.parse_config(config);
-    st_cli.load_pgs();
+    st_cli->parse_config(config);
+    st_cli->load_pgs();
 }
 
 osd_num_t cluster_client_t::select_random_osd(const std::vector<osd_num_t> & osds)
@@ -492,7 +493,7 @@ osd_num_t cluster_client_t::select_random_osd(const std::vector<osd_num_t> & osd
     int alive_count = 0;
     for (auto & osd_num: osds)
     {
-        if (!st_cli.peer_states[osd_num].is_null())
+        if (!st_cli->peer_states[osd_num].is_null())
             alive_set[alive_count++] = osd_num;
     }
     if (!alive_count)
@@ -509,7 +510,7 @@ osd_num_t cluster_client_t::select_nearest_osd(const std::vector<osd_num_t> & os
         while (self_tree_metrics.find(cur_id) == self_tree_metrics.end())
         {
             self_tree_metrics[cur_id] = metric++;
-            json11::Json cur_placement = st_cli.node_placement[cur_id];
+            json11::Json cur_placement = st_cli->node_placement[cur_id];
             cur_id = cur_placement["parent"].string_value();
         }
         if (cur_id != "")
@@ -529,7 +530,7 @@ osd_num_t cluster_client_t::select_nearest_osd(const std::vector<osd_num_t> & os
         }
         else
         {
-            auto & peer_state = st_cli.peer_states[osd_num];
+            auto & peer_state = st_cli->peer_states[osd_num];
             if (!peer_state.is_null())
             {
                 metric = self_tree_metrics[""];
@@ -539,7 +540,7 @@ osd_num_t cluster_client_t::select_nearest_osd(const std::vector<osd_num_t> & os
                 while (seen.find(cur_id) == seen.end())
                 {
                     seen.insert(cur_id);
-                    json11::Json cur_placement = st_cli.node_placement[cur_id];
+                    json11::Json cur_placement = st_cli->node_placement[cur_id];
                     std::string cur_parent = cur_placement["parent"].string_value();
                     cur_id = (!first || cur_parent != "" ? cur_parent : peer_state["host"].string_value());
                     first = false;
@@ -564,7 +565,7 @@ osd_num_t cluster_client_t::select_nearest_osd(const std::vector<osd_num_t> & os
 
 void cluster_client_t::on_load_pgs_hook(bool success)
 {
-    for (auto & pool_item: st_cli.pool_config)
+    for (auto & pool_item: st_cli->pool_config)
     {
         pg_counts[pool_item.first] = pool_item.second.real_pg_count;
     }
@@ -584,7 +585,7 @@ void cluster_client_t::on_load_pgs_hook(bool success)
 
 void cluster_client_t::on_change_pool_config_hook()
 {
-    for (auto & pool_item: st_cli.pool_config)
+    for (auto & pool_item: st_cli->pool_config)
     {
         if (pg_counts[pool_item.first] != pool_item.second.real_pg_count)
         {
@@ -612,7 +613,7 @@ void cluster_client_t::on_change_pool_config_hook()
 
 void cluster_client_t::on_change_pg_state_hook(pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary)
 {
-    auto & pg_cfg = st_cli.pool_config[pool_id].pg_config[pg_num];
+    auto & pg_cfg = st_cli->pool_config[pool_id].pg_config[pg_num];
     if (pg_cfg.cur_primary != prev_primary)
     {
         // Repeat this PG operations because an OSD which stopped being primary may not fsync operations
@@ -630,8 +631,8 @@ bool cluster_client_t::get_immediate_commit(uint64_t inode)
     pool_id_t pool_id = INODE_POOL(inode);
     if (!pool_id)
         return true;
-    auto pool_it = st_cli.pool_config.find(pool_id);
-    if (pool_it == st_cli.pool_config.end())
+    auto pool_it = st_cli->pool_config.find(pool_id);
+    if (pool_it == st_cli->pool_config.end())
         return true;
     return pool_it->second.immediate_commit == IMMEDIATE_ALL;
 }
@@ -641,7 +642,7 @@ void cluster_client_t::on_change_osd_state_hook(uint64_t peer_osd)
     osd_tree_metrics.erase(peer_osd);
     if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())
     {
-        msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
+        msgr.connect_peer(peer_osd, st_cli->peer_states[peer_osd]);
         continue_lists();
     }
 }
@@ -936,8 +937,8 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
         cb(op);
         return false;
     }
-    auto pool_it = st_cli.pool_config.find(pool_id);
-    if (pool_it == st_cli.pool_config.end() || pool_it->second.real_pg_count == 0)
+    auto pool_it = st_cli->pool_config.find(pool_id);
+    if (pool_it == st_cli->pool_config.end() || pool_it->second.real_pg_count == 0)
     {
         // Pools are loaded, but this one is unknown
         op->retval = -EINVAL;
@@ -960,8 +961,8 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     }
     if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && !(op->flags & OSD_OP_IGNORE_READONLY))
     {
-        auto ino_it = st_cli.inode_config.find(op->inode);
-        if (ino_it != st_cli.inode_config.end() && ino_it->second.readonly)
+        auto ino_it = st_cli->inode_config.find(op->inode);
+        if (ino_it != st_cli->inode_config.end() && ino_it->second.readonly)
         {
             op->retval = -EROFS;
             auto cb = std::move(op->callback);
@@ -972,15 +973,15 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     op->deoptimise_snapshot = false;
     if (enable_writeback && (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP))
     {
-        auto ino_it = st_cli.inode_config.find(op->inode);
-        if (ino_it != st_cli.inode_config.end())
+        auto ino_it = st_cli->inode_config.find(op->inode);
+        if (ino_it != st_cli->inode_config.end())
         {
             int chain_size = 0;
-            while (ino_it != st_cli.inode_config.end() && ino_it->second.parent_id)
+            while (ino_it != st_cli->inode_config.end() && ino_it->second.parent_id)
             {
                 // Check for loops - FIXME check it in etcd_state_client
                 if (ino_it->second.parent_id == op->inode ||
-                    chain_size > st_cli.inode_config.size())
+                    chain_size > st_cli->inode_config.size())
                 {
                     op->retval = -EINVAL;
                     auto cb = std::move(op->callback);
@@ -995,7 +996,7 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
                     break;
                 }
                 chain_size++;
-                ino_it = st_cli.inode_config.find(ino_it->second.parent_id);
+                ino_it = st_cli->inode_config.find(ino_it->second.parent_id);
             }
         }
     }
@@ -1014,7 +1015,7 @@ void cluster_client_t::execute_raw(osd_num_t osd_num, osd_op_t *op)
     else
     {
         if (msgr.wanted_peers.find(osd_num) == msgr.wanted_peers.end())
-            msgr.connect_peer(osd_num, st_cli.peer_states[osd_num]);
+            msgr.connect_peer(osd_num, st_cli->peer_states[osd_num]);
         raw_ops.emplace(osd_num, op);
     }
 }
@@ -1129,25 +1130,25 @@ resume_2:
         if (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_CHAIN_BITMAP)
         {
             // Check parent inode
-            auto ino_it = st_cli.inode_config.find(op->cur_inode);
+            auto ino_it = st_cli->inode_config.find(op->cur_inode);
             // Skip parents from the same pool
             int skipped = 0;
             while (!op->deoptimise_snapshot &&
-                ino_it != st_cli.inode_config.end() && ino_it->second.parent_id &&
+                ino_it != st_cli->inode_config.end() && ino_it->second.parent_id &&
                 INODE_POOL(ino_it->second.parent_id) == INODE_POOL(op->cur_inode))
             {
                 // Check for loops - FIXME check it in etcd_state_client
                 if (ino_it->second.parent_id == op->inode ||
-                    skipped > st_cli.inode_config.size())
+                    skipped > st_cli->inode_config.size())
                 {
                     op->retval = -EINVAL;
                     erase_op(op);
                     return 1;
                 }
                 skipped++;
-                ino_it = st_cli.inode_config.find(ino_it->second.parent_id);
+                ino_it = st_cli->inode_config.find(ino_it->second.parent_id);
             }
-            if (ino_it != st_cli.inode_config.end() &&
+            if (ino_it != st_cli->inode_config.end() &&
                 ino_it->second.parent_id &&
                 ino_it->second.parent_id != op->inode)
             {
@@ -1161,7 +1162,7 @@ resume_2:
         op->retval = op->len;
         if (op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP)
         {
-            auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(op->inode));
+            auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(op->inode));
             op->retval = op->len / pool_cfg.bitmap_granularity;
         }
         if (op->flush_id)
@@ -1247,7 +1248,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
 {
     // Slice the request into individual object stripe requests
     // Primary OSDs still operate individual stripes, but their size is multiplied by PG minsize in case of EC
-    auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(op->cur_inode));
+    auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(op->cur_inode));
     uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
     uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
     uint64_t first_stripe = (op->offset / pg_block_size) * pg_block_size;
@@ -1346,7 +1347,7 @@ bool cluster_client_t::affects_pg(uint64_t inode, uint64_t offset, uint64_t len,
     {
         return false;
     }
-    auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(inode));
+    auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(inode));
     uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
     uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
     uint64_t first_stripe = (offset / pg_block_size) * pg_block_size;
@@ -1365,7 +1366,7 @@ bool cluster_client_t::affects_pg(uint64_t inode, uint64_t offset, uint64_t len,
 
 bool cluster_client_t::affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd)
 {
-    auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(inode));
+    auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(inode));
     uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
     uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
     uint64_t first_stripe = (offset / pg_block_size) * pg_block_size;
@@ -1389,7 +1390,7 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
         init_msgr();
     }
     auto part = &op->parts[i];
-    auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(op->cur_inode));
+    auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(op->cur_inode));
     auto pg_it = pool_cfg.pg_config.find(part->pg_num);
     if (pg_it != pool_cfg.pg_config.end() &&
         !pg_it->second.pause && pg_it->second.cur_primary &&
@@ -1420,8 +1421,8 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
             uint64_t meta_rev = 0;
             if (op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_DELETE && !op->deoptimise_snapshot)
             {
-                auto ino_it = st_cli.inode_config.find(op->cur_inode);
-                if (ino_it != st_cli.inode_config.end())
+                auto ino_it = st_cli->inode_config.find(op->cur_inode);
+                if (ino_it != st_cli->inode_config.end())
                     meta_rev = ino_it->second.mod_revision;
             }
             part->op = (osd_op_t){
@@ -1453,7 +1454,7 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
         }
         else if (msgr.wanted_peers.find(primary_osd) == msgr.wanted_peers.end())
         {
-            msgr.connect_peer(primary_osd, st_cli.peer_states[primary_osd]);
+            msgr.connect_peer(primary_osd, st_cli->peer_states[primary_osd]);
             return TRY_SEND_CONNECTING;
         }
     }
@@ -1648,7 +1649,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
 void cluster_client_t::copy_part_bitmap(cluster_op_t *op, cluster_op_part_t *part)
 {
     // Copy (OR) bitmap
-    auto & pool_cfg = st_cli.pool_config.at(INODE_POOL(op->cur_inode));
+    auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(op->cur_inode));
     uint32_t pg_block_size = pool_cfg.data_block_size * (
         pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks
     );

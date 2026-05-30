@@ -60,8 +60,8 @@ struct pool_creator_t
         // Validate pool parameters
         {
             auto new_cfg = cfg.object_items();
-            result.text = validate_pool_config(new_cfg, json11::Json(), parent->cli->st_cli.global_block_size,
-                parent->cli->st_cli.global_bitmap_granularity, force);
+            result.text = validate_pool_config(new_cfg, json11::Json(), parent->cli->st_cli->global_block_size,
+                parent->cli->st_cli->global_bitmap_granularity, force);
             cfg = new_cfg;
         }
         if (result.text != "")
@@ -72,7 +72,7 @@ struct pool_creator_t
         }
 
         // Validate pool name
-        for (auto & pp: parent->cli->st_cli.pool_config)
+        for (auto & pp: parent->cli->st_cli->pool_config)
         {
             if (pp.second.name == cfg["name"].string_value())
             {
@@ -95,13 +95,13 @@ resume_1:
                 { "success", json11::Json::array {
                     json11::Json::object {
                         { "request_range", json11::Json::object {
-                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/node_placement") },
+                            { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/node_placement") },
                         } },
                     },
                     json11::Json::object {
                         { "request_range", json11::Json::object {
-                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/osd/stats/") },
-                            { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/osd/stats0") },
+                            { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/osd/stats/") },
+                            { "range_end", base64_encode(parent->cli->st_cli->etcd_prefix+"/osd/stats0") },
                         } },
                     },
                 } },
@@ -120,7 +120,7 @@ resume_2:
 
             // Get state_node_tree based on node_placement and osd stats
             {
-                auto node_placement_kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
+                auto node_placement_kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
                 timespec tv_now;
                 clock_gettime(CLOCK_REALTIME, &tv_now);
                 uint64_t osd_out_time = parent->cli->config["osd_out_time"].uint64_value();
@@ -145,7 +145,7 @@ resume_2:
                     {
                         osd_configs.push_back(json11::Json::object {
                             { "request_range", json11::Json::object {
-                                { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd/"+osd_num.as_string()) },
+                                { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/osd/"+osd_num.as_string()) },
                             } }
                         });
                     }
@@ -168,7 +168,7 @@ resume_3:
                     std::vector<json11::Json> osd_configs;
                     for (auto & ocr: parent->etcd_result["responses"].array_items())
                     {
-                        auto kv = parent->cli->st_cli.parse_etcd_kv(ocr["response_range"]["kvs"][0]);
+                        auto kv = parent->cli->st_cli->parse_etcd_kv(ocr["response_range"]["kvs"][0]);
                         osd_configs.push_back(kv.value);
                     }
                     state_node_tree = filter_state_node_tree_by_tags(state_node_tree, osd_configs);
@@ -229,7 +229,7 @@ resume_5:
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pools") },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/pools") },
                     } }
                 },
             } },
@@ -246,7 +246,7 @@ resume_6:
         }
         {
             // Add new pool
-            auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
+            auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
             new_pools = create_pool(kv);
             if (new_pools.is_string())
             {
@@ -261,7 +261,7 @@ resume_6:
             { "compare", json11::Json::array {
                 json11::Json::object {
                     { "target", "MOD" },
-                    { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pools") },
+                    { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/pools") },
                     { "result", "LESS" },
                     { "mod_revision", new_pools_mod_rev+1 },
                 }
@@ -269,7 +269,7 @@ resume_6:
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_put", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pools") },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/pools") },
                         { "value", base64_encode(new_pools.dump()) },
                     } },
                 },
@@ -307,9 +307,9 @@ resume_8:
             parent->waiting++;
             parent->epmgr->tfd->set_timer(create_check.interval, false, [this](int timer_id)
             {
-                if (parent->cli->st_cli.pool_config.find(new_id) != parent->cli->st_cli.pool_config.end())
+                if (parent->cli->st_cli->pool_config.find(new_id) != parent->cli->st_cli->pool_config.end())
                 {
-                    auto & pool_cfg = parent->cli->st_cli.pool_config[new_id];
+                    auto & pool_cfg = parent->cli->st_cli->pool_config[new_id];
                     create_check.passed = pool_cfg.real_pg_count > 0;
                     for (auto pg_it = pool_cfg.pg_config.begin(); pg_it != pool_cfg.pg_config.end(); pg_it++)
                     {
@@ -459,7 +459,7 @@ resume_8:
                         osd_bs = UINT32_MAX;
                 }
             }
-            if (osd_bs && osd_bs != UINT32_MAX && osd_bs != parent->cli->st_cli.global_block_size)
+            if (osd_bs && osd_bs != UINT32_MAX && osd_bs != parent->cli->st_cli->global_block_size)
             {
                 fprintf(stderr, "Auto-selecting block_size=%s because all pool OSDs use it\n", format_size(osd_bs, false, true).c_str());
                 upd["block_size"] = osd_bs;
@@ -478,7 +478,7 @@ resume_8:
                         osd_bg = UINT32_MAX;
                 }
             }
-            if (osd_bg && osd_bg != UINT32_MAX && osd_bg != parent->cli->st_cli.global_bitmap_granularity)
+            if (osd_bg && osd_bg != UINT32_MAX && osd_bg != parent->cli->st_cli->global_bitmap_granularity)
             {
                 fprintf(stderr, "Auto-selecting bitmap_granularity=%s because all pool OSDs use it\n", format_size(osd_bg, false, true).c_str());
                 upd["bitmap_granularity"] = osd_bg;
@@ -498,7 +498,7 @@ resume_8:
                         osd_imm = UINT32_MAX-1;
                 }
             }
-            if (osd_imm < UINT32_MAX-1 && osd_imm != parent->cli->st_cli.global_immediate_commit)
+            if (osd_imm < UINT32_MAX-1 && osd_imm != parent->cli->st_cli->global_immediate_commit)
             {
                 const char *imm_str = osd_imm == IMMEDIATE_NONE ? "none" : (osd_imm == IMMEDIATE_ALL ? "all" : "small");
                 fprintf(stderr, "Auto-selecting immediate_commit=%s because all pool OSDs use it\n", imm_str);
@@ -530,13 +530,13 @@ resume_8:
 
         block_size = cfg["block_size"].uint64_value()
             ? cfg["block_size"].uint64_value()
-            : parent->cli->st_cli.global_block_size;
+            : parent->cli->st_cli->global_block_size;
         bitmap_granularity = cfg["bitmap_granularity"].uint64_value()
             ? cfg["bitmap_granularity"].uint64_value()
-            : parent->cli->st_cli.global_bitmap_granularity;
+            : parent->cli->st_cli->global_bitmap_granularity;
         immediate_commit = cfg["immediate_commit"].is_string()
             ? etcd_state_client_t::parse_immediate_commit(cfg["immediate_commit"].string_value(), IMMEDIATE_ALL)
-            : parent->cli->st_cli.global_immediate_commit;
+            : parent->cli->st_cli->global_immediate_commit;
 
         for (auto osd_num_json: state_node_tree["osds"].array_items())
         {

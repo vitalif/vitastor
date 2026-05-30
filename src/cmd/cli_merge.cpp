@@ -110,8 +110,8 @@ struct snap_merger_t
             cur->parent_id != to_cfg->num &&
             cur->parent_id != 0)
         {
-            auto it = parent->cli->st_cli.inode_config.find(cur->parent_id);
-            if (it == parent->cli->st_cli.inode_config.end())
+            auto it = parent->cli->st_cli->inode_config.find(cur->parent_id);
+            if (it == parent->cli->st_cli->inode_config.end())
             {
                 result = (cli_result_t){
                     .err = ENOENT,
@@ -166,7 +166,7 @@ struct snap_merger_t
         //
         //    <from> - <layer 1> - <target> - <to>
         //          \- <layer 2> <---------X-------- NOT ALLOWED
-        for (auto & ic: parent->cli->st_cli.inode_config)
+        for (auto & ic: parent->cli->st_cli->inode_config)
         {
             auto it = sources.find(ic.second.num);
             if (it == sources.end() && ic.second.parent_id != 0)
@@ -182,7 +182,7 @@ struct snap_merger_t
                             .text = "Layers at or above "+(check_delete_source ? from_name : target_name)+
                                 ", but below "+to_name+" are not allowed to have other children, but "+
                                 ic.second.name+" is a child of "+
-                                parent->cli->st_cli.inode_config.at(ic.second.parent_id).name,
+                                parent->cli->st_cli->inode_config.at(ic.second.parent_id).name,
                         };
                         state = 100;
                         return;
@@ -213,7 +213,7 @@ struct snap_merger_t
 
     uint64_t get_block_size(inode_t inode, uint32_t *bitmap_granularity)
     {
-        auto & pool_cfg = parent->cli->st_cli.pool_config.at(INODE_POOL(inode));
+        auto & pool_cfg = parent->cli->st_cli->pool_config.at(INODE_POOL(inode));
         uint64_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
         if (bitmap_granularity)
             *bitmap_granularity = pool_cfg.bitmap_granularity;
@@ -418,7 +418,7 @@ struct snap_merger_t
                     }
                     if (!pgs_left)
                     {
-                        auto & name = parent->cli->st_cli.inode_config.at(src).name;
+                        auto & name = parent->cli->st_cli->inode_config.at(src).name;
                         if (list_errcode.find(src) != list_errcode.end())
                         {
                             fprintf(stderr, "Failed to get listing of layer %s (inode %ju in pool %u): %s (code %d)\n",

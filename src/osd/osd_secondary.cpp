@@ -82,8 +82,8 @@ void osd_t::exec_secondary(osd_op_t *op)
 bool osd_t::sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid, uint32_t flags)
 {
     pool_id_t pool_id = INODE_POOL(oid.inode);
-    auto pool_cfg_it = st_cli.pool_config.find(pool_id);
-    if (pool_cfg_it == st_cli.pool_config.end())
+    auto pool_cfg_it = st_cli->pool_config.find(pool_id);
+    if (pool_cfg_it == st_cli->pool_config.end())
     {
         return false;
     }
@@ -286,8 +286,8 @@ void osd_t::exec_sec_lock(osd_op_t *cur_op)
         return;
     }
     auto ppg = (pool_pg_num_t){ .pool_id = (pool_id_t)cur_op->req.sec_lock.pool_id, .pg_num = (pg_num_t)cur_op->req.sec_lock.pg_num };
-    auto pool_cfg_it = st_cli.pool_config.find(ppg.pool_id);
-    if (pool_cfg_it == st_cli.pool_config.end() ||
+    auto pool_cfg_it = st_cli->pool_config.find(ppg.pool_id);
+    if (pool_cfg_it == st_cli->pool_config.end() ||
         pool_cfg_it->second.real_pg_count < cur_op->req.sec_lock.pg_num)
     {
         finish_op(cur_op, -ENOENT);
@@ -354,7 +354,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         { "readonly", readonly },
         { "immediate_commit", (immediate_commit == IMMEDIATE_ALL ? "all" :
             (immediate_commit == IMMEDIATE_SMALL ? "small" : "none")) },
-        { "lease_timeout", etcd_report_interval+(st_cli.max_etcd_attempts*(2*st_cli.etcd_quick_timeout)+999)/1000 },
+        { "lease_timeout", etcd_report_interval+(st_cli->max_etcd_attempts*(2*st_cli->etcd_quick_timeout)+999)/1000 },
         { "features", json11::Json::object{ { "pg_locks", true } } },
     };
 #ifdef WITH_RDMA

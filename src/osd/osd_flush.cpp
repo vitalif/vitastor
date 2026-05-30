@@ -243,8 +243,8 @@ bool osd_t::pick_next_recovery(osd_recovery_op_t &op)
                 auto & src = recovery_last_degraded ? pg_it->second.degraded_objects : pg_it->second.misplaced_objects;
                 if ((pg_it->second.state & mask) == check && src.size() > 0)
                 {
-                    auto pool_it = st_cli.pool_config.find(pg_it->first.pool_id);
-                    if (pool_it != st_cli.pool_config.end() && pool_it->second.backfillfull)
+                    auto pool_it = st_cli->pool_config.find(pg_it->first.pool_id);
+                    if (pool_it != st_cli->pool_config.end() && pool_it->second.backfillfull)
                     {
                         // Skip the pool
                         recovery_last_pg.pool_id++;

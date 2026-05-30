@@ -63,14 +63,14 @@ void cluster_client_t::list_inode(inode_t inode, uint64_t min_offset, uint64_t m
 {
     init_msgr();
     pool_id_t pool_id = INODE_POOL(inode);
-    if (!pool_id || st_cli.pool_config.find(pool_id) == st_cli.pool_config.end())
+    if (!pool_id || st_cli->pool_config.find(pool_id) == st_cli->pool_config.end())
     {
         if (log_level > 0)
             fprintf(stderr, "Pool %u does not exist\n", pool_id);
         pg_callback(-EINVAL, 0, 0, std::set<object_id>());
         return;
     }
-    auto pg_stripe_size = st_cli.pool_config.at(pool_id).pg_stripe_size;
+    auto pg_stripe_size = st_cli->pool_config.at(pool_id).pg_stripe_size;
     if (min_offset)
         min_offset = (min_offset/pg_stripe_size) * pg_stripe_size;
     inode_list_t *lst = new inode_list_t();
@@ -110,13 +110,13 @@ bool cluster_client_t::continue_listing(inode_list_t *lst)
 
 bool cluster_client_t::restart_listing(inode_list_t* lst)
 {
-    auto pool_it = st_cli.pool_config.find(lst->pool_id);
+    auto pool_it = st_cli->pool_config.find(lst->pool_id);
     // We want listing to be consistent. To achieve it we should:
     // 1) retry listing of each PG if its state changes
     // 2) abort listing if PG count changes during listing
     // 3) ideally, only talk to the primary OSD - this will be done separately
     // So first we add all PGs without checking their state
-    if (pool_it == st_cli.pool_config.end() ||
+    if (pool_it == st_cli->pool_config.end() ||
         lst->real_pg_count != pool_it->second.real_pg_count)
     {
         for (auto pg: lst->pgs)
@@ -136,7 +136,7 @@ bool cluster_client_t::restart_listing(inode_list_t* lst)
             fprintf(stderr, "PG count in pool %u changed during listing\n", lst->pool_id);
         }
         lst->pgs.clear();
-        if (pool_it == st_cli.pool_config.end())
+        if (pool_it == st_cli->pool_config.end())
         {
             // Unknown pool
             lst->callback(-EINVAL, 0, 0, std::set<object_id>());
@@ -248,7 +248,7 @@ void cluster_client_t::set_list_retry_timeout(int ms, timespec new_time)
 
 int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
 {
-    auto & pool_cfg = st_cli.pool_config.at(pg->lst->pool_id);
+    auto & pool_cfg = st_cli->pool_config.at(pg->lst->pool_id);
     auto pg_it = pool_cfg.pg_config.find(pg->pg_num);
     assert(pg->lst->real_pg_count == pool_cfg.real_pg_count);
     if (pg_it == pool_cfg.pg_config.end() ||
@@ -277,7 +277,7 @@ int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
         for (auto peer_it = all_peers.begin(); peer_it != all_peers.end(); )
         {
             if (*peer_it != pg_it->second.cur_primary &&
-                st_cli.peer_states[*peer_it].is_null())
+                st_cli->peer_states[*peer_it].is_null())
             {
                 pg->inactive_osds.push_back(*peer_it);
                 all_peers.erase(peer_it++);
@@ -298,11 +298,11 @@ int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
         if (msgr.osd_peers.find(peer_osd) == msgr.osd_peers.end())
         {
             // Initiate connection
-            if (st_cli.peer_states[peer_osd].is_null())
+            if (st_cli->peer_states[peer_osd].is_null())
             {
                 return LIST_PG_WAIT_ACTIVE;
             }
-            msgr.connect_peer(peer_osd, st_cli.peer_states[peer_osd]);
+            msgr.connect_peer(peer_osd, st_cli->peer_states[peer_osd]);
             conn = false;
         }
     }
@@ -336,7 +336,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
     if (!cur_list->pg->inflight_ops)
         cur_list->pg->lst->inflight_pgs++;
     cur_list->pg->inflight_ops++;
-    auto & pool_cfg = st_cli.pool_config[cur_list->pg->lst->pool_id];
+    auto & pool_cfg = st_cli->pool_config[cur_list->pg->lst->pool_id];
     osd_op_t *op = new osd_op_t();
     op->op_type = OSD_OP_OUT;
     // Already checked that it exists above, but anyway

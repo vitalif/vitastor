@@ -68,14 +68,14 @@ struct rm_osd_t
         // Check if OSDs are still up
         for (auto osd_id: to_remove)
         {
-            if (parent->cli->st_cli.peer_states.find(osd_id) != parent->cli->st_cli.peer_states.end())
+            if (parent->cli->st_cli->peer_states.find(osd_id) != parent->cli->st_cli->peer_states.end())
             {
                 is_warning = !allow_up;
                 still_up.push_back(osd_id);
             }
         }
         // Check if OSDs are still used in data distribution
-        for (auto & pp: parent->cli->st_cli.pool_config)
+        for (auto & pp: parent->cli->st_cli->pool_config)
         {
             // Will OSD deletion make pool incomplete / down / degraded?
             bool pool_incomplete = false, pool_down = false, pool_degraded = false;
@@ -189,14 +189,14 @@ struct rm_osd_t
             json11::Json::object {
                 { "request_range", json11::Json::object {
                     { "key", base64_encode(
-                        parent->cli->st_cli.etcd_prefix+"/pg/config"
+                        parent->cli->st_cli->etcd_prefix+"/pg/config"
                     ) },
                 } },
             },
             json11::Json::object {
                 { "request_range", json11::Json::object {
                     { "key", base64_encode(
-                        parent->cli->st_cli.etcd_prefix+"/history/last_clean_pgs"
+                        parent->cli->st_cli->etcd_prefix+"/history/last_clean_pgs"
                     ) },
                 } },
             },
@@ -212,10 +212,10 @@ struct rm_osd_t
             return;
         }
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
+            auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
             new_pgs = remove_osds_from_pgs(kv);
             new_pgs_mod_rev = kv.mod_revision;
-            kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][1]["response_range"]["kvs"][0]);
+            kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][1]["response_range"]["kvs"][0]);
             new_clean_pgs = remove_osds_from_pgs(kv);
             new_clean_pgs_mod_rev = kv.mod_revision;
         }
@@ -235,14 +235,14 @@ struct rm_osd_t
                 rm_items[i] = json11::Json::object {
                     { "request_delete_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+rm_items[i].string_value()
+                            parent->cli->st_cli->etcd_prefix+rm_items[i].string_value()
                         ) },
                     } },
                 };
             }
             if (!new_pgs.is_null())
             {
-                auto pgs_key = base64_encode(parent->cli->st_cli.etcd_prefix+"/pg/config");
+                auto pgs_key = base64_encode(parent->cli->st_cli->etcd_prefix+"/pg/config");
                 rm_items.push_back(json11::Json::object {
                     { "request_put", json11::Json::object {
                         { "key", pgs_key },
@@ -258,7 +258,7 @@ struct rm_osd_t
             }
             if (!new_clean_pgs.is_null())
             {
-                auto pgs_key = base64_encode(parent->cli->st_cli.etcd_prefix+"/history/last_clean_pgs");
+                auto pgs_key = base64_encode(parent->cli->st_cli->etcd_prefix+"/history/last_clean_pgs");
                 rm_items.push_back(json11::Json::object {
                     { "request_put", json11::Json::object {
                         { "key", pgs_key },
@@ -375,7 +375,7 @@ struct rm_osd_t
             goto resume_0;
         history_updates.clear();
         history_checks.clear();
-        for (auto & pp: parent->cli->st_cli.pool_config)
+        for (auto & pp: parent->cli->st_cli->pool_config)
         {
             bool update_pg_history = false;
             auto & pool_cfg = pp.second;
@@ -420,7 +420,7 @@ struct rm_osd_t
                 if (update_pg_history)
                 {
                     std::string history_key = base64_encode(
-                        parent->cli->st_cli.etcd_prefix+"/pg/history/"+
+                        parent->cli->st_cli->etcd_prefix+"/pg/history/"+
                         std::to_string(pool_cfg.id)+"/"+std::to_string(pg_num)
                     );
                     auto hist = json11::Json::object {
@@ -440,7 +440,7 @@ struct rm_osd_t
                         { "target", "MOD" },
                         { "key", history_key },
                         { "result", "LESS" },
-                        { "mod_revision", parent->cli->st_cli.etcd_watch_revision_pg+1 },
+                        { "mod_revision", parent->cli->st_cli->etcd_watch_revision_pg+1 },
                     });
                 }
             }

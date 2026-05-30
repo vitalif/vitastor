@@ -41,8 +41,8 @@ struct snap_flattener_t
         chain_list.push_back(cur->num);
         while (cur->parent_id != 0 && cur->parent_id != target_cfg->num)
         {
-            auto it = parent->cli->st_cli.inode_config.find(cur->parent_id);
-            if (it == parent->cli->st_cli.inode_config.end())
+            auto it = parent->cli->st_cli->inode_config.find(cur->parent_id);
+            if (it == parent->cli->st_cli->inode_config.end())
             {
                 result = (cli_result_t){
                     .err = ENOENT,

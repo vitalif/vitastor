@@ -44,8 +44,8 @@ struct rm_inode_t
 
     void start_delete()
     {
-        auto pool_it = parent->cli->st_cli.pool_config.find(pool_id);
-        if (pool_it == parent->cli->st_cli.pool_config.end())
+        auto pool_it = parent->cli->st_cli->pool_config.find(pool_id);
+        if (pool_it == parent->cli->st_cli->pool_config.end())
         {
             result = (cli_result_t){ .err = EINVAL, .text = "Pool does not exist" };
             state = 100;
@@ -196,8 +196,8 @@ struct rm_inode_t
             {
                 fprintf(stderr, "Warning: some OSDs don't indicate left_on_dead PG OSDs"
                     " in delete replies, falling back to simpler checks\n");
-                auto pool_it = parent->cli->st_cli.pool_config.find(pool_id);
-                if (pool_it != parent->cli->st_cli.pool_config.end())
+                auto pool_it = parent->cli->st_cli->pool_config.find(pool_id);
+                if (pool_it != parent->cli->st_cli->pool_config.end())
                 {
                     std::set<osd_num_t> all_peers;
                     for (auto pg_num: fallback_pgs)
@@ -217,7 +217,7 @@ struct rm_inode_t
                     all_peers.erase(0);
                     for (auto peer_osd: all_peers)
                     {
-                        if (parent->cli->st_cli.peer_states[peer_osd].is_null())
+                        if (parent->cli->st_cli->peer_states[peer_osd].is_null())
                             inactive_osds.insert(peer_osd);
                     }
                 }

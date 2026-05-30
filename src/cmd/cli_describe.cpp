@@ -60,7 +60,7 @@ struct cli_describe_t
         only_pool = cfg["pool"].uint64_value();
         if (!only_pool && cfg["pool"].is_string())
         {
-            for (auto & pp: parent->cli->st_cli.pool_config)
+            for (auto & pp: parent->cli->st_cli->pool_config)
             {
                 if (pp.second.name == cfg["pool"].string_value())
                 {
@@ -125,7 +125,7 @@ struct cli_describe_t
         {
             uint64_t min_pool = min_inode >> (64-POOL_ID_BITS);
             uint64_t max_pool = max_inode >> (64-POOL_ID_BITS);
-            for (auto & pp: parent->cli->st_cli.pool_config)
+            for (auto & pp: parent->cli->st_cli->pool_config)
             {
                 if (pp.first >= min_pool && (!max_pool || pp.first <= max_pool))
                 {

@@ -48,7 +48,7 @@ struct wildcard_remover_t
             {
                 auto child_id = ino_it->first;
                 auto parent_id = ino_it->second;
-                auto & parent_cfg = parent->cli->st_cli.inode_config.at(parent_id);
+                auto & parent_cfg = parent->cli->st_cli->inode_config.at(parent_id);
                 if (parent_cfg.parent_id)
                 {
                     auto chain_it = chains.find(parent_cfg.parent_id);
@@ -71,7 +71,7 @@ struct wildcard_remover_t
             std::vector<inode_rev_t> ver_chain;
             do
             {
-                auto & inode_cfg = parent->cli->st_cli.inode_config.at(child_id);
+                auto & inode_cfg = parent->cli->st_cli->inode_config.at(child_id);
                 ver_chain.push_back((inode_rev_t){ .inode_num = child_id, .meta_rev = inode_cfg.mod_revision });
                 if (child_id == parent_id)
                     break;
@@ -89,7 +89,7 @@ struct wildcard_remover_t
             do
             {
                 rank++;
-                cur_id = parent->cli->st_cli.inode_config.at(cur_id).parent_id;
+                cur_id = parent->cli->st_cli->inode_config.at(cur_id).parent_id;
             } while (cur_id && cur_id != parent_id);
             ranks[parent_id] = rank;
         }
@@ -111,7 +111,7 @@ struct wildcard_remover_t
         state = 0;
         chains.clear();
         // Select images to delete
-        for (auto & ic: parent->cli->st_cli.inode_config)
+        for (auto & ic: parent->cli->st_cli->inode_config)
         {
             for (auto & glob: globs)
             {
@@ -131,11 +131,11 @@ struct wildcard_remover_t
             // Check for parallel changes
             for (auto & irev: versioned_chains[i])
             {
-                auto inode_it = parent->cli->st_cli.inode_config.find(irev.inode_num);
-                if (inode_it == parent->cli->st_cli.inode_config.end() ||
+                auto inode_it = parent->cli->st_cli->inode_config.find(irev.inode_num);
+                if (inode_it == parent->cli->st_cli->inode_config.end() ||
                     inode_it->second.mod_revision > irev.meta_rev)
                 {
-                    if (inode_it != parent->cli->st_cli.inode_config.end())
+                    if (inode_it != parent->cli->st_cli->inode_config.end())
                         fprintf(stderr, "Warning: image %s modified by someone else during deletion, restarting wildcard deletion\n", inode_it->second.name.c_str());
                     else
                         fprintf(stderr, "Warning: inode %jx modified by someone else during deletion, retrying wildcard deletion\n", irev.inode_num);
@@ -144,8 +144,8 @@ struct wildcard_remover_t
             }
             // Delete
             {
-                auto from_cfg = parent->cli->st_cli.inode_config.at(versioned_chains[i].back().inode_num);
-                auto to_cfg = parent->cli->st_cli.inode_config.at(versioned_chains[i].front().inode_num);
+                auto from_cfg = parent->cli->st_cli->inode_config.at(versioned_chains[i].back().inode_num);
+                auto to_cfg = parent->cli->st_cli->inode_config.at(versioned_chains[i].front().inode_num);
                 sub_cfg = cfg.object_items();
                 sub_cfg.erase("globs");
                 sub_cfg.erase("exact");

@@ -131,7 +131,7 @@ class __attribute__((visibility("default"))) cluster_client_t
     bool msgr_initialized = false;
 
 public:
-    etcd_state_client_t st_cli;
+    std::unique_ptr<etcd_state_client_t> st_cli;
 
     osd_messenger_t msgr;
     void init_msgr();

@@ -260,8 +260,8 @@ void kv_fs_defrag_t::handle_read()
 // Linear read all object headers, check which of them are still alive, move them away
 void kv_fs_state_t::defrag_volume(inode_t ino, bool no_rm, bool dry_run, std::function<void(int, uint64_t, uint64_t, uint64_t)> cb)
 {
-    auto pool_it = proxy->cli->st_cli.pool_config.find(INODE_POOL(ino));
-    if (pool_it == proxy->cli->st_cli.pool_config.end())
+    auto pool_it = proxy->cli->st_cli->pool_config.find(INODE_POOL(ino));
+    if (pool_it == proxy->cli->st_cli->pool_config.end())
     {
         fprintf(stderr, "Volume 0x%jx references a non-existing pool with ID %u, skipping\n", ino, INODE_POOL(ino));
         cb(0, 0, 0, 0);

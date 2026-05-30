@@ -525,7 +525,7 @@ help:
                     break;
                 ringloop->wait();
             }
-            watch = cli->st_cli.watch_inode(image_name);
+            watch = cli->st_cli->watch_inode(image_name);
             device_size = watch->cfg.size;
             if (!watch->cfg.num || !device_size)
             {

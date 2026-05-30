@@ -208,8 +208,8 @@ void osd_t::start_pg_peering(pg_t & pg)
             msgr.osd_peers.find(pg_osd) == msgr.osd_peers.end())
         {
             if (msgr.wanted_peers.find(pg_osd) == msgr.wanted_peers.end())
-                msgr.connect_peer(pg_osd, st_cli.peer_states[pg_osd]);
-            if (!st_cli.peer_states[pg_osd].is_null())
+                msgr.connect_peer(pg_osd, st_cli->peer_states[pg_osd]);
+            if (!st_cli->peer_states[pg_osd].is_null())
                 all_connected = false;
         }
     }
@@ -525,7 +525,7 @@ void osd_t::relock_pg(pg_t & pg)
 
 void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
 {
-    auto & pool_cfg = st_cli.pool_config.at(ps->pool_id);
+    auto & pool_cfg = st_cli->pool_config.at(ps->pool_id);
     if (role_osd == this->osd_num)
     {
         // Self
@@ -706,7 +706,7 @@ void osd_t::report_pg_state(pg_t & pg)
         std::sort(pg.all_peers.begin(), pg.all_peers.end());
         pg.cur_peers = pg.target_set;
         // Change pg_config at the same time, otherwise our PG reconciling loop may try to apply the old metadata
-        auto & pg_cfg = st_cli.pool_config[pg.pool_id].pg_config[pg.pg_num];
+        auto & pg_cfg = st_cli->pool_config[pg.pool_id].pg_config[pg.pg_num];
         pg_cfg.target_history = pg.target_history;
         pg_cfg.all_peers = pg.all_peers;
     }
@@ -748,7 +748,7 @@ void osd_t::report_pg_state(pg_t & pg)
                 pg.cur_peers.push_back(pg_osd);
             }
         }
-        auto & pg_cfg = st_cli.pool_config[pg.pool_id].pg_config[pg.pg_num];
+        auto & pg_cfg = st_cli->pool_config[pg.pool_id].pg_config[pg.pg_num];
         pg_cfg.target_history = pg.target_history;
         pg_cfg.all_peers = pg.all_peers;
     }

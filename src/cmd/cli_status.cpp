@@ -37,14 +37,14 @@ struct status_printer_t
             goto resume_2;
         // etcd states
         {
-            auto addrs = parent->cli->st_cli.get_addresses();
+            auto addrs = parent->cli->st_cli->get_addresses();
             etcd_states.resize(addrs.size());
             for (int i = 0; i < etcd_states.size(); i++)
             {
                 parent->waiting++;
-                parent->cli->st_cli.etcd_call_oneshot(
+                parent->cli->st_cli->etcd_call_oneshot(
                     addrs[i], "/maintenance/status", json11::Json::object(),
-                    parent->cli->st_cli.etcd_quick_timeout, [this, i](std::string err, json11::Json res)
+                    parent->cli->st_cli->etcd_quick_timeout, [this, i](std::string err, json11::Json res)
                     {
                         parent->waiting--;
                         etcd_states[i] = err != "" ? json11::Json::object{ { "error", err } } : res;
@@ -62,23 +62,23 @@ resume_1:
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/mon/") },
-                        { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/mon0") },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/mon/") },
+                        { "range_end", base64_encode(parent->cli->st_cli->etcd_prefix+"/mon0") },
                     } },
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/osd/stats/"
+                            parent->cli->st_cli->etcd_prefix+"/osd/stats/"
                         ) },
                         { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/osd/stats0"
+                            parent->cli->st_cli->etcd_prefix+"/osd/stats0"
                         ) },
                     } },
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/stats") },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/stats") },
                     } },
                 },
             } },
@@ -97,7 +97,7 @@ resume_2:
         auto osd_stats = parent->etcd_result["responses"][1]["response_range"]["kvs"];
         if (parent->etcd_result["responses"][2]["response_range"]["kvs"].array_items().size() > 0)
         {
-            agg_stats = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][2]["response_range"]["kvs"][0]).value;
+            agg_stats = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][2]["response_range"]["kvs"][0]).value;
         }
         int etcd_alive = 0;
         uint64_t etcd_db_size = 0;
@@ -120,8 +120,8 @@ resume_2:
         std::string mon_master;
         for (int i = 0; i < mon_members.size(); i++)
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(mon_members[i]);
-            kv.key = kv.key.substr(parent->cli->st_cli.etcd_prefix.size());
+            auto kv = parent->cli->st_cli->parse_etcd_kv(mon_members[i]);
+            kv.key = kv.key.substr(parent->cli->st_cli->etcd_prefix.size());
             if (kv.key.substr(0, 12) == "/mon/member/")
                 mon_count++;
             else if (kv.key == "/mon/master")
@@ -153,8 +153,8 @@ resume_2:
                     osds_nearfull++;
                 }
             }
-            auto peer_it = parent->cli->st_cli.peer_states.find(stat_osd_num);
-            if (peer_it != parent->cli->st_cli.peer_states.end())
+            auto peer_it = parent->cli->st_cli->peer_states.find(stat_osd_num);
+            if (peer_it != parent->cli->st_cli->peer_states.end())
             {
                 osd_up++;
                 if (value["slow_ops_primary"].uint64_value() > 0)
@@ -177,7 +177,7 @@ resume_2:
         std::string backfillfull_pool_names;
         std::map<std::string, int> pgs_by_state;
         std::string pgs_by_state_str;
-        for (auto & pool_pair: parent->cli->st_cli.pool_config)
+        for (auto & pool_pair: parent->cli->st_cli->pool_config)
         {
             auto & pool_cfg = pool_pair.second;
             bool active = pool_cfg.real_pg_count > 0;
@@ -262,7 +262,7 @@ resume_2:
                 std::string str(obj_states[i]);
                 uint64_t obj_n = agg_stats["object_bytes"][str].uint64_value();
                 if (!obj_n)
-                    obj_n = agg_stats["object_counts"][str].uint64_value() * parent->cli->st_cli.global_block_size;
+                    obj_n = agg_stats["object_counts"][str].uint64_value() * parent->cli->st_cli->global_block_size;
                 json_status[str+"_data"] = obj_n;
             }
             printf("%s\n", json11::Json(json_status).dump().c_str());
@@ -275,7 +275,7 @@ resume_2:
             std::string str(obj_states[i]);
             uint64_t obj_n = agg_stats["object_bytes"][str].uint64_value();
             if (!obj_n)
-                obj_n = agg_stats["object_counts"][str].uint64_value() * parent->cli->st_cli.global_block_size;
+                obj_n = agg_stats["object_counts"][str].uint64_value() * parent->cli->st_cli->global_block_size;
             if (!i || obj_n > 0)
                 more_states += format_size(obj_n)+" "+str+", ";
         }

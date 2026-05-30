@@ -82,8 +82,8 @@ struct cli_raw_ls_t
         }
         if (!pg_count || !pg_stripe_size || !osds.size())
         {
-            auto pool_it = parent->cli->st_cli.pool_config.find(pool_id);
-            if (pool_it == parent->cli->st_cli.pool_config.end())
+            auto pool_it = parent->cli->st_cli->pool_config.find(pool_id);
+            if (pool_it == parent->cli->st_cli->pool_config.end())
             {
                 result = (cli_result_t){ .err = EINVAL, .text = "pg_count, pg_stripe_size and osds are required if the pool does not exist" };
                 state = 100;
@@ -127,7 +127,7 @@ struct cli_raw_ls_t
         for (; osd_pos < osd_list.size() && parent->waiting < parent->parallel_osds; osd_pos++)
         {
             uint64_t osd_num = osd_list[osd_pos];
-            if (parent->cli->st_cli.peer_states[osd_num].is_null())
+            if (parent->cli->st_cli->peer_states[osd_num].is_null())
             {
                 fprintf(stderr, "OSD %ju is unavailable, skipping\n", osd_num);
                 continue;

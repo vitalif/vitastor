@@ -510,8 +510,8 @@ void kv_db_t::open(inode_t inode_id, json11::Json cfg, std::function<void(int)> 
         cb(-EINVAL);
         return;
     }
-    auto pool_it = cli->st_cli.pool_config.find(INODE_POOL(inode_id));
-    if (pool_it == cli->st_cli.pool_config.end())
+    auto pool_it = cli->st_cli->pool_config.find(INODE_POOL(inode_id));
+    if (pool_it == cli->st_cli->pool_config.end())
     {
         cb(-EINVAL);
         return;

@@ -153,14 +153,14 @@ static void add_primary_list(btree::btree_map<object_id, pg_osd_set_state_t*> & 
 
 void osd_t::continue_primary_list(osd_op_t *cur_op)
 {
-    auto pool_cfg_it = st_cli.pool_config.find(INODE_POOL(cur_op->req.sec_list.min_inode));
+    auto pool_cfg_it = st_cli->pool_config.find(INODE_POOL(cur_op->req.sec_list.min_inode));
     // Validate the request
     if (!cur_op->req.sec_list.list_pg ||
         !INODE_POOL(cur_op->req.sec_list.min_inode) ||
         INODE_NO_POOL(cur_op->req.sec_list.min_inode) != INODE_NO_POOL(cur_op->req.sec_list.max_inode) ||
         INODE_POOL(cur_op->req.sec_list.max_inode) != INODE_POOL(cur_op->req.sec_list.min_inode) ||
         cur_op->req.sec_list.stable_limit ||
-        pool_cfg_it == st_cli.pool_config.end() ||
+        pool_cfg_it == st_cli->pool_config.end() ||
         (cur_op->req.sec_list.pg_stripe_size != 0 && cur_op->req.sec_list.pg_stripe_size != pool_cfg_it->second.pg_stripe_size) ||
         (cur_op->req.sec_list.pg_count != 0 && cur_op->req.sec_list.pg_count != pool_cfg_it->second.real_pg_count))
     {

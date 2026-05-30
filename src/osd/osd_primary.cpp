@@ -20,8 +20,8 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     // K = (pg_size-parity_chunks) in case of EC/XOR, or 1 for replicated pools
     pool_id_t pool_id = INODE_POOL(cur_op->req.rw.inode);
     // Note: We read pool config here, so we must NOT change it when PGs are active
-    auto pool_cfg_it = st_cli.pool_config.find(pool_id);
-    if (pool_cfg_it == st_cli.pool_config.end())
+    auto pool_cfg_it = st_cli->pool_config.find(pool_id);
+    if (pool_cfg_it == st_cli->pool_config.end())
     {
         // Pool config is not loaded yet
         finish_op(cur_op, -EPIPE);
@@ -78,7 +78,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     {
         // Chained read
         // FIXME: Introduce an explicit opcode for chained reads
-        auto inode_it = st_cli.inode_config.find(cur_op->req.rw.inode);
+        auto inode_it = st_cli->inode_config.find(cur_op->req.rw.inode);
         if (inode_it->second.mod_revision != cur_op->req.rw.meta_revision)
         {
             // Client view of the metadata differs from OSD's view
@@ -87,14 +87,14 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             return false;
         }
         // Find parents from the same pool. Optimized reads only work within pools
-        while (inode_it != st_cli.inode_config.end() &&
+        while (inode_it != st_cli->inode_config.end() &&
             inode_it->second.parent_id &&
             INODE_POOL(inode_it->second.parent_id) == pool_cfg.id)
         {
             // Check for loops - FIXME check it in etcd_state_client
             if (inode_it->second.parent_id == cur_op->req.rw.inode ||
                 inode_it->second.parent_id == inode_it->second.num ||
-                chain_size > st_cli.inode_config.size())
+                chain_size > st_cli->inode_config.size())
             {
                 printf("Inode %ju from pool %u has a parent_id loop, returning EINVAL in response to read\n",
                     INODE_NO_POOL(cur_op->req.rw.inode), INODE_POOL(cur_op->req.rw.inode));
@@ -102,7 +102,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
                 return false;
             }
             chain_size++;
-            inode_it = st_cli.inode_config.find(inode_it->second.parent_id);
+            inode_it = st_cli->inode_config.find(inode_it->second.parent_id);
         }
         if (chain_size)
         {
@@ -162,15 +162,15 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         op_data->read_chain[chain_num] = cur_op->req.rw.inode;
         op_data->chain_states[chain_num] = NULL;
         chain_num++;
-        auto inode_it = st_cli.inode_config.find(cur_op->req.rw.inode);
-        while (inode_it != st_cli.inode_config.end() && inode_it->second.parent_id &&
+        auto inode_it = st_cli->inode_config.find(cur_op->req.rw.inode);
+        while (inode_it != st_cli->inode_config.end() && inode_it->second.parent_id &&
             INODE_POOL(inode_it->second.parent_id) == pool_cfg.id &&
             // Check for loops
             inode_it->second.parent_id != cur_op->req.rw.inode)
         {
             op_data->read_chain[chain_num] = inode_it->second.parent_id;
             op_data->chain_states[chain_num] = NULL;
-            inode_it = st_cli.inode_config.find(inode_it->second.parent_id);
+            inode_it = st_cli->inode_config.find(inode_it->second.parent_id);
             chain_num++;
         }
     }

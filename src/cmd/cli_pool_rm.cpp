@@ -56,7 +56,7 @@ struct pool_remover_t
         // Get pool id by name (if name given)
         if (pool_name != "")
         {
-            for (auto & ic: parent->cli->st_cli.pool_config)
+            for (auto & ic: parent->cli->st_cli->pool_config)
             {
                 if (ic.second.name == pool_name)
                 {
@@ -73,7 +73,7 @@ struct pool_remover_t
             pool_name = "id " + std::to_string(pool_id);
 
             // Look-up pool id in pool_config
-            if (parent->cli->st_cli.pool_config.find(pool_id) != parent->cli->st_cli.pool_config.end())
+            if (parent->cli->st_cli->pool_config.find(pool_id) != parent->cli->st_cli->pool_config.end())
             {
                 pool_valid = 1;
             }
@@ -92,7 +92,7 @@ struct pool_remover_t
         {
             std::string images;
 
-            for (auto & ic: parent->cli->st_cli.inode_config)
+            for (auto & ic: parent->cli->st_cli->inode_config)
             {
                 if (pool_id && INODE_POOL(ic.second.num) != pool_id)
                 {
@@ -124,7 +124,7 @@ resume_1:
                 { "success", json11::Json::array {
                     json11::Json::object {
                         { "request_range", json11::Json::object {
-                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pools") },
+                            { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/pools") },
                         } }
                     },
                 } },
@@ -141,7 +141,7 @@ resume_2:
             }
             {
                 // Parse received pools from etcd
-                auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
+                auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
 
                 // Remove pool
                 auto p = kv.value.object_items();
@@ -166,7 +166,7 @@ resume_2:
                 { "compare", json11::Json::array {
                     json11::Json::object {
                         { "target", "MOD" },
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pools") },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/pools") },
                         { "result", "LESS" },
                         { "mod_revision", pools_mod_rev+1 },
                     }
@@ -174,7 +174,7 @@ resume_2:
                 { "success", json11::Json::array {
                     json11::Json::object {
                         { "request_put", json11::Json::object {
-                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pools") },
+                            { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/pools") },
                             { "value", base64_encode(new_pools.dump()) },
                         } },
                     },

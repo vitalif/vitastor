@@ -56,7 +56,7 @@ resume_0:
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pools") },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/pools") },
                     } }
                 },
             } },
@@ -73,7 +73,7 @@ resume_1:
         }
         {
             // Parse received pools from etcd
-            auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
+            auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
 
             // Get pool by name or ID
             old_cfg = json11::Json();
@@ -103,8 +103,8 @@ resume_1:
 
             // Update pool
             new_cfg = cfg;
-            result.text = validate_pool_config(new_cfg, old_cfg, parent->cli->st_cli.global_block_size,
-                parent->cli->st_cli.global_bitmap_granularity, force);
+            result.text = validate_pool_config(new_cfg, old_cfg, parent->cli->st_cli->global_block_size,
+                parent->cli->st_cli->global_bitmap_granularity, force);
             if (result.text != "")
             {
                 result.err = EINVAL;
@@ -115,8 +115,8 @@ resume_1:
             if (new_cfg.find("used_for_app") != new_cfg.end() && !force)
             {
                 // Check that pool doesn't have images
-                auto img_it = parent->cli->st_cli.inode_config.lower_bound(INODE_WITH_POOL(pool_id, 0));
-                if (img_it != parent->cli->st_cli.inode_config.end() &&
+                auto img_it = parent->cli->st_cli->inode_config.lower_bound(INODE_WITH_POOL(pool_id, 0));
+                if (img_it != parent->cli->st_cli->inode_config.end() &&
                     INODE_POOL(img_it->first) == pool_id &&
                     new_cfg["used_for_app"].string_value().substr(0, 3) == "fs:" &&
                     img_it->second.name == new_cfg["used_for_app"].string_value().substr(3))
@@ -124,7 +124,7 @@ resume_1:
                     // Only allow metadata image to exist in the FS pool
                     img_it++;
                 }
-                if (img_it != parent->cli->st_cli.inode_config.end() && INODE_POOL(img_it->first) == pool_id)
+                if (img_it != parent->cli->st_cli->inode_config.end() && INODE_POOL(img_it->first) == pool_id)
                 {
                     result = (cli_result_t){ .err = ENOENT, .text = "Pool "+pool_name+" has block images, delete them before using it for VitastorFS, S3 or another app" };
                     state = 100;
@@ -145,7 +145,7 @@ resume_1:
             { "compare", json11::Json::array {
                 json11::Json::object {
                     { "target", "MOD" },
-                    { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pools") },
+                    { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/pools") },
                     { "result", "LESS" },
                     { "mod_revision", pools_mod_rev+1 },
                 }
@@ -153,7 +153,7 @@ resume_1:
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_put", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/pools") },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/pools") },
                         { "value", base64_encode(new_pools.dump()) },
                     } },
                 },

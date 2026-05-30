@@ -32,7 +32,7 @@ struct pg_lister_t
         if (pool_name != "")
         {
             pool_id = 0;
-            for (auto & pp: parent->cli->st_cli.pool_config)
+            for (auto & pp: parent->cli->st_cli->pool_config)
             {
                 if (pp.second.name == pool_name)
                 {
@@ -51,8 +51,8 @@ struct pg_lister_t
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/pgstats"+(pool_id ? "/"+std::to_string(pool_id)+"/" : "/")) },
-                        { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/pgstats"+(pool_id ? "/"+std::to_string(pool_id)+"0" : "0")) },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/pgstats"+(pool_id ? "/"+std::to_string(pool_id)+"/" : "/")) },
+                        { "range_end", base64_encode(parent->cli->st_cli->etcd_prefix+"/pgstats"+(pool_id ? "/"+std::to_string(pool_id)+"0" : "0")) },
                     } },
                 },
             } },
@@ -129,7 +129,7 @@ resume_1:
             }
         }
         json11::Json::array pgs;
-        for (auto & pp: parent->cli->st_cli.pool_config)
+        for (auto & pp: parent->cli->st_cli->pool_config)
         {
             if ((!pool_id || pp.first == pool_id) && (pool_name == "" || pp.second.name == pool_name))
             {

@@ -68,12 +68,12 @@ struct osd_changer_t
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/osd/stats/"+std::to_string(osd_num)) },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/osd/stats/"+std::to_string(osd_num)) },
                     } },
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
                     } },
                 },
             } },
@@ -89,14 +89,14 @@ resume_1:
             return;
         }
         {
-            auto osd_stats = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]).value;
+            auto osd_stats = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]).value;
             if (!osd_stats.is_object() && !force)
             {
                 result = (cli_result_t){ .err = ENOENT, .text = "OSD "+std::to_string(osd_num)+" does not exist. Use --force to set configuration anyway" };
                 state = 100;
                 return;
             }
-            auto kv = parent->cli->st_cli.parse_etcd_kv(parent->etcd_result["responses"][1]["response_range"]["kvs"][0]);
+            auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][1]["response_range"]["kvs"][0]);
             osd_cfg_mod_rev = kv.mod_revision;
             osd_cfg = kv.value.object_items();
             if (set_reweight)
@@ -124,7 +124,7 @@ resume_1:
             {
                 compare.push_back(json11::Json::object {
                     { "target", "MOD" },
-                    { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
+                    { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
                     { "result", "LESS" },
                     { "mod_revision", osd_cfg_mod_rev+1 },
                 });
@@ -133,7 +133,7 @@ resume_1:
             {
                 compare.push_back(json11::Json::object {
                     { "target", "VERSION" },
-                    { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
+                    { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
                     { "version", 0 },
                 });
             }
@@ -141,7 +141,7 @@ resume_1:
             {
                 success.push_back(json11::Json::object {
                     { "request_delete_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
                     } },
                 });
             }
@@ -149,7 +149,7 @@ resume_1:
             {
                 success.push_back(json11::Json::object {
                     { "request_put", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/osd/"+std::to_string(osd_num)) },
                         { "value", base64_encode(json11::Json(osd_cfg).dump()) },
                     } },
                 });

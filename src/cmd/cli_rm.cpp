@@ -129,7 +129,7 @@ resume_1:
         {
             if (merge_children[current_child] == inverse_child)
                 continue;
-            rebased_images.push_back(parent->cli->st_cli.inode_config.at(merge_children[current_child]).name);
+            rebased_images.push_back(parent->cli->st_cli->inode_config.at(merge_children[current_child]).name);
             start_merge_child(merge_children[current_child], merge_children[current_child]);
 resume_2:
             while (!wait_result(2))
@@ -176,8 +176,8 @@ resume_6:
             if (chain_list[current_child] == inverse_parent)
                 continue;
             {
-                auto parent_it = parent->cli->st_cli.inode_config.find(chain_list[current_child]);
-                if (parent_it != parent->cli->st_cli.inode_config.end())
+                auto parent_it = parent->cli->st_cli->inode_config.find(chain_list[current_child]);
+                if (parent_it != parent->cli->st_cli->inode_config.end())
                     deleted_images.push_back(parent_it->second.name);
                 deleted_ids.push_back(chain_list[current_child]);
             }
@@ -264,8 +264,8 @@ resume_100:
         chain_list.push_back(cur->num);
         while (cur->num != from_cfg->num && cur->parent_id != 0)
         {
-            auto it = parent->cli->st_cli.inode_config.find(cur->parent_id);
-            if (it == parent->cli->st_cli.inode_config.end())
+            auto it = parent->cli->st_cli->inode_config.find(cur->parent_id);
+            if (it == parent->cli->st_cli->inode_config.end())
             {
                 char buf[1024];
                 snprintf(buf, 1024, "Parent inode of layer %s (id 0x%jx) not found", cur->name.c_str(), cur->parent_id);
@@ -288,7 +288,7 @@ resume_100:
         {
             sources[item] = i--;
         }
-        for (auto & ic: parent->cli->st_cli.inode_config)
+        for (auto & ic: parent->cli->st_cli->inode_config)
         {
             if (!ic.second.parent_id)
             {
@@ -319,7 +319,7 @@ resume_100:
             reads.push_back(json11::Json::object {
                 { "request_range", json11::Json::object {
                     { "key", base64_encode(
-                        parent->cli->st_cli.etcd_prefix+
+                        parent->cli->st_cli->etcd_prefix+
                         "/inode/stats/"+std::to_string(INODE_POOL(inode))+
                         "/"+std::to_string(INODE_NO_POOL(inode))
                     ) },
@@ -332,7 +332,7 @@ resume_100:
             reads.push_back(json11::Json::object {
                 { "request_range", json11::Json::object {
                     { "key", base64_encode(
-                        parent->cli->st_cli.etcd_prefix+
+                        parent->cli->st_cli->etcd_prefix+
                         "/inode/stats/"+std::to_string(INODE_POOL(inode))+
                         "/"+std::to_string(INODE_NO_POOL(inode))
                     ) },
@@ -340,7 +340,7 @@ resume_100:
             });
         }
         parent->waiting++;
-        parent->cli->st_cli.etcd_txn_slow(json11::Json::object {
+        parent->cli->st_cli->etcd_txn_slow(json11::Json::object {
             { "success", reads },
         }, [this](std::string err, json11::Json data)
         {
@@ -357,19 +357,19 @@ resume_100:
                 {
                     continue;
                 }
-                auto kv = parent->cli->st_cli.parse_etcd_kv(inode_result["response_range"]["kvs"][0]);
+                auto kv = parent->cli->st_cli->parse_etcd_kv(inode_result["response_range"]["kvs"][0]);
                 pool_id_t pool_id = 0;
                 inode_t inode = 0;
                 char null_byte = 0;
-                int scanned = sscanf(kv.key.c_str() + parent->cli->st_cli.etcd_prefix.length()+13, "%u/%ju%c", &pool_id, &inode, &null_byte);
+                int scanned = sscanf(kv.key.c_str() + parent->cli->st_cli->etcd_prefix.length()+13, "%u/%ju%c", &pool_id, &inode, &null_byte);
                 if (scanned != 2 || !inode)
                 {
                     result = (cli_result_t){ .err = EIO, .text = "Bad key returned from etcd: "+kv.key };
                     state = 100;
                     return;
                 }
-                auto pool_cfg_it = parent->cli->st_cli.pool_config.find(pool_id);
-                if (pool_cfg_it == parent->cli->st_cli.pool_config.end())
+                auto pool_cfg_it = parent->cli->st_cli->pool_config.find(pool_id);
+                if (pool_cfg_it == parent->cli->st_cli->pool_config.end())
                 {
                     result = (cli_result_t){ .err = ENOENT, .text = "Pool "+std::to_string(pool_id)+" does not exist" };
                     state = 100;
@@ -412,8 +412,8 @@ resume_100:
 
     void rename_inverse_parent()
     {
-        auto child_it = parent->cli->st_cli.inode_config.find(inverse_child);
-        if (child_it == parent->cli->st_cli.inode_config.end())
+        auto child_it = parent->cli->st_cli->inode_config.find(inverse_child);
+        if (child_it == parent->cli->st_cli->inode_config.end())
         {
             char buf[1024];
             snprintf(buf, 1024, "Inode 0x%jx disappeared", inverse_child);
@@ -421,8 +421,8 @@ resume_100:
             state = 100;
             return;
         }
-        auto target_it = parent->cli->st_cli.inode_config.find(inverse_parent);
-        if (target_it == parent->cli->st_cli.inode_config.end())
+        auto target_it = parent->cli->st_cli->inode_config.find(inverse_parent);
+        if (target_it == parent->cli->st_cli->inode_config.end())
         {
             char buf[1024];
             snprintf(buf, 1024, "Inode 0x%jx disappeared", inverse_parent);
@@ -435,17 +435,17 @@ resume_100:
         inverse_child_name = child_cfg->name;
         inverse_parent_name = target_cfg->name;
         std::string child_cfg_key = base64_encode(
-            parent->cli->st_cli.etcd_prefix+
+            parent->cli->st_cli->etcd_prefix+
             "/config/inode/"+std::to_string(INODE_POOL(inverse_child))+
             "/"+std::to_string(INODE_NO_POOL(inverse_child))
         );
         std::string target_cfg_key = base64_encode(
-            parent->cli->st_cli.etcd_prefix+
+            parent->cli->st_cli->etcd_prefix+
             "/config/inode/"+std::to_string(INODE_POOL(inverse_parent))+
             "/"+std::to_string(INODE_NO_POOL(inverse_parent))
         );
         std::string target_idx_key = base64_encode(
-            parent->cli->st_cli.etcd_prefix+"/index/image/"+inverse_parent_name
+            parent->cli->st_cli->etcd_prefix+"/index/image/"+inverse_parent_name
         );
         // Fill new configuration
         inode_config_t new_cfg = *child_cfg;
@@ -480,12 +480,12 @@ resume_100:
             json11::Json::object {
                 { "request_put", json11::Json::object {
                     { "key", target_cfg_key },
-                    { "value", base64_encode(json11::Json(parent->cli->st_cli.serialize_inode_cfg(&new_cfg)).dump()) },
+                    { "value", base64_encode(json11::Json(parent->cli->st_cli->serialize_inode_cfg(&new_cfg)).dump()) },
                 } },
             },
             json11::Json::object {
                 { "request_put", json11::Json::object {
-                    { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/index/image/"+child_cfg->name) },
+                    { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/index/image/"+child_cfg->name) },
                     { "value", base64_encode(json11::Json({
                         { "id", INODE_NO_POOL(inverse_parent) },
                         { "pool_id", (uint64_t)INODE_POOL(inverse_parent) },
@@ -494,14 +494,14 @@ resume_100:
             },
         };
         // Reparent children of inverse_child
-        for (auto & cp: parent->cli->st_cli.inode_config)
+        for (auto & cp: parent->cli->st_cli->inode_config)
         {
             if (cp.second.parent_id == child_cfg->num)
             {
                 auto cp_cfg = cp.second;
                 cp_cfg.parent_id = inverse_parent;
                 auto cp_key = base64_encode(
-                    parent->cli->st_cli.etcd_prefix+
+                    parent->cli->st_cli->etcd_prefix+
                     "/config/inode/"+std::to_string(INODE_POOL(cp.second.num))+
                     "/"+std::to_string(INODE_NO_POOL(cp.second.num))
                 );
@@ -514,13 +514,13 @@ resume_100:
                 txn.push_back(json11::Json::object {
                     { "request_put", json11::Json::object {
                         { "key", cp_key },
-                        { "value", base64_encode(json11::Json(parent->cli->st_cli.serialize_inode_cfg(&cp_cfg)).dump()) },
+                        { "value", base64_encode(json11::Json(parent->cli->st_cli->serialize_inode_cfg(&cp_cfg)).dump()) },
                     } },
                 });
             }
         }
         parent->waiting++;
-        parent->cli->st_cli.etcd_txn_slow(json11::Json::object {
+        parent->cli->st_cli->etcd_txn_slow(json11::Json::object {
             { "compare", cmp },
             { "success", txn },
         }, [this](std::string err, json11::Json res)
@@ -550,8 +550,8 @@ resume_100:
 
     void delete_inode_config(inode_t cur)
     {
-        auto cur_cfg_it = parent->cli->st_cli.inode_config.find(cur);
-        if (cur_cfg_it == parent->cli->st_cli.inode_config.end())
+        auto cur_cfg_it = parent->cli->st_cli->inode_config.find(cur);
+        if (cur_cfg_it == parent->cli->st_cli->inode_config.end())
         {
             char buf[1024];
             snprintf(buf, 1024, "Inode 0x%jx disappeared", cur);
@@ -562,12 +562,12 @@ resume_100:
         inode_config_t *cur_cfg = &cur_cfg_it->second;
         std::string cur_name = cur_cfg->name;
         std::string cur_cfg_key = base64_encode(
-            parent->cli->st_cli.etcd_prefix+
+            parent->cli->st_cli->etcd_prefix+
             "/config/inode/"+std::to_string(INODE_POOL(cur))+
             "/"+std::to_string(INODE_NO_POOL(cur))
         );
         parent->waiting++;
-        parent->cli->st_cli.etcd_txn_slow(json11::Json::object {
+        parent->cli->st_cli->etcd_txn_slow(json11::Json::object {
             { "compare", json11::Json::array {
                 json11::Json::object {
                     { "target", "MOD" },
@@ -584,7 +584,7 @@ resume_100:
                 },
                 json11::Json::object {
                     { "request_delete_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/index/image/"+cur_name) },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/index/image/"+cur_name) },
                     } },
                 },
             } },
@@ -604,8 +604,8 @@ resume_100:
                 return;
             }
             // Modify inode_config for library users to be able to take it from there immediately
-            parent->cli->st_cli.inode_by_name.erase(cur_name);
-            parent->cli->st_cli.inode_config.erase(cur);
+            parent->cli->st_cli->inode_by_name.erase(cur_name);
+            parent->cli->st_cli->inode_config.erase(cur);
             if (parent->progress)
                 printf("Layer %s deleted\n", cur_name.c_str());
             parent->ringloop->wakeup();
@@ -614,8 +614,8 @@ resume_100:
 
     void start_merge_child(inode_t child_inode, inode_t target_inode)
     {
-        auto child_it = parent->cli->st_cli.inode_config.find(child_inode);
-        if (child_it == parent->cli->st_cli.inode_config.end())
+        auto child_it = parent->cli->st_cli->inode_config.find(child_inode);
+        if (child_it == parent->cli->st_cli->inode_config.end())
         {
             char buf[1024];
             snprintf(buf, 1024, "Inode 0x%jx disappeared", child_inode);
@@ -623,8 +623,8 @@ resume_100:
             state = 100;
             return;
         }
-        auto target_it = parent->cli->st_cli.inode_config.find(target_inode);
-        if (target_it == parent->cli->st_cli.inode_config.end())
+        auto target_it = parent->cli->st_cli->inode_config.find(target_inode);
+        if (target_it == parent->cli->st_cli->inode_config.end())
         {
             char buf[1024];
             snprintf(buf, 1024, "Inode 0x%jx disappeared", target_inode);
@@ -644,8 +644,8 @@ resume_100:
 
     void start_mark_deleted(inode_t inode)
     {
-        auto ino_it = parent->cli->st_cli.inode_config.find(inode);
-        if (ino_it == parent->cli->st_cli.inode_config.end())
+        auto ino_it = parent->cli->st_cli->inode_config.find(inode);
+        if (ino_it == parent->cli->st_cli->inode_config.end())
         {
             char buf[1024];
             snprintf(buf, 1024, "Inode 0x%jx disappeared", inode);
@@ -665,8 +665,8 @@ resume_100:
 
     void start_delete_source(inode_t inode)
     {
-        auto source = parent->cli->st_cli.inode_config.find(inode);
-        if (source == parent->cli->st_cli.inode_config.end())
+        auto source = parent->cli->st_cli->inode_config.find(inode);
+        if (source == parent->cli->st_cli->inode_config.end())
         {
             char buf[1024];
             snprintf(buf, 1024, "Inode 0x%jx disappeared", inode);

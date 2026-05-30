@@ -9,7 +9,7 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
 {
     pool_id_t pool_id = pg_id.pool_id;
     pg_num_t pg_num = pg_id.pg_num;
-    auto & pool_cfg = st_cli.pool_config.at(pool_id);
+    auto & pool_cfg = st_cli->pool_config.at(pool_id);
     assert(!scrub_list_op);
     if (role_osd == this->osd_num)
     {
@@ -327,7 +327,7 @@ void osd_t::plan_scrub(pg_t & pg, bool report_state)
     {
         timespec tv_now;
         clock_gettime(CLOCK_REALTIME, &tv_now);
-        auto & pool_cfg = st_cli.pool_config.at(pg.pool_id);
+        auto & pool_cfg = st_cli->pool_config.at(pg.pool_id);
         auto interval = pool_cfg.scrub_interval ? pool_cfg.scrub_interval : global_scrub_interval;
         if (pg.next_scrub != tv_now.tv_sec + interval)
         {

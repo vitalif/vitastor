@@ -527,7 +527,7 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
         {
             inode_id = 0;
             name = trim(name);
-            for (auto & ic: cli->st_cli.inode_config)
+            for (auto & ic: cli->st_cli->inode_config)
             {
                 if (ic.second.name == name)
                 {

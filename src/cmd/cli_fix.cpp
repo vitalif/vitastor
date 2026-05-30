@@ -134,8 +134,8 @@ struct cli_fix_t
                 return;
             }
             auto & obj = objects[processed_count++];
-            auto pool_cfg_it = parent->cli->st_cli.pool_config.find(INODE_POOL(obj.inode));
-            if (pool_cfg_it == parent->cli->st_cli.pool_config.end())
+            auto pool_cfg_it = parent->cli->st_cli->pool_config.find(INODE_POOL(obj.inode));
+            if (pool_cfg_it == parent->cli->st_cli->pool_config.end())
             {
                 fprintf(stderr, "Object %jx:%jx is from unknown pool\n", obj.inode, obj.stripe);
                 continue;

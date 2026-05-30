@@ -52,19 +52,19 @@ struct dd_in_info_t
         in_seekable = true;
         if (iimg != "")
         {
-            iwatch = parent->cli->st_cli.watch_inode(iimg);
+            iwatch = parent->cli->st_cli->watch_inode(iimg);
             if (!iwatch->cfg.num)
             {
                 result = (cli_result_t){ .err = ENOENT, .text = "Image "+iimg+" does not exist" };
-                parent->cli->st_cli.close_watch(iwatch);
+                parent->cli->st_cli->close_watch(iwatch);
                 iwatch = NULL;
                 return;
             }
-            auto pool_it = parent->cli->st_cli.pool_config.find(INODE_POOL(iwatch->cfg.num));
-            if (pool_it == parent->cli->st_cli.pool_config.end())
+            auto pool_it = parent->cli->st_cli->pool_config.find(INODE_POOL(iwatch->cfg.num));
+            if (pool_it == parent->cli->st_cli->pool_config.end())
             {
                 result = (cli_result_t){ .err = ENOENT, .text = "Pool of image "+iimg+" does not exist" };
-                parent->cli->st_cli.close_watch(iwatch);
+                parent->cli->st_cli->close_watch(iwatch);
                 iwatch = NULL;
                 return;
             }
@@ -131,7 +131,7 @@ struct dd_in_info_t
     {
         if (iimg != "")
         {
-            parent->cli->st_cli.close_watch(iwatch);
+            parent->cli->st_cli->close_watch(iwatch);
             iwatch = NULL;
         }
         else if (ifile != "")
@@ -163,11 +163,11 @@ struct dd_out_info_t
 
     pool_config_t *find_pool(cli_tool_t *parent, const std::string & name)
     {
-        if (name == "" && parent->cli->st_cli.pool_config.size() == 1)
+        if (name == "" && parent->cli->st_cli->pool_config.size() == 1)
         {
-            return &parent->cli->st_cli.pool_config.begin()->second;
+            return &parent->cli->st_cli->pool_config.begin()->second;
         }
-        for (auto & pp: parent->cli->st_cli.pool_config)
+        for (auto & pp: parent->cli->st_cli->pool_config)
         {
             if (pp.second.name == name)
             {
@@ -186,14 +186,14 @@ struct dd_out_info_t
         if (oimg != "")
         {
             out_seekable = true;
-            owatch = parent->cli->st_cli.watch_inode(oimg);
+            owatch = parent->cli->st_cli->watch_inode(oimg);
             if (owatch->cfg.num)
             {
-                auto pool_it = parent->cli->st_cli.pool_config.find(INODE_POOL(owatch->cfg.num));
-                if (pool_it == parent->cli->st_cli.pool_config.end())
+                auto pool_it = parent->cli->st_cli->pool_config.find(INODE_POOL(owatch->cfg.num));
+                if (pool_it == parent->cli->st_cli->pool_config.end())
                 {
                     result = (cli_result_t){ .err = ENOENT, .text = "Pool of image "+oimg+" does not exist" };
-                    parent->cli->st_cli.close_watch(owatch);
+                    parent->cli->st_cli->close_watch(owatch);
                     owatch = NULL;
                     return true;
                 }
@@ -209,7 +209,7 @@ struct dd_out_info_t
                 else
                 {
                     result = (cli_result_t){ .err = ENOENT, .text = "Pool to create output image "+oimg+" is not specified" };
-                    parent->cli->st_cli.close_watch(owatch);
+                    parent->cli->st_cli->close_watch(owatch);
                     owatch = NULL;
                     return true;
                 }
@@ -224,14 +224,14 @@ struct dd_out_info_t
                 if (!out_create)
                 {
                     result = (cli_result_t){ .err = ENOENT, .text = "Image "+oimg+" does not exist" };
-                    parent->cli->st_cli.close_watch(owatch);
+                    parent->cli->st_cli->close_watch(owatch);
                     owatch = NULL;
                     return true;
                 }
                 if (!out_size)
                 {
                     result = (cli_result_t){ .err = ENOENT, .text = "Input size is unknown, specify size to create output image "+oimg };
-                    parent->cli->st_cli.close_watch(owatch);
+                    parent->cli->st_cli->close_watch(owatch);
                     owatch = NULL;
                     return true;
                 }
@@ -247,7 +247,7 @@ struct dd_out_info_t
                 if (!out_size)
                 {
                     result = (cli_result_t){ .err = ENOENT, .text = "Input size is unknown, specify size to truncate output image" };
-                    parent->cli->st_cli.close_watch(owatch);
+                    parent->cli->st_cli->close_watch(owatch);
                     owatch = NULL;
                     return true;
                 }
@@ -275,7 +275,7 @@ resume_1:
             sub_cb = NULL;
             if (result.err)
             {
-                parent->cli->st_cli.close_watch(owatch);
+                parent->cli->st_cli->close_watch(owatch);
                 owatch = NULL;
                 return true;
             }
@@ -354,7 +354,7 @@ resume_2:
     {
         if (oimg != "")
         {
-            parent->cli->st_cli.close_watch(owatch);
+            parent->cli->st_cli->close_watch(owatch);
             owatch = NULL;
         }
         else

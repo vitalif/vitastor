@@ -8,8 +8,8 @@
 
 void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *result)
 {
-    auto cur_cfg_it = cli->st_cli.inode_config.find(cur);
-    if (cur_cfg_it == cli->st_cli.inode_config.end())
+    auto cur_cfg_it = cli->st_cli->inode_config.find(cur);
+    if (cur_cfg_it == cli->st_cli->inode_config.end())
     {
         char buf[128];
         snprintf(buf, 128, "Inode 0x%jx disappeared", cur);
@@ -18,13 +18,13 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *re
     }
     inode_config_t new_cfg = cur_cfg_it->second;
     std::string cur_name = new_cfg.name;
-    std::string cur_cfg_key = base64_encode(cli->st_cli.etcd_prefix+
+    std::string cur_cfg_key = base64_encode(cli->st_cli->etcd_prefix+
         "/config/inode/"+std::to_string(INODE_POOL(cur))+
         "/"+std::to_string(INODE_NO_POOL(cur)));
     new_cfg.parent_id = new_parent;
-    json11::Json::object cur_cfg_json = cli->st_cli.serialize_inode_cfg(&new_cfg);
+    json11::Json::object cur_cfg_json = cli->st_cli->serialize_inode_cfg(&new_cfg);
     waiting++;
-    cli->st_cli.etcd_txn_slow(json11::Json::object {
+    cli->st_cli->etcd_txn_slow(json11::Json::object {
         { "compare", json11::Json::array {
             json11::Json::object {
                 { "target", "MOD" },
@@ -53,8 +53,8 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *re
         }
         else if (new_parent)
         {
-            auto new_parent_it = cli->st_cli.inode_config.find(new_parent);
-            std::string new_parent_name = new_parent_it != cli->st_cli.inode_config.end()
+            auto new_parent_it = cli->st_cli->inode_config.find(new_parent);
+            std::string new_parent_name = new_parent_it != cli->st_cli->inode_config.end()
                 ? new_parent_it->second.name : "<unknown>";
             *result = (cli_result_t){
                 .text = "Parent of layer "+cur_name+" (inode "+std::to_string(INODE_NO_POOL(cur))+
@@ -77,7 +77,7 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *re
 void cli_tool_t::etcd_txn(json11::Json txn)
 {
     waiting++;
-    cli->st_cli.etcd_txn_slow(txn, [this](std::string err, json11::Json res)
+    cli->st_cli->etcd_txn_slow(txn, [this](std::string err, json11::Json res)
     {
         waiting--;
         if (err != "")
@@ -91,7 +91,7 @@ void cli_tool_t::etcd_txn(json11::Json txn)
 
 inode_config_t* cli_tool_t::get_inode_cfg(const std::string & name)
 {
-    for (auto & ic: cli->st_cli.inode_config)
+    for (auto & ic: cli->st_cli->inode_config)
     {
         if (ic.second.name == name)
         {
@@ -171,11 +171,11 @@ void cli_tool_t::iterate_kvs_1(json11::Json kvs, const std::string & prefix, std
     bool is_pool = prefix == "/pool/stats/";
     for (auto & kv_item: kvs.array_items())
     {
-        auto kv = cli->st_cli.parse_etcd_kv(kv_item);
+        auto kv = cli->st_cli->parse_etcd_kv(kv_item);
         uint64_t num = 0;
         char null_byte = 0;
         // OSD or pool number
-        int scanned = sscanf(kv.key.substr(cli->st_cli.etcd_prefix.size() + prefix.size()).c_str(), "%ju%c", &num, &null_byte);
+        int scanned = sscanf(kv.key.substr(cli->st_cli->etcd_prefix.size() + prefix.size()).c_str(), "%ju%c", &num, &null_byte);
         if (scanned != 1 || !num || is_pool && num >= POOL_ID_MAX)
         {
             fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
@@ -190,12 +190,12 @@ void cli_tool_t::iterate_kvs_2(json11::Json kvs, const std::string & prefix, std
     bool is_inode = prefix == "/config/inode/" || prefix == "/inode/stats/";
     for (auto & kv_item: kvs.array_items())
     {
-        auto kv = cli->st_cli.parse_etcd_kv(kv_item);
+        auto kv = cli->st_cli->parse_etcd_kv(kv_item);
         pool_id_t pool_id = 0;
         uint64_t num = 0;
         char null_byte = 0;
         // pool+pg or pool+inode
-        int scanned = sscanf(kv.key.substr(cli->st_cli.etcd_prefix.size() + prefix.size()).c_str(),
+        int scanned = sscanf(kv.key.substr(cli->st_cli->etcd_prefix.size() + prefix.size()).c_str(),
             "%u/%ju%c", &pool_id, &num, &null_byte);
         if (scanned != 2 || !pool_id || is_inode && INODE_POOL(num) || !is_inode && num >= UINT32_MAX)
         {

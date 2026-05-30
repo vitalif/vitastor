@@ -37,7 +37,7 @@ struct image_lister_t
     {
         if (list_pool_name != "")
         {
-            for (auto & ic: parent->cli->st_cli.pool_config)
+            for (auto & ic: parent->cli->st_cli->pool_config)
             {
                 if (ic.second.name == list_pool_name)
                 {
@@ -52,14 +52,14 @@ struct image_lister_t
                 return;
             }
         }
-        for (auto & ic: parent->cli->st_cli.inode_config)
+        for (auto & ic: parent->cli->st_cli->inode_config)
         {
             if (list_pool_id && INODE_POOL(ic.second.num) != list_pool_id)
             {
                 continue;
             }
-            auto pool_it = parent->cli->st_cli.pool_config.find(INODE_POOL(ic.second.num));
-            bool good_pool = pool_it != parent->cli->st_cli.pool_config.end();
+            auto pool_it = parent->cli->st_cli->pool_config.find(INODE_POOL(ic.second.num));
+            bool good_pool = pool_it != parent->cli->st_cli->pool_config.end();
             auto item = json11::Json::object {
                 { "name", ic.second.name },
                 { "size", ic.second.size },
@@ -73,8 +73,8 @@ struct image_lister_t
             };
             if (ic.second.parent_id)
             {
-                auto p_it = parent->cli->st_cli.inode_config.find(ic.second.parent_id);
-                item["parent_name"] = p_it != parent->cli->st_cli.inode_config.end()
+                auto p_it = parent->cli->st_cli->inode_config.find(ic.second.parent_id);
+                item["parent_name"] = p_it != parent->cli->st_cli->inode_config.end()
                     ? p_it->second.name : "";
                 item["parent_pool_id"] = (uint64_t)INODE_POOL(ic.second.parent_id);
                 item["parent_inode_num"] = INODE_NO_POOL(ic.second.parent_id);
@@ -96,21 +96,21 @@ struct image_lister_t
                 json11::Json::object {
                     { "request_range", (list_pool_id
                         ? json11::Json::object {
-                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/pool/stats/"+std::to_string(list_pool_id)) },
+                            { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/pool/stats/"+std::to_string(list_pool_id)) },
                         }
                         : json11::Json::object {
-                            { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/pool/stats/") },
-                            { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/pool/stats0") },
+                            { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/pool/stats/") },
+                            { "range_end", base64_encode(parent->cli->st_cli->etcd_prefix+"/pool/stats0") },
                         }) },
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/inode/stats"+
+                            parent->cli->st_cli->etcd_prefix+"/inode/stats"+
                             (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"/"
                         ) },
                         { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/inode/stats"+
+                            parent->cli->st_cli->etcd_prefix+"/inode/stats"+
                             (list_pool_id ? "/"+std::to_string(list_pool_id) : "")+"0"
                         ) },
                     } },
@@ -131,11 +131,11 @@ resume_1:
         std::map<pool_id_t, uint64_t> pool_pg_real_size;
         for (auto & kv_item: space_info["responses"][0]["response_range"]["kvs"].array_items())
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
+            auto kv = parent->cli->st_cli->parse_etcd_kv(kv_item);
             // pool ID
             pool_id_t pool_id;
             char null_byte = 0;
-            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(), "/pool/stats/%u%c", &pool_id, &null_byte);
+            int scanned = sscanf(kv.key.substr(parent->cli->st_cli->etcd_prefix.length()).c_str(), "/pool/stats/%u%c", &pool_id, &null_byte);
             if (scanned != 1 || !pool_id || pool_id >= POOL_ID_MAX)
             {
                 fprintf(stderr, "Invalid key in etcd: %s\n", kv.key.c_str());
@@ -146,12 +146,12 @@ resume_1:
         }
         for (auto & kv_item: space_info["responses"][1]["response_range"]["kvs"].array_items())
         {
-            auto kv = parent->cli->st_cli.parse_etcd_kv(kv_item);
+            auto kv = parent->cli->st_cli->parse_etcd_kv(kv_item);
             // pool ID & inode number
             pool_id_t pool_id;
             inode_t only_inode_num;
             char null_byte = 0;
-            int scanned = sscanf(kv.key.substr(parent->cli->st_cli.etcd_prefix.length()).c_str(),
+            int scanned = sscanf(kv.key.substr(parent->cli->st_cli->etcd_prefix.length()).c_str(),
                 "/inode/stats/%u/%ju%c", &pool_id, &only_inode_num, &null_byte);
             if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX || INODE_POOL(only_inode_num) != 0)
             {
@@ -161,8 +161,8 @@ resume_1:
             inode_t inode_num = INODE_WITH_POOL(pool_id, only_inode_num);
             uint64_t used_size = kv.value["raw_used"].uint64_value();
             // save stats
-            auto pool_it = parent->cli->st_cli.pool_config.find(pool_id);
-            if (pool_it != parent->cli->st_cli.pool_config.end())
+            auto pool_it = parent->cli->st_cli->pool_config.find(pool_id);
+            if (pool_it != parent->cli->st_cli->pool_config.end())
             {
                 auto & pool_cfg = pool_it->second;
                 used_size = used_size / (pool_pg_real_size[pool_id] ? pool_pg_real_size[pool_id] : 1)
@@ -176,7 +176,7 @@ resume_1:
                     { "size", 0 },
                     { "readonly", false },
                     { "pool_id", (uint64_t)INODE_POOL(inode_num) },
-                    { "pool_name", pool_it != parent->cli->st_cli.pool_config.end()
+                    { "pool_name", pool_it != parent->cli->st_cli->pool_config.end()
                         ? (pool_it->second.name == "" ? "<Unnamed>" : pool_it->second.name) : "?" },
                     { "inode_num", INODE_NO_POOL(inode_num) },
                     { "inode_id", inode_num },

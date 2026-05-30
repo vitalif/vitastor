@@ -116,7 +116,7 @@ void osd_t::init_blockstore(std::function<void()> on_init)
         auto bs_cfg = json_to_string_map(this->config);
         this->bs = blockstore_i::create(bs_cfg, ringloop, tfd);
         // Pre-configure pool PG shards
-        for (auto & pool_item: st_cli.pool_config)
+        for (auto & pool_item: st_cli->pool_config)
         {
             auto st = bs->reshard_start(pool_item.first, pool_item.second.pg_count, pool_item.second.pg_stripe_size, 0);
             assert(!st);
@@ -164,7 +164,7 @@ void osd_t::parse_config(bool init)
         auto bs_cfg = json_to_string_map(config);
         bs->parse_config(bs_cfg);
     }
-    st_cli.parse_config(config);
+    st_cli->parse_config(config);
     msgr.parse_config(config);
     if (init)
     {

@@ -61,7 +61,7 @@ static fattr3 get_dir_attributes(nfs_client_t *self, std::string dir)
 
 static fattr3 get_file_attributes(nfs_client_t *self, inode_t inode_num)
 {
-    auto & inode_cfg = self->parent->cli->st_cli.inode_config.at(inode_num);
+    auto & inode_cfg = self->parent->cli->st_cli->inode_config.at(inode_num);
     uint64_t used = 0;
     auto st_it = self->parent->inode_stats.find(inode_num);
     if (st_it != self->parent->inode_stats.end())
@@ -125,8 +125,8 @@ static int block_nfs3_getattr_proc(void *opaque, rpc_op_t *rop)
         auto inode_num_it = self->parent->blockfs->inode_by_hash.find(dirhash);
         if (inode_num_it != self->parent->blockfs->inode_by_hash.end())
             inode_num = inode_num_it->second;
-        auto inode_it = self->parent->cli->st_cli.inode_config.find(inode_num);
-        if (inode_num && inode_it != self->parent->cli->st_cli.inode_config.end())
+        auto inode_it = self->parent->cli->st_cli->inode_config.find(inode_num);
+        if (inode_num && inode_it != self->parent->cli->st_cli->inode_config.end())
         {
             // File info
             auto & inode_cfg = inode_it->second;
@@ -191,7 +191,7 @@ static int block_nfs3_setattr_proc(void *opaque, rpc_op_t *rop)
     }
     if (args->new_attributes.size.set_it)
     {
-        auto & inode_cfg = self->parent->cli->st_cli.inode_config.at(ino_it->second);
+        auto & inode_cfg = self->parent->cli->st_cli->inode_config.at(ino_it->second);
         self->parent->cmd->loop_and_wait(self->parent->cmd->start_modify(json11::Json::object {
             { "image", inode_cfg.name },
             { "resize", (uint64_t)args->new_attributes.size.size },
@@ -219,7 +219,7 @@ static int block_nfs3_lookup_proc(void *opaque, rpc_op_t *rop)
     if (full_name != "")
     {
         std::string fh = "S"+base64_encode(sha256(full_name));
-        for (auto & ic: self->parent->cli->st_cli.inode_config)
+        for (auto & ic: self->parent->cli->st_cli->inode_config)
         {
             if (ic.second.name == full_name)
             {
@@ -304,9 +304,9 @@ static int block_nfs3_read_proc(void *opaque, rpc_op_t *rop)
         rpc_queue_reply(rop);
         return 0;
     }
-    uint64_t alignment = self->parent->cli->st_cli.global_bitmap_granularity;
-    auto pool_cfg = self->parent->cli->st_cli.pool_config.find(INODE_POOL(ino_it->second));
-    if (pool_cfg != self->parent->cli->st_cli.pool_config.end())
+    uint64_t alignment = self->parent->cli->st_cli->global_bitmap_granularity;
+    auto pool_cfg = self->parent->cli->st_cli->pool_config.find(INODE_POOL(ino_it->second));
+    if (pool_cfg != self->parent->cli->st_cli->pool_config.end())
     {
         alignment = pool_cfg->second.bitmap_granularity;
     }
@@ -380,9 +380,9 @@ static int block_nfs3_write_proc(void *opaque, rpc_op_t *rop)
         return 0;
     }
     uint64_t count = args->count > args->data.size ? args->data.size : args->count;
-    uint64_t alignment = self->parent->cli->st_cli.global_bitmap_granularity;
-    auto pool_cfg = self->parent->cli->st_cli.pool_config.find(INODE_POOL(ino_it->second));
-    if (pool_cfg != self->parent->cli->st_cli.pool_config.end())
+    uint64_t alignment = self->parent->cli->st_cli->global_bitmap_granularity;
+    auto pool_cfg = self->parent->cli->st_cli->pool_config.find(INODE_POOL(ino_it->second));
+    if (pool_cfg != self->parent->cli->st_cli->pool_config.end())
     {
         alignment = pool_cfg->second.bitmap_granularity;
     }
@@ -495,8 +495,8 @@ static void extend_inode(nfs_client_t *self, uint64_t inode, uint64_t new_size)
     // Send an extend request
     auto & ext = self->parent->blockfs->extends[inode];
     ext.cur_extend = new_size;
-    auto inode_it = self->parent->cli->st_cli.inode_config.find(inode);
-    if (inode_it != self->parent->cli->st_cli.inode_config.end() &&
+    auto inode_it = self->parent->cli->st_cli->inode_config.find(inode);
+    if (inode_it != self->parent->cli->st_cli->inode_config.end() &&
         inode_it->second.size < new_size)
     {
         self->parent->cmd->loop_and_wait(self->parent->cmd->start_modify(json11::Json::object {
@@ -561,8 +561,8 @@ static void nfs_do_write(nfs_client_t *self, std::multimap<extend_size_t, extend
 static void nfs_resize_write(nfs_client_t *self, rpc_op_t *rop, uint64_t inode, uint64_t new_size, uint64_t offset, uint64_t count, void *buf)
 {
     // Check if we have to resize the inode during write
-    auto inode_it = self->parent->cli->st_cli.inode_config.find(inode);
-    if (inode_it != self->parent->cli->st_cli.inode_config.end() &&
+    auto inode_it = self->parent->cli->st_cli->inode_config.find(inode);
+    if (inode_it != self->parent->cli->st_cli->inode_config.end() &&
         inode_it->second.size < new_size)
     {
         auto ewr_it = self->parent->blockfs->extend_writes.emplace((extend_size_t){
@@ -618,7 +618,7 @@ static int block_nfs3_create_proc(void *opaque, rpc_op_t *rop)
         *reply = (CREATE3res){ .status = vitastor_nfs_map_err(r.err) };
         if (!r.err)
         {
-            auto inode_num = self->parent->cli->st_cli.inode_by_name.at(full_name);
+            auto inode_num = self->parent->cli->st_cli->inode_by_name.at(full_name);
             reply->resok = (CREATE3resok){
                 .obj = {
                     .handle_follows = 1,
@@ -655,8 +655,8 @@ static int block_nfs3_mkdir_proc(void *opaque, rpc_op_t *rop)
         rpc_queue_reply(rop);
         return 0;
     }
-    auto inode_it = self->parent->cli->st_cli.inode_by_name.find(full_name);
-    if (inode_it != self->parent->cli->st_cli.inode_by_name.end())
+    auto inode_it = self->parent->cli->st_cli->inode_by_name.find(full_name);
+    if (inode_it != self->parent->cli->st_cli->inode_by_name.end())
     {
         *reply = (MKDIR3res){ .status = NFS3ERR_EXIST };
         rpc_queue_reply(rop);
@@ -765,7 +765,7 @@ static int block_nfs3_rmdir_proc(void *opaque, rpc_op_t *rop)
         return 0;
     }
     std::string prefix = full_name+"/";
-    for (auto & ic: self->parent->cli->st_cli.inode_config)
+    for (auto & ic: self->parent->cli->st_cli->inode_config)
     {
         if (prefix != "" && ic.second.name.substr(0, prefix.size()) == prefix)
         {
@@ -795,7 +795,7 @@ static int continue_dir_rename(nfs_dir_rename_state *rename_st)
     if (!rename_st->items.size())
     {
         std::string old_prefix = rename_st->old_name+"/";
-        for (auto & ic: self->parent->cli->st_cli.inode_config)
+        for (auto & ic: self->parent->cli->st_cli->inode_config)
         {
             if (ic.second.name.substr(0, old_prefix.size()) == old_prefix)
                 rename_st->items.push_back(ic.second.name);
@@ -862,7 +862,7 @@ static int block_nfs3_rename_proc(void *opaque, rpc_op_t *rop)
     bool old_is_dir = self->parent->blockfs->dir_info.find(old_name) != self->parent->blockfs->dir_info.end();
     bool new_is_dir = self->parent->blockfs->dir_info.find(new_name) != self->parent->blockfs->dir_info.end();
     bool old_is_file = false, new_is_file = false;
-    for (auto & ic: self->parent->cli->st_cli.inode_config)
+    for (auto & ic: self->parent->cli->st_cli->inode_config)
     {
         if (ic.second.name == new_name)
             new_is_file = true;
@@ -1000,7 +1000,7 @@ static void block_nfs3_readdir_common(void *opaque, rpc_op_t *rop, bool is_plus)
     }
     std::string prefix = dir.size() ? dir+"/" : self->parent->blockfs->name_prefix;
     std::map<std::string, struct entryplus3> entries;
-    for (auto & ic: self->parent->cli->st_cli.inode_config)
+    for (auto & ic: self->parent->cli->st_cli->inode_config)
     {
         auto & inode_cfg = ic.second;
         if (prefix != "" && inode_cfg.name.substr(0, prefix.size()) != prefix)
@@ -1190,11 +1190,11 @@ void block_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
         .mod_rev = 0,
     };
     clock_gettime(CLOCK_REALTIME, &dir_info[""].mtime);
-    assert(proxy->cli->st_cli.on_inode_change_hook == NULL);
-    proxy->cli->st_cli.on_inode_change_hook = [this, proxy](inode_t changed_inode, bool removed)
+    assert(proxy->cli->st_cli->on_inode_change_hook == NULL);
+    proxy->cli->st_cli->on_inode_change_hook = [this, proxy](inode_t changed_inode, bool removed)
     {
-        auto inode_cfg_it = proxy->cli->st_cli.inode_config.find(changed_inode);
-        if (inode_cfg_it == proxy->cli->st_cli.inode_config.end())
+        auto inode_cfg_it = proxy->cli->st_cli->inode_config.find(changed_inode);
+        if (inode_cfg_it == proxy->cli->st_cli->inode_config.end())
         {
             return;
         }

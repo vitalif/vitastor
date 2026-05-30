@@ -152,7 +152,7 @@ class osd_t
 
     // cluster state
 
-    etcd_state_client_t st_cli;
+    std::unique_ptr<etcd_state_client_t> st_cli;
     osd_messenger_t msgr;
     int etcd_failed_attempts = 0;
     std::string etcd_lease_id;
@@ -383,8 +383,8 @@ class osd_t
 
     inline pg_num_t map_to_pg(object_id oid)
     {
-        auto pool_it = st_cli.pool_config.find(INODE_POOL(oid.inode));
-        if (pool_it == st_cli.pool_config.end())
+        auto pool_it = st_cli->pool_config.find(INODE_POOL(oid.inode));
+        if (pool_it == st_cli->pool_config.end())
             return 1;
         return (oid.stripe / pool_it->second.applied_pg_stripe_size) % pool_it->second.applied_pg_count + 1;
     }

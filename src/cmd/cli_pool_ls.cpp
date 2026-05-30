@@ -63,37 +63,37 @@ struct pool_lister_t
                 json11::Json::object {
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/pool/stats/"
+                            parent->cli->st_cli->etcd_prefix+"/pool/stats/"
                         ) },
                         { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/pool/stats0"
+                            parent->cli->st_cli->etcd_prefix+"/pool/stats0"
                         ) },
                     } },
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/osd/stats/"
+                            parent->cli->st_cli->etcd_prefix+"/osd/stats/"
                         ) },
                         { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/osd/stats0"
+                            parent->cli->st_cli->etcd_prefix+"/osd/stats0"
                         ) },
                     } },
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/config/pools"
+                            parent->cli->st_cli->etcd_prefix+"/config/pools"
                         ) },
                     } },
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/config/osd/"
+                            parent->cli->st_cli->etcd_prefix+"/config/osd/"
                         ) },
                         { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/config/osd0"
+                            parent->cli->st_cli->etcd_prefix+"/config/osd0"
                         ) },
                     } },
                 },
@@ -113,7 +113,7 @@ resume_1:
         auto config_pools = space_info["responses"][2]["response_range"]["kvs"][0];
         if (!config_pools.is_null())
         {
-            config_pools = parent->cli->st_cli.parse_etcd_kv(config_pools).value;
+            config_pools = parent->cli->st_cli->parse_etcd_kv(config_pools).value;
         }
         parent->iterate_kvs_1(space_info["responses"][0]["response_range"]["kvs"], "/pool/stats/", [&](uint64_t pool_id, json11::Json value)
         {
@@ -134,7 +134,7 @@ resume_1:
             }
         });
         // Calculate max_avail for each pool
-        for (auto & pp: parent->cli->st_cli.pool_config)
+        for (auto & pp: parent->cli->st_cli->pool_config)
         {
             auto & pool_cfg = pp.second;
             uint64_t pool_avail = UINT64_MAX;
@@ -238,10 +238,10 @@ resume_1:
                 json11::Json::object {
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/pgstats/"
+                            parent->cli->st_cli->etcd_prefix+"/pgstats/"
                         ) },
                         { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/pgstats0"
+                            parent->cli->st_cli->etcd_prefix+"/pgstats0"
                         ) },
                     } },
                 },
@@ -289,10 +289,10 @@ resume_1:
                 json11::Json::object {
                     { "request_range", json11::Json::object {
                         { "key", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/inode/stats/"
+                            parent->cli->st_cli->etcd_prefix+"/inode/stats/"
                         ) },
                         { "range_end", base64_encode(
-                            parent->cli->st_cli.etcd_prefix+"/inode/stats0"
+                            parent->cli->st_cli->etcd_prefix+"/inode/stats0"
                         ) },
                     } },
                 },
@@ -478,7 +478,7 @@ resume_3:
                 auto total = st["object_count"].uint64_value();
                 auto obj_size = st["block_size"].uint64_value();
                 if (!obj_size)
-                    obj_size = parent->cli->st_cli.global_block_size;
+                    obj_size = parent->cli->st_cli->global_block_size;
                 if (st["scheme"] == "ec")
                     obj_size *= st["pg_size"].uint64_value() - st["parity_chunks"].uint64_value();
                 else if (st["scheme"] == "xor")

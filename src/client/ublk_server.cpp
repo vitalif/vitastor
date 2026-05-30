@@ -273,7 +273,7 @@ help:
         }
         if (!inode)
         {
-            watch = cli->st_cli.watch_inode(image_name);
+            watch = cli->st_cli->watch_inode(image_name);
             device_size = watch->cfg.size;
             if (!watch->cfg.num || !device_size)
             {
@@ -283,8 +283,8 @@ help:
             }
         }
         const bool writeback = !cli->get_immediate_commit(inode ? inode : watch->cfg.num);
-        auto pool_it = cli->st_cli.pool_config.find(INODE_POOL(inode ? inode : watch->cfg.num));
-        if (pool_it == cli->st_cli.pool_config.end())
+        auto pool_it = cli->st_cli->pool_config.find(INODE_POOL(inode ? inode : watch->cfg.num));
+        if (pool_it == cli->st_cli->pool_config.end())
         {
             fprintf(stderr, "Pool %u does not exist\n", INODE_POOL(inode ? inode : watch->cfg.num));
             exit(1);

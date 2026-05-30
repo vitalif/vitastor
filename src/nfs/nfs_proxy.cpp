@@ -451,21 +451,21 @@ void nfs_proxy_t::run_server(json11::Json cfg)
 
 void nfs_proxy_t::watch_stats()
 {
-    assert(cli->st_cli.on_start_watcher_hook == NULL);
-    cli->st_cli.on_start_watcher_hook = [this](http_co_t *etcd_watch_ws)
+    assert(cli->st_cli->on_start_watcher_hook == NULL);
+    cli->st_cli->on_start_watcher_hook = [this](http_co_t *etcd_watch_ws)
     {
-        cli->st_cli.etcd_txn_slow(json11::Json::object {
+        cli->st_cli->etcd_txn_slow(json11::Json::object {
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(cli->st_cli.etcd_prefix+"/inode/stats/") },
-                        { "range_end", base64_encode(cli->st_cli.etcd_prefix+"/inode/stats0") },
+                        { "key", base64_encode(cli->st_cli->etcd_prefix+"/inode/stats/") },
+                        { "range_end", base64_encode(cli->st_cli->etcd_prefix+"/inode/stats0") },
                     } }
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(cli->st_cli.etcd_prefix+"/pool/stats/") },
-                        { "range_end", base64_encode(cli->st_cli.etcd_prefix+"/pool/stats0") },
+                        { "key", base64_encode(cli->st_cli->etcd_prefix+"/pool/stats/") },
+                        { "range_end", base64_encode(cli->st_cli->etcd_prefix+"/pool/stats0") },
                     } }
                 },
             } },
@@ -475,26 +475,26 @@ void nfs_proxy_t::watch_stats()
             {
                 for (auto & item: rsp["response_range"]["kvs"].array_items())
                 {
-                    etcd_kv_t kv = cli->st_cli.parse_etcd_kv(item);
+                    etcd_kv_t kv = cli->st_cli->parse_etcd_kv(item);
                     parse_stats(kv);
                 }
             }
-            if (cli->st_cli.etcd_watch_ws)
+            if (cli->st_cli->etcd_watch_ws)
             {
                 auto watch_rev = res["header"]["revision"].uint64_value()+1;
-                http_post_message(cli->st_cli.etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
+                http_post_message(cli->st_cli->etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
                     { "create_request", json11::Json::object {
-                        { "key", base64_encode(cli->st_cli.etcd_prefix+"/inode/stats/") },
-                        { "range_end", base64_encode(cli->st_cli.etcd_prefix+"/inode/stats0") },
+                        { "key", base64_encode(cli->st_cli->etcd_prefix+"/inode/stats/") },
+                        { "range_end", base64_encode(cli->st_cli->etcd_prefix+"/inode/stats0") },
                         { "start_revision", watch_rev },
                         { "watch_id", ETCD_INODE_STATS_WATCH_ID },
                         { "progress_notify", true },
                     } }
                 }).dump());
-                http_post_message(cli->st_cli.etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
+                http_post_message(cli->st_cli->etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
                     { "create_request", json11::Json::object {
-                        { "key", base64_encode(cli->st_cli.etcd_prefix+"/pool/stats/") },
-                        { "range_end", base64_encode(cli->st_cli.etcd_prefix+"/pool/stats0") },
+                        { "key", base64_encode(cli->st_cli->etcd_prefix+"/pool/stats/") },
+                        { "range_end", base64_encode(cli->st_cli->etcd_prefix+"/pool/stats0") },
                         { "start_revision", watch_rev },
                         { "watch_id", ETCD_POOL_STATS_WATCH_ID },
                         { "progress_notify", true },
@@ -503,7 +503,7 @@ void nfs_proxy_t::watch_stats()
             }
         });
     };
-    cli->st_cli.on_change_hook = [this, old_hook = cli->st_cli.on_change_hook](std::map<std::string, etcd_kv_t> & changes)
+    cli->st_cli->on_change_hook = [this, old_hook = cli->st_cli->on_change_hook](std::map<std::string, etcd_kv_t> & changes)
     {
         for (auto & p: changes)
         {
@@ -515,12 +515,12 @@ void nfs_proxy_t::watch_stats()
 void nfs_proxy_t::parse_stats(etcd_kv_t & kv)
 {
     auto & key = kv.key;
-    if (key.substr(0, cli->st_cli.etcd_prefix.length()+13) == cli->st_cli.etcd_prefix+"/inode/stats/")
+    if (key.substr(0, cli->st_cli->etcd_prefix.length()+13) == cli->st_cli->etcd_prefix+"/inode/stats/")
     {
         pool_id_t pool_id = 0;
         inode_t inode_num = 0;
         char null_byte = 0;
-        int scanned = sscanf(key.c_str() + cli->st_cli.etcd_prefix.length()+13, "%u/%ju%c", &pool_id, &inode_num, &null_byte);
+        int scanned = sscanf(key.c_str() + cli->st_cli->etcd_prefix.length()+13, "%u/%ju%c", &pool_id, &inode_num, &null_byte);
         if (scanned != 2 || !pool_id || pool_id >= POOL_ID_MAX)
         {
             fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
@@ -530,11 +530,11 @@ void nfs_proxy_t::parse_stats(etcd_kv_t & kv)
             inode_stats[INODE_WITH_POOL(pool_id, inode_num)] = kv.value;
         }
     }
-    else if (key.substr(0, cli->st_cli.etcd_prefix.length()+12) == cli->st_cli.etcd_prefix+"/pool/stats/")
+    else if (key.substr(0, cli->st_cli->etcd_prefix.length()+12) == cli->st_cli->etcd_prefix+"/pool/stats/")
     {
         pool_id_t pool_id = 0;
         char null_byte = 0;
-        int scanned = sscanf(key.c_str() + cli->st_cli.etcd_prefix.length()+12, "%u%c", &pool_id, &null_byte);
+        int scanned = sscanf(key.c_str() + cli->st_cli->etcd_prefix.length()+12, "%u%c", &pool_id, &null_byte);
         if (scanned != 1 || !pool_id || pool_id >= POOL_ID_MAX)
         {
             fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
@@ -550,21 +550,21 @@ void nfs_proxy_t::check_default_pool()
 {
     if (default_pool == "")
     {
-        if (cli->st_cli.pool_config.size() == 1)
+        if (cli->st_cli->pool_config.size() == 1)
         {
-            auto pool_it = cli->st_cli.pool_config.begin();
+            auto pool_it = cli->st_cli->pool_config.begin();
             default_pool_id = pool_it->first;
             default_pool = pool_it->second.name;
         }
         else
         {
-            fprintf(stderr, "There are %zu pools. Please select default pool with --pool option\n", cli->st_cli.pool_config.size());
+            fprintf(stderr, "There are %zu pools. Please select default pool with --pool option\n", cli->st_cli->pool_config.size());
             exit(1);
         }
     }
     else
     {
-        for (auto & p: cli->st_cli.pool_config)
+        for (auto & p: cli->st_cli->pool_config)
         {
             if (p.second.name == default_pool)
             {

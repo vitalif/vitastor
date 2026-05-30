@@ -62,19 +62,19 @@ struct osd_tree_printer_t
             { "success", json11::Json::array {
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/node_placement") },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/node_placement") },
                     } },
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd/") },
-                        { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/config/osd0") },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/osd/") },
+                        { "range_end", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/osd0") },
                     } },
                 },
                 json11::Json::object {
                     { "request_range", json11::Json::object {
-                        { "key", base64_encode(parent->cli->st_cli.etcd_prefix+"/osd/stats/") },
-                        { "range_end", base64_encode(parent->cli->st_cli.etcd_prefix+"/osd/stats0") },
+                        { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/osd/stats/") },
+                        { "range_end", base64_encode(parent->cli->st_cli->etcd_prefix+"/osd/stats0") },
                     } },
                 },
             } },
@@ -91,7 +91,7 @@ resume_1:
         }
         for (auto & item: parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items())
         {
-            node_placement = parent->cli->st_cli.parse_etcd_kv(item).value;
+            node_placement = parent->cli->st_cli->parse_etcd_kv(item).value;
         }
         parent->iterate_kvs_1(parent->etcd_result["responses"][1]["response_range"]["kvs"], "/config/osd/", [&](uint64_t cur_osd, json11::Json value)
         {
@@ -132,7 +132,7 @@ resume_1:
                 .parent = kv.second["host"].string_value(),
                 .size = kv.second["size"].uint64_value(),
                 .free = kv.second["free"].uint64_value(),
-                .up = parent->cli->st_cli.peer_states.find(kv.first) != parent->cli->st_cli.peer_states.end(),
+                .up = parent->cli->st_cli->peer_states.find(kv.first) != parent->cli->st_cli->peer_states.end(),
                 .reweight = 1,
                 .noout = false,
                 .block_size = (uint32_t)kv.second["data_block_size"].uint64_value(),

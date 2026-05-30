@@ -431,9 +431,9 @@ void osd_t::on_change_pg_history_hook(pool_id_t pool_id, pg_num_t pg_num)
     }
     auto & pg = pg_it->second;
     if (pg.epoch > pg.reported_epoch &&
-        st_cli.pool_config[pool_id].pg_config[pg_num].epoch >= pg.epoch)
+        st_cli->pool_config[pool_id].pg_config[pg_num].epoch >= pg.epoch)
     {
-        pg.reported_epoch = st_cli.pool_config[pool_id].pg_config[pg_num].epoch;
+        pg.reported_epoch = st_cli->pool_config[pool_id].pg_config[pg_num].epoch;
         std::vector<object_id> resume_oids;
         for (auto & op: pg.write_queue)
         {
