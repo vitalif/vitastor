@@ -3,7 +3,7 @@
 
 #include "osd.h"
 #include "str_util.h"
-#include "etcd_state_client.h"
+#include "etcd_state_client_http.h"
 #include "http_client.h"
 #include "osd_rmw.h"
 #include "addr_util.h"
@@ -16,7 +16,6 @@
 //   Peer connection is lost -> Reload connection data -> Try to reconnect
 void osd_t::init_cluster()
 {
-    st_cli = std::make_unique<etcd_state_client_t>();
     if (!st_cli->address_count())
     {
         init_blockstore(NULL);
@@ -65,7 +64,6 @@ void osd_t::init_cluster()
     }
     else
     {
-        st_cli->tfd = tfd;
         st_cli->log_level = log_level;
         st_cli->on_change_osd_state_hook = [this](osd_num_t peer_osd) { on_change_osd_state_hook(peer_osd); };
         st_cli->on_change_pool_config_hook = [this]() { on_change_pool_config_hook(); };

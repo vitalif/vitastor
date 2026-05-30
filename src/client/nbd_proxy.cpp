@@ -514,7 +514,7 @@ help:
         // Create client
         ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
         epmgr = new epoll_manager_t(ringloop);
-        cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
+        cli = cluster_client_t::create(ringloop, epmgr->tfd, cfg);
         if (!inode)
         {
             // Load image metadata

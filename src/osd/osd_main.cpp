@@ -2,6 +2,7 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include "epoll_manager.h"
+#include "etcd_state_client_http.h"
 #include "osd.h"
 
 #include <sys/prctl.h>
@@ -65,7 +66,8 @@ int main(int narg, char *args[])
     signal(SIGTERM, handle_sigint);
     ring_loop_t *ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     epoll_manager_t *epmgr = new epoll_manager_t(ringloop);
-    osd = new osd_t(config, ringloop, epmgr->tfd);
+    auto st_cli = new etcd_state_client_http_t(epmgr->tfd);
+    osd = new osd_t(config, ringloop, epmgr->tfd, std::unique_ptr<etcd_state_client_t>(st_cli));
     while (1)
     {
         ringloop->loop();

@@ -24,7 +24,6 @@
 #include "nfs_kv.h"
 #include "nfs_block.h"
 #include "nfs_common.h"
-#include "http_client.h"
 #include "cli.h"
 
 #define ETCD_INODE_STATS_WATCH_ID 101
@@ -268,7 +267,7 @@ void nfs_proxy_t::run(json11::Json cfg)
     // Create client
     ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     epmgr = new epoll_manager_t(ringloop);
-    cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
+    cli = cluster_client_t::create(ringloop, epmgr->tfd, cfg);
     cmd = new cli_tool_t();
     cmd->ringloop = ringloop;
     cmd->epmgr = epmgr;
@@ -479,28 +478,25 @@ void nfs_proxy_t::watch_stats()
                     parse_stats(kv);
                 }
             }
-            if (cli->st_cli->etcd_watch_ws)
-            {
-                auto watch_rev = res["header"]["revision"].uint64_value()+1;
-                http_post_message(cli->st_cli->etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
-                    { "create_request", json11::Json::object {
-                        { "key", base64_encode(cli->st_cli->etcd_prefix+"/inode/stats/") },
-                        { "range_end", base64_encode(cli->st_cli->etcd_prefix+"/inode/stats0") },
-                        { "start_revision", watch_rev },
-                        { "watch_id", ETCD_INODE_STATS_WATCH_ID },
-                        { "progress_notify", true },
-                    } }
-                }).dump());
-                http_post_message(cli->st_cli->etcd_watch_ws, WS_TEXT, json11::Json(json11::Json::object {
-                    { "create_request", json11::Json::object {
-                        { "key", base64_encode(cli->st_cli->etcd_prefix+"/pool/stats/") },
-                        { "range_end", base64_encode(cli->st_cli->etcd_prefix+"/pool/stats0") },
-                        { "start_revision", watch_rev },
-                        { "watch_id", ETCD_POOL_STATS_WATCH_ID },
-                        { "progress_notify", true },
-                    } }
-                }).dump());
-            }
+            auto watch_rev = res["header"]["revision"].uint64_value()+1;
+            cli->st_cli->etcd_add_watch(json11::Json::object {
+                { "create_request", json11::Json::object {
+                    { "key", base64_encode(cli->st_cli->etcd_prefix+"/inode/stats/") },
+                    { "range_end", base64_encode(cli->st_cli->etcd_prefix+"/inode/stats0") },
+                    { "start_revision", watch_rev },
+                    { "watch_id", ETCD_INODE_STATS_WATCH_ID },
+                    { "progress_notify", true },
+                } }
+            });
+            cli->st_cli->etcd_add_watch(json11::Json::object {
+                { "create_request", json11::Json::object {
+                    { "key", base64_encode(cli->st_cli->etcd_prefix+"/pool/stats/") },
+                    { "range_end", base64_encode(cli->st_cli->etcd_prefix+"/pool/stats0") },
+                    { "start_revision", watch_rev },
+                    { "watch_id", ETCD_POOL_STATS_WATCH_ID },
+                    { "progress_notify", true },
+                } }
+            });
         });
     };
     cli->st_cli->on_change_hook = [this, old_hook = cli->st_cli->on_change_hook](std::map<std::string, etcd_kv_t> & changes)

@@ -70,7 +70,7 @@ int main(int narg, char *args[])
     // Create client
     auto ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     auto epmgr = new epoll_manager_t(ringloop);
-    auto cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
+    auto cli = cluster_client_t::create(ringloop, epmgr->tfd, cfg);
     cli->on_ready([&]()
     {
         send_read(cli, inode, [&](int r, uint64_t v)

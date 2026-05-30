@@ -11,7 +11,7 @@
 #define TRY_SEND_CONNECTING 1
 #define TRY_SEND_OK 2
 
-cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config)
+cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config, std::unique_ptr<etcd_state_client_t> st_cli_ptr)
 {
     wb = new writeback_cache_t();
 
@@ -53,8 +53,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     };
     msgr.parse_config(config);
 
-    st_cli = std::make_unique<etcd_state_client_t>();
-    st_cli->tfd = tfd;
+    st_cli = std::move(st_cli_ptr);
     st_cli->on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
     st_cli->on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
     st_cli->on_change_pool_config_hook = [this]() { on_change_pool_config_hook(); };
@@ -62,7 +61,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli->on_change_pg_state_hook = [this](pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary) { on_change_pg_state_hook(pool_id, pg_num, prev_primary); };
     st_cli->on_change_node_placement_hook = [this]() { on_change_node_placement_hook(); };
     st_cli->on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
-    st_cli->on_reload_hook = [this]() { st_cli->load_global_config(); };
+    st_cli->on_reload_hook = [this]() { this->st_cli->load_global_config(); };
 
     st_cli->parse_config(config);
     st_cli->infinite_start = false;

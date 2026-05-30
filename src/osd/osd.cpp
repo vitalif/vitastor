@@ -15,7 +15,7 @@
 #include "str_util.h"
 #include "json_util.h"
 
-osd_t::osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd)
+osd_t::osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd, std::unique_ptr<etcd_state_client_t> st_cli_ptr)
 {
     zero_buffer_size = 1<<20;
     zero_buffer = malloc_or_die(zero_buffer_size);
@@ -23,6 +23,7 @@ osd_t::osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager
 
     this->ringloop = ringloop;
     this->tfd = tfd;
+    this->st_cli = std::move(st_cli_ptr);
 
     this->cli_config = config.object_items();
     this->file_config = msgr.read_config(this->cli_config);

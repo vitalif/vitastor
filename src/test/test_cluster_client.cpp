@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include "etcd_state_client_mock.h"
 #include "cluster_client_impl.h"
 
 class cluster_client_test_t
@@ -15,44 +16,34 @@ public:
     }
 };
 
-void configure_single_pg_pool(cluster_client_t *cli)
+void configure_single_pg_pool(etcd_state_client_mock_t *mock)
 {
-    cli->st_cli->parse_state((etcd_kv_t){
-        .key = "/config/pools",
-        .value = json11::Json::object {
-            { "1", json11::Json::object {
-                { "name", "hddpool" },
-                { "scheme", "replicated" },
-                { "pg_size", 2 },
-                { "pg_minsize", 1 },
-                { "pg_count", 1 },
-                { "failure_domain", "osd" },
-            } }
-        },
+    mock->set("/vitastor/config/pools", json11::Json::object {
+        { "1", json11::Json::object {
+            { "name", "hddpool" },
+            { "scheme", "replicated" },
+            { "pg_size", 2 },
+            { "pg_minsize", 1 },
+            { "pg_count", 1 },
+            { "failure_domain", "osd" },
+            { "immediate_commit", "none" },
+        } }
     });
-    cli->st_cli->parse_state((etcd_kv_t){
-        .key = "/pg/config",
-        .value = json11::Json::object {
-            { "items", json11::Json::object {
+    mock->set("/vitastor/pg/config", json11::Json::object {
+        { "items", json11::Json::object {
+            { "1", json11::Json::object {
                 { "1", json11::Json::object {
-                    { "1", json11::Json::object {
-                        { "osd_set", json11::Json::array { 1, 2 } },
-                        { "primary", 1 },
-                    } }
+                    { "osd_set", json11::Json::array { 1, 2 } },
+                    { "primary", 1 },
                 } }
             } }
-        },
+        } }
     });
-    cli->st_cli->parse_state((etcd_kv_t){
-        .key = "/pg/state/1/1",
-        .value = json11::Json::object {
-            { "peers", json11::Json::array { 1, 2 } },
-            { "primary", 1 },
-            { "state", json11::Json::array { "active" } },
-        },
+    mock->set("/vitastor/pg/state/1/1", json11::Json::object {
+        { "peers", json11::Json::array { 1, 2 } },
+        { "primary", 1 },
+        { "state", json11::Json::array { "active" } },
     });
-    cli->st_cli->on_load_pgs_hook(true);
-    cli->st_cli->on_change_pool_config_hook();
 }
 
 int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c, std::function<void()> cb = NULL, bool instant = false)
@@ -70,7 +61,7 @@ int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c,
     op->callback = [r, cb](cluster_op_t *op)
     {
         if (*r == -1)
-            printf("Error: Not allowed to complete yet\n");
+            printf("Error: Not allowed to complete yet (retval %d)\n", op->retval);
         assert(*r != -1);
         *r = op->retval == op->len ? 1 : 0;
         free(op->iov.buf[0].iov_base);
@@ -126,15 +117,13 @@ void check_completed(int *r)
 void pretend_connected(cluster_client_t *cli, osd_num_t osd_num)
 {
     printf("OSD %ju connected\n", osd_num);
-    int peer_fd = cli->msgr.clients.size() ? std::prev(cli->msgr.clients.end())->first+1 : 10;
     auto cl = new osd_client_t();
     cl->client_id = cli->msgr.next_client_id++;
     cl->osd_num = osd_num;
-    cl->peer_fd = peer_fd;
+    cl->peer_fd = -1;
     cl->peer_state = PEER_CONNECTED;
     cli->msgr.osd_peers[osd_num] = cl;
     cli->msgr.clients[cl->client_id] = cl;
-    cli->msgr.clients_by_fd[peer_fd] = cl;
     cli->msgr.wanted_peers.erase(osd_num);
     cli->msgr.repeer_pgs(osd_num);
 }
@@ -209,10 +198,13 @@ void test1()
 {
     json11::Json config;
     timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
-    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config);
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
 
     int *r1 = test_write(cli, 0, 4096, 0x55);
-    configure_single_pg_pool(cli);
+    configure_single_pg_pool(mock);
+    mock->resume();
     pretend_connected(cli, 1);
     can_complete(r1);
     check_op_count(cli, 1, 1);
@@ -421,9 +413,12 @@ void test_writeback()
         { "client_max_dirty_ops", 2 },
     };
     timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
-    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config);
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
 
-    configure_single_pg_pool(cli);
+    configure_single_pg_pool(mock);
+    mock->resume();
     pretend_connected(cli, 1);
 
     // Check that 3 consecutive writes are merged by writeback

@@ -390,7 +390,7 @@ class osd_t
     }
 
 public:
-    osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd);
+    osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd, std::unique_ptr<etcd_state_client_t> st_cli_ptr);
     ~osd_t();
     void force_stop(int exitcode);
     bool shutdown();

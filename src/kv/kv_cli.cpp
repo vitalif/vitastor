@@ -146,7 +146,7 @@ void kv_cli_t::run()
     // Create client
     ringloop = new ring_loop_t(512);
     epmgr = new epoll_manager_t(ringloop);
-    cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
+    cli = cluster_client_t::create(ringloop, epmgr->tfd, cfg);
     db = new vitastorkv_dbw_t(cli);
     // Load image metadata
     while (!cli->is_ready())

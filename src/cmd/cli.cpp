@@ -555,7 +555,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
         json11::Json cfg_j = cfg;
         p->ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
         p->epmgr = new epoll_manager_t(p->ringloop);
-        p->cli = new cluster_client_t(p->ringloop, p->epmgr->tfd, cfg_j);
+        p->cli = cluster_client_t::create(p->ringloop, p->epmgr->tfd, cfg_j);
         p->loop_and_wait(action_cb, [&](const cli_result_t & r)
         {
             result = r;

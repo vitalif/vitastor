@@ -12,7 +12,7 @@ if (RDMACM_LIBRARIES)
 	set(MSGR_RDMACM "msgr_rdmacm.cpp")
 endif (RDMACM_LIBRARIES)
 add_library(vitastor_common STATIC
-	../util/epoll_manager.cpp etcd_state_client.cpp messenger.cpp msgr_iothread.cpp ../util/addr_util.cpp
+	../util/epoll_manager.cpp etcd_state_client.cpp etcd_state_client_http.cpp messenger.cpp msgr_iothread.cpp ../util/addr_util.cpp
 	msgr_stop.cpp msgr_op.cpp msgr_send.cpp msgr_receive.cpp ../util/ringloop.cpp ../../json11/json11.cpp
 	http_client.cpp osd_ops.cpp pg_states.cpp ../util/timerfd_manager.cpp ../util/str_util.cpp ../util/json_util.cpp ${MSGR_RDMA} ${MSGR_RDMACM}
 )
@@ -22,6 +22,7 @@ target_compile_options(vitastor_common PUBLIC -fPIC)
 # libvitastor_client.so
 add_library(vitastor_client SHARED
 	cluster_client.cpp
+	cluster_client_real.cpp
 	cluster_client_list.cpp
 	cluster_client_wb.cpp
 	vitastor_c.cpp
@@ -96,10 +97,9 @@ add_executable(test_cluster_client
 	EXCLUDE_FROM_ALL
 	../test/test_cluster_client.cpp
 	pg_states.cpp osd_ops.cpp cluster_client.cpp cluster_client_list.cpp cluster_client_wb.cpp msgr_op.cpp ../test/mock/messenger.cpp msgr_stop.cpp
-	etcd_state_client.cpp ../util/timerfd_manager.cpp ../util/addr_util.cpp ../util/str_util.cpp ../util/json_util.cpp ../../json11/json11.cpp
+	etcd_state_client.cpp etcd_state_client_mock.cpp ../util/timerfd_manager.cpp ../util/addr_util.cpp ../util/str_util.cpp ../util/json_util.cpp ../../json11/json11.cpp
 )
 target_link_libraries(test_cluster_client ${LIBURING_LIBRARIES})
-target_compile_definitions(test_cluster_client PUBLIC -D__MOCK__)
 target_include_directories(test_cluster_client BEFORE PUBLIC ${CMAKE_SOURCE_DIR}/src/test/mock)
 add_dependencies(build_tests test_cluster_client)
 add_test(NAME test_cluster_client COMMAND test_cluster_client)

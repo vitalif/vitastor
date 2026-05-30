@@ -4,7 +4,7 @@
 #pragma once
 
 #include "messenger.h"
-#include "etcd_state_client.h"
+#include "etcd_state_client_http.h"
 
 #define DEFAULT_CLIENT_MAX_DIRTY_BYTES 32*1024*1024
 #define DEFAULT_CLIENT_MAX_DIRTY_OPS 1024
@@ -139,7 +139,8 @@ public:
     json11::Json::object cli_config, file_config, etcd_global_config;
     json11::Json::object config;
 
-    cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config);
+    static cluster_client_t* create(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config);
+    cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config, std::unique_ptr<etcd_state_client_t> st_cli);
     ~cluster_client_t();
     void execute(cluster_op_t *op);
     void execute_raw(osd_num_t osd_num, osd_op_t *op);

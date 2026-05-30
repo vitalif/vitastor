@@ -241,7 +241,7 @@ help:
 
         // Create client
         epmgr = new epoll_manager_t(ringloop);
-        cli = new cluster_client_t(ringloop, epmgr->tfd, cfg);
+        cli = cluster_client_t::create(ringloop, epmgr->tfd, cfg);
 
         // cli->config contains merged config
         if (!cfg["queue_depth"].is_null())
