@@ -491,7 +491,7 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
                     if (!exists)
                     {
                         uint64_t space_id = dirty_it->first.oid.inode;
-                        if (no_inode_stats[dirty_it->first.oid.inode >> (64-POOL_ID_BITS)])
+                        if (no_inode_stats.find(dirty_it->first.oid.inode >> (64-POOL_ID_BITS)) != no_inode_stats.end())
                             space_id = space_id & ~(((uint64_t)1 << (64-POOL_ID_BITS)) - 1);
                         inode_space_stats[space_id] += dsk.data_block_size;
                         used_blocks++;
@@ -501,7 +501,7 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
                 else if (IS_DELETE(dirty_it->second.state))
                 {
                     uint64_t space_id = dirty_it->first.oid.inode;
-                    if (no_inode_stats[dirty_it->first.oid.inode >> (64-POOL_ID_BITS)])
+                    if (no_inode_stats.find(dirty_it->first.oid.inode >> (64-POOL_ID_BITS)) != no_inode_stats.end())
                         space_id = space_id & ~(((uint64_t)1 << (64-POOL_ID_BITS)) - 1);
                     auto & sp = inode_space_stats[space_id];
                     if (sp > dsk.data_block_size)
