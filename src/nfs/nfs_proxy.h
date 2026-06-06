@@ -38,10 +38,11 @@ public:
     bool nfs_port_auto = false;
     unsigned nfs_port = 0;
     unsigned nfs_rdma_port = 0;
-    uint32_t nfs_rdma_credit = 16;
     uint32_t nfs_rdma_max_send = 1024;
     uint64_t nfs_rdma_alloc = 1048576;
     uint64_t nfs_rdma_gc = 500*1048576;
+    uint64_t nfs_max_bytes_per_client = 64*1048576;
+    uint64_t nfs_max_ops_per_client = 32;
     int trace = 0;
     std::string logfile = "/dev/null";
     std::string pidfile;
@@ -137,7 +138,8 @@ public:
     // Read state
     rpc_cur_buffer_t cur_buffer = { 0 };
     std::map<void*, rpc_used_buffer_t> used_buffers;
-    std::vector<rpc_free_buffer_t> free_buffers;
+    uint64_t inflight_bytes = 0;
+    uint64_t inflight_ops = 0;
 
     iovec read_iov;
     msghdr read_msg = { 0 };

@@ -68,17 +68,27 @@ static const char* help_text =
     "\n"
     "vitastor-nfs (--fs <NAME> | --block) start\n"
     "  Start network NFS server. Options:\n"
-    "  --bind <IP>           bind service to <IP> address (default 0.0.0.0)\n"
-    "  --port <PORT>         use port <PORT> for NFS services (default is 2049)\n"
-    "                        specify \"auto\" to auto-select and print port\n"
-    "  --portmap 0           do not listen on port 111 (portmap/rpcbind, requires root)\n"
+    "  --bind <IP>\n"
+    "    bind service to <IP> address (default 0.0.0.0)\n"
+    "  --port <PORT>\n"
+    "    use port <PORT> for NFS services (default is 2049)\n"
+    "    specify \"auto\" to auto-select and print port\n"
+    "  --portmap 0\n"
+    "    do not listen on port 111 (portmap/rpcbind, listening requires root)\n"
+    "  --nfs_max_ops_per_client 32\n"
+    "    maximum inflight operations per 1 NFS client\n"
+    "  --nfs_max_bytes_per_client 67108864\n"
+    "    maximum inflight received bytes per 1 NFS client\n"
 #ifdef WITH_RDMACM
-    "  --nfs_rdma <PORT>     enable NFS-RDMA at RDMA-CM port <PORT> (you can try 20049)\n"
-    "                        if RDMA is enabled and --port is set to 0, TCP will be disabled\n"
-    "  --nfs_rdma_credit 16  maximum operation credit for RDMA clients (max iodepth)\n"
-    "  --nfs_rdma_send 1024  maximum RDMA send operation count (should be larger than iodepth)\n"
-    "  --nfs_rdma_alloc 1M   RDMA memory allocation rounding\n"
-    "  --nfs_rdma_gc 64M     maximum unused RDMA buffers\n"
+    "  --nfs_rdma <PORT>\n"
+    "    enable NFS-RDMA at RDMA-CM port <PORT> (you can try 20049)\n"
+    "    if RDMA is enabled and --port is set to 0, TCP will be disabled\n"
+    "  --nfs_rdma_send 1024\n"
+    "    maximum RDMA send operation count (should be larger than iodepth)\n"
+    "  --nfs_rdma_alloc 1M\n"
+    "    RDMA memory allocation rounding\n"
+    "  --nfs_rdma_gc 64M\n"
+    "    maximum unused (pooled) RDMA buffers\n"
 #endif
     "\n"
     "vitastor-nfs --fs <NAME> upgrade\n"
@@ -207,6 +217,12 @@ void nfs_proxy_t::run(json11::Json cfg)
     if (bind_address == "")
         bind_address = "0.0.0.0";
     default_pool = cfg["pool"].as_string();
+    nfs_max_bytes_per_client = cfg["nfs_max_bytes_per_client"].uint64_value();
+    if (!nfs_max_bytes_per_client)
+        nfs_max_bytes_per_client = 64*1048576;
+    nfs_max_ops_per_client = cfg["nfs_max_ops_per_client"].uint64_value();
+    if (!nfs_max_ops_per_client)
+        nfs_max_ops_per_client = 64;
     portmap_enabled = !json_is_false(cfg["portmap"]);
     enforce_perms = json_is_true(cfg["enforce"]);
     nfs_port = cfg["port"].uint64_value() & 0xffff;
@@ -219,9 +235,6 @@ void nfs_proxy_t::run(json11::Json cfg)
     if (!nfs_port)
         nfs_port = nfs_port_auto ? 0 : (!cfg["port"].is_null() && nfs_rdma_port ? -1 : 2049);
 #ifdef WITH_RDMACM
-    nfs_rdma_credit = cfg["nfs_rdma_credit"].uint64_value();
-    if (!nfs_rdma_credit)
-        nfs_rdma_credit = 16;
     nfs_rdma_max_send = cfg["nfs_rdma_send"].uint64_value();
     if (!nfs_rdma_max_send)
         nfs_rdma_max_send = 1024;
@@ -423,7 +436,7 @@ void nfs_proxy_t::run_server(json11::Json cfg)
 #ifdef WITH_RDMACM
     if (nfs_rdma_port)
     {
-        rdma_context = create_rdma(bind_address, nfs_rdma_port, nfs_rdma_credit, nfs_rdma_max_send, nfs_rdma_alloc, nfs_rdma_gc);
+        rdma_context = create_rdma(bind_address, nfs_rdma_port, nfs_max_ops_per_client, nfs_rdma_max_send, nfs_rdma_alloc, nfs_rdma_gc);
     }
 #endif
     if (mountpoint != "")
@@ -628,50 +641,21 @@ void nfs_proxy_t::do_accept(int listen_fd)
 // FIXME Move these functions to "rpc_context"
 void nfs_client_t::select_read_buffer(unsigned wanted_size)
 {
-    if (free_buffers.size())
+    unsigned sz = RPC_INIT_BUF_SIZE;
+    if (sz < wanted_size)
     {
-        auto & b = free_buffers.back();
-        if (b.size < wanted_size)
-        {
-            cur_buffer = {
-                .buf = (uint8_t*)malloc_or_die(wanted_size),
-                .size = wanted_size,
-            };
-        }
-        else
-        {
-            cur_buffer = {
-                .buf = b.buf,
-                .size = b.size,
-            };
-        }
-        free_buffers.pop_back();
+        sz = wanted_size;
     }
-    else
-    {
-        unsigned sz = RPC_INIT_BUF_SIZE;
-        if (sz < wanted_size)
-        {
-            sz = wanted_size;
-        }
-        cur_buffer = {
-            .buf = (uint8_t*)malloc_or_die(sz),
-            .size = sz,
-        };
-    }
+    cur_buffer = {
+        .buf = (uint8_t*)malloc_or_die(sz),
+        .size = sz,
+    };
 }
 
 void nfs_client_t::submit_read(unsigned wanted_size)
 {
     if (read_msg.msg_iovlen)
     {
-        return;
-    }
-    io_uring_sqe* sqe = parent->ringloop->get_sqe();
-    if (!sqe)
-    {
-        read_msg.msg_iovlen = 0;
-        parent->ringloop->wakeup();
         return;
     }
     if (!cur_buffer.buf || cur_buffer.size <= cur_buffer.read_pos)
@@ -685,16 +669,33 @@ void nfs_client_t::submit_read(unsigned wanted_size)
                     .size = cur_buffer.size,
                     .refs = cur_buffer.refs,
                 };
+                inflight_bytes += cur_buffer.size;
+                cur_buffer = {};
             }
             else
             {
-                free_buffers.push_back((rpc_free_buffer_t){
-                    .buf = cur_buffer.buf,
-                    .size = cur_buffer.size,
-                });
+                // Just reset the position and reuse the buffer
+                cur_buffer = { .buf = cur_buffer.buf, .size = cur_buffer.size };
             }
         }
-        select_read_buffer(wanted_size);
+        if (!cur_buffer.buf)
+        {
+            if (inflight_bytes >= parent->nfs_max_bytes_per_client ||
+                inflight_ops >= parent->nfs_max_ops_per_client)
+            {
+                // Undo read
+                read_msg.msg_iovlen = 0;
+                return;
+            }
+            select_read_buffer(wanted_size);
+        }
+    }
+    io_uring_sqe* sqe = parent->ringloop->get_sqe();
+    if (!sqe)
+    {
+        read_msg.msg_iovlen = 0;
+        parent->ringloop->wakeup();
+        return;
     }
     assert(wanted_size <= cur_buffer.size-cur_buffer.read_pos);
     read_iov = {
@@ -717,7 +718,7 @@ void nfs_client_t::handle_read(int result)
     if (result <= 0 && result != -EAGAIN && result != -EINTR && result != -ECANCELED)
     {
         if (result != 0)
-            printf("Failed read from client %d: %d (%s)\n", nfs_fd, result, strerror(-result));
+            fprintf(stderr, "Failed read from client %d: %d (%s)\n", nfs_fd, result, strerror(-result));
         stop();
         return;
     }
@@ -741,13 +742,19 @@ void nfs_client_t::handle_read(int result)
                 {
                     break;
                 }
-                // FIXME: Limit message size
                 uint32_t frag_size = be32toh(*(uint32_t*)(data + wanted - 4));
                 wanted += (frag_size & 0x7FFFFFFF);
                 if (left < wanted || (frag_size & 0x80000000))
                 {
                     break;
                 }
+            }
+            if (wanted >= parent->nfs_max_bytes_per_client)
+            {
+                fprintf(stderr, "Too long message from client %d: %u > nfs_max_bytes_per_client(%ju)\n",
+                    nfs_fd, wanted, parent->nfs_max_bytes_per_client);
+                stop();
+                return;
             }
             if (left >= wanted)
             {
@@ -769,6 +776,7 @@ void nfs_client_t::handle_read(int result)
                 }
                 // Increase client refcount while the RPC call is being processed
                 refs++;
+                inflight_ops++;
                 // Handle full message
                 int referenced = handle_rpc_message(cur_buffer.buf, data+4, wanted-4*fragments);
                 cur_buffer.refs += referenced ? 1 : 0;
@@ -791,6 +799,7 @@ void nfs_client_t::handle_read(int result)
                         .size = cur_buffer.size,
                         .refs = cur_buffer.refs,
                     };
+                    inflight_bytes += cur_buffer.size;
                     select_read_buffer(wanted);
                     memcpy(cur_buffer.buf, data, left);
                 }
@@ -876,10 +885,11 @@ void nfs_client_t::handle_send(int result)
         return;
     if (result <= 0 && result != -EAGAIN && result != -EINTR)
     {
-        printf("Failed send to client %d: %d (%s)\n", nfs_fd, result, strerror(-result));
+        fprintf(stderr, "Failed send to client %d: %d (%s)\n", nfs_fd, result, strerror(-result));
         stop();
         return;
     }
+    bool want_read = false;
     if (result > 0)
     {
         int done = 0;
@@ -907,16 +917,23 @@ void nfs_client_t::handle_send(int result)
                             ub.refs--;
                             if (ub.refs == 0)
                             {
-                                // FIXME Maybe put free_buffers into parent
-                                free_buffers.push_back((rpc_free_buffer_t){
-                                    .buf = (uint8_t*)rop->buffer,
-                                    .size = ub.size,
-                                });
+                                if (inflight_bytes >= parent->nfs_max_bytes_per_client &&
+                                    inflight_bytes - ub.size < parent->nfs_max_bytes_per_client)
+                                {
+                                    want_read = true;
+                                }
+                                inflight_bytes -= ub.size;
                                 used_buffers.erase(rop->buffer);
+                                free(rop->buffer);
                             }
                         }
                     }
                     free(rop);
+                    if (inflight_ops >= parent->nfs_max_ops_per_client)
+                    {
+                        want_read = true;
+                    }
+                    inflight_ops--;
                     if (deref())
                     {
                         return;
@@ -948,6 +965,10 @@ void nfs_client_t::handle_send(int result)
         {
             submit_send();
         }
+    }
+    if (want_read)
+    {
+        submit_read(0);
     }
 }
 
