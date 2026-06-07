@@ -97,8 +97,12 @@ struct osd_pg_lock_t
     uint64_t state = 0;
 };
 
+struct osd_test_fixture_t;
+
 class osd_t
 {
+    friend struct osd_test_fixture_t;
+
     // config
 
     json11::Json::object cli_config, file_config, etcd_global_config, etcd_osd_config, config;
@@ -394,6 +398,11 @@ public:
     osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd, std::unique_ptr<etcd_state_client_t> st_cli_ptr,
         std::function<blockstore_i*(blockstore_config_t & config)> bs_factory);
     ~osd_t();
+    // Wire the OSD into the world: install timers, hook the messenger up to
+    // ringloop, register as a ringloop consumer, and kick off the etcd
+    // config-load chain. Separated from the constructor so tests can build
+    // an inert osd_t, prime mocks, then drive startup explicitly.
+    void start();
     void force_stop(int exitcode);
     bool shutdown();
 };

@@ -69,17 +69,17 @@ std::string blockstore_mock_t::get_op_diag(blockstore_op_t *op)
 
 uint32_t blockstore_mock_t::get_block_size()
 {
-    return 0;
+    return block_size;
 }
 
 uint64_t blockstore_mock_t::get_block_count()
 {
-    return 0;
+    return block_count;
 }
 
 uint64_t blockstore_mock_t::get_free_block_count()
 {
-    return 0;
+    return block_count;
 }
 
 uint64_t blockstore_mock_t::get_journal_size()
@@ -89,7 +89,7 @@ uint64_t blockstore_mock_t::get_journal_size()
 
 uint32_t blockstore_mock_t::get_bitmap_granularity()
 {
-    return 0;
+    return bitmap_granularity;
 }
 
 uint64_t blockstore_mock_t::get_live_entries()

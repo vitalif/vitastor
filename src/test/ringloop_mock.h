@@ -4,6 +4,7 @@
 #pragma once
 
 #include "ringloop.h"
+#include <map>
 
 class ring_loop_mock_t: public ring_loop_i
 {

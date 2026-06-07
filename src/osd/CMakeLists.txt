@@ -39,7 +39,10 @@ target_link_libraries(osd_test
 	vitastor_common
 	Jerasure
 	${ISAL_LIBRARIES}
+	${LIBURING_LIBRARIES}
 )
+add_test(NAME osd_test COMMAND osd_test)
+add_dependencies(build_tests osd_test)
 
 # osd_rmw_test
 add_executable(osd_rmw_test EXCLUDE_FROM_ALL osd_rmw_test.cpp ../util/allocator.cpp)

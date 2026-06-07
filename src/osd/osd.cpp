@@ -30,7 +30,10 @@ osd_t::osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager
     this->cli_config = config.object_items();
     this->file_config = msgr.read_config(this->cli_config);
     parse_config(true);
+}
 
+void osd_t::start()
+{
     if (json_is_true(this->config["osd_memlock"]))
     {
         // Lock all OSD memory if requested
@@ -130,17 +133,22 @@ void osd_t::init_blockstore(std::function<void()> on_init)
             autosync_writes = max_autosync;
         if (on_init)
         {
-            init_consumer.loop = [this, on_init]()
+            if (bs->is_started())
+                on_init();
+            else
             {
-                // Wait for blockstore initialisation before actually starting OSD logic
-                // to prevent peering timeouts during restart with filled databases
-                if (bs->is_started())
+                init_consumer.loop = [this, on_init]()
                 {
-                    ringloop->set_immediate([this, on_init] { init_consumer.loop = NULL; on_init(); });
-                    ringloop->unregister_consumer(&init_consumer);
-                }
-            };
-            ringloop->register_consumer(&init_consumer);
+                    // Wait for blockstore initialisation before actually starting OSD logic
+                    // to prevent peering timeouts during restart with filled databases
+                    if (bs->is_started())
+                    {
+                        ringloop->set_immediate([this, on_init] { init_consumer.loop = NULL; on_init(); });
+                        ringloop->unregister_consumer(&init_consumer);
+                    }
+                };
+                ringloop->register_consumer(&init_consumer);
+            }
         }
     }
     else if (on_init)

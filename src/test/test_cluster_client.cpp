@@ -114,24 +114,34 @@ void check_completed(int *r)
     delete r;
 }
 
-void pretend_connected(cluster_client_t *cli, osd_num_t osd_num)
+void pretend_connected(osd_messenger_t *msgr, osd_num_t osd_num)
 {
     printf("OSD %ju connected\n", osd_num);
     auto cl = new osd_client_t();
-    cl->client_id = cli->msgr.next_client_id++;
+    cl->client_id = msgr->next_client_id++;
     cl->osd_num = osd_num;
     cl->peer_fd = -1;
     cl->peer_state = PEER_CONNECTED;
-    cli->msgr.osd_peers[osd_num] = cl;
-    cli->msgr.clients[cl->client_id] = cl;
-    cli->msgr.wanted_peers.erase(osd_num);
-    cli->msgr.repeer_pgs(osd_num);
+    msgr->osd_peers[osd_num] = cl;
+    msgr->clients[cl->client_id] = cl;
+    msgr->wanted_peers.erase(osd_num);
+    msgr->repeer_pgs(osd_num);
+}
+
+void pretend_disconnected(osd_messenger_t *msgr, osd_num_t osd_num)
+{
+    printf("OSD %ju disconnected\n", osd_num);
+    msgr->stop_client(msgr->osd_peers.at(osd_num)->client_id);
+}
+
+void pretend_connected(cluster_client_t *cli, osd_num_t osd_num)
+{
+    pretend_connected(&cli->msgr, osd_num);
 }
 
 void pretend_disconnected(cluster_client_t *cli, osd_num_t osd_num)
 {
-    printf("OSD %ju disconnected\n", osd_num);
-    cli->msgr.stop_client(cli->msgr.osd_peers.at(osd_num)->client_id);
+    pretend_disconnected(&cli->msgr, osd_num);
 }
 
 void check_disconnected(cluster_client_t *cli, osd_num_t osd_num)

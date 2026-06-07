@@ -8,6 +8,9 @@
 class blockstore_mock_t: public blockstore_i
 {
 public:
+    uint32_t block_size = 128*1024;
+    uint32_t bitmap_granularity = 4096;
+    uint64_t block_count = 100*1024*8;
     std::map<uint64_t, uint64_t> inode_space;
 
     blockstore_mock_t(const blockstore_config_t & config);

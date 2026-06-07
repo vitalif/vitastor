@@ -5,6 +5,13 @@
 #include "etcd_state_client_mock.h"
 #include "str_util.h"
 
+etcd_state_client_mock_t::etcd_state_client_mock_t()
+{
+    timespec tv;
+    clock_gettime(CLOCK_REALTIME, &tv);
+    srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
+}
+
 void etcd_state_client_mock_t::etcd_add_watch(json11::Json watch)
 {
 }
@@ -83,6 +90,7 @@ void etcd_state_client_mock_t::etcd_call(std::string api, json11::Json payload, 
             else
                 assert(0);
         }
+        std::map<std::string, etcd_kv_t> changes;
         bool has_mod = false;
         for (auto& op: payload[ok ? "success" : "failure"].array_items())
         {
@@ -131,6 +139,14 @@ void etcd_state_client_mock_t::etcd_call(std::string api, json11::Json payload, 
                     .mod_revision = mod_revision,
                     .lease_id = lease_id,
                 };
+                std::string err;
+                json11::Json json_value = json11::Json::parse(value, err);
+                if (err != "")
+                {
+                    fprintf(stderr, "Invalid JSON in etcd key %s during test: %s\n", key.c_str(), value.c_str());
+                    exit(1);
+                }
+                changes[key] = { .key = key, .value = json_value, .mod_revision = mod_revision };
                 responses.push_back(json11::Json::object {
                     { "response_put", json11::Json::object{ { "header", json11::Json::object{ { "revision", mod_revision } } } } },
                 });
@@ -143,7 +159,9 @@ void etcd_state_client_mock_t::etcd_call(std::string api, json11::Json payload, 
                 uint64_t n_del = 0;
                 for (auto it = data.lower_bound(key); it != data.end() && (range_end == "" || it->first < range_end); )
                 {
-                    printf("\\- del: %s\n", it->first.c_str());
+                    auto & key = it->first;
+                    printf("\\- del: %s\n", key.c_str());
+                    changes[key] = { .key = key, .mod_revision = mod_revision };
                     n_del++;
                     data.erase(it++);
                 }
@@ -152,7 +170,25 @@ void etcd_state_client_mock_t::etcd_call(std::string api, json11::Json payload, 
                 });
             }
         }
-        callback("", json11::Json::object{ { "header", json11::Json::object{ { "revision", mod_revision } } }, { "succeeded", ok }, { "responses", responses } });
+        callback("", json11::Json::object{
+            { "header", json11::Json::object{ { "revision", mod_revision } } },
+            { "succeeded", ok },
+            { "responses", responses }
+        });
+        // Push changes to watcher
+        if (changes.size())
+        {
+            for (auto & kv: changes)
+                parse_state(kv.second);
+            if (on_change_hook != NULL)
+                on_change_hook(changes);
+        }
+    }
+    else if (api == "/lease/grant")
+    {
+        uint64_t lease_id = (((uint64_t)lrand48()) << 32) | lrand48();
+        leases[lease_id] = payload["TTL"].uint64_value();
+        callback("", json11::Json::object{ { "ID", std::to_string(lease_id) } });
     }
     else
         callback("Unsupported", json11::Json());

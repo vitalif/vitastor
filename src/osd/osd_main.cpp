@@ -74,6 +74,7 @@ int main(int narg, char *args[])
             return blockstore_i::create(cfg, ringloop, tfd);
         }
     );
+    osd->start();
     while (1)
     {
         ringloop->loop();

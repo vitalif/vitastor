@@ -28,7 +28,9 @@ struct etcd_state_client_mock_t: public etcd_state_client_t
     bool paused = false;
     std::vector<etcd_mock_request_t> queue;
 public:
+    std::map<uint64_t, uint64_t> leases;
     std::map<std::string, etcd_mock_key_data_t> data;
+    etcd_state_client_mock_t();
     void set(const std::string& key, json11::Json data, uint64_t mod_revision = 0, uint64_t lease_id = 0);
     void pause();
     void resume();
