@@ -222,7 +222,7 @@ public:
 
 #ifdef WITH_RDMA
     bool is_rdma_enabled();
-    bool connect_rdma(uint64_t client_id, std::string rdma_address, uint64_t client_max_msg);
+    json11::Json connect_rdma(uint64_t client_id, std::string rdma_address, uint64_t client_max_msg);
 #endif
 #ifdef WITH_RDMACM
     bool is_use_rdmacm();

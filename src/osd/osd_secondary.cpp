@@ -2,9 +2,6 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include "osd.h"
-#ifdef WITH_RDMA
-#include "msgr_rdma.h"
-#endif
 
 #include "json11/json11.hpp"
 
@@ -365,12 +362,11 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
         if (req_json["connect_rdma"].is_string())
         {
             // Peer is trying to connect using RDMA, try to satisfy him
-            bool ok = msgr.connect_rdma(cur_op->client_id, req_json["connect_rdma"].string_value(), req_json["rdma_max_msg"].uint64_value());
-            if (ok)
+            json11::Json data = msgr.connect_rdma(cur_op->client_id, req_json["connect_rdma"].string_value(), req_json["rdma_max_msg"].uint64_value());
+            if (!data.is_null())
             {
-                auto rc = cl->rdma_conn;
-                wire_config["rdma_address"] = rc->addr.to_string();
-                wire_config["rdma_max_msg"] = rc->max_msg;
+                for (auto & kv: data.object_items())
+                    wire_config[kv.first] = kv.second;
             }
         }
     }

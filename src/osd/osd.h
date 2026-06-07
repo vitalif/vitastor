@@ -153,6 +153,7 @@ class osd_t
     // cluster state
 
     std::unique_ptr<etcd_state_client_t> st_cli;
+    std::function<blockstore_i*(blockstore_config_t & config)> bs_factory;
     osd_messenger_t msgr;
     int etcd_failed_attempts = 0;
     std::string etcd_lease_id;
@@ -390,7 +391,8 @@ class osd_t
     }
 
 public:
-    osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd, std::unique_ptr<etcd_state_client_t> st_cli_ptr);
+    osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd, std::unique_ptr<etcd_state_client_t> st_cli_ptr,
+        std::function<blockstore_i*(blockstore_config_t & config)> bs_factory);
     ~osd_t();
     void force_stop(int exitcode);
     bool shutdown();

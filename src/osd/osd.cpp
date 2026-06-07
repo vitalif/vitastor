@@ -15,7 +15,8 @@
 #include "str_util.h"
 #include "json_util.h"
 
-osd_t::osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd, std::unique_ptr<etcd_state_client_t> st_cli_ptr)
+osd_t::osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager_t *tfd,
+    std::unique_ptr<etcd_state_client_t> st_cli_ptr, std::function<blockstore_i*(blockstore_config_t & config)> bs_factory)
 {
     zero_buffer_size = 1<<20;
     zero_buffer = malloc_or_die(zero_buffer_size);
@@ -24,6 +25,7 @@ osd_t::osd_t(const json11::Json & config, ring_loop_i *ringloop, timerfd_manager
     this->ringloop = ringloop;
     this->tfd = tfd;
     this->st_cli = std::move(st_cli_ptr);
+    this->bs_factory = bs_factory;
 
     this->cli_config = config.object_items();
     this->file_config = msgr.read_config(this->cli_config);
@@ -115,7 +117,7 @@ void osd_t::init_blockstore(std::function<void()> on_init)
     if (!json_is_true(this->config["disable_blockstore"]))
     {
         auto bs_cfg = json_to_string_map(this->config);
-        this->bs = blockstore_i::create(bs_cfg, ringloop, tfd);
+        this->bs = bs_factory(bs_cfg);
         // Pre-configure pool PG shards
         for (auto & pool_item: st_cli->pool_config)
         {

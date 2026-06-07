@@ -19,7 +19,7 @@ add_executable(stub_uring_osd
 	stub_uring_osd.cpp
 )
 target_link_libraries(stub_uring_osd
-	vitastor_common
+	vitastor_net
 	${LIBURING_LIBRARIES}
 	${IBVERBS_LIBRARIES}
 	${RDMACM_LIBRARIES}

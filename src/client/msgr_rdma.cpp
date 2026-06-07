@@ -507,7 +507,7 @@ int msgr_rdma_connection_t::connect(msgr_rdma_address_t *dest)
     return 0;
 }
 
-bool osd_messenger_t::connect_rdma(uint64_t client_id, std::string rdma_address, uint64_t client_max_msg)
+json11::Json osd_messenger_t::connect_rdma(uint64_t client_id, std::string rdma_address, uint64_t client_max_msg)
 {
     // Try to connect to the peer using RDMA
     msgr_rdma_address_t addr;
@@ -523,7 +523,7 @@ bool osd_messenger_t::connect_rdma(uint64_t client_id, std::string rdma_address,
         {
             if (log_level > 0)
                 fprintf(stderr, "No RDMA context for peer %ju, using only TCP\n", client_id);
-            return false;
+            return json11::Json();
         }
         msgr_rdma_connection_t *rdma_conn = msgr_rdma_connection_t::create(selected_ctx, rdma_max_send, rdma_max_recv, rdma_max_sge, client_max_msg);
         if (rdma_conn)
@@ -542,11 +542,14 @@ bool osd_messenger_t::connect_rdma(uint64_t client_id, std::string rdma_address,
                 // Remember connection, but switch to RDMA only after sending the configuration response
                 cl->rdma_conn = rdma_conn;
                 cl->peer_state = PEER_RDMA_CONNECTING;
-                return true;
+                return json11::Json::object{
+                    {"rdma_address", rdma_conn->addr.to_string()},
+                    {"rdma_max_msg", rdma_conn->max_msg},
+                };
             }
         }
     }
-    return false;
+    return json11::Json();
 }
 
 static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)

@@ -2,19 +2,43 @@ cmake_minimum_required(VERSION 2.8...3.30)
 
 project(vitastor)
 
-# vitastor-osd
-add_executable(vitastor-osd
-	osd_main.cpp osd.cpp osd_secondary.cpp osd_peering.cpp osd_flush.cpp osd_peering_pg.cpp
+# libosd
+add_library(osd STATIC
+	osd.cpp osd_secondary.cpp osd_peering.cpp osd_flush.cpp osd_peering_pg.cpp
 	osd_primary.cpp osd_primary_chain.cpp osd_primary_sync.cpp osd_primary_write.cpp osd_primary_subops.cpp
 	osd_cluster.cpp osd_rmw.cpp osd_scrub.cpp osd_primary_describe.cpp
 )
+target_link_libraries(osd pthread)
+target_compile_options(osd PUBLIC -fPIC)
+
+# vitastor-osd
+add_executable(vitastor-osd
+	osd_main.cpp
+)
 target_link_libraries(vitastor-osd
-	vitastor_common
+	osd
+	vitastor_net
 	vitastor_blk
 	Jerasure
 	${ISAL_LIBRARIES}
 	${IBVERBS_LIBRARIES}
 	${RDMACM_LIBRARIES}
+)
+
+# osd_test
+add_executable(osd_test
+	EXCLUDE_FROM_ALL
+	../test/osd_test.cpp
+	../client/etcd_state_client_mock.cpp
+	../blockstore/blockstore_mock.cpp
+	../test/mock/messenger.cpp
+	../test/ringloop_mock.cpp
+)
+target_link_libraries(osd_test
+	osd
+	vitastor_common
+	Jerasure
+	${ISAL_LIBRARIES}
 )
 
 # osd_rmw_test

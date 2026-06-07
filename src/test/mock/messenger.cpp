@@ -61,3 +61,30 @@ json11::Json::object osd_messenger_t::merge_configs(const json11::Json::object &
 void osd_messenger_t::destroy_rdma_conn(msgr_rdma_connection_t *rdma_conn)
 {
 }
+
+void osd_messenger_t::accept_connections(int listen_fd)
+{
+}
+
+#ifdef WITH_RDMA
+json11::Json osd_messenger_t::connect_rdma(uint64_t client_id, std::string rdma_address, uint64_t client_max_msg)
+{
+    return json11::Json();
+}
+
+bool osd_messenger_t::is_rdma_enabled()
+{
+    return false;
+}
+#endif
+
+#ifdef WITH_RDMACM
+rdma_cm_id *osd_messenger_t::rdmacm_listen(const std::string & bind_address, int rdmacm_port, int *bound_port, int log_level)
+{
+    return NULL;
+}
+
+void osd_messenger_t::rdmacm_destroy_listener(rdma_cm_id *listener)
+{
+}
+#endif
