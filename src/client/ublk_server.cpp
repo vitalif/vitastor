@@ -282,7 +282,7 @@ help:
                 exit(1);
             }
         }
-        const bool writeback = !cli->get_immediate_commit(inode);
+        const bool writeback = !cli->get_immediate_commit(inode ? inode : watch->cfg.num);
         auto pool_it = cli->st_cli.pool_config.find(INODE_POOL(inode ? inode : watch->cfg.num));
         if (pool_it == cli->st_cli.pool_config.end())
         {
