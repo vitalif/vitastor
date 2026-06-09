@@ -2322,7 +2322,8 @@ void blockstore_heap_t::use_buffer_area(inode_t inode, uint64_t location, uint64
         return;
     }
     assert(!(size % dsk->bitmap_granularity));
-    buffer_alloc->use(location / dsk->bitmap_granularity, size / dsk->bitmap_granularity);
+    bool ok = buffer_alloc->use(location / dsk->bitmap_granularity, size / dsk->bitmap_granularity);
+    assert(ok);
     buffer_area_used_space += size;
 }
 

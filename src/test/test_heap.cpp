@@ -1902,6 +1902,19 @@ void test_alloc_buffer()
         alloc.verify();
     }
 
+    {
+        multilist_alloc_t alloc(100, 10);
+
+        alloc.use(50, 10);
+        alloc.verify();
+
+        // 48, 5 overlaps with 50, 10 -> should fail to allocate
+        bool ok = alloc.use(48, 5);
+        assert(!ok);
+
+        alloc.verify();
+    }
+
     blockstore_heap_t heap(&dsk, buffer_area.data());
     heap.finish_recheck();
 

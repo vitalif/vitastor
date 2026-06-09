@@ -171,7 +171,7 @@ void multilist_alloc_t::print()
     printf("\n");
 }
 
-void multilist_alloc_t::use(uint32_t pos, uint32_t size)
+bool multilist_alloc_t::use(uint32_t pos, uint32_t size)
 {
     assert(pos+size <= count && size > 0);
     if (sizes[pos] <= 0)
@@ -182,7 +182,8 @@ void multilist_alloc_t::use(uint32_t pos, uint32_t size)
         else
             while (start > 0 && !sizes[start])
                 start--;
-        assert(sizes[start] >= size);
+        if (sizes[start] < size+(pos-start))
+            return false;
         use_full(start);
         uint32_t full = sizes[start];
         sizes[pos-1] = -pos+start;
@@ -199,7 +200,8 @@ void multilist_alloc_t::use(uint32_t pos, uint32_t size)
     }
     else
     {
-        assert(sizes[pos] >= size);
+        if (sizes[pos] < size)
+            return false;
         use_full(pos);
         if (sizes[pos] > size)
         {
@@ -214,12 +216,13 @@ void multilist_alloc_t::use(uint32_t pos, uint32_t size)
 #ifdef MULTILIST_TRACE
     print();
 #endif
+    return true;
 }
 
 void multilist_alloc_t::use_full(uint32_t pos)
 {
     uint32_t prevsize = sizes[pos];
-    assert(prevsize);
+    assert(prevsize > 0);
     assert(nexts[pos]);
     uint32_t pi = (prevsize < maxn ? prevsize : maxn)-1;
     if (heads[pi] == pos+1)

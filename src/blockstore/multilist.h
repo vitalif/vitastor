@@ -17,7 +17,7 @@ struct multilist_alloc_t
     bool is_free(uint32_t pos);
     uint32_t find(uint32_t size);
     void use_full(uint32_t pos);
-    void use(uint32_t pos, uint32_t size);
+    bool use(uint32_t pos, uint32_t size);
     void do_free(uint32_t pos);
     void free(uint32_t pos);
     void verify();
