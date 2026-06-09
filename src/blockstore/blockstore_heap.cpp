@@ -2364,7 +2364,7 @@ void blockstore_heap_t::get_meta_block(uint32_t block_num, uint8_t *buffer)
     }
 }
 
-void blockstore_heap_t::fill_block_empty_space(uint8_t *buffer, uint32_t pos)
+void blockstore_heap_t::fill_block_empty_space(uint8_t *buffer, uint64_t pos)
 {
     if (pos > dsk->meta_block_size)
     {
