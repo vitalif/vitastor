@@ -541,17 +541,21 @@ int blockstore_disk_t::trim_data(std::function<bool(uint64_t)> is_used)
                     if (range[0] % discard_granularity)
                         range[0] = range[0] + discard_granularity - (range[0] % discard_granularity);
                     if (range[0] >= range[1])
-                        continue;
-                    range[1] -= range[0];
+                        range[1] = 0;
+                    else
+                        range[1] -= range[0];
                 }
-                r = ioctl(data_fd, BLKDISCARD, &range);
-                if (r != 0)
+                if (range[1] > 0)
                 {
-                    fprintf(stderr, "Failed to execute BLKDISCARD %ju+%ju on %s: %s (code %d)\n",
-                        range[0], range[1], data_device.c_str(), strerror(-r), r);
-                    return -errno;
+                    r = ioctl(data_fd, BLKDISCARD, &range);
+                    if (r != 0)
+                    {
+                        fprintf(stderr, "Failed to execute BLKDISCARD %ju+%ju on %s: %s (code %d)\n",
+                            range[0], range[1], data_device.c_str(), strerror(-r), r);
+                        return -errno;
+                    }
+                    discarded += range[1];
                 }
-                discarded += range[1];
             }
             j = i+1;
         }
