@@ -28,6 +28,7 @@ void test14();
 void test15(bool second);
 void test16();
 void test_recover_22_d2();
+void test_recover_22_d01_cache();
 void test_ec43_error_bruteforce();
 void test_recover_53_d5();
 void test_recover_22();
@@ -68,6 +69,8 @@ int main(int narg, char *args[])
     test16();
     // Test 17
     test_recover_22_d2();
+    // Test 17b: regression — cached ISA-L decoder with multi-range missing data roles
+    test_recover_22_d01_cache();
     // Error bruteforce
     test_ec43_error_bruteforce();
     test_ec_find_good_multi_chunks();
@@ -1116,6 +1119,77 @@ void test_recover_22_d2()
     free(data_buf);
     // Done
     use_ec(4, 2, false);
+}
+
+/***
+
+17b. EC 2+2 — two missing data roles with different read ranges, decoder cached.
+     Regression test for the get_jerasure_decoding_matrix() / reconstruct_stripes_ec()
+     bug where *item_size was set only on cache miss, so on a subsequent call
+     (cache hit) item_size stayed 0 and `dectable + wanted_base*item_size*pg_minsize`
+     collapsed to dectable for every group — the second `recover_seq()` invocation
+     then decoded role 1 using the matrix row that reconstructs role 0.
+
+***/
+
+void test_recover_22_d01_cache()
+{
+    use_ec(4, 2, true);
+    // Step 1: encode known data through the normal path to obtain the two parity blocks.
+    osd_num_t enc_set[4] = { 1, 2, 3, 4 };
+    osd_rmw_stripe_t enc[4] = {};
+    split_stripes(2, 8192, 0, 16384, enc);
+    void *write_buf = malloc_or_die(16384);
+    set_pattern((uint8_t*)write_buf+0*4096, 4096, PATTERN0); // data 0, [0..4K)
+    set_pattern((uint8_t*)write_buf+1*4096, 4096, PATTERN1); // data 0, [4K..8K)
+    set_pattern((uint8_t*)write_buf+2*4096, 4096, PATTERN2); // data 1, [0..4K)
+    set_pattern((uint8_t*)write_buf+3*4096, 4096, PATTERN3); // data 1, [4K..8K)
+    void *rmw_buf = calc_rmw(write_buf, enc, enc_set, 4, 2, 4, enc_set, 8192, 0);
+    calc_rmw_parity_ec(enc, 4, 2, enc_set, enc_set, 8192, 0);
+    // Step 2: first reconstruction — cache miss, same read range for both missing roles.
+    // Always passes; this populates matrix->decodings for the (1,1,0,0) erasure pattern.
+    {
+        osd_rmw_stripe_t s[4] = {};
+        uint8_t *buf = (uint8_t*)malloc_or_die(8192*4);
+        for (int i = 0; i < 4; i++)
+        {
+            s[i].read_start = 0;
+            s[i].read_end = 8192;
+            s[i].read_buf = buf + i*8192;
+        }
+        s[0].missing = true;
+        s[1].missing = true;
+        memcpy(s[2].read_buf, enc[2].write_buf, 8192);
+        memcpy(s[3].read_buf, enc[3].write_buf, 8192);
+        reconstruct_stripes_ec(s, 4, 2, 0);
+        check_pattern((uint8_t*)s[0].read_buf+0*4096, 4096, PATTERN0);
+        check_pattern((uint8_t*)s[0].read_buf+1*4096, 4096, PATTERN1);
+        check_pattern((uint8_t*)s[1].read_buf+0*4096, 4096, PATTERN2);
+        check_pattern((uint8_t*)s[1].read_buf+1*4096, 4096, PATTERN3);
+        free(buf);
+    }
+    // Step 3: second reconstruction — cache HIT, missing roles have DIFFERENT ranges,
+    // so recover_seq() runs twice and wanted_base becomes 1 between the calls.
+    // With the bug, role 1 gets decoded using row 0 of the rectable (PATTERN1 instead of PATTERN3).
+    {
+        osd_rmw_stripe_t s[4] = {};
+        uint8_t *buf = (uint8_t*)malloc_or_die(8192*4);
+        for (int i = 0; i < 4; i++)
+            s[i].read_buf = buf + i*8192;
+        s[0].read_start = 0;    s[0].read_end = 4096; s[0].missing = true;
+        s[1].read_start = 4096; s[1].read_end = 8192; s[1].missing = true;
+        s[2].read_start = 0;    s[2].read_end = 8192;
+        s[3].read_start = 0;    s[3].read_end = 8192;
+        memcpy(s[2].read_buf, enc[2].write_buf, 8192);
+        memcpy(s[3].read_buf, enc[3].write_buf, 8192);
+        reconstruct_stripes_ec(s, 4, 2, 0);
+        check_pattern((uint8_t*)s[0].read_buf, 4096, PATTERN0);
+        check_pattern((uint8_t*)s[1].read_buf, 4096, PATTERN3);
+        free(buf);
+    }
+    use_ec(4, 2, false);
+    free(rmw_buf);
+    free(write_buf);
 }
 
 /***

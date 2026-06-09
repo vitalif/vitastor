@@ -286,6 +286,10 @@ static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size
     if (edd == 0)
         return NULL;
     reed_sol_matrix_t *matrix = get_ec_matrix(pg_size, pg_minsize);
+#ifdef WITH_ISAL
+    if (item_size)
+        *item_size = matrix->isal_item_size;
+#endif
     auto dec_it = matrix->decodings.find((reed_sol_erased_t){ .data = erased, .size = pg_size });
     if (dec_it == matrix->decodings.end())
     {
@@ -330,7 +334,6 @@ static void* get_jerasure_decoding_matrix(osd_rmw_stripe_t *stripes, int pg_size
         int *erased_copy = (int*)(rectable + 32*smrow*pg_minsize);
         memcpy(erased_copy, erased, pg_size*sizeof(int));
         matrix->decodings.emplace((reed_sol_erased_t){ .data = erased_copy, .size = pg_size }, rectable);
-        *item_size = matrix->isal_item_size;
         return rectable;
 #else
         int *dm_ids = (int*)malloc_or_die(sizeof(int)*(pg_minsize + pg_minsize*pg_minsize + pg_size));
