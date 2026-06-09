@@ -110,9 +110,9 @@ struct image_changer_t
                 cb = parent->start_rm_data(json11::Json::object {
                     { "inode", INODE_NO_POOL(inode_num) },
                     { "pool", (uint64_t)INODE_POOL(inode_num) },
-                    { "fsync-interval", fsync_interval },
-                    { "min-offset", ((new_size+4095)/4096)*4096 },
-                    { "down-ok", down_ok },
+                    { "fsync_interval", fsync_interval },
+                    { "min_offset", ((new_size+4095)/4096)*4096 },
+                    { "down_ok", down_ok },
                 });
 resume_1:
                 while (!cb(result))

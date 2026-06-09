@@ -636,9 +636,9 @@ resume_100:
             { "from", from_name },
             { "to", child_it->second.name },
             { "target", target_it->second.name },
-            { "delete-source", false },
+            { "delete_source", false },
             { "cas", use_cas },
-            { "fsync-interval", fsync_interval },
+            { "fsync_interval", fsync_interval },
         });
     }
 
@@ -677,8 +677,8 @@ resume_100:
         cb = parent->start_rm_data(json11::Json::object {
             { "inode", inode },
             { "pool", (uint64_t)INODE_POOL(inode) },
-            { "fsync-interval", fsync_interval },
-            { "down-ok", down_ok },
+            { "fsync_interval", fsync_interval },
+            { "down_ok", down_ok },
         });
     }
 };

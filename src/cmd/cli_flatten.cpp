@@ -97,9 +97,9 @@ struct snap_flattener_t
             { "from", top_parent_name },
             { "to", target_name },
             { "target", target_name },
-            { "delete-source", false },
+            { "delete_source", false },
             { "cas", use_cas },
-            { "fsync-interval", fsync_interval },
+            { "fsync_interval", fsync_interval },
         });
         // Wait for it
 resume_1:
