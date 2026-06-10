@@ -96,7 +96,7 @@ struct blockstore_op_private_t
     int op_state;
 
     // Read
-    uint64_t clean_block_used;
+    uint64_t clean_loc_used;
     std::vector<copy_buffer_t> read_vec;
 
     // Sync, write

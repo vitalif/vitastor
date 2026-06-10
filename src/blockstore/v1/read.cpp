@@ -134,7 +134,7 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
                 // If we don't track it then we may IN THEORY read another object's data:
                 // submit read -> remove the object -> flush remove -> overwrite with another object -> finish read
                 // Very improbable, but possible
-                PRIV(read_op)->clean_block_used = 1;
+                PRIV(read_op)->clean_loc_used = 1;
             }
             rv.insert(rv.begin() + pos, el);
             fulfilled += el.len;
@@ -376,7 +376,7 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
     {
         // Reads running parallel to flushes of the same clean block may read
         // a mixture of old and new data. So we don't verify checksums for such blocks.
-        PRIV(op)->clean_block_used = 1;
+        PRIV(op)->clean_loc_used = 1;
     }
     return true;
 }
@@ -402,7 +402,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
     }
     uint64_t fulfilled = 0;
     PRIV(read_op)->pending_ops = 0;
-    PRIV(read_op)->clean_block_used = 0;
+    PRIV(read_op)->clean_loc_used = 0;
     auto & rv = PRIV(read_op)->read_vec;
     uint64_t result_version = 0;
     if (dirty_found)
@@ -615,7 +615,7 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
                 return false;
             }
         }
-        PRIV(read_op)->clean_block_used = req > 0;
+        PRIV(read_op)->clean_loc_used = req > 0;
     }
     else if (from_journal)
     {
@@ -679,13 +679,13 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
         }
     }
     // Increment reference counter if clean data is being read from the disk
-    if (PRIV(read_op)->clean_block_used)
+    if (PRIV(read_op)->clean_loc_used)
     {
         auto & uo = used_clean_objects[clean_loc];
         uo.refs++;
         if (dsk.csum_block_size && flusher->is_mutated(clean_loc))
             uo.was_changed = true;
-        PRIV(read_op)->clean_block_used = clean_loc;
+        PRIV(read_op)->clean_loc_used = clean_loc;
     }
     return true;
 }
@@ -944,10 +944,10 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                 meta_block = NULL;
             }
         }
-        if (PRIV(op)->clean_block_used)
+        if (PRIV(op)->clean_loc_used)
         {
             // Release clean data block
-            auto uo_it = used_clean_objects.find(PRIV(op)->clean_block_used);
+            auto uo_it = used_clean_objects.find(PRIV(op)->clean_loc_used);
             if (uo_it != used_clean_objects.end())
             {
                 uo_it->second.refs--;
@@ -955,7 +955,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                 {
                     if (uo_it->second.was_freed)
                     {
-                        data_alloc->set(PRIV(op)->clean_block_used, false);
+                        data_alloc->set(PRIV(op)->clean_loc_used / dsk.data_block_size, false);
                     }
                     used_clean_objects.erase(uo_it);
                 }
