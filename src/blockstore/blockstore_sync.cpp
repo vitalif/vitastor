@@ -29,9 +29,12 @@ bool blockstore_impl_t::has_unsynced()
 
 bool blockstore_impl_t::submit_fsyncs(int & wait_count)
 {
-    int n = (unsynced_meta_write_count > 0 && !dsk.disable_meta_fsync) +
-        (unsynced_buffer_write_count > 0 && !dsk.disable_journal_fsync && dsk.journal_fd != dsk.meta_fd) +
-        (unsynced_data_write_count > 0 && !dsk.disable_data_fsync && dsk.data_fd != dsk.meta_fd && dsk.data_fd != dsk.journal_fd);
+    int n = (unsynced_meta_write_count > 0 && !dsk.disable_meta_fsync ? 1 : 0) +
+        (unsynced_buffer_write_count > 0 && !dsk.disable_journal_fsync &&
+            (!unsynced_meta_write_count || dsk.journal_fd != dsk.meta_fd) ? 1 : 0) +
+        (unsynced_data_write_count > 0 && !dsk.disable_data_fsync &&
+            (!unsynced_meta_write_count || dsk.data_fd != dsk.meta_fd) &&
+            (!unsynced_buffer_write_count || dsk.data_fd != dsk.journal_fd) ? 1 : 0);
     if (ringloop->space_left() < n)
     {
         return false;
@@ -60,7 +63,8 @@ bool blockstore_impl_t::submit_fsyncs(int & wait_count)
         data->callback = cb;
         wait_count++;
     }
-    if (unsynced_buffer_write_count > 0 && !dsk.disable_journal_fsync && dsk.meta_fd != dsk.journal_fd)
+    if (unsynced_buffer_write_count > 0 && !dsk.disable_journal_fsync &&
+        (!unsynced_meta_write_count || dsk.journal_fd != dsk.meta_fd))
     {
         // fsync buffer
         io_uring_sqe *sqe = get_sqe();
@@ -71,7 +75,9 @@ bool blockstore_impl_t::submit_fsyncs(int & wait_count)
         data->callback = cb;
         wait_count++;
     }
-    if (unsynced_data_write_count > 0 && !dsk.disable_data_fsync && dsk.data_fd != dsk.meta_fd && dsk.data_fd != dsk.journal_fd)
+    if (unsynced_data_write_count > 0 && !dsk.disable_data_fsync &&
+        (!unsynced_meta_write_count || dsk.data_fd != dsk.meta_fd) &&
+        (!unsynced_buffer_write_count || dsk.data_fd != dsk.journal_fd))
     {
         // fsync data
         io_uring_sqe *sqe = get_sqe();
