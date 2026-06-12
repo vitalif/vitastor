@@ -17,6 +17,7 @@ class blockstore_init_meta
     int wait_state = 0;
     int wait_count = 0;
     bool zero_on_init = false;
+    bool header_written = false;
     void *metadata_buffer = NULL;
     blockstore_init_meta_buf bufs[2] = {};
     int submitted = 0;

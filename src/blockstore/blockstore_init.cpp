@@ -10,7 +10,6 @@
 #define INIT_META_EMPTY 0
 #define INIT_META_READING 1
 #define INIT_META_READ_DONE 2
-#define INIT_META_WRITING 3
 
 #define GET_SQE() \
     sqe = bs->get_sqe();\
@@ -73,25 +72,19 @@ resume_1:
     }
     if (is_zero((uint64_t*)bs->meta_superblock, bs->dsk.meta_block_size))
     {
-        {
-            blockstore_meta_header_v3_t *hdr = (blockstore_meta_header_v3_t *)bs->meta_superblock;
-            hdr->zero = 0;
-            hdr->magic = BLOCKSTORE_META_MAGIC_V1;
-            hdr->version = bs->dsk.meta_format;
-            hdr->meta_block_size = bs->dsk.meta_block_size;
-            hdr->data_block_size = bs->dsk.data_block_size;
-            hdr->bitmap_granularity = bs->dsk.bitmap_granularity;
-            if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
-            {
-                hdr->data_csum_type = bs->dsk.data_csum_type;
-                hdr->csum_block_size = bs->dsk.csum_block_size;
-            }
-            if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_HEAP)
-            {
-                hdr->meta_area_size = bs->dsk.meta_area_size;
-            }
-            hdr->set_crc32c();
-        }
+        assert(bs->dsk.meta_format == BLOCKSTORE_META_FORMAT_HEAP);
+        blockstore_meta_header_v3_t *hdr = (blockstore_meta_header_v3_t *)bs->meta_superblock;
+        hdr->zero = 0;
+        hdr->magic = BLOCKSTORE_META_MAGIC_V1;
+        hdr->version = bs->dsk.meta_format;
+        hdr->meta_block_size = bs->dsk.meta_block_size;
+        hdr->data_block_size = bs->dsk.data_block_size;
+        hdr->bitmap_granularity = bs->dsk.bitmap_granularity;
+        hdr->completed_lsn = 0;
+        hdr->data_csum_type = bs->dsk.data_csum_type;
+        hdr->csum_block_size = bs->dsk.csum_block_size;
+        hdr->meta_area_size = bs->dsk.meta_area_size;
+        hdr->set_crc32c();
         if (bs->readonly)
         {
             printf("Skipping metadata initialization because blockstore is readonly\n");
@@ -99,21 +92,8 @@ resume_1:
         else
         {
             printf("Initializing metadata area\n");
-            GET_SQE();
-            last_read_offset = 0;
-            data->iov = (struct iovec){ bs->meta_superblock, (size_t)bs->dsk.meta_block_size };
-            data->callback = [this](ring_data_t *data) { handle_event(data, -1, "write metadata header"); };
-            io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
-            bs->ringloop->submit();
-            submitted++;
-        resume_2:
-            if (submitted > 0)
-            {
-                wait_state = 2;
-                return 1;
-            }
-            zero_on_init = true;
         }
+        zero_on_init = true;
     }
     else
     {
@@ -164,7 +144,7 @@ resume_1:
         hdr->header_csum = csum;
     }
     bs->heap->start_load(((blockstore_meta_header_v3_t *)bs->meta_superblock)->completed_lsn);
-    if (bs->dsk.inmemory_journal)
+    if (bs->dsk.inmemory_journal && !zero_on_init)
     {
         // Read buffer area
         printf("Reading buffered data\n");
@@ -195,7 +175,7 @@ resume_3:
     next_offset = md_offset;
     // Read the rest of the metadata
 resume_4:
-    if (next_offset < bs->dsk.meta_area_size && submitted == 0)
+    if (next_offset < bs->dsk.meta_area_size && submitted == 0 && (!zero_on_init || !bs->readonly))
     {
         // Submit one read
         for (int i = 0; i < 2; i++)
@@ -236,11 +216,14 @@ resume_4:
         if (bufs[i].state == INIT_META_READ_DONE)
         {
             // Handle result
-            uint64_t loaded = 0;
-            int r = bs->heap->load_blocks(bufs[i].offset-bs->dsk.meta_block_size, bufs[i].size, bufs[i].buf, bs->skip_corrupted_meta_entries, loaded);
-            if (r != 0)
-                exit(1);
-            entries_loaded += loaded;
+            if (!zero_on_init)
+            {
+                uint64_t loaded = 0;
+                int r = bs->heap->load_blocks(bufs[i].offset-bs->dsk.meta_block_size, bufs[i].size, bufs[i].buf, bs->skip_corrupted_meta_entries, loaded);
+                if (r != 0)
+                    exit(1);
+                entries_loaded += loaded;
+            }
             bufs[i].state = 0;
             bs->ringloop->wakeup();
         }
@@ -250,7 +233,7 @@ resume_4:
         wait_state = 4;
         return 1;
     }
-    // metadata read finished
+    // metadata read/clear finished
     bs->heap->finish_load();
     printf("Metadata entries loaded: %ju, rechecking unfinished writes and garbage entries\n", entries_loaded);
     // asynchronous recheck
@@ -333,6 +316,7 @@ resume_9:
     }
     free(metadata_buffer);
     metadata_buffer = NULL;
+do_fsync:
     if (!bs->dsk.disable_meta_fsync && !bs->readonly)
     {
         GET_SQE();
@@ -347,6 +331,27 @@ resume_9:
         {
             wait_state = 5;
             return 1;
+        }
+    }
+    if (zero_on_init && !header_written && !bs->readonly)
+    {
+        GET_SQE();
+        header_written = true;
+        last_read_offset = 0;
+        data->iov = (struct iovec){ bs->meta_superblock, (size_t)bs->dsk.meta_block_size };
+        data->callback = [this](ring_data_t *data) { handle_event(data, -1, "write metadata header"); };
+        io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
+        bs->ringloop->submit();
+        submitted++;
+    resume_2:
+        if (submitted > 0)
+        {
+            wait_state = 2;
+            return 1;
+        }
+        if (!bs->dsk.disable_meta_fsync)
+        {
+            goto do_fsync;
         }
     }
     printf("Loading finished. Data used: %ju / %ju bytes (%s / %s)\n",
