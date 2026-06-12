@@ -1199,6 +1199,7 @@ static std::vector<int> ec_check_combination(osd_rmw_stripe_t *stripes, int stri
         auto & bs = brute_stripes[src.role];
         bs.bmp_buf = src.bmp_buf;
         bs.write_buf = bs.read_buf = src.read_buf;
+        bs.role = subset[i];
     }
     for (int i = 0; i < pg_size; i++)
     {
@@ -1209,13 +1210,21 @@ static std::vector<int> ec_check_combination(osd_rmw_stripe_t *stripes, int stri
             bs.missing = true;
             assert(tmp_buf.size() >= (i+1)*(chunk_size+bitmap_size));
             bs.read_buf = bs.write_buf = tmp_buf.data() + i*(chunk_size+bitmap_size);
-            bs.bmp_buf = bs.read_buf + chunk_size;
+            if (bitmap_size)
+            {
+                bs.bmp_buf = bs.write_buf + chunk_size;
+            }
         }
         else if (i >= pg_minsize)
         {
             // parity chunks are regenerated in their write_bufs, so use a temporary buffer
             assert(tmp_buf.size() >= (i+1)*(chunk_size+bitmap_size));
             bs.write_buf = tmp_buf.data() + i*(chunk_size+bitmap_size);
+            if (bitmap_size)
+            {
+                bs.bmp_buf = bs.write_buf + chunk_size;
+                memcpy(bs.bmp_buf, stripes[i].bmp_buf, bitmap_size);
+            }
         }
     }
     if (is_xor)
@@ -1242,7 +1251,8 @@ static std::vector<int> ec_check_combination(osd_rmw_stripe_t *stripes, int stri
             // source chunk, mark OK
             good_set.push_back(i);
         }
-        else if (memcmp(stripes[i].role < pg_minsize ? bs.read_buf : bs.write_buf, stripes[i].read_buf, chunk_size) == 0)
+        else if (memcmp(stripes[i].role < pg_minsize ? bs.read_buf : bs.write_buf, stripes[i].read_buf, chunk_size) == 0 &&
+            (!bitmap_size || memcmp(bs.bmp_buf, stripes[i].bmp_buf, bitmap_size) == 0))
         {
             // matching chunk, mark OK
             good_set.push_back(i);

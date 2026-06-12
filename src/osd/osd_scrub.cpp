@@ -474,7 +474,9 @@ void osd_t::scrub_check_results(osd_op_t *cur_op)
                 for (int other = 0; other < role; other++)
                 {
                     // Only compare with unique chunks (eq_to[other] == other)
-                    if (eq_to[other] == other && memcmp(op_data->stripes[role].read_buf, op_data->stripes[other].read_buf, bs_block_size) == 0)
+                    if (eq_to[other] == other &&
+                        memcmp(op_data->stripes[role].read_buf, op_data->stripes[other].read_buf, bs_block_size) == 0 &&
+                        memcmp(op_data->stripes[role].bmp_buf, op_data->stripes[other].bmp_buf, clean_entry_bitmap_size) == 0)
                     {
                         eq_to[role] = eq_to[other];
                         break;

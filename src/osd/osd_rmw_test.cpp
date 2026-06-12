@@ -1218,13 +1218,17 @@ void test_ec43_error_bruteforce()
     osd_num_t osd_set[7] = { 1, 2, 3, 4, 5, 6, 7 };
     osd_rmw_stripe_t stripes[7] = {};
     split_stripes(4, 4096, 0, 4096 * 4, stripes);
+    uint8_t *bmp_buf = (uint8_t*)malloc_or_die(4 * 7);
+    memset(bmp_buf, 0xff, 4 * 4);
+    for (int i = 0; i < 7; i++)
+        stripes[i].bmp_buf = bmp_buf + i*4;
     uint8_t *write_buf = (uint8_t*)malloc_or_die(4096 * 7);
     set_pattern(write_buf+0*4096, 4096, PATTERN0);
     set_pattern(write_buf+1*4096, 4096, PATTERN1);
     set_pattern(write_buf+2*4096, 4096, PATTERN2);
     set_pattern(write_buf+3*4096, 4096, PATTERN3);
-    uint8_t *rmw_buf = (uint8_t*)calc_rmw(write_buf, stripes, osd_set, 7, 4, 7, osd_set, 4096, 0);
-    calc_rmw_parity_ec(stripes, 7, 4, osd_set, osd_set, 4096, 0);
+    uint8_t *rmw_buf = (uint8_t*)calc_rmw(write_buf, stripes, osd_set, 7, 4, 7, osd_set, 4096, 4);
+    calc_rmw_parity_ec(stripes, 7, 4, osd_set, osd_set, 4096, 4);
     check_pattern(stripes[4].write_buf, 4096, PATTERN0^PATTERN1^PATTERN2^PATTERN3);
     check_pattern(stripes[5].write_buf, 4096, 0xfcee568ba36371ac); // 2nd EC chunk
     check_pattern(stripes[6].write_buf, 4096, 0x139274739ae6f387); // 3rd EC chunk
@@ -1242,26 +1246,27 @@ void test_ec43_error_bruteforce()
         stripes[i].osd_num = i+1;
     }
     // All good chunks
-    auto res = ec_find_good(stripes, 7, 7, 4, false, 4096, 0, 100, true);
+    auto res = ec_find_good(stripes, 7, 7, 4, false, 4096, 4, 100, true);
     assert_eq_vec(res, std::vector<int>({0, 1, 2, 3, 4, 5, 6}));
     // 1 missing chunk
     set_pattern(write_buf+1*4096, 4096, 0);
-    res = ec_find_good(stripes, 7, 7, 4, false, 4096, 0, 100, true);
+    res = ec_find_good(stripes, 7, 7, 4, false, 4096, 4, 100, true);
     assert_eq_vec(res, std::vector<int>({0, 2, 3, 4, 5, 6}));
     // 2 missing chunks
     set_pattern(write_buf+1*4096, 4096, 0);
     set_pattern(write_buf+5*4096, 4096, 0);
-    res = ec_find_good(stripes, 7, 7, 4, false, 4096, 0, 100, true);
+    res = ec_find_good(stripes, 7, 7, 4, false, 4096, 4, 100, true);
     assert_eq_vec(res, std::vector<int>({0, 2, 3, 4, 6}));
     // 3 missing chunks
     set_pattern(write_buf+1*4096, 4096, 0);
     set_pattern(write_buf+5*4096, 4096, 0);
     set_pattern(write_buf+6*4096, 4096, 0);
-    res = ec_find_good(stripes, 7, 7, 4, false, 4096, 0, 100, true);
+    res = ec_find_good(stripes, 7, 7, 4, false, 4096, 4, 100, true);
     assert_eq_vec(res, std::vector<int>());
     // Done
     free(rmw_buf);
     free(write_buf);
+    free(bmp_buf);
     use_ec(7, 4, false);
 }
 
