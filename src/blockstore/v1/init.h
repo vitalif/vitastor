@@ -29,7 +29,7 @@ class blockstore_init_meta
     int i = 0, j = 0;
     std::vector<uint64_t> entries_to_zero;
     bool handle_meta_block(uint8_t *buf, uint64_t count, uint64_t done_cnt);
-    void handle_event(ring_data_t *data, int buf_num);
+    void handle_event(ring_data_t *data, int buf_num, const char *op);
 public:
     blockstore_init_meta(blockstore_impl_t *bs);
     int loop();

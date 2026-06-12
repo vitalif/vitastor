@@ -1,6 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#include "str_util.h"
 #include "impl.h"
 #include "internal.h"
 
@@ -30,14 +31,15 @@ blockstore_init_meta::blockstore_init_meta(blockstore_impl_t *bs)
     this->bs = bs;
 }
 
-void blockstore_init_meta::handle_event(ring_data_t *data, int buf_num)
+void blockstore_init_meta::handle_event(ring_data_t *data, int buf_num, const char *op)
 {
-    if (data->res < 0)
+    if (data->res != data->iov.iov_len)
     {
-        throw std::runtime_error(
-            std::string("read metadata failed at offset ") + std::to_string(buf_num >= 0 ? bufs[buf_num].offset : last_read_offset) +
-            std::string(": ") + strerror(-data->res)
-        );
+        throw std::runtime_error(strprintf(
+            "%s failed at offset %ju: got %s (code %d), but expected %zu",
+            op, (buf_num >= 0 ? bufs[buf_num].offset : last_read_offset), strerror(-data->res),
+            data->res, data->iov.iov_len
+        ));
     }
     if (buf_num >= 0)
     {
@@ -68,7 +70,7 @@ int blockstore_init_meta::loop()
     GET_SQE();
     last_read_offset = 0;
     data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
-    data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
+    data->callback = [this](ring_data_t *data) { handle_event(data, -1, "read metadata header"); };
     io_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
     bs->ringloop->submit();
     submitted++;
@@ -106,7 +108,7 @@ resume_1:
             GET_SQE();
             last_read_offset = 0;
             data->iov = (struct iovec){ metadata_buffer, (size_t)bs->dsk.meta_block_size };
-            data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
+            data->callback = [this](ring_data_t *data) { handle_event(data, -1, "write metadata header"); };
             io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
             bs->ringloop->submit();
             submitted++;
@@ -223,12 +225,15 @@ resume_2:
                 GET_SQE();
                 assert(bufs[i].size <= 0x7fffffff);
                 data->iov = { bufs[i].buf, (size_t)bufs[i].size };
-                data->callback = [this, i](ring_data_t *data) { handle_event(data, i); };
                 if (!zero_on_init)
+                {
+                    data->callback = [this, i](ring_data_t *data) { handle_event(data, i, "read metadata"); };
                     io_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
+                }
                 else
                 {
                     // Fill metadata with zeroes
+                    data->callback = [this, i](ring_data_t *data) { handle_event(data, i, "clear metadata"); };
                     memset(data->iov.iov_base, 0, data->iov.iov_len);
                     io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
                 }
@@ -256,7 +261,7 @@ resume_2:
                 GET_SQE();
                 assert(bufs[i].size <= 0x7fffffff);
                 data->iov = { bufs[i].buf, (size_t)bufs[i].size };
-                data->callback = [this, i](ring_data_t *data) { handle_event(data, i); };
+                data->callback = [this, i](ring_data_t *data) { handle_event(data, i, "write metadata"); };
                 io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + bufs[i].offset);
                 bs->ringloop->submit();
                 bufs[i].state = INIT_META_WRITING;
@@ -285,7 +290,7 @@ resume_2:
             GET_SQE();
             last_read_offset = (1+next_offset)*bs->dsk.meta_block_size;
             data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
-            data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
+            data->callback = [this](ring_data_t *data) { handle_event(data, -1, "read metadata"); };
             io_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
             bs->ringloop->submit();
             submitted++;
@@ -302,7 +307,7 @@ resume_5:
             }
             GET_SQE();
             data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
-            data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
+            data->callback = [this](ring_data_t *data) { handle_event(data, -1, "write metadata"); };
             io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset + (1+next_offset)*bs->dsk.meta_block_size);
             bs->ringloop->submit();
             submitted++;
@@ -328,7 +333,7 @@ resume_6:
         io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
         last_read_offset = 0;
         data->iov = { 0 };
-        data->callback = [this](ring_data_t *data) { handle_event(data, -1); };
+        data->callback = [this](ring_data_t *data) { handle_event(data, -1, "fsync metadata"); };
         submitted++;
         bs->ringloop->submit();
     resume_4:
@@ -455,21 +460,21 @@ blockstore_init_journal::blockstore_init_journal(blockstore_impl_t *bs)
     };
 }
 
-void blockstore_init_journal::handle_event(ring_data_t *data1)
+void blockstore_init_journal::handle_event(ring_data_t *data)
 {
-    if (data1->res <= 0)
+    if (data->res != data->iov.iov_len)
     {
-        throw std::runtime_error(
-            std::string("read journal failed at offset ") + std::to_string(journal_pos) +
-            std::string(": ") + strerror(-data1->res)
-        );
+        throw std::runtime_error(strprintf(
+            "read journal failed at offset %ju: got %s (code %d), but expected %zu",
+            journal_pos, strerror(-data->res), data->res, data->iov.iov_len
+        ));
     }
     done.push_back({
         .buf = submitted_buf,
         .pos = journal_pos,
-        .len = (uint64_t)data1->res,
+        .len = (uint64_t)data->res,
     });
-    journal_pos += data1->res;
+    journal_pos += data->res;
     if (journal_pos >= bs->journal.len)
     {
         // Continue from the beginning

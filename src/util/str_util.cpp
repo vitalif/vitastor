@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <string.h>
+#include <stdarg.h>
 #include <unistd.h>
 #include <time.h>
 #include <fcntl.h>
@@ -474,6 +475,20 @@ std::string realpath_str(std::string path, bool nofail)
     std::string rp(p);
     free(p);
     return rp;
+}
+
+std::string strprintf(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    va_list ap2;
+    va_copy(ap2, ap);
+    int len = vsnprintf(NULL, 0, fmt, ap);
+    va_end(ap);
+    std::string result(len, '\0');
+    vsnprintf(&result[0], len + 1, fmt, ap2);
+    va_end(ap2);
+    return result;
 }
 
 std::string format_datetime(uint64_t unixtime)
