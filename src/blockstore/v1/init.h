@@ -16,7 +16,9 @@ class blockstore_init_meta
     blockstore_impl_t *bs;
     int wait_state = 0;
     bool zero_on_init = false;
+    bool header_written = false;
     void *metadata_buffer = NULL;
+    blockstore_meta_header_v2_t *hdr = NULL;
     blockstore_init_meta_buf bufs[2] = {};
     int submitted = 0;
     struct io_uring_sqe *sqe;

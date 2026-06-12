@@ -67,9 +67,10 @@ int blockstore_init_meta::loop()
     if (!metadata_buffer)
         throw std::runtime_error("Failed to allocate metadata read buffer");
     // Read superblock
+    hdr = (blockstore_meta_header_v2_t *)memalign_or_die(MEM_ALIGNMENT, bs->dsk.meta_block_size);
     GET_SQE();
     last_read_offset = 0;
-    data->iov = { metadata_buffer, (size_t)bs->dsk.meta_block_size };
+    data->iov = { hdr, (size_t)bs->dsk.meta_block_size };
     data->callback = [this](ring_data_t *data) { handle_event(data, -1, "read metadata header"); };
     io_uring_prep_readv(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
     bs->ringloop->submit();
@@ -80,24 +81,8 @@ resume_1:
         wait_state = 1;
         return 1;
     }
-    if (iszero((uint64_t*)metadata_buffer, bs->dsk.meta_block_size / sizeof(uint64_t)))
+    if (iszero((uint64_t*)hdr, bs->dsk.meta_block_size / sizeof(uint64_t)))
     {
-        {
-            blockstore_meta_header_v2_t *hdr = (blockstore_meta_header_v2_t *)metadata_buffer;
-            hdr->zero = 0;
-            hdr->magic = BLOCKSTORE_META_MAGIC_V1;
-            hdr->version = bs->dsk.meta_format;
-            hdr->meta_block_size = bs->dsk.meta_block_size;
-            hdr->data_block_size = bs->dsk.data_block_size;
-            hdr->bitmap_granularity = bs->dsk.bitmap_granularity;
-            if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
-            {
-                hdr->data_csum_type = bs->dsk.data_csum_type;
-                hdr->csum_block_size = bs->dsk.csum_block_size;
-                hdr->header_csum = 0;
-                hdr->header_csum = crc32c(0, hdr, sizeof(*hdr));
-            }
-        }
         if (bs->readonly)
         {
             printf("Skipping metadata initialization because blockstore is readonly\n");
@@ -105,25 +90,11 @@ resume_1:
         else
         {
             printf("Initializing metadata area\n");
-            GET_SQE();
-            last_read_offset = 0;
-            data->iov = (struct iovec){ metadata_buffer, (size_t)bs->dsk.meta_block_size };
-            data->callback = [this](ring_data_t *data) { handle_event(data, -1, "write metadata header"); };
-            io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
-            bs->ringloop->submit();
-            submitted++;
-        resume_3:
-            if (submitted > 0)
-            {
-                wait_state = 3;
-                return 1;
-            }
-            zero_on_init = true;
         }
+        zero_on_init = true;
     }
     else
     {
-        blockstore_meta_header_v2_t *hdr = (blockstore_meta_header_v2_t *)metadata_buffer;
         if (hdr->zero != 0 || hdr->magic != BLOCKSTORE_META_MAGIC_V1 || hdr->version < BLOCKSTORE_META_FORMAT_V1)
         {
             printf(
@@ -322,27 +293,64 @@ resume_6:
     }
     // metadata read finished
     printf("Metadata entries loaded: %ju, free blocks: %ju / %ju\n", entries_loaded, bs->data_alloc->get_free_count(), bs->dsk.block_count);
+    if (zero_on_init && !bs->readonly)
+    {
+do_fsync:
+        if (!bs->disable_meta_fsync)
+        {
+            GET_SQE();
+            io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
+            last_read_offset = 0;
+            data->iov = { 0 };
+            data->callback = [this](ring_data_t *data) { handle_event(data, -1, "fsync metadata"); };
+            submitted++;
+            bs->ringloop->submit();
+resume_4:
+            if (submitted > 0)
+            {
+                wait_state = 4;
+                return 1;
+            }
+        }
+        if (!header_written)
+        {
+            GET_SQE();
+            hdr->zero = 0;
+            hdr->magic = BLOCKSTORE_META_MAGIC_V1;
+            hdr->version = bs->dsk.meta_format;
+            hdr->meta_block_size = bs->dsk.meta_block_size;
+            hdr->data_block_size = bs->dsk.data_block_size;
+            hdr->bitmap_granularity = bs->dsk.bitmap_granularity;
+            if (bs->dsk.meta_format >= BLOCKSTORE_META_FORMAT_V2)
+            {
+                hdr->data_csum_type = bs->dsk.data_csum_type;
+                hdr->csum_block_size = bs->dsk.csum_block_size;
+                hdr->header_csum = 0;
+                hdr->header_csum = crc32c(0, hdr, sizeof(*hdr));
+            }
+            header_written = true;
+            last_read_offset = 0;
+            data->iov = (struct iovec){ hdr, (size_t)bs->dsk.meta_block_size };
+            data->callback = [this](ring_data_t *data) { handle_event(data, -1, "write metadata header"); };
+            io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
+            bs->ringloop->submit();
+            submitted++;
+resume_3:
+            if (submitted > 0)
+            {
+                wait_state = 3;
+                return 1;
+            }
+            goto do_fsync;
+        }
+    }
     if (!bs->inmemory_meta)
     {
         free(metadata_buffer);
         metadata_buffer = NULL;
     }
-    if (zero_on_init && !bs->disable_meta_fsync)
-    {
-        GET_SQE();
-        io_uring_prep_fsync(sqe, bs->dsk.meta_fd, IORING_FSYNC_DATASYNC);
-        last_read_offset = 0;
-        data->iov = { 0 };
-        data->callback = [this](ring_data_t *data) { handle_event(data, -1, "fsync metadata"); };
-        submitted++;
-        bs->ringloop->submit();
-    resume_4:
-        if (submitted > 0)
-        {
-            wait_state = 4;
-            return 1;
-        }
-    }
+    free(hdr);
+    hdr = NULL;
     return 0;
 }
 
