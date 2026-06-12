@@ -185,11 +185,11 @@ struct osd_test_fixture_t
             auto *op = *it;
             if (op->opcode == BS_OP_LIST)
             {
-                it = bs->queued.erase(it);
+                it = bs->queued.erase(it++);
                 op->retval = 0;
                 op->version = 0;
                 op->buf = NULL;
-                op->callback(op);
+                std::function<void(blockstore_op_t*)>(op->callback)(op);
             }
             else
                 ++it;
