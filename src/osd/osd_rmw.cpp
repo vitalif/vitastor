@@ -483,11 +483,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
         return;
     }
     int *decoding_matrix = dm_ids + pg_minsize;
-    char *data_ptrs[pg_size];
-    for (int role = 0; role < pg_size; role++)
-    {
-        data_ptrs[role] = NULL;
-    }
+    std::vector<char*> data_ptrs(pg_size);
     bool recovered = false;
     for (int role = 0; role < pg_minsize; role++)
     {
@@ -509,7 +505,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
                 data_ptrs[role] = (char*)stripes[role].read_buf;
                 jerasure_matrix_dotprod(
                     pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
-                    data_ptrs, data_ptrs+pg_minsize, stripes[role].read_end - stripes[role].read_start
+                    &data_ptrs[0], &data_ptrs[pg_minsize], stripes[role].read_end - stripes[role].read_start
                 );
             }
         }
@@ -534,7 +530,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
                 {
                     jerasure_matrix_dotprod(
                         pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
-                        data_ptrs, data_ptrs+pg_minsize, bitmap_size
+                        &data_ptrs[0], &data_ptrs[pg_minsize], bitmap_size
                     );
                 }
             }
@@ -563,7 +559,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
                 {
                     jerasure_matrix_dotprod(
                         pg_minsize, OSD_JERASURE_W, decoding_matrix+(role*pg_minsize), dm_ids, role,
-                        data_ptrs, data_ptrs+pg_minsize, bitmap_size
+                        &data_ptrs[0], &data_ptrs[pg_minsize], bitmap_size
                     );
                     memcpy(stripes[role].bmp_buf, data_ptrs[role], bitmap_size);
                 }
