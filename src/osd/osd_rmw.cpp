@@ -1183,7 +1183,7 @@ static uint64_t c_n_k(uint64_t n, uint64_t k)
 
 static std::vector<int> ec_check_combination(osd_rmw_stripe_t *stripes, int stripe_count,
     int *subset, int pg_size, int pg_minsize, bool is_xor,
-    uint32_t chunk_size, uint32_t bitmap_size, uint8_t *tmp_buf)
+    uint32_t chunk_size, uint32_t bitmap_size, std::vector<uint8_t>& tmp_buf)
 {
     osd_num_t fake_osd_set[pg_size];
     for (int i = 0; i < pg_size; i++)
@@ -1211,13 +1211,15 @@ static std::vector<int> ec_check_combination(osd_rmw_stripe_t *stripes, int stri
         {
             // missing chunks are recovered in read_bufs and write_bufs are used as source for parity
             bs.missing = true;
-            bs.read_buf = bs.write_buf = tmp_buf+i*chunk_size;
-            bs.bmp_buf = tmp_buf + stripe_count*chunk_size + i*bitmap_size;
+            assert(tmp_buf.size() >= (i+1)*(chunk_size+bitmap_size));
+            bs.read_buf = bs.write_buf = tmp_buf.data() + i*(chunk_size+bitmap_size);
+            bs.bmp_buf = bs.read_buf + chunk_size;
         }
         else if (i >= pg_minsize)
         {
             // parity chunks are regenerated in their write_bufs, so use a temporary buffer
-            bs.write_buf = tmp_buf+i*chunk_size;
+            assert(tmp_buf.size() >= (i+1)*(chunk_size+bitmap_size));
+            bs.write_buf = tmp_buf.data() + i*(chunk_size+bitmap_size);
         }
     }
     if (is_xor)
@@ -1281,7 +1283,8 @@ static int count_roles(osd_rmw_stripe_t *stripes, std::vector<int> & valid_chunk
 std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int pg_size, int pg_minsize, bool is_xor,
     uint32_t chunk_size, uint32_t bitmap_size, uint64_t max_bruteforce, bool find_best)
 {
-    std::vector<int> found_valid;
+    std::vector<int> final_valid;
+    int final_roles = 0;
     std::vector<std::vector<int>> live_variants(pg_size);
     int eq_to[stripe_count];
     int live_roles = 0, live_total = 0;
@@ -1326,8 +1329,8 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int p
         // Nothing to validate, just return all live chunks
         for (int i = 0; i < stripe_count; i++)
             if (!stripes[i].read_error)
-                found_valid.push_back(i);
-        return found_valid;
+                final_valid.push_back(i);
+        return final_valid;
     }
     // Try to locate errors using brute force if there isn't too many combinations
     bool brute_force = c_n_k(live_roles, pg_minsize) <= max_bruteforce;
@@ -1341,7 +1344,7 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int p
     }
     // Select all combinations with items except the last one (== anything to compare)
     first_combination(combination, pg_minsize, live_roles);
-    uint8_t *tmp_buf = (uint8_t*)malloc_or_die(stripe_count*(chunk_size+bitmap_size));
+    std::vector<uint8_t> tmp_buf(pg_size*(chunk_size+bitmap_size));
     do
     {
         // Then loop over all subvariants (if some roles have multiple diverged variants of data)
@@ -1362,22 +1365,24 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int p
             // like 1 2 3 -> valid 4 5 and 1 3 4 -> valid 2 5
             if (valid_chunks.size() > 0)
             {
-                if (found_valid.size() >= valid_chunks.size() && found_valid != valid_chunks)
+                int valid_roles = count_roles(stripes, valid_chunks, pg_size);
+                if (!final_valid.size() || final_valid == valid_chunks || find_best && valid_roles > final_roles)
+                {
+                    final_valid = valid_chunks;
+                    final_roles = valid_roles;
+                }
+                else
                 {
                     // Ambiguity: we found multiple valid sets and don't know which one is correct
                     printf("Scrub found 2 different correct chunk subsets: OSD ");
-                    for (int i = 0; i < found_valid.size(); i++)
-                        printf(i > 0 ? ", %ju" : "%ju", stripes[found_valid[i]].osd_num);
+                    for (int i = 0; i < final_valid.size(); i++)
+                        printf(i > 0 ? ", %ju" : "%ju", stripes[final_valid[i]].osd_num);
                     printf(" and OSD ");
                     for (int i = 0; i < valid_chunks.size(); i++)
                         printf(i > 0 ? ", %ju" : "%ju", stripes[valid_chunks[i]].osd_num);
                     printf("\n");
-                    found_valid.clear();
-                    goto out;
-                }
-                else if (!found_valid.size() && (find_best || count_roles(stripes, valid_chunks, pg_size) >= pg_size))
-                {
-                    found_valid = valid_chunks;
+                    final_valid.clear();
+                    return {};
                 }
             }
             // Select next subvariant
@@ -1399,7 +1404,5 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int p
             break;
         }
     } while (next_combination(combination, pg_minsize, live_roles));
-out:
-    free(tmp_buf);
-    return found_valid;
+    return final_valid;
 }

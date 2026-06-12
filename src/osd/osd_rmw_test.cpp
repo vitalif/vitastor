@@ -33,6 +33,7 @@ void test_ec43_error_bruteforce();
 void test_recover_53_d5();
 void test_recover_22();
 void test_ec_find_good_multi_chunks();
+void test_ec_find_good_42_no_good();
 
 int main(int narg, char *args[])
 {
@@ -74,6 +75,7 @@ int main(int narg, char *args[])
     // Error bruteforce
     test_ec43_error_bruteforce();
     test_ec_find_good_multi_chunks();
+    test_ec_find_good_42_no_good();
     // Test 19
     test_recover_53_d5();
     // Test 20
@@ -1420,6 +1422,34 @@ void test_recover_22()
     free(rmw_buf);
     free(write_buf);
     use_ec(4, 2, false);
+}
+
+void test_ec_find_good_42_no_good()
+{
+    use_ec(6, 4, true);
+    osd_rmw_stripe_t stripes[6] = {};
+    split_stripes(4, 4096, 0, 4096 * 4, stripes);
+    uint8_t *write_buf = (uint8_t*)malloc_or_die(4096 * 6);
+    set_pattern(write_buf+0*4096, 4096, PATTERN0);
+    set_pattern(write_buf+1*4096, 4096, PATTERN1);
+    set_pattern(write_buf+2*4096, 4096, PATTERN2);
+    set_pattern(write_buf+3*4096, 4096, PATTERN3);
+    set_pattern(write_buf+4*4096, 4096, 1);
+    set_pattern(write_buf+5*4096, 4096, 2);
+    memset(stripes, 0, sizeof(stripes));
+    for (int i = 0; i < 6; i++)
+    {
+        stripes[i].read_start = 0;
+        stripes[i].read_end = 4096;
+        stripes[i].read_buf = write_buf+i*4096;
+        stripes[i].role = i;
+        stripes[i].osd_num = i+1;
+    }
+    auto res = ec_find_good(stripes, 5, 6, 4, false, 4096, 0, 100, true);
+    assert_eq_vec(res, std::vector<int>());
+    // Done
+    free(write_buf);
+    use_ec(6, 4, false);
 }
 
 void test_ec_find_good_multi_chunks()
