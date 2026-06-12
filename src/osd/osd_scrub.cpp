@@ -667,9 +667,16 @@ resume_2:
         // I/O and checksum errors (represented by stripes[i].read_error) are OK
         (cur_op->op_data->errcode != -EIO && cur_op->op_data->errcode != -EDOM))
     {
-        finish_op(cur_op, cur_op->op_data->errcode);
-        return;
     }
-    scrub_check_results(cur_op);
-    finish_op(cur_op, 0);
+    else
+    {
+        scrub_check_results(cur_op);
+        cur_op->op_data->errcode = 0;
+    }
+    if (cur_op->op_data->stripes)
+    {
+        free(cur_op->op_data->stripes);
+        cur_op->op_data->stripes = NULL;
+    }
+    finish_op(cur_op, cur_op->op_data->errcode);
 }

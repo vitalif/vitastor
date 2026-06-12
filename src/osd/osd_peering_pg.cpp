@@ -473,6 +473,8 @@ void pg_t::calc_object_states(int log_level)
             printf("[PG %u/%u] %ju objects on OSD set %s\n", pool_id, pg_num, stp.second.object_count, osd_set_desc.c_str());
         }
     }
+    delete ps;
+    peering_state = NULL;
 }
 
 void pg_t::print_state()
