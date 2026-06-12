@@ -622,10 +622,13 @@ void osd_t::scrub_check_results(osd_op_t *cur_op)
                 continue;
             }
             auto & chunk = new_set[set_pos];
-            if (op_data->stripes[i].read_error && chunk.loc_bad != LOC_CORRUPTED)
+            if (op_data->stripes[i].read_error)
             {
-                changes++;
-                chunk.loc_bad = LOC_CORRUPTED;
+                if (!(chunk.loc_bad & LOC_CORRUPTED))
+                {
+                    changes++;
+                    chunk.loc_bad = LOC_CORRUPTED;
+                }
             }
             else if (op_data->stripes[i].read_end > 0 && !op_data->stripes[chunk.role].missing &&
                 (chunk.loc_bad & LOC_CORRUPTED))
