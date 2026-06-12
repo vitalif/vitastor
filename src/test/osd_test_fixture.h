@@ -240,7 +240,7 @@ struct osd_test_fixture_t
         op->buf = (uint8_t*)build_list_buf(objects);
         op->retval = (int)objects.size();
         op->version = stable_count;
-        op->callback(op);
+        std::function<void(blockstore_op_t*)>(op->callback)(op);
     }
 
     // Pop the OSD_OP_SEC_LIST sent to `osd_num` and reply with the given
@@ -266,7 +266,7 @@ struct osd_test_fixture_t
         op->reply.hdr.retval = (int64_t)objects.size();
         op->reply.sec_list.stable_count = stable_count;
         op->buf = build_list_buf(objects);
-        op->callback(op);
+        std::function<void(osd_op_t*)>(op->callback)(op);
     }
 
     // Pop the first sent op of given opcode from peer's outbox. Aborts if

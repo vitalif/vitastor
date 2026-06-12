@@ -295,10 +295,112 @@ void test_scrub_corruption_persists()
     printf("test_scrub_corruption_persists passed\n");
 }
 
+// Scrub two replicated OSDs that have identical data but *different* bitmaps.
+// The expectation is that scrub detects the mismatch and marks at least one
+// replica as corrupted (or inconsistent) because bitmaps differ even though
+// data payloads are byte-identical.
+bool test_scrub_same_data_diff_bitmaps(int ctr)
+{
+    bool more = false;
+    printf("test_scrub_same_data_diff_bitmaps[%d]\n", ctr);
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 2, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    object_id oid = { INODE_WITH_POOL(1, 1), 0 };
+    f.reply_local_list({ { oid, 1 } }, 1);
+    f.reply_peer_list(2, { { oid, 1 } }, 1);
+    f.ringloop->loop();
+    assert(f.pg(1, 1).state & PG_ACTIVE);
+
+    // Scrub
+
+    auto *scrub = new osd_op_t();
+    scrub->op_type = OSD_OP_IN;
+    scrub->client_id = 0;
+    scrub->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    scrub->req.rw.header.id = 2;
+    scrub->req.rw.header.opcode = OSD_OP_SCRUB;
+    scrub->req.rw.inode = oid.inode;
+    scrub->req.rw.offset = oid.stripe;
+    scrub->req.rw.len = 0;
+
+    int scrub_retval = -1;
+    scrub->callback = [&scrub_retval](osd_op_t *op) {
+        scrub_retval = op->reply.hdr.retval;
+    };
+    f.exec(scrub);
+
+    // Reply with same data but different bitmaps (ctr == 0) or same bitmaps (ctr == 1)
+    assert(f.bs->queued.size() == 1);
+    auto *local_read = f.bs->take(BS_OP_READ);
+    assert(local_read->opcode == BS_OP_READ);
+    memset(local_read->buf, 0xab, local_read->len);
+    memset(local_read->bitmap, 0xff, 4);
+    local_read->retval = local_read->len;
+    local_read->version = 1;
+    local_read->callback(local_read);
+
+    auto *peer_read = f.peer_take(2, OSD_OP_SEC_READ);
+    assert(peer_read->iov.count == 1);
+    memset(peer_read->iov.buf[0].iov_base, 0xab, peer_read->req.sec_rw.len);
+    if (!ctr)
+    {
+        memset(peer_read->bitmap, 0xf0, 4);
+        more = true;
+    }
+    else
+        memset(peer_read->bitmap, 0xff, 4);
+    peer_read->reply.hdr.retval = peer_read->req.sec_rw.len;
+    peer_read->reply.sec_rw.attr_len = 4;
+    peer_read->reply.sec_rw.version = 1;
+    peer_read->callback(peer_read);
+
+    assert(scrub_retval == 0);
+
+    if (!ctr)
+    {
+        // Object should be marked as inconsistent
+        auto check_inconsistent = [&]()
+        {
+            if (!(f.pg(1, 1).state & PG_HAS_INCONSISTENT))
+                return false;
+            auto st_it = f.pg(1, 1).inconsistent_objects.find(oid);
+            if (st_it == f.pg(1, 1).inconsistent_objects.end())
+                return false;
+            return true;
+        };
+        bool marked = check_inconsistent();
+        if (!marked)
+            printf("BUG: scrub did not detect bitmap mismatch\n");
+        assert(marked);
+    }
+    else
+    {
+        assert(f.pg(1, 1).state == PG_ACTIVE);
+        assert(!f.pg(1, 1).degraded_objects.size());
+        assert(!f.pg(1, 1).inconsistent_objects.size());
+    }
+
+    printf("test_scrub_same_data_diff_bitmaps[%d] passed\n", ctr);
+    delete scrub;
+
+    return more;
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
     test_replicated_write();
     test_scrub_corruption_persists();
+    for (int i = 0; test_scrub_same_data_diff_bitmaps(i); i++) {}
     return 0;
 }
