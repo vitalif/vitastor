@@ -540,11 +540,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
             // jerasure_matrix_dotprod requires 16-byte alignment for SSE...
             int aligned_size = ((bitmap_size+JERASURE_ALIGNMENT-1)/JERASURE_ALIGNMENT)*JERASURE_ALIGNMENT;
             int copy_size = aligned_size*pg_size;
-            char local_data[copy_size > 4096 ? 0 : copy_size];
-            bool alloc_copy = copy_size > 4096 || (unsigned long)local_data % JERASURE_ALIGNMENT;
-            char *data_copy = alloc_copy
-                ? (char*)memalign_or_die(JERASURE_ALIGNMENT, copy_size)
-                : local_data;
+            char *data_copy = (char*)memalign_or_die(JERASURE_ALIGNMENT, copy_size);
             for (int role = 0; role < pg_size; role++)
             {
                 if (stripes[role].read_end != 0)
@@ -553,7 +549,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
                     memcpy(data_ptrs[role], stripes[role].bmp_buf, bitmap_size);
                 }
             }
-            for (int role = 0; role < pg_size; role++)
+            for (int role = 0; role < pg_minsize; role++)
             {
                 if (stripes[role].read_end != 0 && stripes[role].missing)
                 {
@@ -564,8 +560,7 @@ void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsi
                     memcpy(stripes[role].bmp_buf, data_ptrs[role], bitmap_size);
                 }
             }
-            if (alloc_copy)
-                free(data_copy);
+            free(data_copy);
         }
     }
 }
@@ -1208,21 +1203,23 @@ static std::vector<int> ec_check_combination(osd_rmw_stripe_t *stripes, int stri
         {
             // missing chunks are recovered in read_bufs and write_bufs are used as source for parity
             bs.missing = true;
-            assert(tmp_buf.size() >= (i+1)*(chunk_size+bitmap_size));
-            bs.read_buf = bs.write_buf = tmp_buf.data() + i*(chunk_size+bitmap_size);
+            assert(tmp_buf.size() >= (i+1)*chunk_size);
+            bs.read_buf = bs.write_buf = tmp_buf.data() + i*chunk_size;
             if (bitmap_size)
             {
-                bs.bmp_buf = bs.write_buf + chunk_size;
+                assert(tmp_buf.size() >= pg_size*chunk_size + (i+1)*bitmap_size);
+                bs.bmp_buf = tmp_buf.data() + pg_size*chunk_size + i*bitmap_size;
             }
         }
         else if (i >= pg_minsize)
         {
             // parity chunks are regenerated in their write_bufs, so use a temporary buffer
-            assert(tmp_buf.size() >= (i+1)*(chunk_size+bitmap_size));
-            bs.write_buf = tmp_buf.data() + i*(chunk_size+bitmap_size);
+            assert(tmp_buf.size() >= (i+1)*chunk_size);
+            bs.write_buf = tmp_buf.data() + i*chunk_size;
             if (bitmap_size)
             {
-                bs.bmp_buf = bs.write_buf + chunk_size;
+                assert(tmp_buf.size() >= pg_size*chunk_size + (i+1)*bitmap_size);
+                bs.bmp_buf = tmp_buf.data() + pg_size*chunk_size + i*bitmap_size;
                 memcpy(bs.bmp_buf, stripes[i].bmp_buf, bitmap_size);
             }
         }
