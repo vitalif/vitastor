@@ -71,6 +71,11 @@ bool journal_flusher_t::is_active()
     return active_flushers > 0 || dequeuing;
 }
 
+size_t journal_flusher_t::get_queue_size()
+{
+    return flush_queue.size();
+}
+
 void journal_flusher_t::loop()
 {
     target_flusher_count = bs->write_iodepth*2;
@@ -384,6 +389,7 @@ stop_flusher:
         wait_state = 0;
         return true;
     }
+    copy_count = 0;
     try_trim = true;
     cur.oid = flusher->flush_queue.front();
     cur.version = flusher->flush_versions[cur.oid];
@@ -511,6 +517,31 @@ resume_2:
             {
                 uo_it->second.was_changed = true;
             }
+            if (!bs->journal.inmemory)
+            {
+                // Verify journaled data checksums (but not COALESCED)
+                for (it = v.begin(); it != v.end(); it++)
+                {
+                    if (it->copy_flags == COPY_BUF_JOURNAL)
+                    {
+                        iovec iov = { .iov_base = it->buf, .iov_len = it->len };
+                        bs->verify_journal_checksums(
+                            it->csum_buf, it->offset, &iov, 1,
+                            [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
+                            {
+                                printf(
+                                    "Checksum mismatch in object %jx:%jx v%ju in journal at 0x%jx, checksum block #%u: got %08x, expected %08x\n",
+                                    cur.oid.inode, cur.oid.stripe, cur.version, it->disk_offset,
+                                    bad_block / bs->dsk.csum_block_size, calc_csum, stored_csum
+                                );
+                                bad_block += it->offset;
+                                assert(!(bad_block % bs->dsk.csum_block_size) && bad_block < bs->dsk.data_block_size);
+                                mangle_csum_blocks.insert(bad_block);
+                            }
+                        );
+                    }
+                }
+            }
         }
         // Submit data writes
         for (it = v.begin(); it != v.end(); it++)
@@ -634,6 +665,7 @@ resume_2:
         }
         // All done
         flusher->active_flushers--;
+        copy_count = 0; // used by is_mutated()...
         wait_state = 0;
         goto resume_0;
     }
@@ -815,35 +847,21 @@ bool journal_flusher_co::clear_incomplete_csum_block_bits(int wait_base)
                 bs->verify_padded_checksums(new_clean_bitmap, new_clean_bitmap + 2*bs->dsk.clean_entry_bitmap_size,
                     v[i].offset, &iov, 1, [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
                 {
-                    printf("Checksum mismatch in object %jx:%jx v%ju in data area at offset 0x%jx+0x%x: got %08x, expected %08x\n",
+                    printf("Checksum mismatch in object %jx:%jx v%ju in data area at offset 0x%jx+0x%x during flush: got %08x, expected %08x\n",
                         cur.oid.inode, cur.oid.stripe, old_clean_ver, old_clean_loc, bad_block, calc_csum, stored_csum);
-                    for (uint32_t j = 0; j < bs->dsk.csum_block_size; j += bs->dsk.bitmap_granularity)
-                    {
-                        // Simplest method of mangling: flip one byte in every sector
-                        ((uint8_t*)v[i].buf)[j+bad_block-v[i].offset] ^= 0xff;
-                    }
+                    assert(!(bad_block % bs->dsk.csum_block_size) && bad_block < bs->dsk.data_block_size);
+                    mangle_csum_blocks.insert(bad_block);
                 });
             }
             else
             {
                 bs->verify_journal_checksums(v[i].csum_buf, v[i].offset, &iov, 1, [&](uint32_t bad_block, uint32_t calc_csum, uint32_t stored_csum)
                 {
-                    printf("Checksum mismatch in object %jx:%jx v%ju in journal at offset 0x%jx+0x%x (block offset 0x%jx): got %08x, expected %08x\n",
+                    printf("Checksum mismatch in object %jx:%jx v%ju in journal at offset 0x%jx+0x%x (block offset 0x%jx) during flush: got %08x, expected %08x\n",
                         cur.oid.inode, cur.oid.stripe, old_clean_ver,
                         v[i].disk_offset, bad_block, v[i].offset, calc_csum, stored_csum);
-                    bad_block += (v[i].offset/bs->dsk.csum_block_size) * bs->dsk.csum_block_size;
-                    uint32_t bad_block_end = bad_block + bs->dsk.csum_block_size + (v[i].offset/bs->dsk.csum_block_size) * bs->dsk.csum_block_size;
-                    if (bad_block < v[i].offset)
-                        bad_block = v[i].offset;
-                    if (bad_block_end > v[i].offset+v[i].len)
-                        bad_block_end = v[i].offset+v[i].len;
-                    bad_block -= v[i].offset;
-                    bad_block_end -= v[i].offset;
-                    for (uint32_t j = bad_block; j < bad_block_end; j += bs->dsk.bitmap_granularity)
-                    {
-                        // Simplest method of mangling: flip one byte in every sector
-                        ((uint8_t*)v[i].buf)[j] ^= 0xff;
-                    }
+                    assert(!(bad_block % bs->dsk.csum_block_size) && bad_block < bs->dsk.data_block_size);
+                    mangle_csum_blocks.insert(bad_block);
                 });
             }
         }
@@ -952,6 +970,11 @@ void journal_flusher_co::calc_block_checksums(uint32_t *new_data_csums, bool ski
     }
     // `v` should contain aligned items, possibly split into pieces
     assert(!block_done);
+    for (uint32_t mangle_block: mangle_csum_blocks)
+    {
+        // Flip 1 bit
+        new_data_csums[mangle_block / bs->dsk.csum_block_size] ^= 1;
+    }
 }
 
 void journal_flusher_co::scan_dirty()
@@ -1118,6 +1141,7 @@ bool journal_flusher_co::read_dirty(int wait_base)
     if (wait_state == wait_base)        goto resume_0;
     else if (wait_state == wait_base+1) goto resume_1;
     wait_count = wait_journal_count = 0;
+    mangle_csum_blocks.clear();
     if (bs->journal.inmemory && !read_to_fill_incomplete)
     {
         // Happy path: nothing to read :)

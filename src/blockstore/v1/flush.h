@@ -66,6 +66,7 @@ class journal_flusher_co
     uint64_t clean_bitmap_offset, clean_bitmap_len;
     uint8_t *clean_init_dyn_ptr;
     uint8_t *new_clean_bitmap;
+    std::unordered_set<uint32_t> mangle_csum_blocks;
 
     uint64_t new_trim_pos;
 
@@ -123,6 +124,7 @@ public:
     void loop();
     bool is_trim_wanted() { return trim_wanted; }
     bool is_active();
+    size_t get_queue_size();
     void mark_trim_possible();
     void request_trim();
     void release_trim();

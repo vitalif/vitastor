@@ -30,6 +30,8 @@
 
 //#define BLOCKSTORE_DEBUG
 
+struct bs_test_t;
+
 namespace v1 {
 
 #include "journal.h"
@@ -122,6 +124,7 @@ typedef uint64_t pool_pg_id_t;
 
 class blockstore_impl_t: public blockstore_i
 {
+    friend struct ::bs_test_t;
     blockstore_disk_t dsk;
 
     /******* OPTIONS *******/
@@ -220,6 +223,7 @@ class blockstore_impl_t: public blockstore_i
 
     // Read
     int dequeue_read(blockstore_op_t *read_op);
+    void release_clean(blockstore_op_t *op);
     void find_holes(std::vector<copy_buffer_t> & read_vec, uint32_t item_start, uint32_t item_end,
         std::function<int(int, bool, uint32_t, uint32_t)> callback);
     int fulfill_read(blockstore_op_t *read_op,
@@ -281,7 +285,7 @@ class blockstore_impl_t: public blockstore_i
 
 public:
 
-    blockstore_impl_t(blockstore_config_t & config, ring_loop_i *ringloop, timerfd_manager_t *tfd);
+    blockstore_impl_t(blockstore_config_t & config, ring_loop_i *ringloop, timerfd_manager_t *tfd, bool mock_mode = false);
     ~blockstore_impl_t();
 
     void parse_config(blockstore_config_t & config);

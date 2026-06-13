@@ -71,6 +71,12 @@ add_dependencies(build_tests test_blockstore)
 target_link_libraries(test_blockstore vitastor_blk vitastor_common ${ISAL_LIBRARIES})
 add_test(NAME test_blockstore COMMAND test_blockstore)
 
+# test_blockstore_v1
+add_executable(test_blockstore_v1 EXCLUDE_FROM_ALL test_blockstore_v1.cpp ringloop_mock.cpp)
+add_dependencies(build_tests test_blockstore_v1)
+target_link_libraries(test_blockstore_v1 vitastor_blk vitastor_common ${ISAL_LIBRARIES})
+add_test(NAME test_blockstore_v1 COMMAND test_blockstore_v1)
+
 ## test_shit
 #add_executable(test_shit test_shit.cpp osd_peering_pg.cpp)
 #target_link_libraries(test_shit ${LIBURING_LIBRARIES} m)
