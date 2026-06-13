@@ -230,7 +230,26 @@ void test_update(bool csum)
         _test_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 16384, true, buffer_area.data()+16384, false);
 
         object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
-        assert(count_writes(heap, heap.read_entry(oid)) == 2);
+        heap_entry_t *obj = heap.read_entry(oid);
+        uint32_t mblock = 999;
+        int res = heap.add_small_write(oid, &obj, BS_HEAP_SMALL_WRITE, 3, 0, 0, 0, NULL, NULL, &mblock);
+        assert(res == 0);
+        assert(mblock == 0);
+
+        // Check inherited bitmap
+        uint8_t ref_ext_bitmap[dsk.clean_entry_bitmap_size];
+        memset(ref_ext_bitmap, 0xff, dsk.clean_entry_bitmap_size);
+        assert(!memcmp(obj->get_ext_bitmap(&heap), ref_ext_bitmap, dsk.clean_entry_bitmap_size));
+
+        mblock = 999;
+        res = heap.add_small_write(oid, &obj, BS_HEAP_SMALL_WRITE, 4, 0, 0, 0, NULL, NULL, &mblock);
+        assert(res == 0);
+        assert(mblock == 0);
+
+        // Check again - inherited from an unstable write
+        assert(!memcmp(obj->get_ext_bitmap(&heap), ref_ext_bitmap, dsk.clean_entry_bitmap_size));
+
+        assert(count_writes(heap, heap.read_entry(oid)) == 4);
     }
 
     printf("OK test_update %s\n", csum ? "csum" : "no_csum");

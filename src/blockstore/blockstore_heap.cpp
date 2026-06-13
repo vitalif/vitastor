@@ -1571,10 +1571,22 @@ int blockstore_heap_t::add_small_write(object_id oid, heap_entry_t **obj_ptr, ui
         wr->small().location = location;
         if (bitmap)
             memcpy(wr->get_ext_bitmap(this), bitmap, dsk->clean_entry_bitmap_size);
-        else if (obj)
-            memcpy(wr->get_ext_bitmap(this), obj->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
         else
-            memset(wr->get_ext_bitmap(this), 0, dsk->clean_entry_bitmap_size);
+        {
+            bool found = false;
+            iterate_with_stable(obj, UINT64_MAX, [&](heap_entry_t *old_wr, bool stable)
+            {
+                if (old_wr->get_ext_bitmap(this))
+                {
+                    found = true;
+                    memcpy(wr->get_ext_bitmap(this), old_wr->get_ext_bitmap(this), dsk->clean_entry_bitmap_size);
+                    return false;
+                }
+                return true;
+            });
+            if (!found)
+                memset(wr->get_ext_bitmap(this), 0, dsk->clean_entry_bitmap_size);
+        }
         calc_checksums(wr, (uint8_t*)data, true);
         *obj_ptr = wr;
     });

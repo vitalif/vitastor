@@ -192,8 +192,16 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
         subop_len = 0;
     }
     si->read_error = false;
-    subop->bitmap = si->bmp_buf;
-    subop->bitmap_len = clean_entry_bitmap_size;
+    if (!wr || subop_len)
+    {
+        subop->bitmap = si->bmp_buf;
+        subop->bitmap_len = clean_entry_bitmap_size;
+    }
+    else
+    {
+        subop->bitmap = 0;
+        subop->bitmap_len = 0;
+    }
     // Using rmw_buf to pass pointer to stripes. Dirty but works
     subop->rmw_buf = si;
     if (si->osd_num == this->osd_num)
@@ -217,14 +225,14 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
                 .len = subop_len,
             } },
             .buf = (uint8_t*)(wr ? si->write_buf : si->read_buf),
-            .bitmap = (uint8_t*)si->bmp_buf,
+            .bitmap = (uint8_t*)subop->bitmap,
         });
 #ifdef OSD_DEBUG
-         printf(
-             "Submit %s to local: %jx:%jx v%ju %u-%u\n", wr ? "write" : "read",
-             inode, op_data->oid.stripe | si->role, op_version,
-             subop->bs_op->offset, subop->bs_op->len
-         );
+        printf(
+            "Submit %s to local: %jx:%jx v%ju %u-%u bmp %08x\n", wr ? "write" : "read",
+            inode, cur_op->op_data->oid.stripe | si->role, op_version,
+            subop->bs_op->offset, subop->bs_op->len, *(uint32_t*)si->bmp_buf
+        );
 #endif
         bs->enqueue_op(subop->bs_op);
     }
@@ -243,14 +251,14 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
             .version = op_version,
             .offset = wr ? si->write_start : si->read_start,
             .len = subop_len,
-            .attr_len = wr ? clean_entry_bitmap_size : 0,
+            .attr_len = !wr || subop_len ? clean_entry_bitmap_size : 0,
             .flags = cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
         };
 #ifdef OSD_DEBUG
         printf(
-            "Submit %s to osd %ju: %jx:%jx v%ju %u-%u\n", wr ? "write" : "read", si->osd_num,
-            inode, op_data->oid.stripe | si->role, op_version,
-            subop->req.sec_rw.offset, subop->req.sec_rw.len
+            "Submit %s to osd %ju: %jx:%jx v%ju %u-%u bmp %08x\n", wr ? "write" : "read", si->osd_num,
+            inode, cur_op->op_data->oid.stripe | si->role, op_version,
+            subop->req.sec_rw.offset, subop->req.sec_rw.len, *(uint32_t*)si->bmp_buf
         );
 #endif
         if (wr)

@@ -162,7 +162,10 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         cur_op->bs_op->offset = cur_op->req.sec_rw.offset;
         cur_op->bs_op->len = cur_op->req.sec_rw.len;
         cur_op->bs_op->buf = (uint8_t*)cur_op->buf;
-        cur_op->bs_op->bitmap = (uint8_t*)cur_op->bitmap;
+        if (cur_op->req.sec_rw.attr_len)
+            cur_op->bs_op->bitmap = (uint8_t*)cur_op->bitmap;
+        else
+            cur_op->bs_op->bitmap = NULL;
 #ifdef OSD_STUB
         cur_op->bs_op->retval = cur_op->bs_op->len;
 #endif
