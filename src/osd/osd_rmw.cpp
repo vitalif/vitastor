@@ -1176,23 +1176,27 @@ static std::vector<int> ec_check_combination(osd_rmw_stripe_t *stripes, int stri
     int *subset, int pg_size, int pg_minsize, bool is_xor,
     uint32_t chunk_size, uint32_t bitmap_size, std::vector<uint8_t>& tmp_buf)
 {
-    osd_num_t fake_osd_set[pg_size];
+    osd_num_t fake_osd_set[pg_size], fake_osd_set_mod[pg_size];
     for (int i = 0; i < pg_size; i++)
     {
         fake_osd_set[i] = i+1;
+        fake_osd_set_mod[i] = i+2;
     }
     osd_rmw_stripe_t brute_stripes[pg_size];
     memset(brute_stripes, 0, sizeof(osd_rmw_stripe_t)*pg_size);
     for (int i = 0; i < pg_size; i++)
     {
         auto & bs = brute_stripes[i];
-        bs.req_end = bs.read_end = chunk_size;
+        bs.read_end = chunk_size;
+        if (bitmap_size)
+            bs.bmp_buf = tmp_buf.data() + pg_size*chunk_size + i*bitmap_size;
     }
     for (int i = 0; i < pg_minsize; i++)
     {
         auto & src = stripes[subset[i]];
         auto & bs = brute_stripes[src.role];
-        bs.bmp_buf = src.bmp_buf;
+        if (bitmap_size)
+            memcpy(bs.bmp_buf, src.bmp_buf, bitmap_size);
         bs.write_buf = bs.read_buf = src.read_buf;
         bs.role = subset[i];
     }
@@ -1205,34 +1209,23 @@ static std::vector<int> ec_check_combination(osd_rmw_stripe_t *stripes, int stri
             bs.missing = true;
             assert(tmp_buf.size() >= (i+1)*chunk_size);
             bs.read_buf = bs.write_buf = tmp_buf.data() + i*chunk_size;
-            if (bitmap_size)
-            {
-                assert(tmp_buf.size() >= pg_size*chunk_size + (i+1)*bitmap_size);
-                bs.bmp_buf = tmp_buf.data() + pg_size*chunk_size + i*bitmap_size;
-            }
         }
         else if (i >= pg_minsize)
         {
             // parity chunks are regenerated in their write_bufs, so use a temporary buffer
             assert(tmp_buf.size() >= (i+1)*chunk_size);
             bs.write_buf = tmp_buf.data() + i*chunk_size;
-            if (bitmap_size)
-            {
-                assert(tmp_buf.size() >= pg_size*chunk_size + (i+1)*bitmap_size);
-                bs.bmp_buf = tmp_buf.data() + pg_size*chunk_size + i*bitmap_size;
-                memcpy(bs.bmp_buf, stripes[i].bmp_buf, bitmap_size);
-            }
         }
     }
     if (is_xor)
     {
         assert(pg_size == pg_minsize+1);
-        reconstruct_stripes_xor(brute_stripes, pg_size, bitmap_size);
+        calc_rmw_parity_xor(brute_stripes, pg_size, fake_osd_set, fake_osd_set_mod, chunk_size, bitmap_size);
     }
     else
     {
-        reconstruct_stripes_ec(brute_stripes, pg_size, pg_minsize, bitmap_size);
-        calc_rmw_parity_ec(brute_stripes, pg_size, pg_minsize, fake_osd_set, fake_osd_set, chunk_size, bitmap_size);
+        // Mimic changed osd_set to force parity calculation
+        calc_rmw_parity_ec(brute_stripes, pg_size, pg_minsize, fake_osd_set, fake_osd_set_mod, chunk_size, bitmap_size);
     }
     bool matched_other = false;
     std::vector<int> good_set;
@@ -1366,6 +1359,7 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int p
             auto valid_chunks = ec_check_combination(stripes, stripe_count, subset, pg_size, pg_minsize, is_xor, chunk_size, bitmap_size, tmp_buf);
             // The same set may be found from different points of view,
             // like 1 2 3 -> valid 4 5 and 1 3 4 -> valid 2 5
+            // However, a set should never be a subset of another one
             if (valid_chunks.size() > 0)
             {
                 int valid_roles = count_roles(stripes, valid_chunks, pg_size);
