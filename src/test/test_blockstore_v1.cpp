@@ -157,7 +157,6 @@ static bool memcheck(uint8_t *buf, uint8_t byte, size_t len)
 // TODO more variations:
 // - block 4k, block 16k
 // - write at 16k, write at 36k
-// - read with corrupted, read without corrupted
 // - corrupt data, corrupt journal
 // - inmemory, not inmemory
 // - partial data checksum block read, full read
@@ -250,9 +249,17 @@ static void test_preserve_corruption()
 
     // Read corrupted - should finish with -EDOM
     printf("read v2 (corrupted) - should fail with -EDOM\n");
-    read_op.version = 2;
+    read_op.version = UINT64_MAX;
     test.exec_op(&read_op);
     assert(read_op.retval == -EDOM);
+
+    // Read non-corrupted part - should succeed
+    printf("read v2 (non-corrupted part) - should succeed\n");
+    read_op.version = UINT64_MAX;
+    read_op.offset = 32768;
+    read_op.len = 16384;
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
 
     // Check that it's still not compacted
     assert(test.flusher()->get_queue_size());
@@ -272,8 +279,67 @@ static void test_preserve_corruption()
     // so it compacts the object but preserves corruption
     printf("read v2 (after compaction) - should fail with -EDOM\n");
     read_op.version = UINT64_MAX;
+    read_op.offset = 0;
+    read_op.len = 128*1024;
     test.exec_op(&read_op);
     assert(read_op.retval == -EDOM);
+
+    // Read non-corrupted part - should succeed
+    printf("read v2 (non-corrupted part) - should succeed\n");
+    read_op.version = UINT64_MAX;
+    read_op.offset = 32768;
+    read_op.len = 16384;
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
+
+    free(op.buf);
+    free(read_op.buf);
+}
+
+static void test_validate_padded_big_journal()
+{
+    printf("\n-- test_validate_padded_big_journal\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["inmemory_journal"] = "0";
+    test.config["data_csum_type"] = "crc32c";
+    test.config["csum_block_size"] = "16384";
+    test.init();
+    printf("blockstore initialized\n");
+
+    printf("write v1 4+32k\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 4*1024;
+    op.len = 32*1024;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xAA, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    printf("read v1 0+128k\n");
+    blockstore_op_t read_op;
+    read_op.opcode = BS_OP_READ;
+    read_op.oid = { .inode = 1, .stripe = 0 };
+    read_op.version = 2;
+    read_op.offset = 0;
+    read_op.len = 128*1024;
+    read_op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, read_op.len);
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
+    assert(memcheck(read_op.buf, 0, 4*1024));
+    assert(memcheck(read_op.buf + 4*1024, 0xAA, 32*1024));
+    assert(memcheck(read_op.buf + 36*1024, 0, (128-36)*1024));
+
+    printf("read v1 16+16k\n");
+    read_op.version = 2;
+    read_op.offset = 16*1024;
+    read_op.len = 16*1024;
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
 
     free(op.buf);
     free(read_op.buf);
@@ -282,5 +348,6 @@ static void test_preserve_corruption()
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
+    test_validate_padded_big_journal();
     return 0;
 }
