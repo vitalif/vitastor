@@ -1111,7 +1111,8 @@ void journal_flusher_co::scan_dirty()
             last--;
         read_to_fill_incomplete = bs->fill_partial_checksum_blocks(
             v, fulfilled, bmp_ptr, NULL, false, NULL, v[0].offset/bs->dsk.csum_block_size * bs->dsk.csum_block_size,
-            ((v[last].offset+v[last].len-1) / bs->dsk.csum_block_size + 1) * bs->dsk.csum_block_size
+            ((v[last].offset+v[last].len-1) / bs->dsk.csum_block_size + 1) * bs->dsk.csum_block_size,
+            0, bs->dsk.data_block_size
         );
     }
     else if (fill_incomplete && clean_init_bitmap)

@@ -36,6 +36,11 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
 
 blockstore_impl_t::~blockstore_impl_t()
 {
+    for (auto& obj: dirty_db)
+    {
+        if (obj.second.dyn_data)
+            free(obj.second.dyn_data);
+    }
     delete data_alloc;
     delete flusher;
     if (zero_object)

@@ -234,7 +234,8 @@ class blockstore_impl_t: public blockstore_i
         uint8_t *clean_entry_bitmap, int *dyn_data,
         uint32_t item_start, uint32_t item_end, uint64_t clean_loc, uint64_t clean_ver);
     int fill_partial_checksum_blocks(std::vector<copy_buffer_t> & rv, uint64_t & fulfilled,
-        uint8_t *clean_entry_bitmap, int *dyn_data, bool from_journal, uint8_t *read_buf, uint64_t read_offset, uint64_t read_end);
+        uint8_t *clean_entry_bitmap, int *dyn_data, bool from_journal, uint8_t *read_buf,
+        uint32_t read_offset, uint32_t read_end, uint32_t item_start, uint32_t item_end);
     int pad_journal_read(std::vector<copy_buffer_t> & rv, copy_buffer_t & cp,
         uint64_t dirty_offset, uint64_t dirty_end, uint64_t dirty_loc, uint8_t *csum_ptr, int *dyn_data,
         uint64_t offset, uint64_t submit_len, uint64_t & blk_begin, uint64_t & blk_end, uint8_t* & blk_buf);

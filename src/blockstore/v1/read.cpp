@@ -167,7 +167,8 @@ uint8_t* blockstore_impl_t::get_clean_entry_bitmap(uint64_t block_loc, int offse
 }
 
 int blockstore_impl_t::fill_partial_checksum_blocks(std::vector<copy_buffer_t> & rv, uint64_t & fulfilled,
-    uint8_t *clean_entry_bitmap, int *dyn_data, bool from_journal, uint8_t *read_buf, uint64_t read_offset, uint64_t read_end)
+    uint8_t *clean_entry_bitmap, int *dyn_data, bool from_journal, uint8_t *read_buf,
+    uint32_t read_offset, uint32_t read_end, uint32_t item_start, uint32_t item_end)
 {
     if (read_end == read_offset)
         return 0;
@@ -175,7 +176,35 @@ int blockstore_impl_t::fill_partial_checksum_blocks(std::vector<copy_buffer_t> &
     read_buf -= read_offset;
     uint32_t last_block = (read_end-1)/dsk.csum_block_size;
     uint32_t start_block = read_offset/dsk.csum_block_size;
+    uint32_t item_start_block = item_start/dsk.csum_block_size;
     uint32_t end_block = 0;
+    auto zero_range = [&](int pos, bool alloc, uint32_t cur_start, uint32_t cur_end)
+    {
+        if (alloc)
+            return 0;
+        copy_buffer_t el = {
+            .copy_flags = COPY_BUF_ZERO,
+            .offset = cur_start,
+            .len = cur_end-cur_start,
+        };
+        rv.insert(rv.begin() + pos, el);
+        if (read_buf)
+            memset(read_buf + el.offset - read_offset, 0, el.len);
+        fulfilled += el.len;
+        return 1;
+    };
+    if (read_offset < item_start)
+    {
+        // Zero-fill the beginning
+        find_holes(rv, read_offset, item_start, zero_range);
+        read_offset = item_start;
+    }
+    if (read_end > item_end)
+    {
+        // Zero-fill the end
+        find_holes(rv, item_end, read_end, zero_range);
+        read_end = item_end;
+    }
     while (start_block <= last_block)
     {
         if (read_range_fulfilled(rv, fulfilled, read_buf, from_journal ? NULL : clean_entry_bitmap,
@@ -202,8 +231,10 @@ int blockstore_impl_t::fill_partial_checksum_blocks(std::vector<copy_buffer_t> &
                 .copy_flags = COPY_BUF_CSUM_FILL | (from_journal ? COPY_BUF_JOURNALED_BIG : 0),
                 .offset = start_block*dsk.csum_block_size,
                 .len = (end_block-start_block)*dsk.csum_block_size,
-                // save clean_entry_bitmap if we're reading clean data from the journal -- for checksums
-                .csum_buf = from_journal ? clean_entry_bitmap : NULL,
+                // save checksum reference if we're reading clean data from the journal
+                .csum_buf = from_journal
+                    ? clean_entry_bitmap + dsk.clean_entry_bitmap_size + (start_block-item_start_block)*(dsk.data_csum_type & 0xFF)
+                    : NULL,
                 .dyn_data = dyn_data,
             });
             if (dyn_data)
@@ -630,7 +661,7 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
     {
         auto & rv = PRIV(read_op)->read_vec;
         int req = fill_partial_checksum_blocks(rv, fulfilled, clean_entry_bitmap, dyn_data, from_journal,
-            (uint8_t*)read_op->buf, read_op->offset, read_op->offset+read_op->len);
+            (uint8_t*)read_op->buf, read_op->offset, read_op->offset+read_op->len, item_start, item_end);
         if (!inmemory_meta && !from_journal && req > 0)
         {
             // Read checksums from disk
@@ -845,7 +876,7 @@ bool blockstore_impl_t::verify_clean_padded_checksums(blockstore_op_t *op, uint6
 {
     uint32_t offset = clean_loc % dsk.data_block_size;
     if (from_journal)
-        return verify_padded_checksums(NULL, dyn_data + dsk.clean_entry_bitmap_size, offset, iov, n_iov, bad_block_cb);
+        return verify_padded_checksums(NULL, dyn_data, offset, iov, n_iov, bad_block_cb);
     clean_loc = (clean_loc / dsk.data_block_size) * dsk.data_block_size;
     if (!dyn_data)
     {
@@ -881,6 +912,11 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                         assert(!meta_block);
                         meta_block = rv[i].buf;
                         rv[i].buf = NULL;
+                        continue;
+                    }
+                    if (rv[i].copy_flags & COPY_BUF_ZERO)
+                    {
+                        // Zero read
                         continue;
                     }
                     if (rv[i].copy_flags & COPY_BUF_COALESCED)

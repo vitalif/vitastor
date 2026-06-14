@@ -340,6 +340,16 @@ static void test_validate_padded_big_journal()
     read_op.len = 16*1024;
     test.exec_op(&read_op);
     assert(read_op.retval == read_op.len);
+    assert(memcheck(read_op.buf, 0xAA, 16*1024));
+
+    printf("read v1 0+16k\n");
+    read_op.version = 2;
+    read_op.offset = 0;
+    read_op.len = 16*1024;
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
+    assert(memcheck(read_op.buf, 0, 4*1024));
+    assert(memcheck(read_op.buf + 4*1024, 0xAA, 12*1024));
 
     free(op.buf);
     free(read_op.buf);
