@@ -962,6 +962,8 @@ void osd_t::apply_pg_config()
                     }
                 }
                 auto & pg = this->pgs[{ .pool_id = pool_id, .pg_num = pg_num }];
+                if (pg.scheme == POOL_SCHEME_EC)
+                    use_ec(pg.pg_size, pg.pg_data_size, false);
                 pg.state = pg_cfg.cur_primary == this->osd_num ? PG_PEERING : PG_STARTING;
                 pg.scheme = pool_cfg.scheme;
                 pg.pg_cursize = 0;
@@ -980,9 +982,7 @@ void osd_t::apply_pg_config()
                     (pool_cfg.scheme != POOL_SCHEME_REPLICATED ||
                     pool_cfg.local_reads == POOL_LOCAL_READ_PRIMARY);
                 if (pg.scheme == POOL_SCHEME_EC)
-                {
                     use_ec(pg.pg_size, pg.pg_data_size, true);
-                }
                 this->pg_state_dirty.insert({ .pool_id = pool_id, .pg_num = pg_num });
                 pg.print_state();
                 if (pg_cfg.cur_primary == this->osd_num)

@@ -397,6 +397,113 @@ bool test_scrub_same_data_diff_bitmaps(int ctr)
     return more;
 }
 
+void test_ec33_scrub_only_first_part()
+{
+    printf("test_ec33_scrub_only_first_part\n");
+
+    osd_test_fixture_t f;
+
+    // EC 3+3 pool, PG 1, OSD set {1,2,3,4,5,6}, primary = OSD 2
+    f.configure_ec33_pool();
+
+    f.start(json11::Json::object {
+        { "osd_num", 2 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+
+    // Connect peers 1..6
+    for (int peer = 1; peer <= 6; peer++)
+        if (peer != 2)
+            f.connect_peer(peer);
+    f.complete_peering_empty();
+    f.ringloop->loop();
+    assert(f.pg(1, 1).state == PG_ACTIVE);
+
+    // Scrub
+    object_id oid = { INODE_WITH_POOL(1, 1), 0 };
+    auto *scrub = new osd_op_t();
+    scrub->op_type = OSD_OP_IN;
+    scrub->client_id = 0;
+    scrub->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    scrub->req.rw.header.id = 2;
+    scrub->req.rw.header.opcode = OSD_OP_SCRUB;
+    scrub->req.rw.inode = oid.inode;
+    scrub->req.rw.offset = oid.stripe;
+    scrub->req.rw.len = 0;
+
+    int scrub_retval = -1;
+    scrub->callback = [&scrub_retval](osd_op_t *op) {
+        scrub_retval = op->reply.hdr.retval;
+    };
+    f.exec(scrub);
+
+    // Prepare data
+    std::vector<uint8_t> data_buf(6 * 128*1024);
+    std::vector<uint8_t> bmp_buf(6 * 4);
+    {
+        osd_num_t fake_osd_set[6] = { 1, 2, 3, 4, 5, 6 };
+        // Only chunk 1 is full
+        memset(data_buf.data(), 0xab, 1 * 128*1024);
+        memset(bmp_buf.data(), 0xff, 1 * 4);
+        use_ec(6, 3, true);
+        osd_rmw_stripe_t stripes[6] = {};
+        for (int i = 0; i < 6; i++)
+            stripes[i].bmp_buf = bmp_buf.data() + i*4;
+        split_stripes(3, 128*1024, 0, 128*1024, stripes);
+        void *rmw_buf = calc_rmw(data_buf.data(), stripes, fake_osd_set, 6, 3, 6, fake_osd_set, 128*1024, 4);
+        assert(rmw_buf);
+        calc_rmw_parity_ec(stripes, 6, 3, fake_osd_set, fake_osd_set, 128*1024, 4);
+        use_ec(6, 3, false);
+        memcpy(data_buf.data() + 3*128*1024, rmw_buf + 0*128*1024, 128*1024);
+        memcpy(data_buf.data() + 4*128*1024, rmw_buf + 1*128*1024, 128*1024);
+        memcpy(data_buf.data() + 5*128*1024, rmw_buf + 2*128*1024, 128*1024);
+        free(rmw_buf);
+    }
+
+    // peer 1 responds with corrupted data (empty chunk)
+    // others are ok
+    for (uint64_t peer = 1; peer <= 6; peer++)
+    {
+        if (peer == 2)
+        {
+            assert(f.bs->queued.size() == 1);
+            auto *local_read = f.bs->take(BS_OP_READ);
+            assert(local_read->opcode == BS_OP_READ);
+            memcpy(local_read->buf, data_buf.data() + (peer-1)*128*1024, local_read->len);
+            memcpy(local_read->bitmap, bmp_buf.data() + (peer-1)*4, 4);
+            local_read->retval = local_read->len;
+            local_read->version = 1;
+            local_read->callback(local_read);
+            continue;
+        }
+        auto *peer_read = f.peer_take(peer, OSD_OP_SEC_READ);
+        assert(peer_read->req.sec_rw.len == 128*1024);
+        assert(peer_read->iov.count == 1);
+        if (peer == 1)
+            memset(peer_read->iov.buf[0].iov_base, 0, peer_read->req.sec_rw.len);
+        else
+            memcpy(peer_read->iov.buf[0].iov_base, data_buf.data() + (peer-1)*128*1024, peer_read->req.sec_rw.len);
+        memcpy(peer_read->bitmap, bmp_buf.data() + (peer-1)*4, 4);
+        peer_read->reply.hdr.retval = peer_read->req.sec_rw.len;
+        peer_read->reply.sec_rw.attr_len = 4;
+        peer_read->reply.sec_rw.version = 1;
+        peer_read->callback(peer_read);
+    }
+
+    assert(scrub_retval == 0);
+    delete scrub;
+
+    assert(f.pg(1, 1).inflight == 0);
+    assert(f.pg(1, 1).state == (PG_ACTIVE|PG_HAS_CORRUPTED|PG_HAS_DEGRADED));
+    assert(!f.pg(1, 1).inconsistent_objects.size());
+    assert(f.pg(1, 1).degraded_objects.size() == 1);
+
+    printf("test_ec33_scrub_only_first_part passed\n");
+}
+
 void test_ec33_recovery_missing_first_part()
 {
     printf("test_ec33_recovery_missing_first_part\n");
@@ -404,37 +511,11 @@ void test_ec33_recovery_missing_first_part()
     osd_test_fixture_t f;
 
     // EC 3+3 pool, PG 1, OSD set {1,2,3,4,5,6}, primary = OSD 2
-
-    auto pool_id_s = std::to_string(1);
-    f.st_cli->set("/vitastor/config/global", json11::Json::object {
-        { "no_recovery", true },
-    });
-    f.st_cli->set("/vitastor/config/pools", json11::Json::object {
-        { pool_id_s, json11::Json::object {
-            { "name", "pool_1" },
-            { "scheme", "ec" },
-            { "pg_size", 6 },
-            { "pg_minsize", 3 },
-            { "parity_chunks", 3 },
-            { "pg_count", 1 },
-            { "failure_domain", "osd" },
-            { "immediate_commit", "none" },
-        } },
-    });
+    f.configure_ec33_pool();
     // FIXME: Fix this test without this key.
     f.st_cli->set("/vitastor/pg/history/1/1", json11::Json::object {
         { "osd_sets", json11::Json::array {
             json11::Json::array{ 1, 2, 3, 4, 5, 6 },
-        } },
-    });
-    f.st_cli->set("/vitastor/pg/config", json11::Json::object {
-        { "items", json11::Json::object{
-            { pool_id_s, json11::Json::object {
-                { std::to_string(1), json11::Json::object {
-                    { "osd_set", json11::Json::array{ 1, 2, 3, 4, 5, 6 } },
-                    { "primary", 2 },
-                } }
-            } }
         } },
     });
 
@@ -444,6 +525,7 @@ void test_ec33_recovery_missing_first_part()
         { "immediate_commit", "none" },
         { "block_size", 131072 },
         { "bitmap_granularity", 4096 },
+        { "no_recovery", true },
     });
 
     // Connect peers 1..6
@@ -554,7 +636,7 @@ void test_ec33_recovery_missing_first_part()
     assert(recovery_retval == 0);
     delete recovery_op;
 
-    assert(f.pg(1, 1).inflight == 0);
+    // It triggers autosync so don't check for inflight
 
     printf("test_ec33_recovery_missing_first_part passed\n");
 }
@@ -564,6 +646,7 @@ int main(int narg, char *args[])
     test_load_global_config();
     test_replicated_write();
     test_scrub_corruption_persists();
+    test_ec33_scrub_only_first_part();
     for (int i = 0; test_scrub_same_data_diff_bitmaps(i); i++) {}
     test_ec33_recovery_missing_first_part();
     return 0;

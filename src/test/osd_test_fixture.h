@@ -81,13 +81,7 @@ struct osd_test_fixture_t
     ~osd_test_fixture_t()
     {
         if (osd)
-        {
-            // Drop PGs before tearing msgr down: stop_client would otherwise
-            // call repeer_pgs() on PGs that reference peers we're about to
-            // delete during ~osd_messenger_t().
-            osd->pgs.clear();
             delete osd;
-        }
         delete ringloop;
         delete tfd;
     }
@@ -126,6 +120,33 @@ struct osd_test_fixture_t
         }
         st_cli->set("/vitastor/pg/config", json11::Json::object {
             { "items", json11::Json::object{ { pool_id_s, items_pool } } },
+        });
+    }
+
+    void configure_ec33_pool()
+    {
+        auto pool_id_s = std::to_string(1);
+        st_cli->set("/vitastor/config/pools", json11::Json::object {
+            { pool_id_s, json11::Json::object {
+                { "name", "pool_1" },
+                { "scheme", "ec" },
+                { "pg_size", 6 },
+                { "pg_minsize", 3 },
+                { "parity_chunks", 3 },
+                { "pg_count", 1 },
+                { "failure_domain", "osd" },
+                { "immediate_commit", "none" },
+            } },
+        });
+        st_cli->set("/vitastor/pg/config", json11::Json::object {
+            { "items", json11::Json::object{
+                { pool_id_s, json11::Json::object {
+                    { std::to_string(1), json11::Json::object {
+                        { "osd_set", json11::Json::array{ 1, 2, 3, 4, 5, 6 } },
+                        { "primary", 2 },
+                    } }
+                } }
+            } },
         });
     }
 

@@ -84,7 +84,7 @@ uint64_t blockstore_mock_t::get_free_block_count()
 
 uint64_t blockstore_mock_t::get_journal_size()
 {
-    return 0;
+    return 32*1024*1024;
 }
 
 uint32_t blockstore_mock_t::get_bitmap_granularity()

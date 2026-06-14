@@ -11,6 +11,7 @@
 #include "addr_util.h"
 #include "osd_primary.h"
 #include "osd.h"
+#include "osd_rmw.h"
 #include "http_client.h"
 #include "str_util.h"
 #include "json_util.h"
@@ -113,6 +114,10 @@ osd_t::~osd_t()
         close(listen_fd);
     listen_fds.clear();
     free(zero_buffer);
+    for (auto & pp: pgs)
+        if (pp.second.scheme == POOL_SCHEME_EC)
+            use_ec(pp.second.pg_size, pp.second.pg_data_size, false);
+    pgs.clear();
 }
 
 void osd_t::init_blockstore(std::function<void()> on_init)
