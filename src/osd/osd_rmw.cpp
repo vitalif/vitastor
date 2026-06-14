@@ -669,16 +669,17 @@ void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_
             stripes[role].write_end = end;
         }
     }
-    if (write_parity)
+    for (int role = 0; role < pg_minsize; role++)
     {
-        for (int role = 0; role < pg_minsize; role++)
+        if (write_parity)
         {
             cover_read(start, end, stripes[role]);
-            if (!stripes[role].read_end && (stripes[role].req_start != 0 || stripes[role].req_end != chunk_size))
-            {
-                // Read bitmaps even if we don't need data but it's not fully overwritten
-                stripes[role].read_end = UINT32_MAX;
-            }
+        }
+        if (!stripes[role].read_end && (stripes[role].req_start != 0 || stripes[role].req_end > 0 && stripes[role].req_end != chunk_size))
+        {
+            // Read bitmaps even if we don't need data but it's not fully overwritten
+            // And even if we don't write parity - we need to modify the bitmap and write it back
+            stripes[role].read_end = UINT32_MAX;
         }
     }
     if (write_osd_set != read_osd_set)

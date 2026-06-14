@@ -34,6 +34,7 @@ void test_recover_53_d5();
 void test_recover_22();
 void test_ec_find_good_multi_chunks();
 void test_ec_find_good_42_no_good();
+void test_ec_partial_write_no_parity_preserves_bitmap();
 
 int main(int narg, char *args[])
 {
@@ -80,6 +81,8 @@ int main(int narg, char *args[])
     test_recover_53_d5();
     // Test 20
     test_recover_22();
+    // Test 21
+    test_ec_partial_write_no_parity_preserves_bitmap();
     // End
     printf("all ok\n");
     return 0;
@@ -1506,4 +1509,32 @@ void test_ec_find_good_multi_chunks()
     free(rmw_buf);
     free(write_buf);
     use_ec(7, 4, false);
+}
+
+/***
+
+21. EC partial write with all parity OSDs missing — modified bitmaps should be read
+
+***/
+
+void test_ec_partial_write_no_parity_preserves_bitmap()
+{
+    const int bmp = 4;
+    osd_num_t osd_set[5] = { 1, 2, 3, 0, 0 };
+    osd_rmw_stripe_t stripes[5] = {};
+    // Partial write to role 0, offset 0, len 4K
+    void *write_buf = malloc_or_die(4096);
+    split_stripes(2, 128*1024, 0, 4096, stripes);
+    assert(stripes[0].req_start == 0 && stripes[0].req_end == 4096);
+    assert(stripes[1].req_start == 0 && stripes[1].req_end == 0);
+    assert(stripes[2].req_start == 0 && stripes[2].req_end == 0);
+    void *rmw_buf = calc_rmw(write_buf, stripes, osd_set, 5, 3, 3, osd_set, 128*1024, bmp);
+    // stripes[0] now requires a bitmap-only read
+    assert(stripes[0].read_end == UINT32_MAX);
+    assert(stripes[1].read_end == 0);
+    assert(stripes[2].read_end == 0);
+    assert(stripes[3].read_end == 0);
+    assert(stripes[4].read_end == 0);
+    free(rmw_buf);
+    free(write_buf);
 }
