@@ -296,9 +296,9 @@ static void test_preserve_corruption()
     free(read_op.buf);
 }
 
-static void test_validate_padded_big_journal()
+static void test_validate_padded_journal()
 {
-    printf("\n-- test_validate_padded_big_journal\n");
+    printf("\n-- test_validate_padded_journal\n");
 
     bs_test_t test;
     test.default_cfg();
@@ -324,7 +324,7 @@ static void test_validate_padded_big_journal()
     blockstore_op_t read_op;
     read_op.opcode = BS_OP_READ;
     read_op.oid = { .inode = 1, .stripe = 0 };
-    read_op.version = 2;
+    read_op.version = UINT64_MAX;
     read_op.offset = 0;
     read_op.len = 128*1024;
     read_op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, read_op.len);
@@ -335,7 +335,7 @@ static void test_validate_padded_big_journal()
     assert(memcheck(read_op.buf + 36*1024, 0, (128-36)*1024));
 
     printf("read v1 16+16k\n");
-    read_op.version = 2;
+    read_op.version = UINT64_MAX;
     read_op.offset = 16*1024;
     read_op.len = 16*1024;
     test.exec_op(&read_op);
@@ -343,13 +343,42 @@ static void test_validate_padded_big_journal()
     assert(memcheck(read_op.buf, 0xAA, 16*1024));
 
     printf("read v1 0+16k\n");
-    read_op.version = 2;
+    read_op.version = UINT64_MAX;
     read_op.offset = 0;
     read_op.len = 16*1024;
     test.exec_op(&read_op);
     assert(read_op.retval == read_op.len);
     assert(memcheck(read_op.buf, 0, 4*1024));
     assert(memcheck(read_op.buf + 4*1024, 0xAA, 12*1024));
+
+    printf("small_write v2 8+32k\n");
+    op.version = 2;
+    op.offset = 8*1024;
+    op.len = 32*1024;
+    memset(op.buf, 0xAB, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    printf("read v1 0+128k\n");
+    read_op.version = UINT64_MAX;
+    read_op.offset = 0;
+    read_op.len = 128*1024;
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
+
+    printf("read v1 16+16k\n");
+    read_op.version = UINT64_MAX;
+    read_op.offset = 16*1024;
+    read_op.len = 16*1024;
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
+
+    printf("read v1 0+16k\n");
+    read_op.version = UINT64_MAX;
+    read_op.offset = 0;
+    read_op.len = 16*1024;
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
 
     free(op.buf);
     free(read_op.buf);
@@ -358,6 +387,6 @@ static void test_validate_padded_big_journal()
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
-    test_validate_padded_big_journal();
+    test_validate_padded_journal();
     return 0;
 }
