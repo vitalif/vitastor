@@ -192,6 +192,9 @@ void osd_t::parse_config(bool init)
         if (!bs_bitmap_granularity)
             bs_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
         clean_entry_bitmap_size = bs_block_size / bs_bitmap_granularity / 8;
+        msgr.bs_block_size = bs_block_size;
+        msgr.clean_entry_bitmap_size = clean_entry_bitmap_size;
+        msgr.max_write_request_size = MAX_DATA_BLOCK_SIZE; // will be changed after pool config
         // immediate_commit
         if (config["immediate_commit"] == "all")
             immediate_commit = IMMEDIATE_ALL;

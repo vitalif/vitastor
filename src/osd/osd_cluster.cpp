@@ -427,6 +427,21 @@ void osd_t::on_change_pool_config_hook()
     {
         apply_pg_locks_localize_only();
     }
+    msgr.max_write_request_size = 0;
+    for (auto & pc: st_cli->pool_config)
+    {
+        auto & pool_cfg = pc.second;
+        uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+        uint32_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
+        if (msgr.max_write_request_size < pg_block_size)
+        {
+            msgr.max_write_request_size = pg_block_size;
+        }
+    }
+    if (!msgr.max_write_request_size)
+    {
+        msgr.max_write_request_size = MAX_DATA_BLOCK_SIZE;
+    }
 }
 
 void osd_t::apply_pg_locks_localize_only()

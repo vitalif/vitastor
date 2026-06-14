@@ -38,6 +38,8 @@
 #define MSGR_SENDP_HDR 1
 #define MSGR_SENDP_FREE 2
 
+#define MAX_SIMPLE_PAYLOAD_SIZE 1048576
+
 struct msgr_sendp_t
 {
     osd_op_t *op;
@@ -181,9 +183,12 @@ public:
     timerfd_manager_t *tfd = NULL;
     ring_loop_i *ringloop = NULL;
     bool has_sendmsg_zc = false;
-    // osd_num_t is only for logging and asserts
     uint64_t next_client_id = 1;
-    osd_num_t osd_num;
+    // osd_num = 0 for client messenger, osd_num > 0 for OSD messenger
+    osd_num_t osd_num = 0;
+    uint32_t clean_entry_bitmap_size = 0;
+    uint32_t bs_block_size = 0;
+    uint32_t max_write_request_size = 0;
     robin_hood::unordered_flat_map<uint64_t, osd_client_t*> clients;
     robin_hood::unordered_flat_map<uint64_t, osd_client_t*> osd_peers;
     robin_hood::unordered_flat_map<int, osd_client_t*> clients_by_fd;
@@ -249,7 +254,7 @@ protected:
     bool handle_read(int result, osd_client_t *cl);
     bool handle_read_buffer(osd_client_t *cl, void *curbuf, int remain);
     bool handle_finished_read(osd_client_t *cl);
-    void handle_op_hdr(osd_client_t *cl);
+    bool handle_op_hdr(osd_client_t *cl);
     bool handle_reply_hdr(osd_client_t *cl);
     void handle_reply_ready(osd_op_t *op);
     void handle_immediate_ops();

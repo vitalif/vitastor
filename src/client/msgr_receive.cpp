@@ -231,7 +231,11 @@ bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
                 }
                 cl->read_op_id++;
             }
-            handle_op_hdr(cl);
+            if (!handle_op_hdr(cl))
+            {
+                stop_client(cl->client_id);
+                return false;
+            }
         }
         else
         {
@@ -262,7 +266,7 @@ bool osd_messenger_t::handle_finished_read(osd_client_t *cl)
     return true;
 }
 
-void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
+bool osd_messenger_t::handle_op_hdr(osd_client_t *cl)
 {
     osd_op_t *cur_op = cl->read_op;
     if (cur_op->req.hdr.opcode == OSD_OP_SEC_READ)
@@ -274,7 +278,16 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     {
         if (cur_op->req.sec_rw.attr_len > 0)
         {
-            if (cur_op->req.sec_rw.attr_len > sizeof(unsigned))
+            if (cur_op->req.sec_rw.attr_len > clean_entry_bitmap_size)
+            {
+                if (log_level > 1)
+                {
+                    fprintf(stderr, "Error: peer %ju secondary write request attr_len too large (%u > %u bytes), stopping\n", cl->client_id,
+                        cur_op->req.sec_rw.attr_len, clean_entry_bitmap_size);
+                }
+                return false;
+            }
+            else if (cur_op->req.sec_rw.attr_len > sizeof(cur_op->bmp_data))
                 cur_op->bitmap = cur_op->rmw_buf = malloc_or_die(cur_op->req.sec_rw.attr_len);
             else
                 cur_op->bitmap = &cur_op->bmp_data;
@@ -282,6 +295,15 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
         }
         if (cur_op->req.sec_rw.len > 0)
         {
+            if (cur_op->req.sec_rw.len > bs_block_size)
+            {
+                if (log_level > 1)
+                {
+                    fprintf(stderr, "Error: peer %ju secondary write request size too large (%u > %u bytes), stopping\n", cl->client_id,
+                        cur_op->req.sec_rw.len, bs_block_size);
+                }
+                return false;
+            }
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
             cl->recv_list.push_back(cur_op->buf, cur_op->req.sec_rw.len);
         }
@@ -292,6 +314,15 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     {
         if (cur_op->req.sec_stab.len > 0)
         {
+            if (cur_op->req.sec_stab.len > MAX_SIMPLE_PAYLOAD_SIZE)
+            {
+                if (log_level > 1)
+                {
+                    fprintf(stderr, "Error: peer %ju stabilize request size too large (%lu > %u bytes), stopping\n", cl->client_id,
+                        cur_op->req.sec_stab.len, MAX_SIMPLE_PAYLOAD_SIZE);
+                }
+                return false;
+            }
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_stab.len);
             cl->recv_list.push_back(cur_op->buf, cur_op->req.sec_stab.len);
         }
@@ -301,6 +332,15 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     {
         if (cur_op->req.sec_read_bmp.len > 0)
         {
+            if (cur_op->req.sec_read_bmp.len > MAX_SIMPLE_PAYLOAD_SIZE)
+            {
+                if (log_level > 1)
+                {
+                    fprintf(stderr, "Error: peer %ju sec_read_bmp request size too large (%lu > %u bytes), stopping\n", cl->client_id,
+                        cur_op->req.sec_read_bmp.len, MAX_SIMPLE_PAYLOAD_SIZE);
+                }
+                return false;
+            }
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_read_bmp.len);
             cl->recv_list.push_back(cur_op->buf, cur_op->req.sec_read_bmp.len);
         }
@@ -310,6 +350,15 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     {
         if (cur_op->req.rw.len > 0)
         {
+            if (cur_op->req.rw.len > max_write_request_size)
+            {
+                if (log_level > 1)
+                {
+                    fprintf(stderr, "Error: peer %ju write request size too large (%u > %u bytes), stopping\n", cl->client_id,
+                        cur_op->req.rw.len, max_write_request_size);
+                }
+                return false;
+            }
             cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.rw.len);
             cl->recv_list.push_back(cur_op->buf, cur_op->req.rw.len);
         }
@@ -319,6 +368,15 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
     {
         if (cur_op->req.show_conf.json_len > 0)
         {
+            if (cur_op->req.show_conf.json_len > MAX_SIMPLE_PAYLOAD_SIZE)
+            {
+                if (log_level > 1)
+                {
+                    fprintf(stderr, "Error: peer %ju show_config request length too large (%lu > %u bytes), stopping\n", cl->client_id,
+                        cur_op->req.show_conf.json_len, MAX_SIMPLE_PAYLOAD_SIZE);
+                }
+                return false;
+            }
             cur_op->buf = malloc_or_die(cur_op->req.show_conf.json_len+1);
             ((uint8_t*)cur_op->buf)[cur_op->req.show_conf.json_len] = 0;
             cl->recv_list.push_back(cur_op->buf, cur_op->req.show_conf.json_len);
@@ -344,6 +402,7 @@ void osd_messenger_t::handle_op_hdr(osd_client_t *cl)
         cl->read_op = NULL;
         cl->read_state = 0;
     }
+    return true;
 }
 
 bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)

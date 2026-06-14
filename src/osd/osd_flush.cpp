@@ -6,6 +6,8 @@
 #define FLUSH_BATCH 512
 #define SELF_CLIENT 0
 
+static_assert(FLUSH_BATCH <= MAX_SIMPLE_PAYLOAD_SIZE / sizeof(obj_ver_id));
+
 void osd_t::submit_pg_flush_ops(pg_t & pg)
 {
     pg_flush_batch_t *fb = new pg_flush_batch_t();
