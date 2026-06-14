@@ -123,27 +123,30 @@ struct osd_test_fixture_t
         });
     }
 
-    void configure_ec33_pool()
+    void configure_ec_pool(int data_chunks, int parity_chunks, uint64_t primary_osd = 2)
     {
         auto pool_id_s = std::to_string(1);
         st_cli->set("/vitastor/config/pools", json11::Json::object {
             { pool_id_s, json11::Json::object {
                 { "name", "pool_1" },
                 { "scheme", "ec" },
-                { "pg_size", 6 },
-                { "pg_minsize", 3 },
-                { "parity_chunks", 3 },
+                { "pg_size", data_chunks+parity_chunks },
+                { "pg_minsize", data_chunks },
+                { "parity_chunks", parity_chunks },
                 { "pg_count", 1 },
                 { "failure_domain", "osd" },
                 { "immediate_commit", "none" },
             } },
         });
+        json11::Json::array osd_set;
+        for (uint64_t i = 1; i <= data_chunks+parity_chunks; i++)
+            osd_set.push_back(i);
         st_cli->set("/vitastor/pg/config", json11::Json::object {
             { "items", json11::Json::object{
                 { pool_id_s, json11::Json::object {
                     { std::to_string(1), json11::Json::object {
-                        { "osd_set", json11::Json::array{ 1, 2, 3, 4, 5, 6 } },
-                        { "primary", 2 },
+                        { "osd_set", osd_set },
+                        { "primary", primary_osd },
                     } }
                 } }
             } },

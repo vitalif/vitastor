@@ -404,7 +404,7 @@ void test_ec33_scrub_only_first_part()
     osd_test_fixture_t f;
 
     // EC 3+3 pool, PG 1, OSD set {1,2,3,4,5,6}, primary = OSD 2
-    f.configure_ec33_pool();
+    f.configure_ec_pool(3, 3);
 
     f.start(json11::Json::object {
         { "osd_num", 2 },
@@ -511,7 +511,7 @@ void test_ec33_recovery_missing_first_part()
     osd_test_fixture_t f;
 
     // EC 3+3 pool, PG 1, OSD set {1,2,3,4,5,6}, primary = OSD 2
-    f.configure_ec33_pool();
+    f.configure_ec_pool(3, 3);
     // FIXME: Fix this test without this key.
     f.st_cli->set("/vitastor/pg/history/1/1", json11::Json::object {
         { "osd_sets", json11::Json::array {
@@ -533,10 +533,11 @@ void test_ec33_recovery_missing_first_part()
         if (peer != 2)
             f.connect_peer(peer);
     inode_t ino = INODE_WITH_POOL(1, 1);
-    f.reply_local_list({ { { ino, 1 }, 1 } }, 1);
+    inode_t ino2 = INODE_WITH_POOL(1, 2);
+    f.reply_local_list({ { { ino, 1 }, 1 }, { { ino2, 1 }, 1 } }, 2);
     f.reply_peer_list(1, {}, 0); // OSD 1 has missing stripe
     for (int peer = 3; peer <= 6; peer++)
-        f.reply_peer_list(peer, { { { ino, (uint64_t)(peer-1) }, 1 } }, 1);
+        f.reply_peer_list(peer, { { { ino, (uint64_t)(peer-1) }, 1 }, { { ino2, (uint64_t)(peer-1) }, 1 } }, 2);
     f.ringloop->loop();
     assert(f.pg(1, 1).state == (PG_ACTIVE|PG_HAS_DEGRADED));
 
@@ -636,9 +637,118 @@ void test_ec33_recovery_missing_first_part()
     assert(recovery_retval == 0);
     delete recovery_op;
 
-    // It triggers autosync so don't check for inflight
+    // There is also ino2 so the PG doesn't change state and doesn't trigger autosync
+
+    assert(f.pg(1, 1).inflight == 0);
 
     printf("test_ec33_recovery_missing_first_part passed\n");
+}
+
+// Check that partial parity-less EC writes don't destroy allocation bitmaps
+void test_ec42_write_parityless()
+{
+    printf("test_ec42_write_parityless\n");
+
+    osd_test_fixture_t f;
+
+    f.configure_ec_pool(4, 2);
+    // FIXME: Fix this test without this key.
+    f.st_cli->set("/vitastor/pg/history/1/1", json11::Json::object {
+        { "osd_sets", json11::Json::array {
+            json11::Json::array{ 1, 2, 3, 4 },
+        } },
+    });
+
+    f.start(json11::Json::object {
+        { "osd_num", 2 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+
+    // Connect peers 1..4
+    for (int peer = 1; peer <= 4; peer++)
+        if (peer != 2)
+            f.connect_peer(peer);
+    f.complete_peering_empty();
+    assert(f.pg(1, 1).state == (PG_ACTIVE|PG_DEGRADED|PG_LEFT_ON_DEAD));
+
+    // Simple write
+    auto *wr_op = make_write_op(INODE_WITH_POOL(1, 1), 0, 4096, 0xab);
+    int wr_retval = -1;
+    wr_op->callback = [&wr_retval](osd_op_t *op)
+    {
+        wr_retval = op->reply.hdr.retval;
+    };
+    f.exec(wr_op);
+
+    // OSD should read from 1 and write to all
+    {
+        auto *peer_read = f.peer_take(1, OSD_OP_SEC_READ);
+        assert(peer_read->req.sec_rw.len == 0);
+        *(uint32_t*)peer_read->bitmap = 0xfffffffe;
+        peer_read->reply.hdr.retval = peer_read->req.sec_rw.len;
+        peer_read->reply.sec_rw.attr_len = 4;
+        peer_read->reply.sec_rw.version = 1;
+        peer_read->callback(peer_read);
+    }
+
+    // Check writes
+    {
+        auto *peer_write = f.peer_take(1, OSD_OP_SEC_WRITE);
+        assert(peer_write->req.sec_rw.offset == 0);
+        assert(peer_write->req.sec_rw.len == 4*1024);
+        assert(peer_write->req.sec_rw.version == ((1 << 16) | 1));
+        assert(peer_write->req.sec_rw.attr_len == 4);
+        assert(peer_write->iov.count == 1);
+        assert(memcheck((uint8_t*)peer_write->iov.buf[0].iov_base, 0xab, peer_write->req.sec_rw.len));
+        // peer 1 bitmap must be written
+        assert(peer_write->req.sec_rw.attr_len == 4);
+        printf("osd 1 bitmap: %08x\n", *(uint32_t*)peer_write->bitmap);
+        assert(memcheck((uint8_t*)peer_write->bitmap, 0xff, 4));
+        peer_write->reply = {};
+        peer_write->reply.hdr.retval = peer_write->req.sec_rw.len;
+        peer_write->reply.sec_rw.version = peer_write->req.sec_rw.version;
+        peer_write->callback(peer_write);
+    }
+    {
+        auto *local_write = f.bs->take(BS_OP_WRITE);
+        assert(local_write->len == 0);
+        assert(local_write->version == ((1 << 16) | 1));
+        if (local_write->bitmap)
+        {
+            printf("osd 2 bitmap: %08x\n", *(uint32_t*)local_write->bitmap);
+            assert(memcheck(local_write->bitmap, 0xff, 4));
+        }
+        local_write->retval = local_write->len;
+        local_write->callback(local_write);
+    }
+    for (osd_num_t peer = 3; peer <= 4; peer++)
+    {
+        auto *peer_write = f.peer_take(peer, OSD_OP_SEC_WRITE);
+        assert(peer_write->req.sec_rw.len == 0);
+        assert(peer_write->req.sec_rw.version == ((1 << 16) | 1));
+        if (peer_write->req.sec_rw.attr_len)
+        {
+            // peer 2-6 bitmaps may be either skipped or set to a correct value
+            // first parity is 0x0, second is 0x11
+            printf("osd %ju bitmap: %08x\n", peer, *(uint32_t*)peer_write->bitmap);
+            assert(peer_write->req.sec_rw.attr_len == 4);
+            assert(memcheck((uint8_t*)peer_write->bitmap, peer <= 4 ? 0xff : (peer == 5 ? 0x00 : 0xff), 4));
+        }
+        peer_write->reply = {};
+        peer_write->reply.hdr.retval = peer_write->req.sec_rw.len;
+        peer_write->reply.sec_rw.version = peer_write->req.sec_rw.version;
+        peer_write->callback(peer_write);
+    }
+
+    assert(wr_retval == wr_op->req.rw.len);
+    delete wr_op;
+
+    assert(f.pg(1, 1).inflight == 0);
+
+    printf("test_ec42_write_parityless passed\n");
 }
 
 int main(int narg, char *args[])
@@ -649,5 +759,6 @@ int main(int narg, char *args[])
     test_ec33_scrub_only_first_part();
     for (int i = 0; test_scrub_same_data_diff_bitmaps(i); i++) {}
     test_ec33_recovery_missing_first_part();
+    test_ec42_write_parityless();
     return 0;
 }
