@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "osd.h"
+#include "osd_rmw.h"
 #include "blockstore_mock.h"
 #include "etcd_state_client_mock.h"
 #include "ringloop_mock.h"

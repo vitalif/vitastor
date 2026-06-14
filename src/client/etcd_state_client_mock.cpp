@@ -51,7 +51,7 @@ void etcd_state_client_mock_t::etcd_call(std::string api, json11::Json payload, 
         queue.push_back({ api, payload, timeout, retries, interval, callback });
         return;
     }
-    printf("+ etcd: %s %s\n", api.c_str(), payload.dump().c_str());
+    printf("+ etcd: %s\n", api.c_str());
     if (api == "/kv/txn")
     {
         bool ok = true;

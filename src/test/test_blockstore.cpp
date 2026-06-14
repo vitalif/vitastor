@@ -139,14 +139,6 @@ struct bs_test_t
     }
 };
 
-static bool memcheck(uint8_t *buf, uint8_t byte, size_t len)
-{
-    for (size_t i = 0; i < len; i++)
-        if (buf[i] != byte)
-            return false;
-    return true;
-}
-
 static void test_simple()
 {
     printf("\n-- test_simple\n");

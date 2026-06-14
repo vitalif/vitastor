@@ -54,6 +54,7 @@ static osd_op_t *make_write_op(inode_t inode, uint64_t offset, uint64_t len, uin
     op->req.rw.inode = inode;
     op->req.rw.offset = offset;
     op->req.rw.len = len;
+    op->req.rw.version = 0;
     op->buf = malloc(len);
     memset(op->buf, fill, len);
     return op;
@@ -396,11 +397,174 @@ bool test_scrub_same_data_diff_bitmaps(int ctr)
     return more;
 }
 
+void test_ec33_recovery_missing_first_part()
+{
+    printf("test_ec33_recovery_missing_first_part\n");
+
+    osd_test_fixture_t f;
+
+    // EC 3+3 pool, PG 1, OSD set {1,2,3,4,5,6}, primary = OSD 2
+
+    auto pool_id_s = std::to_string(1);
+    f.st_cli->set("/vitastor/config/global", json11::Json::object {
+        { "no_recovery", true },
+    });
+    f.st_cli->set("/vitastor/config/pools", json11::Json::object {
+        { pool_id_s, json11::Json::object {
+            { "name", "pool_1" },
+            { "scheme", "ec" },
+            { "pg_size", 6 },
+            { "pg_minsize", 3 },
+            { "parity_chunks", 3 },
+            { "pg_count", 1 },
+            { "failure_domain", "osd" },
+            { "immediate_commit", "none" },
+        } },
+    });
+    // FIXME: Fix this test without this key.
+    f.st_cli->set("/vitastor/pg/history/1/1", json11::Json::object {
+        { "osd_sets", json11::Json::array {
+            json11::Json::array{ 1, 2, 3, 4, 5, 6 },
+        } },
+    });
+    f.st_cli->set("/vitastor/pg/config", json11::Json::object {
+        { "items", json11::Json::object{
+            { pool_id_s, json11::Json::object {
+                { std::to_string(1), json11::Json::object {
+                    { "osd_set", json11::Json::array{ 1, 2, 3, 4, 5, 6 } },
+                    { "primary", 2 },
+                } }
+            } }
+        } },
+    });
+
+    f.start(json11::Json::object {
+        { "osd_num", 2 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+
+    // Connect peers 1..6
+    for (int peer = 1; peer <= 6; peer++)
+        if (peer != 2)
+            f.connect_peer(peer);
+    inode_t ino = INODE_WITH_POOL(1, 1);
+    f.reply_local_list({ { { ino, 1 }, 1 } }, 1);
+    f.reply_peer_list(1, {}, 0); // OSD 1 has missing stripe
+    for (int peer = 3; peer <= 6; peer++)
+        f.reply_peer_list(peer, { { { ino, (uint64_t)(peer-1) }, 1 } }, 1);
+    f.ringloop->loop();
+    assert(f.pg(1, 1).state == (PG_ACTIVE|PG_HAS_DEGRADED));
+
+    // Recovery write
+    auto *recovery_op = make_write_op(ino, 0, 0, 0);
+    int recovery_retval = -1;
+    recovery_op->callback = [&recovery_retval](osd_op_t *op)
+    {
+        recovery_retval = op->reply.hdr.retval;
+    };
+    f.exec(recovery_op);
+
+    // OSD should read from 2, 3, 4 and write to all
+    assert(!f.peer(1)->sent_ops.size());
+    assert(!f.peer(5)->sent_ops.size());
+    assert(!f.peer(6)->sent_ops.size());
+    {
+        auto *local_read = f.bs->take(BS_OP_READ);
+        assert(local_read->len == 128*1024);
+        memset(local_read->buf, 0xab, local_read->len);
+        memset(local_read->bitmap, 0xff, 4);
+        local_read->retval = local_read->len;
+        local_read->version = 1;
+        local_read->callback(local_read);
+    }
+    {
+        auto *peer_read = f.peer_take(3, OSD_OP_SEC_READ);
+        assert(peer_read->req.sec_rw.len == 128*1024);
+        assert(peer_read->iov.count == 1);
+        memset(peer_read->iov.buf[0].iov_base, 0xab, peer_read->req.sec_rw.len);
+        memset(peer_read->bitmap, 0xff, 4);
+        peer_read->reply.hdr.retval = peer_read->req.sec_rw.len;
+        peer_read->reply.sec_rw.attr_len = 4;
+        peer_read->reply.sec_rw.version = 1;
+        peer_read->callback(peer_read);
+    }
+    {
+        auto *peer_read = f.peer_take(4, OSD_OP_SEC_READ);
+        assert(peer_read->req.sec_rw.len == 128*1024);
+        assert(peer_read->iov.count == 1);
+        memset(peer_read->iov.buf[0].iov_base, 0xab, peer_read->req.sec_rw.len); // 0xab xored 3 times -> 0xab
+        memset(peer_read->bitmap, 0xff, 4); // 0xff xored 3 times -> 0xff
+        peer_read->reply.hdr.retval = peer_read->req.sec_rw.len;
+        peer_read->reply.sec_rw.attr_len = 4;
+        peer_read->reply.sec_rw.version = 1;
+        peer_read->callback(peer_read);
+    }
+
+    // Check writes
+    {
+        auto *peer_write = f.peer_take(1, OSD_OP_SEC_WRITE);
+        assert(peer_write->req.sec_rw.len == 128*1024);
+        assert(peer_write->req.sec_rw.version == ((1 << 16) | 1));
+        assert(peer_write->req.sec_rw.attr_len == 4);
+        assert(peer_write->iov.count == 1);
+        assert(memcheck((uint8_t*)peer_write->iov.buf[0].iov_base, 0xab, peer_write->req.sec_rw.len));
+        // peer 1 bitmap must be written
+        assert(peer_write->req.sec_rw.attr_len == 4);
+        printf("osd 1 bitmap: %08x\n", *(uint32_t*)peer_write->bitmap);
+        assert(memcheck((uint8_t*)peer_write->bitmap, 0xff, 4));
+        peer_write->reply = {};
+        peer_write->reply.hdr.retval = peer_write->req.sec_rw.len;
+        peer_write->reply.sec_rw.version = peer_write->req.sec_rw.version;
+        peer_write->callback(peer_write);
+    }
+    {
+        auto *local_write = f.bs->take(BS_OP_WRITE);
+        assert(local_write->len == 0);
+        assert(local_write->version == ((1 << 16) | 1));
+        if (local_write->bitmap)
+        {
+            printf("osd 2 bitmap: %08x\n", *(uint32_t*)local_write->bitmap);
+            assert(memcheck(local_write->bitmap, 0xff, 4));
+        }
+        local_write->retval = local_write->len;
+        local_write->callback(local_write);
+    }
+    for (osd_num_t peer = 3; peer <= 6; peer++)
+    {
+        auto *peer_write = f.peer_take(peer, OSD_OP_SEC_WRITE);
+        assert(peer_write->req.sec_rw.len == 0);
+        assert(peer_write->req.sec_rw.version == ((1 << 16) | 1));
+        if (peer_write->req.sec_rw.attr_len)
+        {
+            // peer 2-6 bitmaps may be either skipped or set to a correct value
+            // first parity is 0xff, second is 0x11, third is 0x00
+            printf("osd %ju bitmap: %08x\n", peer, *(uint32_t*)peer_write->bitmap);
+            assert(peer_write->req.sec_rw.attr_len == 4);
+            assert(memcheck((uint8_t*)peer_write->bitmap, peer <= 4 ? 0xff : (peer == 5 ? 0x11 : 0x00), 4));
+        }
+        peer_write->reply = {};
+        peer_write->reply.hdr.retval = peer_write->req.sec_rw.len;
+        peer_write->reply.sec_rw.version = peer_write->req.sec_rw.version;
+        peer_write->callback(peer_write);
+    }
+
+    assert(recovery_retval == 0);
+    delete recovery_op;
+
+    assert(f.pg(1, 1).inflight == 0);
+
+    printf("test_ec33_recovery_missing_first_part passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
     test_replicated_write();
     test_scrub_corruption_persists();
     for (int i = 0; test_scrub_same_data_diff_bitmaps(i); i++) {}
+    test_ec33_recovery_missing_first_part();
     return 0;
 }
