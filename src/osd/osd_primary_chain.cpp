@@ -195,10 +195,13 @@ int osd_t::collect_bitmap_requests(osd_op_t *cur_op, pg_t & pg, std::vector<bitm
             int need_at_least = 0;
             for (int i = 0; i < pg.pg_size; i++)
             {
-                if (local_stripes[i].read_end != 0 && cur_set[i] == 0)
+                if (cur_set[i] == 0)
                 {
-                    // We need this part of the bitmap, but it's unavailable
-                    need_at_least = pg.pg_data_size;
+                    if (local_stripes[i].read_end != 0)
+                    {
+                        // We need this part of the bitmap, but it's unavailable
+                        need_at_least = pg.pg_data_size;
+                    }
                     op_data->missing_flags[chain_num*pg.pg_size + i] = 1;
                 }
                 else
