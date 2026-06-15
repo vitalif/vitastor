@@ -122,6 +122,8 @@ uint32_t heap_entry_t::get_size(blockstore_heap_t *heap)
     }
     if (type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE)
     {
+        if (size < sizeof(heap_small_write_t))
+            return heap->get_small_entry_size(0, 0);
         return heap->get_small_entry_size(small().offset, small().len);
     }
     return heap->get_simple_entry_size();
@@ -364,14 +366,11 @@ corrupted_object:
                     return EDOM;
                 }
             }
-            if (((wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ||
-                (wr->entry_type & BS_HEAP_TYPE) == BS_HEAP_INTENT_WRITE) &&
-                wr->size < sizeof(heap_small_write_t))
+            if (wr->size != wr->get_size(this))
             {
-                // Small writes require accessing offset & len to calculate correct length,
-                // so require at least sizeof(heap_small_write_t) for them
-                fprintf(stderr, "Error: entry %jx:%jx v%ju has invalid size in metadata block %u at %u (%u < min %zu bytes)\n",
-                    wr->inode, wr->stripe, wr->version, block_num, block_offset, wr->size, sizeof(heap_small_write_t));
+                // Check entry size
+                fprintf(stderr, "Error: entry %jx:%jx v%ju has invalid size in metadata block %u at %u (%u != %u bytes)\n",
+                    wr->inode, wr->stripe, wr->version, block_num, block_offset, wr->size, wr->get_size(this));
                 goto corrupted_object;
             }
             if (wr->entry_type == BS_HEAP_COMMIT && !wr->version)
