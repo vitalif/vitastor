@@ -705,6 +705,54 @@ static void vitastor_close(BlockDriverState *bs)
     client->last_bitmap = NULL;
 }
 
+// Unregister all event sources from the current AioContext. Called by the
+// block layer before bs is moved to a different AioContext (e.g. during live
+// migration, drain, dataplane switching). The block layer guarantees that no
+// requests are in flight at this point.
+static void vitastor_detach_aio_context(BlockDriverState *bs)
+{
+    VitastorClient *client = bs->opaque;
+    int i;
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 2
+    if (client->uring_eventfd >= 0)
+    {
+        universal_aio_set_fd_handler(client->ctx, client->uring_eventfd, NULL, NULL, NULL);
+        // Wait until any scheduled B/H is processed before switching contexts:
+        // it would otherwise fire on the old context with stale state.
+        if (client->bh_uring_scheduled)
+        {
+            BDRV_POLL_WHILE(bs, client->bh_uring_scheduled);
+        }
+    }
+#endif
+    for (i = 0; i < client->fd_count; i++)
+    {
+        universal_aio_set_fd_handler(client->ctx, client->fds[i]->fd, NULL, NULL, NULL);
+    }
+}
+
+// (Re-)register all event sources on the new AioContext.
+static void vitastor_attach_aio_context(BlockDriverState *bs, AioContext *new_ctx)
+{
+    VitastorClient *client = bs->opaque;
+    int i;
+    client->ctx = new_ctx;
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 2
+    if (client->uring_eventfd >= 0)
+    {
+        universal_aio_set_fd_handler(new_ctx, client->uring_eventfd, vitastor_uring_handler, NULL, client);
+    }
+#endif
+    for (i = 0; i < client->fd_count; i++)
+    {
+        VitastorFdData *fdd = client->fds[i];
+        universal_aio_set_fd_handler(new_ctx, fdd->fd,
+            fdd->fd_read ? vitastor_aio_fd_read : NULL,
+            fdd->fd_write ? vitastor_aio_fd_write : NULL,
+            fdd);
+    }
+}
+
 #if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 2
 static void vitastor_refresh_filename(BlockDriverState *bs)
 {
@@ -1187,6 +1235,9 @@ static BlockDriver bdrv_vitastor = {
     .bdrv_file_open                 = vitastor_file_open,
 #endif
     .bdrv_close                     = vitastor_close,
+
+    .bdrv_detach_aio_context        = vitastor_detach_aio_context,
+    .bdrv_attach_aio_context        = vitastor_attach_aio_context,
 
     // Option list for the create operation
 #if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 0
