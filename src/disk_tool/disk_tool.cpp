@@ -317,9 +317,13 @@ int main(int argc, char *argv[])
         else
         {
             // First argument is an OSD device - take metadata layout parameters from it
+            if (self.options["io"] != "")
+                self.dsk.data_io = self.dsk.meta_io = self.dsk.journal_io = self.options["io"];
             if (self.dump_load_check_superblock(self.dsk.journal_device))
                 return 1;
         }
+        if (self.options["io"] != "")
+            self.dsk.data_io = self.dsk.meta_io = self.dsk.journal_io = self.options["io"];
         return self.dump_journal();
     }
     else if (!strcmp(cmd[0], "write-journal"))
@@ -340,6 +344,8 @@ int main(int argc, char *argv[])
         else
         {
             // First argument is an OSD device - take metadata layout parameters from it
+            if (self.options["io"] != "")
+                self.dsk.data_io = self.dsk.meta_io = self.dsk.journal_io = self.options["io"];
             if (self.dump_load_check_superblock(self.new_journal_device))
                 return 1;
             self.new_journal_device = self.dsk.journal_device;
@@ -366,6 +372,10 @@ int main(int argc, char *argv[])
         {
             self.dsk.csum_block_size = stoull_full(self.options["csum_block_size"], 0);
         }
+        if (self.options["io"] != "")
+        {
+            self.dsk.data_io = self.dsk.meta_io = self.dsk.journal_io = self.options["io"];
+        }
         return self.write_json_journal(entries);
     }
     else if (!strcmp(cmd[0], "dump-meta"))
@@ -382,6 +392,8 @@ int main(int argc, char *argv[])
         {
             // First argument is an OSD device - take metadata layout parameters from it
             self.dsk.meta_device = cmd[1];
+            if (self.options["io"] != "")
+                self.dsk.data_io = self.dsk.meta_io = self.dsk.journal_io = self.options["io"];
             if (self.dump_load_check_superblock(self.dsk.meta_device))
                 return 1;
         }
@@ -398,6 +410,8 @@ int main(int argc, char *argv[])
             self.dsk.calc_lengths();
             self.dsk.close_all();
         }
+        if (self.options["io"] != "")
+            self.dsk.data_io = self.dsk.meta_io = self.dsk.journal_io = self.options["io"];
         return self.dump_meta();
     }
     else if (!strcmp(cmd[0], "write-meta"))
@@ -412,6 +426,8 @@ int main(int argc, char *argv[])
         {
             // First argument is an OSD device - take metadata layout parameters from it
             self.new_meta_device = cmd[1];
+            if (self.options["io"] != "")
+                self.dsk.data_io = self.dsk.meta_io = self.dsk.journal_io = self.options["io"];
             if (self.dump_load_check_superblock(self.new_meta_device))
                 return 1;
             self.new_meta_device = self.dsk.meta_device;
@@ -422,6 +438,8 @@ int main(int argc, char *argv[])
         {
             // Parse all OSD options from cmdline
             self.dsk.parse_config(self.options);
+            if (self.options["io"] != "")
+                self.dsk.data_io = self.dsk.meta_io = self.dsk.journal_io = self.options["io"];
             self.dsk.open_data();
             self.dsk.open_meta();
             self.dsk.open_journal();
@@ -438,6 +456,8 @@ int main(int argc, char *argv[])
             fprintf(stderr, "Invalid JSON: %s\n", json_err.c_str());
             return 1;
         }
+        if (self.options["io"] != "")
+            self.dsk.data_io = self.dsk.meta_io = self.dsk.journal_io = self.options["io"];
         return self.write_json_meta(meta);
     }
     else if (!strcmp(cmd[0], "resize"))
