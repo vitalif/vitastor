@@ -29,12 +29,11 @@ for i in $(seq 1 $OSD_COUNT); do
     data_offset=$(echo $offsets | jq -r .data_offset)
     if [[ "$meta_format" = "3" ]]; then
         build/src/disk_tool/vitastor-disk dump-meta --io cached $opts >./testdata/meta_before_resize.json
-        new_data_offset=$((128*1024*1024+data_offset%131072))
     else
         build/src/disk_tool/vitastor-disk dump-journal --io cached --json ./testdata/bin/test_osd$i.bin 4096 0 $meta_offset >./testdata/journal_before_resize.json
         build/src/disk_tool/vitastor-disk dump-meta --io cached ./testdata/bin/test_osd$i.bin 4096 $meta_offset $((data_offset-meta_offset)) >./testdata/meta_before_resize.json
-        new_data_offset=$((128*1024*1024+32768))
     fi
+    new_data_offset=$((128*1024*1024 + data_offset%131072))
     build/src/disk_tool/vitastor-disk raw-resize --io cached \
         $opts \
         --new_meta_offset 0 \

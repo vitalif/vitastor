@@ -118,9 +118,11 @@ TEST_NAME=csum_4k_dj   OSD_ARGS="--data_csum_type crc32c --inmemory_journal fals
 TEST_NAME=csum_4k      OSD_ARGS="--data_csum_type crc32c" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh
 
 ./test_resize.sh
+./test_resize_last.sh
 ./test_resize_auto.sh
 
 OLD=1 ./test_resize.sh
+OLD=1 ./test_resize_last.sh
 OLD=1 ./test_resize_auto.sh
 
 ./test_osd_tags.sh

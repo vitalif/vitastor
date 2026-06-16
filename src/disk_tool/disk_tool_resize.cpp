@@ -213,7 +213,8 @@ void disk_tool_t::resize_init(blockstore_meta_header_v3_t *hdr)
     data_idx_diff = ((int64_t)(dsk.data_offset-new_data_offset))/((int64_t)dsk.data_block_size);
     free_first = new_data_offset > dsk.data_offset ? (new_data_offset-dsk.data_offset) / dsk.data_block_size : 0;
     free_last = (new_data_offset+new_data_len < dsk.data_offset+dsk.data_len)
-        ? (dsk.data_offset+dsk.data_len-new_data_offset-new_data_len) / dsk.data_block_size
+        ? ((dsk.data_offset-new_data_offset)/dsk.data_block_size +
+            dsk.data_len/dsk.data_block_size - new_data_len/dsk.data_block_size)
         : 0;
     uint32_t new_clean_entry_header_size = sizeof(clean_disk_entry) + 4 /*entry_csum*/;
     new_clean_entry_bitmap_size = dsk.data_block_size / (hdr ? hdr->bitmap_granularity : 4096) / 8;
