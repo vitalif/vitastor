@@ -95,6 +95,12 @@ close_error:
                 journal_pos += read_len;
             }
         }
+        dsk.meta_format = hdr->version;
+        dsk.data_block_size = hdr->data_block_size;
+        dsk.csum_block_size = hdr->csum_block_size;
+        dsk.data_csum_type = hdr->data_csum_type;
+        dsk.bitmap_granularity = hdr->bitmap_granularity;
+        dsk.clean_entry_bitmap_size = (hdr->data_block_size / hdr->bitmap_granularity + 7) / 8;
         blockstore_heap_t *heap = new blockstore_heap_t(&dsk, buffer_area, log_level);
         // Load heap and just iterate it in memory
         hdr_fn(hdr);
@@ -575,7 +581,7 @@ int disk_tool_t::write_json_meta(json11::Json meta)
         {
             if (new_data_csum_size)
             {
-                fromhexstr(e["data_csum"].string_value(), new_data_csum_size,
+                fromhexstr(e["block_csums"].string_value(), new_data_csum_size,
                     ((uint8_t*)new_entry) + sizeof(clean_disk_entry) + 2*new_clean_entry_bitmap_size);
             }
             uint32_t *new_entry_csum = (uint32_t*)(((uint8_t*)new_entry) + new_clean_entry_size - 4);
@@ -616,6 +622,12 @@ int disk_tool_t::write_json_heap(json11::Json meta, json11::Json journal)
     new_data_csum_size = (new_meta_hdr->csum_block_size
         ? ((new_meta_hdr->data_block_size+new_meta_hdr->csum_block_size-1)/new_meta_hdr->csum_block_size*(new_meta_hdr->data_csum_type & 0xFF))
         : 0);
+    dsk.meta_format = new_meta_hdr->version;
+    dsk.data_block_size = new_meta_hdr->data_block_size;
+    dsk.csum_block_size = new_meta_hdr->csum_block_size;
+    dsk.data_csum_type = new_meta_hdr->data_csum_type;
+    dsk.bitmap_granularity = new_meta_hdr->bitmap_granularity;
+    dsk.clean_entry_bitmap_size = (new_meta_hdr->data_block_size / new_meta_hdr->bitmap_granularity + 7) / 8;
     new_journal_buf = NULL;
     if (new_journal_len)
     {
@@ -696,7 +708,7 @@ close_err0:
                 wr->entry_type = wr_type | (write_entry["stable"].bool_value() ? BS_HEAP_STABLE : 0);
                 wr->lsn = write_entry["lsn"].uint64_value();
                 wr->version = write_entry["version"].uint64_value();
-                wr->size = wr->get_size(&heap);
+                wr->size = wr_size;
                 if (wr_type == BS_HEAP_SMALL_WRITE || wr_type == BS_HEAP_INTENT_WRITE)
                 {
                     wr->small().offset = wr_offset;
@@ -736,6 +748,7 @@ close_err0:
                     bi.offset = wr_offset;
                     bi.len = wr_len;
                 }
+                wr->size = wr->get_size(&heap);
                 if (write_entry["bitmap"].is_string() && wr->get_int_bitmap(&heap))
                 {
                     fromhexstr(write_entry["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_int_bitmap(&heap));
@@ -794,7 +807,7 @@ close_err:
             fromhexstr(meta_entry["bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_int_bitmap(&heap));
             fromhexstr(meta_entry["ext_bitmap"].string_value(), new_clean_entry_bitmap_size, wr->get_ext_bitmap(&heap));
             if (new_data_csum_size)
-                fromhexstr(meta_entry["data_csum"].string_value(), new_data_csum_size, wr->get_checksums(&heap));
+                fromhexstr(meta_entry["block_csums"].string_value(), new_data_csum_size, wr->get_checksums(&heap));
             wr->crc32c = wr->calc_crc32c();
             assert((uint8_t*)wr + wr->size == new_meta_buf + meta_offset + used_space);
             auto j_it = journal_by_object.find(oid);

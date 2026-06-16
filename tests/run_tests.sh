@@ -24,6 +24,11 @@ IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
 SCHEME=ec ./test_interrupted_rebalance.sh
 SCHEME=ec IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
 
+./test_dump_load.sh
+TEST_NAME=32k OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k" OFFSET_ARGS="$OSD_ARGS" ./test_dump_load.sh
+OLD=1 ./test_dump_load.sh
+TEST_NAME=old_32k OLD=1 OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k" OFFSET_ARGS="$OSD_ARGS" ./test_dump_load.sh
+
 OLD=1 ./test_interrupted_rebalance.sh
 OLD=1 IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
 OLD=1 SCHEME=ec ./test_interrupted_rebalance.sh

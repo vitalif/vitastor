@@ -306,6 +306,78 @@ jobs:
           echo ""
         done
 
+  test_dump_load:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_dump_load.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_dump_load_32k:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: TEST_NAME=32k OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k" OFFSET_ARGS="$OSD_ARGS" /root/vitastor/tests/test_dump_load.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_old_dump_load:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: OLD=1 /root/vitastor/tests/test_dump_load.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_dump_load_old_32k:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: TEST_NAME=old_32k OLD=1 OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k" OFFSET_ARGS="$OSD_ARGS" /root/vitastor/tests/test_dump_load.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
   test_old_interrupted_rebalance:
     runs-on: ubuntu-latest
     needs: build
