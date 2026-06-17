@@ -251,6 +251,8 @@ struct snap_merger_t
             goto resume_100;
         // Get parents and so on
         start_merge();
+        if (state == 100)
+            return;
         // First list lower layers
         list_errcode.clear();
         list_layers(true);
