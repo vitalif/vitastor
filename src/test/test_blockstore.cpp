@@ -691,6 +691,149 @@ static void test_compact_rollback()
     free(op2.buf);
 }
 
+static void test_fsync_almost_batch_big()
+{
+    printf("\n-- test_fsync_almost_batch_big\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+
+    int data_writes = 0;
+    std::vector<ring_data_t*> fsyncs;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_WRITEV && sqe->off >= test.bs->dsk.data_offset)
+        {
+            data_writes++;
+        }
+        else if (sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_FSYNC)
+        {
+            // execute fsync immediately but pause completion
+            assert(data_writes);
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            fsyncs.push_back((ring_data_t*)sqe->user_data);
+            return true;
+        }
+        return false;
+    };
+
+    printf("sending big_write 1\n");
+    bool done1 = false;
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 8192;
+    op.len = 16384;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xaa, 16384);
+    op.callback = [&](blockstore_op_t *op) { done1 = true; };
+    test.bs->enqueue_op(&op);
+    // Wait for data_write and the first fsync
+    while (data_writes < 1 || !fsyncs.size())
+        test.ringloop->loop();
+
+    printf("sending big_write 2\n");
+    bool done2 = false;
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_WRITE;
+    op2.oid = { .inode = 2, .stripe = 0 };
+    op2.version = 1;
+    op2.offset = 8192;
+    op2.len = 16384;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xaa, 16384);
+    op2.callback = [&](blockstore_op_t *op) { done2 = true; };
+    test.bs->enqueue_op(&op2);
+    // Wait for the second data_write
+    while (data_writes < 2)
+        test.ringloop->loop();
+    // And loop several more times to continue second data_write
+    for (int i = 0; i < 3; i++)
+        test.ringloop->loop();
+
+    // Unblock the first fsync and check that the second op didn't complete
+    test.ringloop->mark_completed(fsyncs[0]);
+    fsyncs.erase(fsyncs.begin());
+    for (int iters = 0; !done1 && iters < 1000; iters++)
+        test.ringloop->loop();
+    assert(done1);
+    if (done2)
+        printf("BUG: second write is done, but its data is not fsynced\n");
+    assert(!done2);
+
+    // And wait for the second fsync
+    for (int iters = 0; !fsyncs.size() && iters < 1000; iters++)
+        test.ringloop->loop();
+    assert(fsyncs.size());
+    test.ringloop->mark_completed(fsyncs[0]);
+    fsyncs.erase(fsyncs.begin());
+    while (!done2)
+        test.ringloop->loop();
+
+    test.sqe_handler = nullptr;
+    free(op.buf);
+    free(op2.buf);
+}
+
+static void test_fsync_batch_big()
+{
+    printf("\n-- test_fsync_batch_big\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+
+    int fsyncs = 0;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_FSYNC)
+            fsyncs++;
+        return false;
+    };
+
+    printf("sending big_write 1\n");
+    bool done1 = false;
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 8192;
+    op.len = 16384;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xaa, 16384);
+    op.callback = [&](blockstore_op_t *op) { done1 = true; };
+    test.bs->enqueue_op(&op);
+
+    printf("sending big_write 2\n");
+    bool done2 = false;
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_WRITE;
+    op2.oid = { .inode = 2, .stripe = 0 };
+    op2.version = 1;
+    op2.offset = 8192;
+    op2.len = 16384;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xaa, 16384);
+    op2.callback = [&](blockstore_op_t *op) { done2 = true; };
+    test.bs->enqueue_op(&op2);
+
+    for (int iters = 0; (!done1 || !done2) && iters < 1000; iters++)
+        test.ringloop->loop();
+    assert(done1 && done2);
+    assert(fsyncs == 1);
+
+    test.sqe_handler = nullptr;
+    free(op.buf);
+    free(op2.buf);
+}
+
 // FIXME Add a simple intent_write / big_intent test
 
 int main(int narg, char *args[])
@@ -707,5 +850,7 @@ int main(int narg, char *args[])
     test_padded_csum_parallel_read(false, 16384);
     test_padded_csum_parallel_read(true, 16384);
     test_compact_rollback();
+    test_fsync_almost_batch_big();
+    test_fsync_batch_big();
     return 0;
 }
