@@ -511,7 +511,7 @@ int disk_tool_t::write_json_journal(json11::Json entries)
         journal_entry *ne = (journal_entry*)(new_journal_ptr + new_journal_in_pos);
         if (type == JE_SMALL_WRITE || type == JE_SMALL_WRITE_INSTANT)
         {
-            if (new_journal_data - new_journal_buf + ne->small_write.len > new_journal_len)
+            if (new_journal_data - new_journal_buf + len > new_journal_len)
             {
                 fprintf(stderr, "Error: entries don't fit to the new journal\n");
                 free(new_journal_buf);
