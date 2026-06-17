@@ -30,6 +30,7 @@ struct nfs_kv_write_state
     uint64_t new_size = 0;
     uint64_t aligned_size = 0;
     uint8_t *aligned_buf = NULL;
+    uint64_t aligned_buf_size = 0;
     int retry = 0;
     // new shared parameters
     uint64_t shared_inode = 0, shared_offset = 0, shared_alloc = 0;
@@ -175,6 +176,7 @@ static void nfs_do_unshare_write(nfs_kv_write_state *st, int state)
     uint64_t aligned_size = align_up(size);
     nfs_do_write(st->ino, 0, aligned_size, [&](cluster_op_t *op)
     {
+        assert(size <= st->aligned_buf_size);
         op->iov.push_back(st->aligned_buf, size);
         if (aligned_size > size)
             op->iov.push_back(st->proxy->kvfs->zero_block.data(), aligned_size-size);
@@ -282,6 +284,7 @@ static void nfs_do_shared_read(nfs_kv_write_state *st, int state)
     }
     assert(!st->aligned_buf);
     st->aligned_buf = (uint8_t*)malloc_or_die(data_size);
+    st->aligned_buf_size = data_size;
     uint64_t shared_offset = st->ientry["shared_offset"].uint64_value();
     auto op = new cluster_op_t;
     op->opcode = OSD_OP_READ;
@@ -294,6 +297,7 @@ static void nfs_do_shared_read(nfs_kv_write_state *st, int state)
         op->iov.push_back(st->proxy->kvfs->scrap_block.data(), pre);
     }
     op->iov.push_back(&st->shdr, sizeof(shared_file_header_t));
+    assert(data_size <= st->aligned_buf_size);
     op->iov.push_back(st->aligned_buf, data_size);
     auto post = (shared_offset+sizeof(shared_file_header_t)+data_size);
     post = align_up(post) - post;
@@ -418,7 +422,15 @@ static void nfs_do_shared_write(nfs_kv_write_state *st, int state)
             if (has_old)
             {
                 // old data
-                op->iov.push_back(st->aligned_buf, st->offset);
+                assert(st->ientry["size"].uint64_value() == st->aligned_buf_size);
+                if (st->offset > st->ientry["size"].uint64_value())
+                {
+                    if (st->ientry["size"].uint64_value() > 0)
+                        op->iov.push_back(st->aligned_buf, st->ientry["size"].uint64_value());
+                    add_zero(op, st->offset - st->ientry["size"].uint64_value(), st->proxy->kvfs->zero_block);
+                }
+                else
+                    op->iov.push_back(st->aligned_buf, st->offset);
             }
             else
                 add_zero(op, st->offset, st->proxy->kvfs->zero_block);
@@ -433,7 +445,16 @@ static void nfs_do_shared_write(nfs_kv_write_state *st, int state)
             if (has_old)
             {
                 // old data
-                op->iov.push_back(st->aligned_buf+st->offset+st->size, st->new_size-(st->offset+st->size));
+                assert(st->ientry["size"].uint64_value() == st->aligned_buf_size);
+                if (st->new_size <= st->aligned_buf_size)
+                    op->iov.push_back(st->aligned_buf+st->offset+st->size, st->new_size-(st->offset+st->size));
+                else if (st->offset+st->size < st->aligned_buf_size)
+                {
+                    op->iov.push_back(st->aligned_buf+st->offset+st->size, st->aligned_buf_size-(st->offset+st->size));
+                    add_zero(op, st->new_size - st->aligned_buf_size, st->proxy->kvfs->zero_block);
+                }
+                else
+                    add_zero(op, st->new_size-(st->offset+st->size), st->proxy->kvfs->zero_block);
             }
             else
                 add_zero(op, st->offset, st->proxy->kvfs->zero_block);

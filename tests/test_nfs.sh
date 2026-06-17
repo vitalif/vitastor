@@ -17,6 +17,7 @@ trap "sudo umount -f $MNT"' || true; kill -9 $(jobs -p)' EXIT
 
 chown 1000:1000 ./testdata/nfs
 
+# check readability by root
 touch ./testdata/nfs/f1
 chown 1000:1000 ./testdata/nfs/f1
 chmod 600 ./testdata/nfs/f1
@@ -194,5 +195,14 @@ ls -l ./testdata/nfs/settings.jsonLGNmGn
 sudo rm ./testdata/nfs/settings.jsonLGNmGn
 build/src/kv/vitastor-kv --config_path $VITASTOR_CFG fsmeta get d11/settings.jsonLGNmGn 2>&1 | grep '(code -2)'
 ls -l ./testdata/nfs
+
+# check small shared file extend-write (it was reading unallocated memory but it's hard to actually make it differ from 0)
+dd if=/dev/urandom of=./testdata/shared_beyond_ref bs=7k count=1
+dd if=/dev/urandom of=./testdata/shared_beyond_ref seek=8 bs=1k count=1 conv=notrunc
+dd if=./testdata/shared_beyond_ref of=./testdata/nfs/shared_beyond_end bs=7k count=1
+dd if=./testdata/shared_beyond_ref of=./testdata/nfs/shared_beyond_end skip=8 seek=8 bs=1k count=1 conv=notrunc
+cp ./testdata/nfs/shared_beyond_end ./testdata/
+diff ./testdata/shared_beyond_end ./testdata/shared_beyond_ref
+rm ./testdata/nfs/shared_beyond_end
 
 format_green OK
