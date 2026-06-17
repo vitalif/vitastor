@@ -61,6 +61,7 @@ resume_4:
             free(op_data->chain_reads);
             op_data->chain_reads = NULL;
             // FIXME: We can in theory retry only specific parts instead of the whole operation
+            op_data->st = 0;
             goto resume_1;
         }
         else

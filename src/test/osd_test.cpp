@@ -907,6 +907,237 @@ void test_ec33_chain_read_phantom_bitmap_source()
     printf("test_ec33_chain_read_phantom_bitmap_source passed\n");
 }
 
+// Regression test for the bug where retrying a chained read after -EIO would
+// crash on assert(op_data->st < base_state) in read_bitmaps() because the
+// state counter was not reset before the retry.
+void test_chained_read_eio_retry()
+{
+    printf("test_chained_read_eio_retry\n");
+
+    osd_test_fixture_t f;
+
+    f.configure_ec_pool(3, 3, /*primary_osd*/ 6);
+    f.st_cli->set("/vitastor/pg/history/1/1", json11::Json::object {
+        { "osd_sets", json11::Json::array {
+            json11::Json::array{ 1, 2, 3, 4, 5, 6 },
+        } },
+    });
+    f.st_cli->set("/vitastor/config/inode/1/2", json11::Json::object {
+        { "name", "child" },
+        { "parent_id", 3 },
+    }, 1);
+    f.st_cli->set("/vitastor/config/inode/1/3", json11::Json::object {
+        { "name", "parent" },
+    }, 1);
+
+    f.start(json11::Json::object {
+        { "osd_num", 6 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+        { "no_recovery", true },
+    });
+
+    inode_t child_inode  = INODE_WITH_POOL(1, 2);
+    inode_t parent_inode = INODE_WITH_POOL(1, 3);
+
+    for (int peer = 1; peer <= 5; peer++)
+        f.connect_peer(peer);
+
+    // Peering:
+    //   child  stripe 0 osd_set = [1, 2, 3, 4, 5, 6]  (clean)
+    //   parent stripe 0 osd_set = [0, 2, 0, 4, 5, 6]  (degraded)
+    f.reply_peer_list(1, { { { child_inode, 0 }, 1 } }, 1);
+    f.reply_peer_list(2, { { { child_inode, 1 }, 1 }, { { parent_inode, 1 }, 1 } }, 2);
+    f.reply_peer_list(3, { { { child_inode, 2 }, 1 } }, 1);
+    f.reply_peer_list(4, { { { child_inode, 3 }, 1 }, { { parent_inode, 3 }, 1 } }, 2);
+    f.reply_peer_list(5, { { { child_inode, 4 }, 1 }, { { parent_inode, 4 }, 1 } }, 2);
+    f.reply_local_list({ { { child_inode, 5 }, 1 }, { { parent_inode, 5 }, 1 } }, 2);
+    f.ringloop->loop();
+    assert(f.pg(1, 1).state == (PG_ACTIVE|PG_HAS_DEGRADED));
+
+    // Fill parent bitmaps with distinguishable non-zero patterns
+    uint8_t parent_bmp[6 * 4] = {
+        0, 0, 0, 0, 0xAA, 0xBB, 0xCC, 0xDD, 0x11, 0x22, 0x33, 0x44
+    };
+    {
+        osd_num_t fake_set[6] = { 1, 2, 3, 4, 5, 6 };
+        std::vector<uint8_t> data_buf(6 * 128*1024);
+        use_ec(6, 3, true);
+        osd_rmw_stripe_t s[6] = {};
+        for (int i = 0; i < 6; i++)
+            s[i].bmp_buf = parent_bmp + i*4;
+        split_stripes(3, 128*1024, 0, 128*1024, s);
+        void *rmw_buf = calc_rmw(data_buf.data(), s, fake_set, 6, 3, 6, fake_set, 128*1024, 4);
+        assert(rmw_buf);
+        calc_rmw_parity_ec(s, 6, 3, fake_set, fake_set, 128*1024, 4);
+        use_ec(6, 3, false);
+        free(rmw_buf);
+    }
+    assert(*(uint32_t*)parent_bmp == 0xFFFFFFFF);
+
+    // Send a chained read for child, 0-128k
+    auto *read_op = new osd_op_t();
+    read_op->op_type = OSD_OP_IN;
+    read_op->client_id = 0;
+    read_op->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    read_op->req.rw.header.id = 2;
+    read_op->req.rw.header.opcode = OSD_OP_READ;
+    read_op->req.rw.inode = child_inode;
+    read_op->req.rw.offset = 0;
+    read_op->req.rw.len = 128*1024;
+    read_op->req.rw.meta_revision = 1;
+    int read_retval = -1;
+    uint32_t response_bmp = 0;
+    bool eio_injected = false;
+    read_op->callback = [&](osd_op_t *op)
+    {
+        read_retval = op->reply.hdr.retval;
+        if (op->bitmap_buf)
+            response_bmp = *(uint32_t*)op->bitmap_buf;
+    };
+    f.exec(read_op);
+
+    // Pop a single-oid sec_read_bmp subop and reply with the given bitmap
+    auto reply_bmp = [&](osd_num_t peer, inode_t ino, uint64_t stripe, uint32_t bmp)
+    {
+        auto *subop = f.peer_take(peer, OSD_OP_SEC_READ_BMP);
+        assert(subop->req.sec_read_bmp.len == sizeof(obj_ver_id));
+        auto *ov = (obj_ver_id*)subop->buf;
+        assert(ov[0].oid.inode == ino);
+        assert(ov[0].oid.stripe == stripe);
+        free(subop->buf);
+        subop->buf = malloc(8 + 4);
+        *(uint64_t*)subop->buf = 1;
+        memcpy((uint8_t*)subop->buf + 8, &bmp, 4);
+        subop->reply.hdr.retval = 8 + 4;
+        subop->callback(subop);
+    };
+
+    // --- First pass: reply to bitmap subops ---
+    reply_bmp(1, child_inode,  0, 0); // child chunk is empty
+    reply_bmp(2, parent_inode, 1, *(uint32_t*)(parent_bmp + 1*4));
+    reply_bmp(4, parent_inode, 3, *(uint32_t*)(parent_bmp + 3*4));
+    reply_bmp(5, parent_inode, 4, *(uint32_t*)(parent_bmp + 4*4));
+
+    // --- First pass: reply to data sec_read subops, inject -EIO on one ---
+    // For degraded parent stripe 0 (osd_set = [0, 2, 0, 4, 5, 6]),
+    // reads only go to OSDs that have data (2, 4, 5, 6 — 6 is local).
+    // Inject -EIO on OSD 2 (parent chunk 1).
+    {
+        auto *cl = f.peer(2);
+        for (auto & kv: cl->sent_ops)
+        {
+            if (kv.second->req.hdr.opcode == OSD_OP_SEC_READ)
+            {
+                auto *subop = kv.second;
+                cl->sent_ops.erase(subop->req.hdr.id);
+                printf("  Injecting -EIO on OSD 2 sec_read\n");
+                subop->reply.hdr.retval = -EIO;
+                subop->callback(subop);
+                eio_injected = true;
+                break;
+            }
+        }
+    }
+    // Reply successfully to remaining sec_reads
+    for (auto peer: { 4, 5 })
+    {
+        auto *cl = f.peer(peer);
+        for (auto & kv: cl->sent_ops)
+        {
+            if (kv.second->req.hdr.opcode == OSD_OP_SEC_READ)
+            {
+                auto *subop = kv.second;
+                cl->sent_ops.erase(subop->req.hdr.id);
+                uint8_t *chunk_bmp = parent_bmp + (peer == 4 ? 3*4 : 4*4);
+                if (subop->bitmap)
+                    memcpy(subop->bitmap, chunk_bmp, 4);
+                subop->reply.hdr.retval = subop->req.sec_rw.len;
+                subop->reply.sec_rw.attr_len = 4;
+                subop->reply.sec_rw.version = 1;
+                subop->callback(subop);
+                break;
+            }
+        }
+    }
+    assert(eio_injected);
+
+    // --- After -EIO the OSD should have retried: resume_1 -> read_bitmaps -> submit_chained_read_requests
+    // Reply to bitmap subops again (second pass) — may be on different OSDs this time
+    for (int peer = 1; peer <= 5; peer++)
+    {
+        auto *cl = f.peer(peer);
+        std::vector<osd_op_t*> bmp_ops;
+        for (auto & kv: cl->sent_ops)
+            if (kv.second->req.hdr.opcode == OSD_OP_SEC_READ_BMP)
+                bmp_ops.push_back(kv.second);
+        for (auto *subop: bmp_ops)
+        {
+            cl->sent_ops.erase(subop->req.hdr.id);
+            // Determine inode from the subop buffer
+            auto *ov = (obj_ver_id*)subop->buf;
+            inode_t ino = ov[0].oid.inode;
+            uint64_t stripe = ov[0].oid.stripe;
+            // Find matching bitmap entry
+            int bmp_idx = -1;
+            if (ino == child_inode && stripe == 0)
+                bmp_idx = 0;
+            else if (ino == parent_inode)
+                bmp_idx = stripe - 0; // stripe = chunk
+            uint32_t bmp = 0;
+            if (bmp_idx >= 0 && bmp_idx < 6)
+                bmp = *(uint32_t*)(parent_bmp + bmp_idx * 4);
+            free(subop->buf);
+            subop->buf = malloc(8 + 4);
+            *(uint64_t*)subop->buf = 1;
+            memcpy((uint8_t*)subop->buf + 8, &bmp, 4);
+            subop->reply.hdr.retval = 8 + 4;
+            subop->callback(subop);
+        }
+    }
+
+    // Reply to data sec_read subops (second pass) — all successful now
+    for (int peer = 1; peer <= 5; peer++)
+    {
+        auto *cl = f.peer(peer);
+        std::vector<osd_op_t*> read_ops;
+        for (auto & kv: cl->sent_ops)
+            if (kv.second->req.hdr.opcode == OSD_OP_SEC_READ)
+                read_ops.push_back(kv.second);
+        for (auto *subop: read_ops)
+        {
+            cl->sent_ops.erase(subop->req.hdr.id);
+            if (subop->bitmap)
+                memcpy(subop->bitmap, parent_bmp + 0*4, 4); // best effort
+            subop->reply.hdr.retval = subop->req.sec_rw.len;
+            subop->reply.sec_rw.attr_len = 4;
+            subop->reply.sec_rw.version = 1;
+            subop->callback(subop);
+        }
+    }
+    // Handle any local BS_OP_READ subops too
+    while (!f.bs->queued.empty())
+    {
+        auto *bs_op = f.bs->take(BS_OP_READ);
+        memset(bs_op->buf, 0, bs_op->len);
+        bs_op->retval = bs_op->len;
+        bs_op->version = 1;
+        bs_op->callback(bs_op);
+    }
+
+    // The op should have finished
+    assert(read_retval == (int)read_op->req.rw.len);
+
+    // Check the bitmap (0xffffffff)
+    printf("Response bitmap: %08x, expected ffffffff\n", response_bmp);
+    assert(response_bmp == 0xffffffff);
+
+    delete read_op;
+    printf("test_chained_read_eio_retry passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -917,5 +1148,6 @@ int main(int narg, char *args[])
     test_ec33_recovery_missing_first_part();
     test_ec42_write_parityless();
     test_ec33_chain_read_phantom_bitmap_source();
+    test_chained_read_eio_retry();
     return 0;
 }
