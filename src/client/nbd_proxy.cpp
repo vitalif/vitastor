@@ -348,6 +348,7 @@ protected:
     int read_ready = 0;
     msghdr read_msg = { 0 }, send_msg = { 0 };
     iovec read_iov = { 0 };
+    bool stop = false;
 
     std::string logfile = "/dev/null";
 
@@ -678,8 +679,7 @@ help:
         };
         ringloop->register_consumer(&consumer);
         // Add FD to epoll
-        bool stop = false;
-        epmgr->tfd->set_fd_handler(sockfd[0], false, [this, &stop](int peer_fd, int epoll_events)
+        epmgr->tfd->set_fd_handler(sockfd[0], false, [this](int peer_fd, int epoll_events)
         {
             if (epoll_events & EPOLLRDHUP)
             {
@@ -1118,7 +1118,8 @@ protected:
             {
                 // Disconnect
                 close(nbd_fd);
-                exit(0);
+                stop = true;
+                return;
             }
             if (be32toh(cur_req.magic) != NBD_REQUEST_MAGIC ||
                 req_type != NBD_CMD_READ && req_type != NBD_CMD_WRITE && req_type != NBD_CMD_FLUSH)
