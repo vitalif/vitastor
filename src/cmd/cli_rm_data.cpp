@@ -61,12 +61,11 @@ struct rm_inode_t
             }
             else
             {
-                rm_pg_t *rm = new rm_pg_t((rm_pg_t){
-                    .pg_num = pg_num,
-                    .objects = std::move(objects),
-                    .obj_done = 0,
-                    .synced = !objects.size() || parent->cli->get_immediate_commit(inode),
-                });
+                rm_pg_t *rm = new rm_pg_t();
+                rm->pg_num = pg_num;
+                rm->objects = std::move(objects);
+                rm->obj_done = 0;
+                rm->synced = !rm->objects.size() || parent->cli->get_immediate_commit(inode);
                 if (min_offset == 0 && max_offset == 0)
                 {
                     total_count += rm->objects.size();
