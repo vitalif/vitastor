@@ -326,9 +326,8 @@ void osd_t::parse_config(bool init)
     scrub_list_limit = config["scrub_list_limit"].uint64_value();
     if (!scrub_list_limit)
         scrub_list_limit = 262144;
-    pg_reshard_chunk_size = config["pg_reshard_chunk_size"].uint64_value();
-    if (!pg_reshard_chunk_size)
-        pg_reshard_chunk_size = 100000;
+    // FIXME: chunked resharding disabled for now, will be re-enabled after fixes
+    pg_reshard_chunk_size = 0;
     pg_reshard_chunk_pause_ms = config["pg_reshard_chunk_pause_ms"].uint64_value();
     if (!pg_reshard_chunk_pause_ms)
         pg_reshard_chunk_pause_ms = 100;

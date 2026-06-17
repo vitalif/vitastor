@@ -151,7 +151,7 @@ class osd_t
     bool enable_pg_locks = false;
     bool pg_locks_localize_only = false;
     uint64_t pg_lock_retry_interval_ms = 100;
-    uint64_t pg_reshard_chunk_size = 100000;
+    uint64_t pg_reshard_chunk_size = 0;
     uint64_t pg_reshard_chunk_pause_ms = 100;
 
     // cluster state
