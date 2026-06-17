@@ -131,6 +131,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                         writeback_bytes -= op->len;
                     }
                     writeback_queue_size++;
+                    writeback_queue.push_back({ op->inode, new_end });
                 }
                 break;
             }
@@ -165,6 +166,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                 {
                     writeback_queue_size++;
                 }
+                writeback_queue.push_back({ op->inode, new_end });
             }
             auto new_dirty_it = dirty_buffers.emplace_hint(dirty_it, (object_id){
                 .inode = op->inode,

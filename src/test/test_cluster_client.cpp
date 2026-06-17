@@ -564,11 +564,100 @@ void test_writeback_merge()
     printf("[ok] writeback merge test\n");
 }
 
+// Verifies that writeback_queue contains an entry for each sequence of
+// CACHE_DIRTY buffers, otherwise flushing never reaches it
+static void check_writeback_queued(writeback_cache_t *wb)
+{
+    int runs = 0;
+    int not_queued = 0;
+    auto it = wb->dirty_buffers.begin();
+    while (it != wb->dirty_buffers.end())
+    {
+        if (it->second.state != CACHE_DIRTY)
+        {
+            it++;
+            continue;
+        }
+        auto run_start = it;
+        uint64_t expected_next = run_start->first.stripe;
+        bool expected_is_del = (run_start->second.buf == NULL);
+        auto run_end = it;
+        while (run_end != wb->dirty_buffers.end() &&
+            run_end->second.state == CACHE_DIRTY &&
+            run_end->first.inode == run_start->first.inode &&
+            run_end->first.stripe == expected_next &&
+            (run_end->second.buf == NULL) == expected_is_del)
+        {
+            expected_next = run_end->first.stripe + run_end->second.len;
+            run_end++;
+        }
+        runs++;
+        bool queued = false;
+        for (auto & a: wb->writeback_queue)
+        {
+            if (a.inode == run_start->first.inode &&
+                a.stripe >= run_start->first.stripe &&
+                a.stripe < expected_next)
+            {
+                queued = true;
+                break;
+            }
+        }
+        if (!queued)
+        {
+            printf("FAIL: CACHE_DIRTY inode %jx range %ju-%ju is missing from the writeback queue\n",
+                run_start->first.inode, run_start->first.stripe, expected_next);
+            not_queued++;
+        }
+        it = run_end;
+    }
+    assert(!not_queued);
+    assert(wb->writeback_queue_size == runs);
+}
+
+void test_writeback_queue_split()
+{
+    // Regression test for the future case of client_enable_writeback disabled at runtime
+    writeback_cache_t *wb = new writeback_cache_t;
+    // CACHE_DIRTY [1000..5000] -- buffered with writeback on
+    copy_write_for_test(wb, 1000, 4000, CACHE_DIRTY, 0);
+    assert(wb->writeback_queue_size == 1);
+    check_writeback_queued(wb);
+    // CACHE_DIRTY [10000..14000] -- buffered with writeback on
+    copy_write_for_test(wb, 10000, 4000, CACHE_DIRTY, 0);
+    assert(wb->writeback_queue_size == 2);
+    check_writeback_queued(wb);
+    // CACHE_DIRTY [20000..24000] -- buffered with writeback on
+    copy_write_for_test(wb, 20000, 4000, CACHE_DIRTY, 0);
+    assert(wb->writeback_queue_size == 3);
+    check_writeback_queued(wb);
+    // Writeback is now off; a CACHE_REPEATING write at [2000..3000] splits the run:
+    // [1000..2000] CACHE_DIRTY, [2000..3000] CACHE_REPEATING, [3000..5000] CACHE_DIRTY
+    // The right half [3000..5000] must have its own anchor in writeback_queue.
+    copy_write_for_test(wb, 2000, 1000, CACHE_REPEATING, 1);
+    assert(wb->dirty_buffers.size() == 5);
+    assert(wb->writeback_queue_size == 4);
+    check_writeback_queued(wb);
+    // Second split - only the end part is left
+    copy_write_for_test(wb, 10000, 1000, CACHE_REPEATING, 1);
+    assert(wb->dirty_buffers.size() == 6);
+    assert(wb->writeback_queue_size == 4);
+    check_writeback_queued(wb);
+    // Third split - only the beginning part is left
+    copy_write_for_test(wb, 23000, 1000, CACHE_REPEATING, 1);
+    assert(wb->dirty_buffers.size() == 7);
+    assert(wb->writeback_queue_size == 4);
+    check_writeback_queued(wb);
+    delete wb;
+    printf("[ok] test_writeback_queue_split\n");
+}
+
 int main(int narg, char *args[])
 {
     test1();
     test2();
     test_writeback();
     test_writeback_merge();
+    test_writeback_queue_split();
     return 0;
 }
