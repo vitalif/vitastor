@@ -115,6 +115,7 @@ int blockstore_impl_t::do_sync(blockstore_op_t *op, int base_state)
     PRIV(op)->lsn = heap->get_completed_lsn();
     if (!submit_fsyncs(PRIV(op)->pending_ops))
     {
+        PRIV(op)->lsn = 0;
         PRIV(op)->wait_detail = 1;
         PRIV(op)->wait_for = WAIT_SQE;
         return 0;
