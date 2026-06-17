@@ -180,13 +180,16 @@ enospc:
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         assert(loc+op->offset+op->len <= dsk.block_count*dsk.data_block_size);
         io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + loc + op->offset);
+        if (!dsk.disable_data_fsync)
+        {
+            // use PRIV->lsn for fsync_data_id
+            PRIV(op)->lsn = ++data_fsync_next;
+            data_fsyncs.push_back(false);
+        }
         PRIV(op)->pending_ops++;
         write_iodepth++;
         if (PRIV(op)->write_type == BS_HEAP_BIG_WRITE)
-        {
             PRIV(op)->op_state = 1;
-            inflight_big++;
-        }
         else
             PRIV(op)->op_state = 3;
     }
@@ -297,8 +300,6 @@ again:
         goto resume_10;
     else if (op_state == 11)
         goto resume_11;
-    else if (op_state == 12)
-        goto resume_12;
     else
     {
         // In progress
@@ -317,38 +318,44 @@ again:
 resume_2:
     // We must fsync all big writes to avoid complex write workflows
     // It's OK for all HDDs and for server SSDs, but slightly worse for desktop SSDs
-    inflight_big--;
     if (!dsk.disable_data_fsync)
     {
-        // fsync data in a batch
-resume_11:
-        if (inflight_big > 0)
+        // Mark our data write as completed and advance data_fsync_cur
+        data_fsyncs[PRIV(op)->lsn - data_fsync_cur - 1] = true;
+        while (data_fsyncs.size() > 0 && data_fsyncs.front())
         {
-            PRIV(op)->op_state = 11;
+            data_fsyncs.pop_front();
+            data_fsync_cur++;
+        }
+        PRIV(op)->op_state = 11;
+        // Then wait for all other data writes currently in progress to do less fsync calls
+        // I.e. to fsync data in batches
+        PRIV(op)->lsn = data_fsync_cur + data_fsyncs.size();
+resume_11:
+        if (data_fsync_cur < PRIV(op)->lsn)
+        {
             return 1;
         }
-        if (fsyncing_data)
+        if (PRIV(op)->lsn > data_fsync_sent)
         {
-resume_12:
-            if (fsyncing_data)
+            BS_SUBMIT_GET_SQE(sqe, data);
+            io_uring_prep_fsync(sqe, dsk.data_fd, IORING_FSYNC_DATASYNC);
+            data->iov = { 0 };
+            data->callback = [this, op, fs = data_fsync_cur](ring_data_t *data)
             {
-                PRIV(op)->op_state = 12;
-                return 1;
-            }
-            goto resume_4;
+                if (fs > data_fsync_done)
+                {
+                    data_fsync_done = fs;
+                    ringloop->wakeup();
+                }
+            };
+            data_fsync_sent = data_fsync_cur;
         }
-        fsyncing_data = true;
-        BS_SUBMIT_GET_SQE(sqe, data);
-        io_uring_prep_fsync(sqe, dsk.data_fd, IORING_FSYNC_DATASYNC);
-        data->iov = { 0 };
-        data->callback = [this, op](ring_data_t *data)
+        if (PRIV(op)->lsn > data_fsync_done)
         {
-            fsyncing_data = false;
-            handle_write_event(data, op);
-        };
-        PRIV(op)->pending_ops++;
-        PRIV(op)->op_state = 3;
-        return 1;
+            return 1;
+        }
+        PRIV(op)->lsn = 0;
     }
 resume_4:
     {

@@ -117,9 +117,12 @@ public:
 
     journal_flusher_t *flusher;
     int write_iodepth = 0;
-    int inflight_big = 0;
     int intent_write_counter = 0;
-    bool fsyncing_data = false;
+    uint64_t data_fsync_next = 0;
+    uint64_t data_fsync_cur = 0;
+    uint64_t data_fsync_sent = 0;
+    uint64_t data_fsync_done = 0;
+    std::deque<bool> data_fsyncs;
 
     bool live = false, queue_stall = false;
     ring_loop_i *ringloop = NULL;
