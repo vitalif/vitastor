@@ -595,6 +595,7 @@ void test_iterate_compaction()
         assert(compact_info.compact_version == 5);
         assert(compact_info.clean_wr->lsn == 1);
         assert(small_writes == 4);
+        assert(heap.get_to_compact_count() == 2);
 
         // persist
         assert(heap.get_meta_block_used_space(0) > 0);
@@ -624,6 +625,7 @@ void test_iterate_compaction()
         assert(compact_info.compact_version == 5);
         assert(compact_info.clean_wr->lsn == 1);
         assert(small_writes == 4);
+        assert(heap.get_to_compact_count() == 2);
     }
 
     {

@@ -22,7 +22,7 @@
 
 #define HEAP_INFLIGHT_DONE 1
 #define HEAP_INFLIGHT_COMPACTABLE 2
-#define HEAP_INFLIGHT_COMPACTED 4
+#define HEAP_INFLIGHT_OVERWRITE 4
 #define HEAP_INFLIGHT_GC 8
 #define HEAP_INFLIGHT_EXPLICIT 16
 
@@ -682,10 +682,14 @@ int blockstore_heap_t::mark_used_blocks()
                         }
                         use_data(wr->inode, wr->big_location(this));
                     }
-                    if (wr->is_compactable() && !added)
+                    if (wr->is_compactable())
                     {
-                        compact_queue.push_back((object_id){ .inode = wr->inode, .stripe = wr->stripe });
-                        added = true;
+                        to_compact_count++;
+                        if (!added)
+                        {
+                            compact_queue.push_back((object_id){ .inode = wr->inode, .stripe = wr->stripe });
+                            added = true;
+                        }
                     }
                     if (wr->is_overwrite())
                     {
@@ -1536,7 +1540,7 @@ int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
     // Remember the object as dirty and remove older entries when this block is written and fsynced
     push_inflight_lsn(next_lsn, new_wr,
         (explicit_complete ? HEAP_INFLIGHT_EXPLICIT : 0) |
-        (new_wr->is_overwrite() ? HEAP_INFLIGHT_COMPACTED : 0) |
+        (new_wr->is_overwrite() ? HEAP_INFLIGHT_OVERWRITE : 0) |
         (new_wr->is_compactable() ? HEAP_INFLIGHT_COMPACTABLE : 0));
     insert_list_items(&li, 1, false);
     li->block_num = block_num;
@@ -2464,7 +2468,7 @@ uint64_t blockstore_heap_t::get_garbage_memory()
 void blockstore_heap_t::push_inflight_lsn(uint64_t lsn, heap_entry_t *wr, uint64_t flags)
 {
     uint64_t next_inf = first_inflight_lsn + inflight_lsn.size();
-    if (flags & (HEAP_INFLIGHT_COMPACTABLE|HEAP_INFLIGHT_COMPACTED))
+    if (flags & (HEAP_INFLIGHT_COMPACTABLE|HEAP_INFLIGHT_OVERWRITE))
     {
         to_compact_count++;
     }
@@ -2531,7 +2535,7 @@ void blockstore_heap_t::mark_lsn_fsynced(uint64_t lsn)
 void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
 {
     auto wr = inflight.wr;
-    if (inflight.flags & HEAP_INFLIGHT_COMPACTED)
+    if (inflight.flags & HEAP_INFLIGHT_OVERWRITE)
     {
         // Mark previous entries as garbage, sequentially
         mark_garbage_up_to(wr);
