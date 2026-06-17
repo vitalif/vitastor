@@ -28,6 +28,7 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
                 FINISH_OP(op);
                 return 2;
             }
+            priv->modified_block2 = UINT32_MAX;
             int res = op->opcode == BS_OP_STABLE
                 ? heap->add_commit(obj, v[priv->stab_pos].version, &priv->modified_block2)
                 : heap->add_rollback(obj, v[priv->stab_pos].version, &priv->modified_block2);
@@ -51,11 +52,6 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
                     op->retval = -ENOSPC;
                     FINISH_OP(op);
                     return 2;
-                }
-                if (priv->modified_block2 != UINT32_MAX)
-                {
-                    priv->stab_pos--;
-                    goto resume_1;
                 }
                 priv->wait_for = WAIT_COMPACTION;
                 priv->wait_detail = heap->get_compacted_count();
