@@ -93,6 +93,8 @@ struct XDR
 
 uint32_t inline len_pad4(uint32_t len)
 {
+    if (len > UINT32_MAX-3)
+        return UINT32_MAX;
     return ((len+3)/4) * 4;
 }
 
@@ -326,6 +328,8 @@ inline int xdr_array(XDR *xdrs, char **data, uint32_t* len, uint32_t maxlen, uin
             return 0;
         xdrs->buf += 4;
         xdrs->avail -= 4;
+        if (*len > UINT32_MAX/entry_size)
+            return 0;
         *data = (char*)malloc_or_die(entry_size * (*len));
         for (uint32_t i = 0; i < *len; i++)
             fn(xdrs, *data + entry_size*i);
