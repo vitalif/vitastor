@@ -416,7 +416,8 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             if (pc.pg_size < 1 ||
                 pool_item.second["pg_size"].uint64_value() < 3 &&
                 (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_EC) ||
-                pool_item.second["pg_size"].uint64_value() > 256)
+                // limit is 64 because osd_peering_pg.cpp uses a 64-bit mask for has_roles
+                pool_item.second["pg_size"].uint64_value() > 64)
             {
                 fprintf(stderr, "Pool %u has invalid pg_size, skipping pool\n", pool_id);
                 continue;

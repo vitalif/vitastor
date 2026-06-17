@@ -159,9 +159,9 @@ void pg_obj_state_check_t::handle_version()
                 {
                     n_mismatched++;
                 }
-                if (!(has_roles & (1 << replica)))
+                if (!(has_roles & ((uint64_t)1 << replica)))
                 {
-                    has_roles = has_roles | (1 << replica);
+                    has_roles = has_roles | ((uint64_t)1 << replica);
                     n_roles++;
                 }
             }
