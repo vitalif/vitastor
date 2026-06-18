@@ -78,7 +78,7 @@ struct pg_flush_batch_t
 {
     std::map<osd_num_t, std::vector<obj_ver_id>> rollback_lists;
     std::map<osd_num_t, std::vector<obj_ver_id>> stable_lists;
-    int flush_ops = 0, flush_done = 0;
+    int flush_ops = 0, flush_done = 0, flush_errors = 0;
     int flush_objects = 0;
 };
 

@@ -79,9 +79,9 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
         // Throw the result away
         return;
     }
-    fb->flush_done++;
     if (retval != 0)
     {
+        fb->flush_errors++;
         if (peer_osd == this->osd_num)
         {
             throw std::runtime_error(
@@ -97,17 +97,26 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
             auto peer_it = msgr.osd_peers.find(peer_osd);
             if (peer_it != msgr.osd_peers.end())
             {
-                // Will repeer/stop this PG
+                // stop_client won't repeer the PG because flush_batch is not deleted yet
                 msgr.stop_client(peer_it->second->client_id);
-                return;
             }
         }
     }
+    auto errors = fb->flush_errors;
+    fb->flush_done++;
     if (fb->flush_done == fb->flush_ops)
     {
         // This flush batch is done
-        std::vector<osd_op_t*> continue_ops;
         auto & pg = pgs.at(pg_id);
+        delete fb;
+        pg.flush_batch = NULL;
+        if (errors > 0)
+        {
+            // Repeer the PG on errors
+            repeer_pg(pg);
+            return;
+        }
+        std::vector<osd_op_t*> continue_ops;
         auto it = pg.flush_actions.begin(), prev_it = it;
         while (1)
         {
@@ -143,8 +152,6 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
             }
             prev_it = it++;
         }
-        delete fb;
-        pg.flush_batch = NULL;
         if (!pg.flush_actions.size())
         {
             pg.state = pg.state & ~PG_HAS_UNCLEAN;

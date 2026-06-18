@@ -1138,6 +1138,77 @@ void test_chained_read_eio_retry()
     printf("test_chained_read_eio_retry passed\n");
 }
 
+// Regression test for the bug in osd_flush.cpp where a remote
+// stabilize/rollback failure permanently hangs the PG in PG_REPEERING.
+bool test_flush_error_pg_repeer(int ctr)
+{
+    printf("test_flush_error_pg_repeer\n");
+
+    osd_test_fixture_t f;
+    f.configure_ec_pool(2, 1);
+    f.start(json11::Json::object {
+        { "osd_num", 2 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(1);
+    f.connect_peer(3);
+
+    // Object exists on all osds but unstable on osd 1 and 3
+    inode_t ino = INODE_WITH_POOL(1, 1);
+    f.reply_peer_list(1, { { { ino, 0 }, 1 } }, /*stable_count*/ 0);
+    f.reply_local_list({ { { ino, 1 }, 1 } }, /*stable_count*/ 1);
+    f.reply_peer_list(3, { { { ino, 2 }, 1 } }, /*stable_count*/ 0);
+    f.pump();
+
+    auto & pg = f.pg(1, 1);
+    assert(pg.state == (PG_ACTIVE|PG_HAS_UNCLEAN));
+    auto fb = pg.flush_batch;
+    assert(fb != nullptr);
+    assert(fb->flush_ops == 2);
+
+    if (ctr == 0)
+    {
+        // Complete OP_SEC_STAB on osd 1, then fail on osd 3
+        auto *stab = f.peer_take(1, OSD_OP_SEC_STABILIZE);
+        stab->reply.hdr.retval = 0;
+        stab->callback(stab);
+
+        assert(pg.state == (PG_ACTIVE|PG_HAS_UNCLEAN));
+
+        stab = f.peer_take(3, OSD_OP_SEC_STABILIZE);
+        stab->reply.hdr.retval = -EPIPE;
+        stab->callback(stab);
+    }
+    else
+    {
+        // Fail OP_SEC_STAB on osd 3, then complete on osd 1
+        auto *stab = f.peer_take(3, OSD_OP_SEC_STABILIZE);
+        stab->reply.hdr.retval = -EPIPE;
+        stab->callback(stab);
+
+        // The PG should only repeer when the batch is completed
+        assert(pg.state == (PG_HAS_UNCLEAN|PG_REPEERING));
+        assert(pg.flush_batch == fb);
+
+        stab = f.peer_take(1, OSD_OP_SEC_STABILIZE);
+        stab->reply.hdr.retval = 0;
+        stab->callback(stab);
+    }
+
+    // Now the PG should be peering
+    assert(pg.state == PG_PEERING);
+    assert(!pg.flush_batch);
+
+    // FIXME: Make this test pass without leaks without the following line:
+    f.complete_peering_empty();
+
+    printf("test_flush_error_pg_repeer[%d] passed\n", ctr);
+    return ctr < 1;
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -1149,5 +1220,6 @@ int main(int narg, char *args[])
     test_ec42_write_parityless();
     test_ec33_chain_read_phantom_bitmap_source();
     test_chained_read_eio_retry();
+    for (int i = 0; test_flush_error_pg_repeer(i); i++) {}
     return 0;
 }
