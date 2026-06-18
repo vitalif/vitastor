@@ -136,9 +136,9 @@ void *rdma_malloc_alloc(rdma_allocator_t *self, size_t size)
     }
     else
     {
+        self->freelist.insert((rdma_free_t){ .len = frag.len-size, .buf = ptr });
         frag.len -= size;
         ptr = (uint8_t*)ptr + frag.len;
-        self->freelist.insert((rdma_free_t){ .len = frag.len, .buf = frag.rgn->buf });
         self->frags[ptr] = (rdma_frag_t){ .rgn = frag.rgn, .len = size, .is_free = false };
     }
     return ptr;
@@ -174,8 +174,10 @@ void rdma_malloc_free(rdma_allocator_t *self, void *buf)
     }
     else if (merge_back)
     {
+        self->freelist.erase((rdma_free_t){ .len = prev_it->second.len, .buf = prev_it->first });
         prev_it->second.len += frag_it->second.len;
         self->frags.erase(frag_it);
+        self->freelist.insert((rdma_free_t){ .len = prev_it->second.len, .buf = prev_it->first });
         frag_it = prev_it;
     }
     else if (merge_next)
@@ -184,6 +186,7 @@ void rdma_malloc_free(rdma_allocator_t *self, void *buf)
         frag_it->second.len += next_it->second.len;
         self->freelist.erase((rdma_free_t){ .len = next_it->second.len, .buf = next_it->first });
         self->frags.erase(next_it);
+        self->freelist.insert((rdma_free_t){ .len = frag_it->second.len, .buf = frag_it->first });
     }
     else
     {

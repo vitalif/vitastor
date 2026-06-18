@@ -35,3 +35,8 @@ target_link_libraries(vitastor-nfs
 	vitastor_kv
 	${RDMACM_LIBRARIES}
 )
+
+# test_rdma_alloc
+add_executable(test_rdma_alloc EXCLUDE_FROM_ALL test_rdma_alloc.cpp rdma_alloc.cpp)
+add_dependencies(build_tests test_rdma_alloc)
+add_test(NAME test_rdma_alloc COMMAND test_rdma_alloc)
