@@ -552,20 +552,17 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
 undo_read:
     // need to wait. undo added requests, don't dequeue op
     release_clean(read_op);
-    if (dsk.csum_block_size > dsk.bitmap_granularity)
+    for (auto & vec: rv)
     {
-        for (auto & vec: rv)
+        if ((vec.copy_flags & COPY_BUF_CSUM_FILL) && vec.buf)
         {
-            if ((vec.copy_flags & COPY_BUF_CSUM_FILL) && vec.buf)
-            {
-                free(vec.buf);
-                vec.buf = NULL;
-            }
-            if (vec.dyn_data && --(*vec.dyn_data) == 0) // refcount
-            {
-                free(vec.dyn_data);
-                vec.dyn_data = NULL;
-            }
+            free(vec.buf);
+            vec.buf = NULL;
+        }
+        if (vec.dyn_data && --(*vec.dyn_data) == 0) // refcount
+        {
+            free(vec.dyn_data);
+            vec.dyn_data = NULL;
         }
     }
     rv.clear();
