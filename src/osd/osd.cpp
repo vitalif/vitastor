@@ -352,29 +352,50 @@ void osd_t::parse_config(bool init)
     {
         peering_state = peering_state | OSD_RECOVERING;
     }
-    if (old_autosync_interval != autosync_interval && autosync_timer_id >= 0)
+    if (old_autosync_interval != autosync_interval)
     {
-        this->tfd->clear_timer(autosync_timer_id);
-        autosync_timer_id = this->tfd->set_timer(autosync_interval*1000, true, [this](int timer_id)
+        if (autosync_timer_id >= 0)
         {
-            autosync();
-        });
+            this->tfd->clear_timer(autosync_timer_id);
+            autosync_timer_id = -1;
+        }
+        if (autosync_interval != 0)
+        {
+            autosync_timer_id = this->tfd->set_timer(autosync_interval*1000, true, [this](int timer_id)
+            {
+                autosync();
+            });
+        }
     }
-    if (old_print_stats_interval != print_stats_interval && print_stats_timer_id >= 0)
+    if (old_print_stats_interval != print_stats_interval)
     {
-        tfd->clear_timer(print_stats_timer_id);
-        print_stats_timer_id = this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
+        if (print_stats_timer_id >= 0)
         {
-            print_stats();
-        });
+            tfd->clear_timer(print_stats_timer_id);
+            print_stats_timer_id = -1;
+        }
+        if (print_stats_interval != 0)
+        {
+            print_stats_timer_id = this->tfd->set_timer(print_stats_interval*1000, true, [this](int timer_id)
+            {
+                print_stats();
+            });
+        }
     }
-    if (old_slow_log_interval != slow_log_interval && slow_log_timer_id >= 0)
+    if (old_slow_log_interval != slow_log_interval)
     {
-        tfd->clear_timer(slow_log_timer_id);
-        slow_log_timer_id = this->tfd->set_timer(slow_log_interval*1000, true, [this](int timer_id)
+        if (slow_log_timer_id >= 0)
         {
-            print_slow();
-        });
+            tfd->clear_timer(slow_log_timer_id);
+            slow_log_timer_id = -1;
+        }
+        if (slow_log_interval != 0)
+        {
+            slow_log_timer_id = this->tfd->set_timer(slow_log_interval*1000, true, [this](int timer_id)
+            {
+                print_slow();
+            });
+        }
     }
     if (old_recovery_tune_interval != recovery_tune_interval)
     {
