@@ -397,10 +397,10 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
         PRIV(op)->pending_ops++;
         io_uring_prep_readv(sqe, submit_fd, iov + n_pos, n_cur, submit_offset + clean_loc + item_start + d_pos);
         data->callback = [this, op](ring_data_t *data) { handle_read_event(data, op); };
-        if (n_pos > 0 || n_pos + IOV_MAX < n_iov)
+        if (n_pos > 0 || n_iov > IOV_MAX)
         {
             uint32_t d_len = 0;
-            for (int i = 0; i < IOV_MAX; i++)
+            for (int i = 0; i < n_cur; i++)
                 d_len += iov[n_pos+i].iov_len;
             data->iov.iov_len = d_len;
             d_pos += d_len;
