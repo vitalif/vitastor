@@ -757,8 +757,14 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
     else if (key.substr(0, etcd_prefix.length()+11) == etcd_prefix+"/osd/state/")
     {
         // <etcd_prefix>/osd/state/%d
-        osd_num_t peer_osd = std::stoull(key.substr(etcd_prefix.length()+11));
-        if (peer_osd > 0)
+        osd_num_t peer_osd = 0;
+        char null_byte = 0;
+        int scanned = sscanf(key.c_str() + etcd_prefix.length()+11, "%ju%c", &peer_osd, &null_byte);
+        if (scanned != 1 || !peer_osd)
+        {
+            fprintf(stderr, "Bad etcd key %s, ignoring\n", key.c_str());
+        }
+        else
         {
             if (value.is_object() && value["state"] == "up")
             {
