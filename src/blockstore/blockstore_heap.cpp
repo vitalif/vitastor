@@ -699,6 +699,11 @@ int blockstore_heap_t::mark_used_blocks()
             });
         }
     }
+    for (auto li: init_erase_items)
+    {
+        unlink_list_item(li);
+    }
+    init_erase_items.clear();
     if (dsk->gc_on_start)
     {
         recheck_full_gc();
@@ -734,7 +739,6 @@ void blockstore_heap_t::init_erase_bad_entry(heap_list_item_t *li)
         inf.garbage_space -= (li->entry.is_garbage() ? li->entry.size : 0);
     });
     recheck_modified_blocks.insert(li->block_num);
-    unlink_list_item(li);
 }
 
 bool blockstore_heap_t::init_erase_double_claim(heap_list_item_t *prev_li, heap_list_item_t *cur_li)
@@ -789,6 +793,8 @@ bool blockstore_heap_t::init_erase_double_claim(heap_list_item_t *prev_li, heap_
                 overwritten = erase_li->entry.is_overwrite();
             }
             init_erase_bad_entry(erase_li);
+            // Can't erase (mutate map) while iterating, so postpone it
+            init_erase_items.push_back(erase_li);
             erase_li = prev_erase_li;
         }
     }
@@ -802,6 +808,8 @@ bool blockstore_heap_t::init_erase_double_claim(heap_list_item_t *prev_li, heap_
             auto next_erase_li = erase_li->next;
             init_free_bad_entry(&erase_li->entry);
             init_erase_bad_entry(erase_li);
+            // Can't erase (mutate map) while iterating, so postpone it
+            init_erase_items.push_back(erase_li);
             erase_li = next_erase_li;
         }
         erase_li = cur_li;
@@ -810,6 +818,8 @@ bool blockstore_heap_t::init_erase_double_claim(heap_list_item_t *prev_li, heap_
         {
             auto prev_erase_li = erase_li->prev;
             init_erase_bad_entry(erase_li);
+            // Can't erase (mutate map) while iterating, so postpone it
+            init_erase_items.push_back(erase_li);
             erase_li = prev_erase_li;
         }
     }
@@ -880,6 +890,7 @@ void blockstore_heap_t::recheck_drop_entries(heap_entry_t *obj, heap_entry_t *ba
         auto prev = li->prev;
         assert(li->entry.type() == bad_wr->type());
         init_erase_bad_entry(li);
+        unlink_list_item(li);
         li = prev;
     }
 }

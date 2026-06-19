@@ -219,6 +219,7 @@ class blockstore_heap_t
     bool marked_used_blocks = false;
     bool recheck_queue_filled = false;
     std::vector<heap_list_item_t*> postponed_items;
+    std::vector<heap_list_item_t*> init_erase_items;
     std::set<uint32_t> recheck_modified_blocks;
     std::deque<heap_entry_t*> recheck_queue;
     std::map<heap_entry_t*, heap_recheck_state_t> recheck_states;
