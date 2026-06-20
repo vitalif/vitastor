@@ -614,8 +614,10 @@ struct snap_merger_t
         subop->offset = offset;
         subop->len = 0;
         subop->flags = OSD_OP_IGNORE_READONLY | OSD_OP_WAIT_UP_TIMEOUT;
-        subop->callback = [](cluster_op_t *subop)
+        in_flight++;
+        subop->callback = [this](cluster_op_t *subop)
         {
+            in_flight--;
             if (subop->retval != 0)
             {
                 fprintf(stderr, "error deleting from layer 0x%jx at offset %jx: %s", subop->inode, subop->offset, strerror(-subop->retval));
@@ -642,8 +644,10 @@ struct snap_merger_t
                     uint64_t to = last_written_offset;
                     cluster_op_t *subop = new cluster_op_t;
                     subop->opcode = OSD_OP_SYNC;
+                    in_flight++;
                     subop->callback = [this, to](cluster_op_t *subop)
                     {
+                        in_flight--;
                         delete subop;
                         // We can now delete source data between <from> and <to>
                         // But to do this we have to keep all object lists in memory :-(
