@@ -16,9 +16,11 @@ class ring_loop_mock_t: public ring_loop_i
     std::vector<ring_data_t *> submit_ring_datas;
     std::vector<ring_data_t *> completed_ring_datas;
     std::function<void(io_uring_sqe *)> submit_cb;
-    bool in_loop;
-    bool loop_again;
+    bool fake_full = false;
+    bool in_loop = false;
+    bool loop_again = false;
     bool support_zc = false;
+    std::function<bool()> is_full;
 
 public:
     ring_loop_mock_t(int qd, std::function<void(io_uring_sqe *)> submit_cb);
@@ -40,6 +42,7 @@ public:
     void restore(unsigned sqe_tail);
 
     void mark_completed(ring_data_t *data);
+    void set_fake_full(std::function<bool()> is_full);
 };
 
 class disk_mock_t

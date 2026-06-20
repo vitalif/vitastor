@@ -376,9 +376,89 @@ static void test_validate_padded_journal()
     free(read_op.buf);
 }
 
+// Check that read is retried and temporary read buffers are freed correctly (LSAN)
+// TODO: Check retries in other configuration
+static void test_read_retry_on_ring_full_1M_csum4k_clean()
+{
+    printf("\n-- test_read_retry_on_ring_full_1M_csum4k_clean\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["inmemory_metadata"] = "0";
+    test.config["block_size"] = "1048576";
+    test.config["data_csum_type"] = "crc32c";
+    test.config["csum_block_size"] = "4096";
+    test.init();
+    printf("blockstore initialized\n");
+
+    // Big_write without external bitmap(!) - also checks if journaled big_writes
+    // are handled correctly (they don't have an external bitmap)
+    printf("write v1 0+1M\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 1024*1024;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xAA, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Wait for flushing
+    printf("triggering compaction\n");
+    test.flusher()->request_trim();
+    while (test.flusher()->get_queue_size())
+        test.ringloop->loop();
+    while (test.flusher()->is_active())
+        test.ringloop->loop();
+    test.flusher()->release_trim();
+    assert(!test.flusher()->get_queue_size());
+    printf("compaction complete\n");
+
+    // Read with retry
+    printf("read with ring-full-retries\n");
+    blockstore_op_t read_op;
+    read_op.opcode = BS_OP_READ;
+    read_op.oid = { .inode = 1, .stripe = 0 };
+    read_op.version = 2;
+    read_op.offset = 0;
+    read_op.len = 1024*1024;
+    read_op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, read_op.len);
+    int req_count = 0;
+    int retry_on = 0;
+    bool done = false;
+    read_op.callback = [&](blockstore_op_t *op)
+    {
+        done = true;
+    };
+    // Force a retry after each sqe
+    test.ringloop->set_fake_full([&]
+    {
+        if (req_count == retry_on)
+        {
+            printf("hit retry on sqe %d\n", req_count);
+            req_count = 0;
+            retry_on++;
+            return true;
+        }
+        req_count++;
+        return false;
+    });
+    test.bs->enqueue_op(&read_op);
+    while (!done)
+        test.ringloop->loop();
+    read_op.callback = nullptr;
+    assert(read_op.retval == read_op.len);
+
+    free(op.buf);
+    free(read_op.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
     test_validate_padded_journal();
+    test_read_retry_on_ring_full_1M_csum4k_clean();
     return 0;
 }

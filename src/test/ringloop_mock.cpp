@@ -72,7 +72,7 @@ int ring_loop_mock_t::register_eventfd()
 
 io_uring_sqe* ring_loop_mock_t::get_sqe()
 {
-    if (free_ring_datas.size() == 0)
+    if (free_ring_datas.size() == 0 || is_full && is_full())
     {
         return NULL;
     }
@@ -398,4 +398,9 @@ bool disk_mock_t::submit(io_uring_sqe *sqe)
     // 2) parallel operation completions should be delivered in random order
     // 3) when fsync is enabled, write cache should be sometimes lost during a simulated power outage
     return true;
+}
+
+void ring_loop_mock_t::set_fake_full(std::function<bool()> is_full)
+{
+    this->is_full = is_full;
 }
