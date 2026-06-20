@@ -233,7 +233,7 @@ static std::string read_string(uint8_t *data, int size, int *pos)
     }
     uint32_t len = *(uint32_t*)(data+*pos);
     *pos += sizeof(uint32_t);
-    if (*pos+len > size)
+    if (len > size-*pos)
     {
         *pos = -1;
         return "";
