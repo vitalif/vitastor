@@ -108,11 +108,7 @@ void can_complete(int *r)
     *r = -2;
 }
 
-void check_completed(int *r)
-{
-    assert(*r == 1);
-    delete r;
-}
+#define check_completed(r) { assert(*(r) == 1); delete (r); }
 
 void pretend_connected(osd_messenger_t *msgr, osd_num_t osd_num)
 {
