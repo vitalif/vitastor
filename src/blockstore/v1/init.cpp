@@ -358,6 +358,8 @@ bool blockstore_init_meta::handle_meta_block(uint8_t *buf, uint64_t entries_per_
 {
     bool updated = false;
     uint64_t max_i = entries_per_block;
+    if (done_cnt > bs->dsk.block_count)
+        return false;
     if (max_i > bs->dsk.block_count-done_cnt)
         max_i = bs->dsk.block_count-done_cnt;
     for (uint64_t i = 0; i < max_i; i++)
