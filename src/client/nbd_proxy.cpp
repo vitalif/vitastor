@@ -301,10 +301,9 @@ const char *help_text =
     "     --nbd_disconnect_on_close 1\n"
     "       Disconnect the nbd device on close by last opener.\n"
 #endif
-#ifdef NBD_FLAG_READ_ONLY
+    "     --readonly\n"
     "     --nbd_ro 1\n"
     "       Set device into read only mode.\n"
-#endif
     "\n"
     "vitastor-nbd netlink-unmap /dev/nbdN\n"
     "  Unmap a device using netlink interface. Works with both netlink and ioctl mapped devices.\n"
@@ -582,10 +581,8 @@ help:
             }
             uint64_t flags = NBD_FLAG_SEND_FLUSH;
             uint64_t cflags = 0;
-#ifdef NBD_FLAG_READ_ONLY
-            if (!cfg["nbd_ro"].is_null())
+            if (!cfg["readonly"].is_null() || !cfg["nbd_ro"].is_null())
                 flags |= NBD_FLAG_READ_ONLY;
-#endif
 #ifdef NBD_CFLAG_DESTROY_ON_DISCONNECT
             if (!cfg["nbd_destroy_on_disconnect"].is_null())
                 cflags |= NBD_CFLAG_DESTROY_ON_DISCONNECT;
@@ -621,7 +618,10 @@ help:
             if (!cfg["dev_num"].is_null())
             {
                 int r;
-                if ((r = run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg)) != 0)
+                uint64_t flags = NBD_FLAG_SEND_FLUSH;
+                if (!cfg["readonly"].is_null())
+                    flags |= NBD_FLAG_READ_ONLY;
+                if ((r = run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, flags, nbd_timeout, bg)) != 0)
                 {
                     fprintf(stderr, "run_nbd: %s\n", strerror(-r));
                     exit(1);
