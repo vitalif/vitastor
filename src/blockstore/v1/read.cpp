@@ -663,6 +663,10 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
         {
             // Read checksums from disk
             uint8_t *csum_buf = read_clean_meta_block(read_op, clean_loc, rv.size()-req);
+            if (!csum_buf)
+            {
+                return false;
+            }
             for (int i = req; i > 0; i--)
             {
                 rv[rv.size()-i].csum_buf = csum_buf;
@@ -725,6 +729,10 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
                 {
                     // Read checksums from disk
                     csum_buf = read_clean_meta_block(read_op, clean_loc, PRIV(read_op)->read_vec.size());
+                    if (!csum_buf)
+                    {
+                        return false;
+                    }
                     csum_done = true;
                 }
                 uint8_t *csum = !dsk.csum_block_size ? 0 : (csum_buf + 2*dsk.clean_entry_bitmap_size + bmp_start*(dsk.data_csum_type & 0xFF));
