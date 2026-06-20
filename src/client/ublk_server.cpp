@@ -62,6 +62,13 @@ const char *help_text =
     "All usual Vitastor config options like --config_path <path_to_config> may also be specified in CLI.\n"
 ;
 
+struct ublk_request
+{
+    uint64_t ublk_cmd;
+    int index;
+    int result;
+};
+
 class ublk_server
 {
 protected:
@@ -331,6 +338,11 @@ help:
             daemonize_fork(notifyfd);
             close(notifyfd[0]);
         }
+        consumer.loop = [this]()
+        {
+            submit_postponed();
+        };
+        ringloop->register_consumer(&consumer);
         start_device(recover);
         if (pidfile != "")
             write_pid();
@@ -350,6 +362,7 @@ help:
             ringloop->wait();
         }
         cli->flush();
+        ringloop->unregister_consumer(&consumer);
         delete cli;
         delete epmgr;
         cli = NULL;
@@ -553,6 +566,8 @@ protected:
     ublksrv_ctrl_dev_info ublk_dev = {};
     ublksrv_io_desc *ublk_queue = NULL;
     std::vector<uint8_t*> buffers;
+    ring_consumer_t consumer;
+    std::vector<ublk_request> postponed_requests;
 
     void open_control()
     {
@@ -734,9 +749,19 @@ protected:
         ctrl_fd = -1;
     }
 
-    void submit_request(uint64_t ublk_cmd, int i, int res)
+    bool submit_request(uint64_t ublk_cmd, int i, int res)
     {
         io_uring_sqe *sqe = ringloop->get_sqe();
+        if (!sqe)
+        {
+            // Handle full io_uring by postponing the request
+            postponed_requests.push_back((ublk_request){
+                .ublk_cmd = ublk_cmd,
+                .index = i,
+                .result = res,
+            });
+            return false;
+        }
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
         sqe->fd = cdev_fd;
         sqe->opcode = IORING_OP_URING_CMD;
@@ -750,6 +775,22 @@ protected:
         cmd->addr = (uint64_t)buffers[i];
         cmd->result = res;
         data->callback = [this, i](ring_data_t *data) { exec_request(data->res, i); };
+        return true;
+    }
+
+    void submit_postponed()
+    {
+        int sent = 0;
+        while (postponed_requests.size())
+        {
+            ublk_request r = postponed_requests.back();
+            postponed_requests.pop_back();
+            if (!submit_request(r.ublk_cmd, r.index, r.result))
+                break;
+            sent++;
+        }
+        if (sent)
+            ringloop->submit();
     }
 
     void exec_request(int res, int i)
@@ -864,6 +905,11 @@ protected:
     int sync_ublk_cmd(uint32_t cmd_op, void *addr, uint32_t len, uint16_t dev_path_len = 0, uint64_t data0 = 0)
     {
         io_uring_sqe *sqe = ringloop->get_sqe();
+        if (!sqe)
+        {
+            fprintf(stderr, "Error: io_uring is full when trying to execute a control command\n");
+            exit(1);
+        }
         sqe->fd = ctrl_fd;
         sqe->opcode = IORING_OP_URING_CMD;
         sqe->ioprio = 0;
