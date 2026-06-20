@@ -324,8 +324,14 @@ resume_2:
                 cluster_op_t *sync_op = new cluster_op_t;
                 sync_op->opcode = OSD_OP_SYNC;
                 parent->waiting++;
-                sync_op->callback = [parent](cluster_op_t *sync_op)
+                sync_op->callback = [this, parent](cluster_op_t *sync_op)
                 {
+                    if (sync_op->retval != 0 && !result.err)
+                    {
+                        // Just in case, actually OP_SYNC can't fail
+                        result.err = -sync_op->retval;
+                        result.text = "Failed to sync "+oimg+": "+std::string(strerror(result.err));
+                    }
                     parent->waiting--;
                     delete sync_op;
                     parent->ringloop->wakeup();
