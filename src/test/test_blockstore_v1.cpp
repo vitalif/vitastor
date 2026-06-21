@@ -40,6 +40,24 @@ struct bs_test_t
         return bs->flusher;
     }
 
+    bool is_data_loc_used(uint64_t loc)
+    {
+        return bs->data_alloc->get(loc / bs->dsk.data_block_size);
+    }
+
+    void force_compaction()
+    {
+        printf("triggering compaction\n");
+        flusher()->request_trim();
+        while (flusher()->get_queue_size())
+            ringloop->loop();
+        while (flusher()->is_active())
+            ringloop->loop();
+        flusher()->release_trim();
+        assert(!flusher()->get_queue_size());
+        printf("compaction complete\n");
+    }
+
     void destroy()
     {
         while (bs && !bs->is_safe_to_stop())
@@ -257,15 +275,7 @@ static void test_preserve_corruption()
     assert(test.flusher()->get_queue_size());
 
     // Trigger compaction and intercept journal read
-    printf("triggering compaction\n");
-    test.flusher()->request_trim();
-    while (test.flusher()->get_queue_size())
-        test.ringloop->loop();
-    while (test.flusher()->is_active())
-        test.ringloop->loop();
-    test.flusher()->release_trim();
-    assert(!test.flusher()->get_queue_size());
-    printf("compaction complete\n");
+    test.force_compaction();
 
     // Store v1 can't cancel compaction because the journal is a ring buffer
     // so it compacts the object but preserves corruption
@@ -406,15 +416,7 @@ static void test_read_retry_on_ring_full_1M_csum4k_clean()
     assert(op.retval == op.len);
 
     // Wait for flushing
-    printf("triggering compaction\n");
-    test.flusher()->request_trim();
-    while (test.flusher()->get_queue_size())
-        test.ringloop->loop();
-    while (test.flusher()->is_active())
-        test.ringloop->loop();
-    test.flusher()->release_trim();
-    assert(!test.flusher()->get_queue_size());
-    printf("compaction complete\n");
+    test.force_compaction();
 
     // Read with retry
     printf("read with ring-full-retries\n");
@@ -455,10 +457,103 @@ static void test_read_retry_on_ring_full_1M_csum4k_clean()
     free(read_op.buf);
 }
 
+static void test_read_free_clean_loc_used()
+{
+    printf("\n-- test_read_free_clean_loc_used\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+    printf("blockstore initialized\n");
+
+    // big_write (block 0)
+    printf("write obj2 v1 0+128k\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 2, .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xAA, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // big_write (block 1)
+    printf("write v1 0+128k\n");
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Force compaction
+    test.force_compaction();
+
+    // Start reading it but pause SQE completion
+    printf("start reading 0+128k\n");
+    ring_data_t *data_read = NULL;
+    uint64_t read_loc = 0;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->off >= test.dsk().data_offset && sqe->fd == MOCK_DATA_FD && !data_read)
+        {
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            read_loc = sqe->off - test.dsk().data_offset;
+            data_read = (ring_data_t*)sqe->user_data;
+            return true;
+        }
+        return false;
+    };
+    blockstore_op_t read_op;
+    read_op.opcode = BS_OP_READ;
+    read_op.oid = { .inode = 1, .stripe = 0 };
+    read_op.version = 1;
+    read_op.offset = 0;
+    read_op.len = 128*1024;
+    read_op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, read_op.len);
+    bool done_read = false;
+    read_op.callback = [&](blockstore_op_t *op)
+    {
+        done_read = true;
+    };
+    test.bs->enqueue_op(&read_op);
+    while (!data_read)
+        test.ringloop->loop();
+
+    // Overwrite the object
+    printf("write v2 0+128k\n");
+    op.version = 2;
+    memset(op.buf, 0xBB, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Force compaction
+    test.force_compaction();
+
+    // Check that the old location is still not freed
+    printf("checking that data location 0x%lx is still used\n", read_loc);
+    assert(test.is_data_loc_used(read_loc));
+    printf("completing read\n");
+    test.ringloop->mark_completed(data_read);
+    data_read = NULL;
+    while (!done_read)
+        test.ringloop->loop();
+    read_op.callback = NULL;
+    printf("checking that data location 0x%lx is freed\n", read_loc);
+    assert(!test.is_data_loc_used(read_loc));
+
+    assert(read_op.retval == read_op.len);
+
+    free(op.buf);
+    free(read_op.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
     test_validate_padded_journal();
     test_read_retry_on_ring_full_1M_csum4k_clean();
+    test_read_free_clean_loc_used();
     return 0;
 }
