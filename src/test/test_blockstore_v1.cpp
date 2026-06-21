@@ -40,6 +40,11 @@ struct bs_test_t
         return bs->flusher;
     }
 
+    uint64_t used_blocks()
+    {
+        return bs->used_blocks;
+    }
+
     bool is_data_loc_used(uint64_t loc)
     {
         return bs->data_alloc->get(loc / bs->dsk.data_block_size);
@@ -549,11 +554,53 @@ static void test_read_free_clean_loc_used()
     free(read_op.buf);
 }
 
+static void test_meta_tail_reload()
+{
+    printf("\n-- test_meta_tail_reload\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+    printf("blockstore initialized\n");
+
+    {
+        // write an overflowing metadata entry
+        auto & dsk = test.dsk();
+        ring_data_t data = {};
+        io_uring_sqe sqe = {};
+        clean_disk_entry *new_entry = (clean_disk_entry *)malloc_or_die(dsk.clean_entry_size);
+        memset(new_entry, 0, dsk.clean_entry_size);
+        iovec iov = { .iov_base = new_entry, .iov_len = dsk.clean_entry_size };
+        sqe.opcode = IORING_OP_WRITEV;
+        sqe.off = dsk.meta_offset + (2 + dsk.block_count / (dsk.meta_block_size / dsk.clean_entry_size)) * dsk.meta_block_size;
+        sqe.addr = (uint64_t)&iov;
+        sqe.len = 1;
+        sqe.flags = RWF_DSYNC;
+        sqe.user_data = (uint64_t)&data;
+        // Entry data
+        new_entry->oid = { .inode = 1, .stripe = 0 };
+        new_entry->version = 1;
+        *(uint32_t*)new_entry->bitmap = 0xFFFFFFFF;
+        *(uint32_t*)((uint8_t*)new_entry + dsk.clean_entry_size - 4) = crc32c(0, new_entry, dsk.clean_entry_size - 4);
+        bool ok = test.data_disk->submit(&sqe);
+        assert(ok);
+        free(new_entry);
+    }
+
+    test.destroy_bs();
+
+    test.init();
+    assert(!test.used_blocks());
+
+    printf("blockstore re-initialized with an overflowing entry\n");
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
     test_validate_padded_journal();
     test_read_retry_on_ring_full_1M_csum4k_clean();
     test_read_free_clean_loc_used();
+    test_meta_tail_reload();
     return 0;
 }
