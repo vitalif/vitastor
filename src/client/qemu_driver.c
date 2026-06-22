@@ -880,6 +880,25 @@ static int vitastor_refresh_limits(BlockDriverState *bs)
 //    return 0;
 //}
 
+// Move the running coroutine to the BlockDriverState's home AioContext.
+//
+// The block-coroutine-wrapper generator sets poll_state.ctx to
+// qemu_get_current_aio_context() in the sync wrappers (bdrv_flush(),
+// bdrv_pread() etc.). When bdrv_flush_all() runs under BQL from outside the
+// bs's iothread (e.g. on the migration thread inside do_vm_stop()), that is
+// the main AioContext, not the iothread that actually owns the bs. The
+// coroutine then runs on the wrong context while completions are delivered on
+// the iothread, and racing aio_co_schedule() vs. qemu_aio_coroutine_enter()
+// on the same coroutine triggers "Co-routine was already scheduled in
+// aio_co_schedule" and aborts the process (observed during live migration).
+//
+// aio_co_reschedule_self() is a no-op when we are already on the target ctx.
+#if QEMU_VERSION_MAJOR > 5 || QEMU_VERSION_MAJOR == 5 && QEMU_VERSION_MINOR >= 2
+#define vitastor_co_pin_to_bs_ctx(bs) aio_co_reschedule_self(bdrv_get_aio_context(bs))
+#else
+#define vitastor_co_pin_to_bs_ctx(bs) ((void)0)
+#endif
+
 static void vitastor_co_init_task(BlockDriverState *bs, VitastorRPC *task)
 {
     *task = (VitastorRPC) {
@@ -938,6 +957,7 @@ static int coroutine_fn vitastor_co_preadv(BlockDriverState *bs,
 {
     VitastorClient *client = bs->opaque;
     VitastorRPC task;
+    vitastor_co_pin_to_bs_ctx(bs);
     vitastor_co_init_task(bs, &task);
     task.iov = iov;
 
@@ -966,6 +986,7 @@ static int coroutine_fn vitastor_co_pwritev(BlockDriverState *bs,
 {
     VitastorClient *client = bs->opaque;
     VitastorRPC task;
+    vitastor_co_pin_to_bs_ctx(bs);
     vitastor_co_init_task(bs, &task);
     task.iov = iov;
 
@@ -1039,6 +1060,7 @@ static int coroutine_fn vitastor_co_block_status(BlockDriverState *bs,
 #endif
     VitastorRPC task;
     VitastorClient *client = bs->opaque;
+    vitastor_co_pin_to_bs_ctx(bs);
     uint64_t inode = client->watch ? vitastor_c_inode_get_num(client->watch) : client->inode;
     uint8_t bit = 0;
     if (client->last_bitmap && client->last_bitmap_inode == inode &&
@@ -1151,6 +1173,7 @@ static int coroutine_fn vitastor_co_flush(BlockDriverState *bs)
 {
     VitastorClient *client = bs->opaque;
     VitastorRPC task;
+    vitastor_co_pin_to_bs_ctx(bs);
     vitastor_co_init_task(bs, &task);
 
     qemu_mutex_lock(&client->mutex);
@@ -1236,6 +1259,8 @@ static BlockDriver bdrv_vitastor = {
 #endif
     .bdrv_close                     = vitastor_close,
 
+    // Re-register fd handlers when the bs is moved to a different AioContext
+    // (live migration, drain, iothread reassignment).
     .bdrv_detach_aio_context        = vitastor_detach_aio_context,
     .bdrv_attach_aio_context        = vitastor_attach_aio_context,
 
