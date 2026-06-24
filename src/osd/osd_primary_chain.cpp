@@ -586,6 +586,11 @@ void osd_t::send_chained_read_results(pg_t *pg, osd_op_t *cur_op)
     // Send bitmap
     cur_op->reply.rw.bitmap_len = (pg ? pg->pg_data_size : 1) * clean_entry_bitmap_size;
     cur_op->iov.push_back(op_data->stripes[0].bmp_buf, cur_op->reply.rw.bitmap_len);
+    if (cur_op->req.rw.flags & OSD_OP_RETURN_CHAIN)
+    {
+        cur_op->iov.push_back(op_data->chain_info, (cur_op->req.rw.len / bs_bitmap_granularity));
+        cur_op->reply.rw.bitmap_len += (cur_op->req.rw.len / bs_bitmap_granularity);
+    }
     // And finally compose the result
     uint64_t sent = 0;
     int prev_pos = 0, pos = 0;
@@ -602,7 +607,11 @@ void osd_t::send_chained_read_results(pg_t *pg, osd_op_t *cur_op)
             {
                 has_bit = (((uint8_t*)op_data->snapshot_bitmaps)[pos*stripe_count*clean_entry_bitmap_size + cur/8] >> (cur%8)) & 1;
                 if (has_bit)
+                {
+                    if (op_data->chain_info)
+                        op_data->chain_info[cur] = pos;
                     break;
+                }
             }
         }
         if (has_bit != prev_set || pos != prev_pos || cur == end)

@@ -74,6 +74,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
     int stripe_count = (cur_op->req.hdr.opcode == OSD_OP_SCRUB ? 0 :
         (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg_it->second.pg_size));
     int chain_size = 0;
+    int chain_info_len = 0;
     if (cur_op->req.hdr.opcode == OSD_OP_READ && cur_op->req.rw.meta_revision > 0)
     {
         // Chained read
@@ -94,9 +95,10 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             // Check for loops - FIXME check it in etcd_state_client
             if (inode_it->second.parent_id == cur_op->req.rw.inode ||
                 inode_it->second.parent_id == inode_it->second.num ||
-                chain_size > st_cli->inode_config.size())
+                chain_size > st_cli->inode_config.size() ||
+                chain_size > 255)
             {
-                printf("Inode %ju from pool %u has a parent_id loop, returning EINVAL in response to read\n",
+                printf("Inode %ju from pool %u has too many parents, returning EINVAL in response to read\n",
                     INODE_NO_POOL(cur_op->req.rw.inode), INODE_POOL(cur_op->req.rw.inode));
                 finish_op(cur_op, -EINVAL);
                 return false;
@@ -108,6 +110,9 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         {
             // Add the original inode
             chain_size++;
+            chain_info_len = (cur_op->req.rw.flags & OSD_OP_RETURN_CHAIN
+                ? (cur_op->req.rw.len / bs_bitmap_granularity)
+                : 0);
         }
     }
     osd_primary_op_data_t *op_data = (osd_primary_op_data_t*)calloc_or_die(
@@ -125,7 +130,9 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             stripe_count * clean_entry_bitmap_size +
             // - 'missing' flags for chained reads
             (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 0 : pg_it->second.pg_size)
-        )
+        ) +
+        // read chain info
+        chain_info_len
     );
     void *data_buf = (uint8_t*)op_data + sizeof(osd_primary_op_data_t);
     op_data->pg_num = pg_num;
@@ -157,6 +164,11 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         data_buf = (uint8_t*)data_buf + chain_size * stripe_count * clean_entry_bitmap_size;
         op_data->missing_flags = (uint8_t*)data_buf;
         data_buf = (uint8_t*)data_buf + chain_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 0 : pg_it->second.pg_size);
+        if (chain_info_len)
+        {
+            op_data->chain_info = (uint8_t*)data_buf;
+            data_buf = (uint8_t*)data_buf + chain_info_len;
+        }
         // Copy chain
         int chain_num = 0;
         op_data->read_chain[chain_num] = cur_op->req.rw.inode;

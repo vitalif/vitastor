@@ -37,6 +37,7 @@
 
 #define OSD_OP_RECOVERY_RELATED     (uint32_t)1
 #define OSD_OP_IGNORE_PG_LOCK       (uint32_t)2
+#define OSD_OP_RETURN_CHAIN         (uint32_t)4
 
 // Memory alignment for direct I/O (usually 512 bytes)
 #ifndef DIRECT_IO_ALIGNMENT
@@ -228,9 +229,10 @@ struct __attribute__((__packed__)) osd_op_rw_t
     uint64_t offset;
     // length. 0 means to read all bitmaps of the specified range, but no data.
     uint32_t len;
-    // flags (for future)
+    // flags
+    // OSD_OP_RETURN_CHAIN for chained reads: return parent number in chain for each block
     uint32_t flags;
-    // inode metadata revision
+    // inode metadata revision for chained reads
     uint64_t meta_revision;
     // object version for atomic "CAS" (compare-and-set) writes
     // writes and deletes fail with -EINTR if object version differs from (version-1)

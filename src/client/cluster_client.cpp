@@ -972,14 +972,23 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     {
         op->flags |= OP_IMMEDIATE_COMMIT;
     }
-    auto ino_it = st_cli->inode_config.find(op->inode);
-    if (ino_it != st_cli->inode_config.end() && ino_it->second.enc)
+    // FIXME: Rework client API by adding open/close and cache inode information in the "FD"
+    bool searched = false;
+    std::map<inode_t, inode_config_t>::iterator ino_it;
+    if (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_WRITE)
     {
-        // FIXME: Rework client API by adding open/close and cache inode information in the "FD"
-        op->enc = ino_it->second.enc;
-        if (!op->enc->bitmap_granularity)
+        if (!searched)
         {
-            op->enc->bitmap_granularity = pool_it->second.bitmap_granularity;
+            ino_it = st_cli->inode_config.find(op->inode);
+            searched = true;
+        }
+        if (ino_it != st_cli->inode_config.end() && ino_it->second.enc)
+        {
+            op->enc = ino_it->second.enc;
+            if (!op->enc->bitmap_granularity)
+            {
+                op->enc->bitmap_granularity = pool_it->second.bitmap_granularity;
+            }
         }
     }
     else
@@ -988,6 +997,11 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     }
     if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && !(op->flags & OSD_OP_IGNORE_READONLY))
     {
+        if (!searched)
+        {
+            ino_it = st_cli->inode_config.find(op->inode);
+            searched = true;
+        }
         if (ino_it != st_cli->inode_config.end() && ino_it->second.readonly)
         {
             op->retval = -EROFS;
@@ -999,6 +1013,11 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
     op->deoptimise_snapshot = false;
     if (enable_writeback && (op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP))
     {
+        if (!searched)
+        {
+            ino_it = st_cli->inode_config.find(op->inode);
+            searched = true;
+        }
         if (ino_it != st_cli->inode_config.end())
         {
             int chain_size = 0;
@@ -1285,7 +1304,11 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
         // Allocate memory for the bitmap
         unsigned object_bitmap_size = ((op->len / pool_cfg.bitmap_granularity + 7) / 8);
         object_bitmap_size = (object_bitmap_size < 8 ? 8 : object_bitmap_size);
-        unsigned bitmap_mem = object_bitmap_size + (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8 * pg_data_size) * op->parts.size();
+        unsigned bitmap_mem = object_bitmap_size +
+            op->parts.size() * pg_data_size *
+            (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8
+            // read chain info - 1 byte per block
+            + (op->enc ? op->len/pool_cfg.bitmap_granularity : 0));
         if (!op->bitmap_buf || op->bitmap_buf_size < bitmap_mem)
         {
             op->bitmap_buf = realloc_or_die(op->bitmap_buf, bitmap_mem);
@@ -1440,9 +1463,9 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
             osd_client_t *cl = peer_it->second;
             part->flags |= PART_SENT|PART_VALID;
             op->inflight_count++;
-            uint64_t pg_bitmap_size = (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8) * (
-                pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks
-            );
+            uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+            uint64_t pg_bitmap_size = pg_data_size * (pool_cfg.data_block_size / pool_cfg.bitmap_granularity / 8
+                + (op->opcode == OSD_OP_READ && op->enc ? pool_cfg.data_block_size/pool_cfg.bitmap_granularity : 0));
             uint64_t meta_rev = 0;
             if (op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_DELETE && !op->deoptimise_snapshot)
             {
@@ -1461,6 +1484,7 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
                     .inode = op->cur_inode,
                     .offset = part->offset,
                     .len = part->len,
+                    .flags = op->opcode == OSD_OP_READ && op->enc ? OSD_OP_RETURN_CHAIN : 0,
                     .meta_revision = meta_rev,
                     .version = op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE ? op->version : 0,
                 } },
