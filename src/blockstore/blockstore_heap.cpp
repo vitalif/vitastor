@@ -2300,7 +2300,7 @@ void blockstore_heap_t::use_data(inode_t inode, uint64_t location)
 {
     auto sh_it = pool_shard_settings.find(INODE_POOL(inode));
     if (sh_it != pool_shard_settings.end() && sh_it->second.no_inode_stats)
-        inode = (INODE_POOL(inode) << POOL_ID_BITS);
+        inode = INODE_WITH_POOL(INODE_POOL(inode), 0);
     assert(!data_alloc->get(location / dsk->data_block_size));
     data_alloc->set(location / dsk->data_block_size, true);
     inode_space_stats[inode] += dsk->data_block_size;
@@ -2311,7 +2311,7 @@ void blockstore_heap_t::free_data(inode_t inode, uint64_t location)
 {
     auto sh_it = pool_shard_settings.find(INODE_POOL(inode));
     if (sh_it != pool_shard_settings.end() && sh_it->second.no_inode_stats)
-        inode = (INODE_POOL(inode) << POOL_ID_BITS);
+        inode = INODE_WITH_POOL(INODE_POOL(inode), 0);
     assert(data_alloc->get(location / dsk->data_block_size));
     data_alloc->set(location / dsk->data_block_size, false);
     auto sp_it = inode_space_stats.find(inode);
