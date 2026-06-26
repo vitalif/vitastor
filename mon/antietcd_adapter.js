@@ -18,7 +18,7 @@ class AntiEtcdAdapter
                 cluster = cluster ? (''+(cluster||'')).split(/,+/) : [];
             cluster = Object.keys(cluster.reduce((a, url) =>
             {
-                a[url.toLowerCase().replace(/^(https?:\/\/)/, '').replace(/\/.*$/, '')] = true;
+                a[url.toLowerCase().replace(/^(https?:\/\/)?(.*?)(\/.*)?$/, (m, m1, m2) => (m1||'http://')+m2)] = true;
                 return a;
             }, {}));
             const cfg_port = config.antietcd_port;
@@ -26,7 +26,18 @@ class AntiEtcdAdapter
             is_local['0.0.0.0'] = true;
             is_local['::'] = true;
             is_local[''] = true;
-            const selected = cluster.map(s => s.split(':', 2)).filter(ip => is_local[ip[0]] && (!cfg_port || ip[1] == cfg_port));
+            // split :, 3 -> <schema>:<//ip>:<port>
+            const selected = [];
+            for (let i = 0; i < cluster.length; i++)
+            {
+                const m = /^(https?:\/\/)?(?:\[(.*)\]|([^\[\:]+))(?::(\d+))?$/.exec(cluster[i]);
+                if (!m)
+                    continue;
+                const ip = m[3] || m[2];
+                const port = m[4] || 2379;
+                if (is_local[ip] && (!cfg_port || port == cfg_port))
+                    selected.push({ idx: i, ip, port });
+            }
             if (selected.length > 1)
             {
                 console.error('More than 1 etcd_address matches local IPs, please specify port');
@@ -35,15 +46,16 @@ class AntiEtcdAdapter
             else if (selected.length == 1)
             {
                 const antietcd_config = {
-                    ip: selected[0][0],
-                    port: selected[0][1],
-                    data: config.antietcd_data_file || ((config.antietcd_data_dir || '/var/lib/vitastor') + '/mon_'+selected[0][1]+'.json.gz'),
+                    ip: selected[0].ip,
+                    port: selected[0].port,
+                    data: config.antietcd_data_file || ((config.antietcd_data_dir || '/var/lib/vitastor') + '/mon_'+selected[0].port+'.json.gz'),
                     persist_filter: vitastor_persist_filter({ vitastor_prefix: config.etcd_prefix || '/vitastor' }),
-                    node_id: selected[0][0]+':'+selected[0][1], // node_id = ip:port
-                    cluster: (cluster.length == 1 ? null : cluster.reduce((a, c) => { a[c] = "http://"+c; return a; }, {})),
+                    node_id: cluster[selected[0].idx].replace(/^(https?:\/\/)/, ''), // same as in <cluster> below
+                    cluster: (cluster.length == 1 ? null : cluster.reduce((a, c) => { a[c.replace(/^(https?:\/\/)/, '')] = c; return a; }, {})),
                     cluster_key: (config.etcd_prefix || '/vitastor'),
                     stale_read: 1,
                     log_level: 1,
+                    logs: { cluster: true },
                 };
                 for (const key in config)
                 {
