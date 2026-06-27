@@ -366,15 +366,38 @@ sub map_volume
     my $prefix = defined $scfg->{vitastor_prefix} ? $scfg->{vitastor_prefix} : 'pve/';
 
     my ($vtype, $img_name, $vmid) = $class->parse_volname($volname);
-    my $name = $img_name;
+    my $name = $prefix.$img_name;
     $name .= '@'.$snapname if $snapname;
 
     my $mapped = run_cli($scfg, [ 'ls' ], binary => '/usr/bin/vitastor-nbd');
-    my ($kerneldev) = grep { $mapped->{$_}->{image} eq $prefix.$name } keys %$mapped;
-    return $kerneldev if $kerneldev && -b $kerneldev; # already mapped
+    my ($kerneldev) = grep {
+        $mapped->{$_} && $mapped->{$_}->{image} && $mapped->{$_}->{image} eq $name
+    } keys %$mapped;
 
-    $kerneldev = run_cli($scfg, [ 'map', '--image', $prefix.$name ], binary => '/usr/bin/vitastor-nbd', json => 0);
-    return $kerneldev;
+    if ($kerneldev && -b $kerneldev)
+    {
+        my $size = `/usr/sbin/blockdev --getsize64 $kerneldev`;
+        return $kerneldev if $size && $size > 0;
+    }
+
+    my $map_out = run_cli($scfg, [ 'map', '--image', $name ], binary => '/usr/bin/vitastor-nbd', json => 0);
+    $map_out =~ s/^\s+|\s+$//gso;
+
+    # Wait until the device is started
+    for (my $i = 0; $i < 100; $i++)
+    {
+        $mapped = run_cli($scfg, [ 'ls' ], binary => '/usr/bin/vitastor-nbd');
+        ($kerneldev) = grep { $mapped->{$_} && $mapped->{$_}->{image} && $mapped->{$_}->{image} eq $name } keys %$mapped;
+        if ($kerneldev && -b $kerneldev)
+        {
+            my $size = `/usr/sbin/blockdev --getsize64 $kerneldev`;
+            return $kerneldev if $size && $size > 0;
+        }
+        select(undef, undef, undef, 0.1);
+    }
+
+    die "Failed to map Vitastor image $name via NBD".
+        ($map_out ? ", vitastor-nbd map returned '$map_out'" : "")."\n";
 }
 
 sub unmap_volume
@@ -383,13 +406,19 @@ sub unmap_volume
     my $prefix = defined $scfg->{vitastor_prefix} ? $scfg->{vitastor_prefix} : 'pve/';
 
     my ($vtype, $name, $vmid) = $class->parse_volname($volname);
+    $name = $prefix.$name;
     $name .= '@'.$snapname if $snapname;
-
     my $mapped = run_cli($scfg, [ 'ls' ], binary => '/usr/bin/vitastor-nbd');
-    my ($kerneldev) = grep { $mapped->{$_}->{image} eq $prefix.$name } keys %$mapped;
-    if ($kerneldev && -b $kerneldev)
+
+    my @kerneldevs = grep {
+        $mapped->{$_} && $mapped->{$_}->{image} && $mapped->{$_}->{image} eq $name
+    } keys %$mapped;
+
+    for my $kerneldev (@kerneldevs)
     {
-        run_cli($scfg, [ 'unmap', $kerneldev ], binary => '/usr/bin/vitastor-nbd', json => 0);
+        next if !$kerneldev || !-b $kerneldev;
+        eval { run_cli($scfg, [ 'unmap', $kerneldev ], binary => '/usr/bin/vitastor-nbd', json => 0); };
+        warn "Failed to unmap Vitastor image $name from $kerneldev: $@" if $@;
     }
 
     return 1;
@@ -405,7 +434,13 @@ sub activate_volume
 sub deactivate_volume
 {
     my ($class, $storeid, $scfg, $volname, $snapname, $cache) = @_;
-    $class->unmap_volume($storeid, $scfg, $volname, $snapname) if $scfg->{vitastor_nbd};
+
+    # Even with vitastor_nbd=0, Proxmox may call map_volume() for special
+    # volumes like tpmstate0 because swtpm needs a local file/block path.
+    # Therefore, always try to unmap an existing NBD mapping here.
+    # unmap_volume() is a no-op if the volume is not currently mapped.
+    $class->unmap_volume($storeid, $scfg, $volname, $snapname);
+
     return 1;
 }
 
