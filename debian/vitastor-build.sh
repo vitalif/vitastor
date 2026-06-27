@@ -37,11 +37,8 @@ rm -rf a b
 
 echo "dep:fio=$FIO" > debian/fio_version
 
-cd /root/vitastor/packages/vitastor-$REL/vitastor-$VER
-mkdir mon/node_modules
-cd mon/node_modules
-curl -s https://git.yourcmc.ru/vitalif/antietcd/archive/master.tar.gz | tar -zx
-curl -s https://git.yourcmc.ru/vitalif/tinyraft/archive/master.tar.gz | tar -zx
+cd /root/vitastor/packages/vitastor-$REL/vitastor-$VER/mon
+npm install --production
 
 cd /root/vitastor/packages/vitastor-$REL
 if [[ ( "$REL" = "trixie" || "$REL" = "resolute" ) && -e ../vitastor-bookworm/vitastor_$VER.orig.tar.xz ]]; then
