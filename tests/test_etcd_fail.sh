@@ -23,9 +23,13 @@ kill_etcds()
     start_etcd 3
 }
 
-kill_etcds &
-
 $VITASTOR_FIO -bs=4k -direct=1 -iodepth=1 -fsync=1 -rw=randwrite \
-    -pool=1 -inode=1 -size=128M -cluster_log_level=10 -runtime=30
+    -pool=1 -inode=1 -size=128M -cluster_log_level=10 -runtime=30 &
+FIO_PID=$!
+
+# Kill in foreground because otherwise antietcds are not killed by jobs -p
+kill_etcds
+
+wait $FIO_PID
 
 format_green OK
