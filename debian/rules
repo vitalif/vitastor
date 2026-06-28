@@ -11,6 +11,7 @@ override_dh_install:
 	cp -v node-binding/package.json node-binding/index.js node-binding/addon.cc node-binding/addon.h node-binding/client.cc node-binding/client.h debian/tmp/usr/lib/x86_64-linux-gnu/nodejs/vitastor
 	cp -v node-binding/build/Release/addon.node debian/tmp/usr/lib/x86_64-linux-gnu/nodejs/vitastor/build/Release
 	dh_install
+	cd debian/vitastor-mon/usr/lib/vitastor/mon && npm install --production
 
 override_dh_installdeb:
 	cat debian/fio_version >> debian/vitastor-fio.substvars

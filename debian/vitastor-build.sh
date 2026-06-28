@@ -37,9 +37,6 @@ rm -rf a b
 
 echo "dep:fio=$FIO" > debian/fio_version
 
-cd /root/vitastor/packages/vitastor-$REL/vitastor-$VER/mon
-npm install --production
-
 cd /root/vitastor/packages/vitastor-$REL
 if [[ ( "$REL" = "trixie" || "$REL" = "resolute" ) && -e ../vitastor-bookworm/vitastor_$VER.orig.tar.xz ]]; then
     # Fucking shit, archives differ between bookworm (xz 5.4.1) and trixie (xz 5.8.1)
