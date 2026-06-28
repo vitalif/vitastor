@@ -76,7 +76,7 @@ struct cli_serve_t
     int port = 0;
     int listen_backlog = 0;
     bool ssl = false;
-    bool use_auth = false;
+    bool use_perms = false;
     std::vector<int> listen_fds;
     http_context_t *http_ctx = NULL;
     std::set<cli_serve_conn_t*> connections;
@@ -115,8 +115,8 @@ struct cli_serve_t
         {
             std::string tls_cert = (parent->cli->config.find("server_cert") != parent->cli->config.end()
                 ? parent->cli->config["server_cert"].string_value() : "");
-            std::string tls_key = (parent->cli->config.find("server_key") != parent->cli->config.end()
-                ? parent->cli->config["server_key"].string_value() : "");
+            std::string tls_key = (parent->cli->config.find("server_pkey") != parent->cli->config.end()
+                ? parent->cli->config["server_pkey"].string_value() : "");
             std::string tls_ca = (parent->cli->config.find("client_ca") != parent->cli->config.end()
                 ? parent->cli->config["client_ca"].string_value() : "");
             if (tls_cert != "" || tls_key != "" || tls_ca != "")
@@ -124,14 +124,14 @@ struct cli_serve_t
                 ssl = true;
                 if (tls_cert == "" || tls_key == "")
                 {
-                    result = (cli_result_t){ .err = EINVAL, .text = "server_cert and server_key are required to serve HTTPS" };
+                    result = (cli_result_t){ .err = EINVAL, .text = "server_cert and server_pkey are required to serve HTTPS" };
                     state = 100;
                     return;
                 }
-                // use_auth is enabled by default when client_ca is set
-                use_auth = (parent->cli->config["use_auth"].is_null()
+                // use_perms is enabled by default when client_ca is set
+                use_perms = (parent->cli->config["use_perms"].is_null()
                     ? (tls_ca != "")
-                    : json_is_true(parent->cli->config["use_auth"]));
+                    : json_is_true(parent->cli->config["use_perms"]));
                 std::string error;
                 http_ctx = http_context_init(parent->epmgr->tfd, tls_cert, tls_key, tls_ca, tls_ca != "", error);
                 if (error != "")
@@ -360,7 +360,7 @@ struct cli_serve_t
         conn->request_path = std::move(req_line[1]);
         conn->request_body = std::move(msg->body);
         conn->response_type = "";
-        if (use_auth)
+        if (use_perms)
         {
             conn->p->user = parent->cli->st_cli->get_user(msg->headers["_tls_common_name"]);
         }
@@ -391,7 +391,7 @@ struct cli_serve_t
             {
                 conn->response_type = "application/json";
                 conn->result = { .text = openapi_description };
-                if (use_auth)
+                if (use_perms)
                 {
                     // Filter available paths by privileges
                     if (conn->p->user->type == user_type_t::CLIENT)
@@ -426,7 +426,7 @@ struct cli_serve_t
             {
                 conn->result = { .err = ENOSYS, .text = "method /"+uri[0]+" only allows POST requests" };
             }
-            else if (use_auth && conn->p->user->type == user_type_t::CLIENT && !cmd_it->second.allow_client)
+            else if (use_perms && conn->p->user->type == user_type_t::CLIENT && !cmd_it->second.allow_client)
             {
                 conn->result = { .err = EACCES, .text = "Access denied" };
             }

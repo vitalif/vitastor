@@ -71,7 +71,7 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         finish_op(cur_op, -EINVAL);
         return false;
     }
-    if (use_auth && cur_op->client_id != SELF_CLIENT)
+    if (use_perms && cur_op->client_id != SELF_CLIENT)
     {
         osd_client_t *cl = msgr.clients.at(cur_op->client_id);
         if (cl->hs_result.peer_is_osd)

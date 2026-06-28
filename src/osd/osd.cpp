@@ -191,10 +191,10 @@ void osd_t::parse_config(bool init)
     msgr.parse_config(config, init);
     if (init)
     {
-        // use_auth is enabled by default when encryption is enabled
-        use_auth = (config["use_auth"].is_null()
+        // use_perms is enabled by default when encryption is enabled
+        use_perms = (config["use_perms"].is_null()
             ? msgr.is_encryption_enabled()
-            : json_is_true(config["use_auth"]));
+            : json_is_true(config["use_perms"]));
         // Vital Blockstore parameters
         bs_block_size = config["block_size"].uint64_value();
         if (!bs_block_size)

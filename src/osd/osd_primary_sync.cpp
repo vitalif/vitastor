@@ -8,7 +8,7 @@ void osd_t::continue_primary_sync(osd_op_t *cur_op)
 {
     if (!cur_op->op_data)
     {
-        if (use_auth && cur_op->client_id != SELF_CLIENT)
+        if (use_perms && cur_op->client_id != SELF_CLIENT)
         {
             osd_client_t *cl = msgr.clients.at(cur_op->client_id);
             if (cl->hs_result.peer_is_osd)

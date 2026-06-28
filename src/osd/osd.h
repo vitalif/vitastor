@@ -161,7 +161,7 @@ class osd_t
     std::unique_ptr<etcd_state_client_t> st_cli;
     std::function<blockstore_i*(blockstore_config_t & config)> bs_factory;
     osd_messenger_t msgr;
-    bool use_auth = false;
+    bool use_perms = false;
     int etcd_failed_attempts = 0;
     std::string etcd_lease_id;
     json11::Json self_state;

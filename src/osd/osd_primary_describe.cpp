@@ -91,7 +91,7 @@ static void scan_lists(std::vector<unclean_list_t> & lists, uint64_t limit, desc
 // Describe unclean objects
 void osd_t::continue_primary_describe(osd_op_t *cur_op)
 {
-    if (use_auth)
+    if (use_perms)
     {
         osd_client_t *cl = msgr.clients.at(cur_op->client_id);
         if (cl->hs_result.peer_is_osd)

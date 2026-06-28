@@ -265,7 +265,7 @@ static const char* help_text =
     "  --bind_address ADDR  Specify server IP address or addresses, separated by space. Default is 127.0.0.1.\n"
     "  --port 8080          Specify server port.\n"
     "  --server_cert FILE   Path to server TLS certificate file (PEM format).\n"
-    "  --server_key FILE    Path to server TLS private key file.\n"
+    "  --server_pkey FILE   Path to server TLS private key file.\n"
     "  --client_ca FILE     Path to file with TLS CA certificates used to validate client connections.\n"
     "\n"
     "Use vitastor-cli --help <command> for command details or vitastor-cli --help --all for all details.\n"
