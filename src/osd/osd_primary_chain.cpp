@@ -88,15 +88,17 @@ int osd_t::read_bitmaps(osd_op_t *cur_op, pg_t *pg, int base_state)
     {
         // Happy path for clean replicated PGs (all bitmaps are available locally)
         osd_primary_op_data_t *op_data = cur_op->op_data;
+        uint64_t version = 0;
         for (int chain_num = 0; chain_num < op_data->chain_size; chain_num++)
         {
             object_id cur_oid = { .inode = op_data->read_chain[chain_num], .stripe = op_data->oid.stripe };
             // Read bitmap synchronously from the local database
             bs->read_bitmap(
                 cur_oid, UINT64_MAX, (uint8_t*)op_data->snapshot_bitmaps + chain_num*clean_entry_bitmap_size,
-                !chain_num ? &cur_op->reply.rw.version : NULL
+                !chain_num ? &version : NULL
             );
         }
+        cur_op->reply.rw.version = version;
     }
     else
     {
@@ -269,13 +271,15 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
             if (subop_osd_num == this->osd_num)
             {
                 // Read bitmap synchronously from the local database
+                uint64_t version = 0;
                 for (int j = prev; j <= i; j++)
                 {
                     bs->read_bitmap(
                         (*bitmap_requests)[j].oid, (*bitmap_requests)[j].version, (*bitmap_requests)[j].bmp_buf,
-                        (*bitmap_requests)[j].oid.inode == cur_op->req.rw.inode ? &cur_op->reply.rw.version : NULL
+                        (*bitmap_requests)[j].oid.inode == cur_op->req.rw.inode ? &version : NULL
                     );
                 }
+                cur_op->reply.rw.version = version;
             }
             else
             {
