@@ -2719,6 +2719,52 @@ void test_postpone_load()
         assert(obj);
         assert(count_writes(heap, obj) == 11);
     }
+
+    printf("OK test_postpone_load\n");
+}
+
+void test_big_padded_csum()
+{
+    blockstore_disk_t dsk;
+    _test_init(dsk, true, [](std::map<std::string, std::string> & config)
+    {
+        config["csum_block_size"] = "32k";
+    });
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    blockstore_heap_t heap(&dsk, buffer_area.data());
+    heap.finish_recheck();
+
+    {
+        memset(buffer_area.data()+4096, 0xab, 4*1024);
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 36*1024, 4*1024, buffer_area.data()+4096);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.lock_and_read_entry(oid);
+        assert(obj);
+
+        // Read the whole checksum block and verify its checksum
+        bool csum_ok = heap.calc_block_checksums(
+            (uint32_t*)obj->get_checksums(&heap) + 1, buffer_area.data(), obj->get_int_bitmap(&heap),
+            32*1024, 32*1024+32*1024, false, [](uint32_t, uint32_t, uint32_t) {}
+        );
+        assert(csum_ok);
+
+        // Part 2 - check internal padding
+        memset(buffer_area.data()+12*1024, 0xab, 4*1024);
+        std::vector<uint8_t> bitmap(dsk.clean_entry_bitmap_size);
+        bitmap_set(bitmap.data(), 36*1024, 4*1024, 4096);
+        bitmap_set(bitmap.data(), 44*1024, 4*1024, 4096);
+        std::vector<uint8_t> new_csums(dsk.data_block_size/32768*4);
+        memcpy(new_csums.data(), obj->get_checksums(&heap), new_csums.size());
+        ((uint32_t*)new_csums.data())[1] = crc32c(0, buffer_area.data()+4*1024, 12*1024);
+        csum_ok = heap.calc_block_checksums(
+            (uint32_t*)new_csums.data() + 1, buffer_area.data(), bitmap.data(),
+            32*1024, 32*1024+32*1024, false, [](uint32_t, uint32_t, uint32_t) {}
+        );
+        assert(csum_ok);
+    }
+
+    printf("OK test_big_padded_csum\n");
 }
 
 // FIXME: Add a test for big_intent, incl. explicit_complete with big_intent over big_write over deletion over big_write :)
@@ -2759,5 +2805,6 @@ int main(int narg, char *args[])
     test_explicit_complete();
     test_skip_double_claim();
     test_postpone_load();
+    test_big_padded_csum();
     return 0;
 }

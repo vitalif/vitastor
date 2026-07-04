@@ -834,6 +834,50 @@ static void test_fsync_batch_big()
     free(op2.buf);
 }
 
+static void test_padded_csum_sparse_leading_hole()
+{
+    printf("\n-- test_padded_csum_sparse_leading_hole\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["csum_block_size"] = "16384";
+    test.init();
+
+    // Initial write at offset=20K, len=4K on a fresh object.
+    // The csum block is [16K..32K); granule [16K..20K) is a leading hole.
+    printf("writing\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 20*1024;
+    op.len = 4096;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    memset(op.buf, 0xaa, 4096);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Read it back - without the fix, verify_read_checksums returns -EDOM
+    // because the recomputed CRC includes zero-padding for [16K..20K) while
+    // the stored CRC was computed only over [20K..24K).
+    printf("reading\n");
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_READ;
+    op2.oid = { .inode = 1, .stripe = 0 };
+    op2.version = UINT64_MAX;
+    op2.offset = 0;
+    op2.len = 128*1024;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    assert(is_zero(op2.buf, 20*1024));
+    assert(memcheck(op2.buf+20*1024, 0xaa, 4*1024));
+    assert(is_zero(op2.buf+24*1024, 104*1024));
+
+    free(op.buf);
+    free(op2.buf);
+}
+
 // FIXME Add a simple intent_write / big_intent test
 
 int main(int narg, char *args[])
@@ -844,6 +888,7 @@ int main(int narg, char *args[])
     test_intent_over_unstable();
     test_padded_csum_intent(false);
     test_padded_csum_intent(true);
+    test_padded_csum_sparse_leading_hole();
     test_perfect_csum_interrupted();
     test_padded_csum_parallel_read(false, 8192);
     test_padded_csum_parallel_read(true, 8192);

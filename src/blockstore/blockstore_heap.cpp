@@ -1139,6 +1139,7 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *bit
 {
     bool res = true;
     uint32_t pos = start;
+    uint32_t block_start = (start/dsk->csum_block_size)*dsk->csum_block_size;
     uint32_t block_end = (start/dsk->csum_block_size + 1)*dsk->csum_block_size;
     uint32_t block_crc = 0;
     bool isset = false;
@@ -1153,7 +1154,7 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *bit
                 while (pos < end && pos < block_end && !(bitmap[pos/dsk->bitmap_granularity/8] & (1 << ((pos/dsk->bitmap_granularity) % 8))))
                     pos += dsk->bitmap_granularity;
                 // zero padding at the beginning or at the end of the block is not counted
-                if (pos > prev && prev > 0 && pos < block_end)
+                if (pos > prev && prev > block_start && pos < block_end)
                     block_crc = crc32c_pad(block_crc, NULL, 0, pos-prev, 0);
                 prev = pos;
                 while (pos < end && pos < block_end && (bitmap[pos/dsk->bitmap_granularity/8] & (1 << ((pos/dsk->bitmap_granularity) % 8))))
