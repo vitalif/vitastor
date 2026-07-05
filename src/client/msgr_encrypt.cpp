@@ -427,35 +427,37 @@ void osd_messenger_t::op_encrypted_copy_buf(osd_client_t *cl, uint8_t *enc_buf, 
         assert(cl->write_op->enc->key_chain[0]);
         cl->xts_enc_ctx->start(cl, cl->write_op->enc->key_chain[0], cl->write_op->req.rw.offset, cl->write_op->enc->bitmap_granularity);
     }
+    size_t old_out = done_enc;
     while (done_plain < plain_len && done_enc < enc_len)
     {
         size_t done_in = 0;
         size_t done_out = 0;
         cl->xts_enc_ctx->update(plain+done_plain, plain_len-done_plain, enc_buf+done_enc, enc_len-done_enc, done_in, done_out);
-        if (cl->write_csum_state && done_out > 0)
-            XXH3_64bits_update(cl->write_csum_state, enc_buf+done_enc, done_out);
         done_enc += done_out;
         cl->write_op_pos += done_in;
         done_plain += done_in;
     }
+    if (cl->write_csum_state && done_enc > old_out)
+        XXH3_64bits_update(cl->write_csum_state, enc_buf+old_out, done_enc-old_out);
 }
 
 void osd_messenger_t::op_decrypted_copy_buf(osd_client_t *cl, uint8_t *enc_buf, size_t enc_len, uint8_t *plain, size_t plain_len, size_t & done_plain, size_t & done_enc)
 {
     op_decrypt_start(cl);
+    size_t old_in = done_enc;
     while (done_plain < plain_len && done_enc < enc_len)
     {
         size_t done_in = 0;
         size_t done_out = 0;
         // plain == NULL means skip output
         cl->xts_dec_ctx->update(enc_buf+done_enc, enc_len-done_enc, plain ? plain+done_plain : NULL, plain_len-done_plain, done_in, done_out);
-        if (cl->read_csum_state && done_in > 0)
-            XXH3_64bits_update(cl->read_csum_state, enc_buf+done_enc, done_in);
         done_enc += done_in;
         cl->read_op_pos += done_out;
         cl->read_op_inline_decrypt_in += done_in;
         done_plain += done_out;
     }
+    if (cl->read_csum_state && done_enc > old_in)
+        XXH3_64bits_update(cl->read_csum_state, enc_buf+old_in, done_enc-old_in);
 }
 
 void osd_messenger_t::op_decrypt_start(osd_client_t* cl)

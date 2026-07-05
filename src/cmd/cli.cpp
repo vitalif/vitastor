@@ -260,6 +260,9 @@ static const char* help_text =
     "vitastor-cli rm-user|remove-user|delete-user <username>\n"
     "  Remove a user.\n"
     "\n"
+    "vitastor-cli cpubench [--json]\n"
+    "  Run CPU crypto performance tests: AES-256-GCM, AES-256-XTS and xxhash3.\n"
+    "\n"
     "vitastor-cli serve\n"
     "  Start HTTP server able to handle CLI commands over a REST API. Options:\n"
     "  --bind_address ADDR  Specify server IP address or addresses, separated by space. Default is 127.0.0.1.\n"
@@ -628,6 +631,10 @@ std::function<bool(cli_result_t &)> cli_tool_t::start(json11::Json::object cfg, 
     {
         // Start HTTP server
         action_cb = start_serve(cfg);
+    }
+    else if (cmd[0] == "cpubench")
+    {
+        action_cb = start_cpubench(cfg);
     }
     else
     {

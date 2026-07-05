@@ -67,6 +67,7 @@ public:
 
     std::function<bool(cli_result_t &)> start(json11::Json::object cfg, cli_result_t & result);
     std::function<bool(cli_result_t &)> start_alloc_osd(json11::Json);
+    std::function<bool(cli_result_t &)> start_cpubench(json11::Json);
     std::function<bool(cli_result_t &)> start_create(json11::Json);
     std::function<bool(cli_result_t &)> start_dd(json11::Json);
     std::function<bool(cli_result_t &)> start_describe(json11::Json);

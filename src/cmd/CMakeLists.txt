@@ -15,6 +15,7 @@ add_custom_command(
 add_library(vitastor_cli STATIC
 	cli_common.cpp
 	cli_alloc_osd.cpp
+	cli_cpubench.cpp
 	cli_describe.cpp
 	cli_fix.cpp
 	cli_ls.cpp
@@ -50,5 +51,5 @@ add_executable(vitastor-cli
 	cli.cpp
 )
 target_link_libraries(vitastor-cli
-	vitastor_client
+	vitastor_client_int
 )

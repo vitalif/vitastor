@@ -48,17 +48,15 @@ add_library(vitastor_net STATIC
 target_link_libraries(vitastor_net pthread vitastor_common ${CARES_LIBRARIES})
 target_compile_options(vitastor_net PUBLIC -fPIC)
 
-# libvitastor_client.so
-add_library(vitastor_client SHARED
+# libvitastor_client_int.a
+add_library(vitastor_client_int STATIC
 	cluster_client.cpp
 	cluster_client_real.cpp
 	cluster_client_list.cpp
 	cluster_client_wb.cpp
 	cluster_client_icache.cpp
-	vitastor_c.cpp
 )
-set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "client/vitastor_c.h")
-target_link_libraries(vitastor_client
+target_link_libraries(vitastor_client_int
 	vitastor_net
 	vitastor_cli
 	${LIBURING_LIBRARIES}
@@ -66,6 +64,16 @@ target_link_libraries(vitastor_client
 	${RDMACM_LIBRARIES}
 	${OPENSSL_LIBRARIES}
 	${ISAL_CRYPTO_LIBRARIES}
+)
+target_compile_options(vitastor_client_int PUBLIC -fPIC)
+
+# libvitastor_client.so
+add_library(vitastor_client SHARED
+	vitastor_c.cpp
+)
+set_target_properties(vitastor_client PROPERTIES PUBLIC_HEADER "client/vitastor_c.h")
+target_link_libraries(vitastor_client
+	vitastor_client_int
 )
 set_target_properties(vitastor_client PROPERTIES VERSION ${VITASTOR_VERSION} SOVERSION 0)
 configure_file(vitastor.pc.in vitastor.pc @ONLY)
