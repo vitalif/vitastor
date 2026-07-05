@@ -57,6 +57,19 @@ struct bs_test_t
         }
     }
 
+    void force_compaction()
+    {
+        bs->flusher->dump_diagnostics();
+        bs->flusher->request_trim();
+        while (bs->heap->get_compact_queue_size())
+            ringloop->loop();
+        while (bs->flusher->is_active())
+            ringloop->loop();
+        bs->flusher->release_trim();
+        // Check that compaction succeeded
+        assert(!bs->heap->get_to_compact_count());
+    }
+
     void default_cfg()
     {
         config["data_device"] = "./test_data.bin";
@@ -330,15 +343,7 @@ static void test_fsync(bool separate_meta)
     assert(is_zero(op2.buf+24*1024, 104*1024));
 
     // Trigger & wait compaction
-    test.bs->flusher->dump_diagnostics();
-    test.bs->flusher->request_trim();
-    while (test.bs->heap->get_compact_queue_size())
-        test.ringloop->loop();
-    while (test.bs->flusher->is_active())
-        test.ringloop->loop();
-    test.bs->flusher->release_trim();
-    // Check that compaction succeeded
-    assert(!test.bs->heap->get_to_compact_count());
+    test.force_compaction();
 
     // Restart and check data again
     test.destroy_bs();
@@ -447,6 +452,7 @@ static void test_padded_csum_intent(bool perfect)
     assert(!test.bs->heap->prev(wr));
 
     // Trigger & wait compaction
+    test.bs->flusher->dump_diagnostics();
     test.bs->flusher->request_trim();
     while (test.bs->heap->get_compact_queue_size())
         test.ringloop->loop();
@@ -666,14 +672,7 @@ static void test_compact_rollback()
     assert(op.retval == 0);
 
     // Trigger & wait compaction
-    test.bs->flusher->request_trim();
-    while (test.bs->heap->get_compact_queue_size())
-        test.ringloop->loop();
-    while (test.bs->flusher->is_active())
-        test.ringloop->loop();
-    test.bs->flusher->release_trim();
-    // Check that compaction succeeded
-    assert(!test.bs->heap->get_to_compact_count());
+    test.force_compaction();
 
     // Check that the object does not exist
     printf("checking that the object does not exist\n");
@@ -845,7 +844,7 @@ static void test_padded_csum_sparse_leading_hole()
 
     // Initial write at offset=20K, len=4K on a fresh object.
     // The csum block is [16K..32K); granule [16K..20K) is a leading hole.
-    printf("writing\n");
+    printf("writing 20+4K\n");
     blockstore_op_t op;
     op.opcode = BS_OP_WRITE_STABLE;
     op.oid = { .inode = 1, .stripe = 0 };
@@ -873,6 +872,42 @@ static void test_padded_csum_sparse_leading_hole()
     assert(is_zero(op2.buf, 20*1024));
     assert(memcheck(op2.buf+20*1024, 0xaa, 4*1024));
     assert(is_zero(op2.buf+24*1024, 104*1024));
+
+    // Part 2 - add 2 more small writes
+    printf("writing 24+4K\n");
+    op.version = 2;
+    op.offset = 24*1024;
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    printf("writing 36+4K\n");
+    op.version = 3;
+    op.offset = 36*1024;
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    printf("reading uncompacted\n");
+    op2.version = UINT64_MAX;
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    assert(is_zero(op2.buf, 20*1024));
+    assert(memcheck(op2.buf+20*1024, 0xaa, 8*1024));
+    assert(is_zero(op2.buf+28*1024, 8*1024));
+    assert(memcheck(op2.buf+36*1024, 0xaa, 4*1024));
+    assert(is_zero(op2.buf+40*1024, 88*1024));
+
+    // Trigger & wait compaction
+    test.force_compaction();
+
+    printf("reading compacted\n");
+    op2.version = UINT64_MAX;
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    assert(is_zero(op2.buf, 20*1024));
+    assert(memcheck(op2.buf+20*1024, 0xaa, 8*1024));
+    assert(is_zero(op2.buf+28*1024, 8*1024));
+    assert(memcheck(op2.buf+36*1024, 0xaa, 4*1024));
+    assert(is_zero(op2.buf+40*1024, 88*1024));
 
     free(op.buf);
     free(op2.buf);
