@@ -114,10 +114,10 @@ struct cli_serve_t
             listen_backlog = 128;
         use_perms = json_is_true(parent->cli->config["use_perms"]);
         {
-            std::string tls_cert = (parent->cli->config.find("server_cert") != parent->cli->config.end()
-                ? parent->cli->config["server_cert"].string_value() : "");
-            std::string tls_key = (parent->cli->config.find("server_pkey") != parent->cli->config.end()
-                ? parent->cli->config["server_pkey"].string_value() : "");
+            std::string tls_cert = (parent->cli->config.find("api_cert") != parent->cli->config.end()
+                ? parent->cli->config["api_cert"].string_value() : "");
+            std::string tls_key = (parent->cli->config.find("api_pkey") != parent->cli->config.end()
+                ? parent->cli->config["api_pkey"].string_value() : "");
             std::string tls_ca = (parent->cli->config.find("client_ca") != parent->cli->config.end()
                 ? parent->cli->config["client_ca"].string_value() : "");
             if (tls_cert != "" || tls_key != "" || tls_ca != "")
@@ -125,7 +125,7 @@ struct cli_serve_t
                 ssl = true;
                 if (tls_cert == "" || tls_key == "")
                 {
-                    result = (cli_result_t){ .err = EINVAL, .text = "server_cert and server_pkey are required to serve HTTPS" };
+                    result = (cli_result_t){ .err = EINVAL, .text = "api_cert and api_pkey are required to serve HTTPS" };
                     state = 100;
                     return;
                 }
