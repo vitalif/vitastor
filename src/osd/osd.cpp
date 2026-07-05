@@ -178,7 +178,10 @@ void osd_t::parse_config(bool init)
         // OSD number
         osd_num = config["osd_num"].uint64_value();
         if (!osd_num)
-            throw std::runtime_error("osd_num is required in the configuration");
+        {
+            fprintf(stderr, "osd_num is required in the configuration\n");
+            exit(1);
+        }
         msgr.osd_num = osd_num;
         st_cli->osd_num = osd_num;
     }
@@ -191,10 +194,12 @@ void osd_t::parse_config(bool init)
     msgr.parse_config(config, init);
     if (init)
     {
-        // use_perms is enabled by default when encryption is enabled
-        use_perms = (config["use_perms"].is_null()
-            ? msgr.is_encryption_enabled()
-            : json_is_true(config["use_perms"]));
+        use_perms = json_is_true(config["use_perms"]);
+        if (use_perms && !msgr.is_encryption_enabled())
+        {
+            fprintf(stderr, "use_perms requires encryption\n");
+            exit(1);
+        }
         // Vital Blockstore parameters
         bs_block_size = config["block_size"].uint64_value();
         if (!bs_block_size)

@@ -112,6 +112,7 @@ struct cli_serve_t
         listen_backlog = options["listen_backlog"].uint64_value();
         if (!listen_backlog)
             listen_backlog = 128;
+        use_perms = json_is_true(parent->cli->config["use_perms"]);
         {
             std::string tls_cert = (parent->cli->config.find("server_cert") != parent->cli->config.end()
                 ? parent->cli->config["server_cert"].string_value() : "");
@@ -128,10 +129,6 @@ struct cli_serve_t
                     state = 100;
                     return;
                 }
-                // use_perms is enabled by default when client_ca is set
-                use_perms = (parent->cli->config["use_perms"].is_null()
-                    ? (tls_ca != "")
-                    : json_is_true(parent->cli->config["use_perms"]));
                 std::string error;
                 http_ctx = http_context_init(parent->epmgr->tfd, tls_cert, tls_key, tls_ca, tls_ca != "", error);
                 if (error != "")
@@ -140,6 +137,12 @@ struct cli_serve_t
                     state = 100;
                     return;
                 }
+            }
+            else if (use_perms)
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "use_perms requires encryption" };
+                state = 100;
+                return;
             }
         }
         for (auto & bind_address: bind_addresses)
