@@ -51,7 +51,7 @@ class AntiEtcdAdapter
                     port: selected[0].port,
                     cert: config.antietcd_cert,
                     key: config.antietcd_key,
-                    ca: config.antietcd_ca,
+                    ca: config.client_ca,
                     data: config.antietcd_data_file || ((config.antietcd_data_dir || '/var/lib/vitastor') + '/mon_'+selected[0].port+'.json.gz'),
                     persist_filter: vitastor_persist_filter({ vitastor_prefix: config.etcd_prefix || '/vitastor' }),
                     node_id: cluster[selected[0].idx].replace(/^(https?:\/\/)/, ''), // same as in <cluster> below

@@ -68,7 +68,7 @@ class VitastorAuthFilter
 
     async init()
     {
-        if (!this.cfg.cert || !this.cfg.key || !this.cfg.osd_ca || !this.cfg.client_cert_auth)
+        if (!this.cfg.cert || !this.cfg.key || !this.cfg.ca || !this.cfg.osd_ca || !this.cfg.client_cert_auth)
         {
             throw new Error('Authenticated Vitastor setups require enabled client_cert_auth, cert, key'+
                 ' and separate ca (client CA), osd_ca and optionally mon_ca');
