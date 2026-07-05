@@ -11,7 +11,7 @@ Image list is stored in etcd in `/vitastor/config/inode/<pool>/<inode>` keys.
 You can even create images manually:
 
 ```
-etcdctl --endpoints=<etcd> put /vitastor/config/inode/<pool>/<inode> '{"name":"<name>","size":<size>[,"parent_id":<parent_inode_number>][,"readonly":true]}'
+etcdctl --endpoints=<etcd> put /vitastor/config/inode/<pool>/<inode> '{"name":"<name>","size":<size>[,"parent_id":<parent_inode_number>][,"readonly":true][,"create_ts":<unix_timestamp>]}'
 ```
 
 For example:
@@ -19,6 +19,8 @@ For example:
 ```
 etcdctl --endpoints=http://10.115.0.10:2379/v3 put /vitastor/config/inode/1/1 '{"name":"testimg","size":2147483648}'
 ```
+
+`create_ts`, if present, is the image or snapshot creation time as a UNIX timestamp in seconds.
 
 If you specify parent_id the image becomes a CoW clone. I.e. all writes go to the new inode and reads first check it
 and then upper layers. You can then make parent readonly by updating its entry with `"readonly":true` for safety and

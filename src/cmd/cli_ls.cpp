@@ -70,6 +70,7 @@ struct image_lister_t
                 { "inode_num", INODE_NO_POOL(ic.second.num) },
                 { "inode_id", ic.second.num },
                 { "deleted", ic.second.deleted },
+                { "create_ts", ic.second.create_ts },
             };
             if (ic.second.parent_id)
             {
@@ -319,6 +320,10 @@ resume_1:
                 { "title", "USED" },
             });
             cols.push_back(json11::Json::object{
+                { "key", "created_fmt" },
+                { "title", "CREATED" },
+            });
+            cols.push_back(json11::Json::object{
                 { "key", "read_bw" },
                 { "title", "READ" },
             });
@@ -385,6 +390,8 @@ resume_1:
             if (show_stats)
             {
                 kv.second["used_size_fmt"] = format_size(kv.second["used_size"].uint64_value());
+                kv.second["created_fmt"] = kv.second["create_ts"].uint64_value()
+                    ? format_datetime(kv.second["create_ts"].uint64_value()) : "-";
                 kv.second["read_bw"] = format_size(kv.second["read_bps"].uint64_value())+"/s";
                 kv.second["write_bw"] = format_size(kv.second["write_bps"].uint64_value())+"/s";
                 kv.second["delete_bw"] = format_size(kv.second["delete_bps"].uint64_value())+"/s";

@@ -217,6 +217,7 @@ const etcd_tree = {
                     parent_id?: <inode_t>,
                     readonly?: boolean,
                     deleted?: boolean,
+                    create_ts?: uint64_t, // UNIX timestamp in seconds
                 }
             }
         }, */

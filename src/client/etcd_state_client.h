@@ -83,6 +83,7 @@ struct inode_config_t
     inode_t parent_id = 0;
     bool readonly = false;
     bool deleted = false;
+    uint64_t create_ts = 0;
     // Arbitrary metadata
     json11::Json meta;
     // Change revision of the metadata in etcd

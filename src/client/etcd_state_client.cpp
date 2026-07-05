@@ -845,6 +845,7 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                     .parent_id = parent_inode_num,
                     .readonly = value["readonly"].bool_value(),
                     .deleted = value["deleted"].bool_value(),
+                    .create_ts = value["create_ts"].uint64_value(),
                     .meta = value["meta"],
                     .mod_revision = kv.mod_revision,
                 });
@@ -943,6 +944,10 @@ json11::Json::object etcd_state_client_t::serialize_inode_cfg(inode_config_t *cf
     if (cfg->deleted)
     {
         new_cfg["deleted"] = true;
+    }
+    if (cfg->create_ts)
+    {
+        new_cfg["create_ts"] = cfg->create_ts;
     }
     if (cfg->meta.is_object())
     {
