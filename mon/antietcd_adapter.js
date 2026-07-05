@@ -85,15 +85,6 @@ class AntiEtcdAdapter
                     antietcd_config.ca = config.client_ca;
                     antietcd_config.osd_ca = config.osd_ca;
                     antietcd_config.mon_ca = config.mon_ca;
-                    if (!config.etcd_proxy)
-                    {
-                        antietcd_config.peer_ca = config.antietcd_server_ca;
-                        if (!config.antietcd_server_ca || config.antietcd_server_ca == config.client_ca)
-                        {
-                            console.error('Secure setup requires separate antietcd_server_ca (for signing antietcd server certificates) and client_ca (for signing client certificates)');
-                            process.exit(1);
-                        }
-                    }
                 }
                 for (const key in config)
                 {

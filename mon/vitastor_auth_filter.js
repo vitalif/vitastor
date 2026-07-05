@@ -68,10 +68,10 @@ class VitastorAuthFilter
 
     async init()
     {
-        if (!this.cfg.cert || !this.cfg.key || !this.cfg.osd_ca || !this.cfg.etcd_proxy && !this.cfg.peer_ca || !this.cfg.client_cert_auth)
+        if (!this.cfg.cert || !this.cfg.key || !this.cfg.osd_ca || !this.cfg.client_cert_auth)
         {
             throw new Error('Authenticated Vitastor setups require enabled client_cert_auth, cert, key'+
-                ' and separate ca (client CA), osd_ca'+(this.cfg.etcd_proxy ? '' : ', peer_ca')+' and optionally mon_ca');
+                ' and separate ca (client CA), osd_ca and optionally mon_ca');
         }
         this.osd_ca = await this.antietcd.readPEM(this.cfg.osd_ca);
         this.osd_ca_obj = new X509Certificate(this.osd_ca);
