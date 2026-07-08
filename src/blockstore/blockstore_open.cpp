@@ -105,12 +105,12 @@ void blockstore_impl_t::parse_config(blockstore_config_t & config, bool init)
     {
         meta_write_recheck_parallelism = 16;
     }
-    if (immediate_commit != IMMEDIATE_NONE && !dsk.disable_journal_fsync)
+    if (immediate_commit != IMMEDIATE_NONE && (!dsk.disable_journal_fsync || !dsk.disable_meta_fsync))
     {
-        throw std::runtime_error("immediate_commit requires disable_journal_fsync");
+        throw std::runtime_error("immediate_commit requires disable_journal_fsync and disable_meta_fsync");
     }
     if (immediate_commit == IMMEDIATE_ALL && !dsk.disable_data_fsync)
     {
-        throw std::runtime_error("immediate_commit=all requires disable_journal_fsync and disable_data_fsync");
+        throw std::runtime_error("immediate_commit=all requires disable_data_fsync");
     }
 }
