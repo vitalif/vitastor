@@ -505,10 +505,10 @@ pg_osd_set_state_t* osd_t::add_object_to_set(pg_t & pg, const object_id oid, con
             }
             else
             {
-                if (!(has_roles & (1 << chunk.role)))
+                if (!(has_roles & ((uint64_t)1 << chunk.role)))
                 {
                     n_roles++;
-                    has_roles |= (1 << chunk.role);
+                    has_roles |= ((uint64_t)1 << chunk.role);
                 }
                 if (pg.cur_set[chunk.role] != chunk.osd_num)
                 {
