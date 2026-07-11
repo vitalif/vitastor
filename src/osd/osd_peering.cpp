@@ -156,11 +156,8 @@ void osd_t::reset_pg(pg_t & pg)
         delete pg.flush_batch;
     }
     pg.flush_batch = NULL;
-    for (auto p: pg.write_queue)
-    {
-        cancel_primary_write(p.second);
-    }
-    pg.write_queue.clear();
+    // Protected by inflight - reset_pg is impossible with active inflight operations
+    assert(!pg.write_queue.size());
     for (auto it = unstable_writes.begin(); it != unstable_writes.end(); )
     {
         // Forget this PG's unstable writes

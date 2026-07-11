@@ -532,24 +532,6 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     }
 }
 
-void osd_t::cancel_primary_write(osd_op_t *cur_op)
-{
-    if (cur_op->op_data && cur_op->op_data->subops)
-    {
-        // Primary-write operation is waiting for subops, subops
-        // are sent to peer OSDs, so we can't just throw them away.
-        // Mark them with an extra EPIPE.
-        cur_op->op_data->errors++;
-        if (cur_op->op_data->errcode == 0)
-            cur_op->op_data->errcode = -EPIPE;
-        cur_op->op_data->done--; // Caution: `done` must be signed because may become -1 here
-    }
-    else
-    {
-        finish_op(cur_op, -EPIPE);
-    }
-}
-
 bool contains_osd(osd_num_t *osd_set, uint64_t size, osd_num_t osd_num)
 {
     for (uint64_t i = 0; i < size; i++)
