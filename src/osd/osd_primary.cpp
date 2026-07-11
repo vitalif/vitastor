@@ -859,6 +859,12 @@ continue_others:
     if (next_op)
     {
         // Continue next write to the same object
-        continue_primary_write(next_op);
+        if (next_op->req.hdr.opcode == OSD_OP_WRITE)
+            continue_primary_write(next_op);
+        else
+        {
+            assert(next_op->req.hdr.opcode == OSD_OP_DELETE);
+            continue_primary_del(next_op);
+        }
     }
 }
