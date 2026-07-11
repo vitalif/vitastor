@@ -34,14 +34,92 @@ resume_1:
         syncs_in_progress.push_back(cur_op);
     }
 resume_2:
+    op_data->errcode = 0;
+    op_data->errors = 0;
+    if (cur_op->client_id)
+    {
+        auto it = msgr.clients.find(cur_op->client_id);
+        if (it == msgr.clients.end())
+        {
+            // Client is already dropped
+            op_data->errcode = -EPIPE;
+            goto finish;
+        }
+        auto cl = it->second;
+        for (auto dirty_pg_num: cl->dirty_pgs)
+        {
+            auto pg_it = pgs.find(dirty_pg_num);
+            if (pg_it == pgs.end() || !(pg_it->second.state & PG_ACTIVE))
+            {
+                // PG is not in a clean state (repeering or stopped), can't sync it
+                // It will be removed from dirty_pgs on stop/repeer
+                op_data->errcode = -EPIPE;
+                goto finish;
+            }
+        }
+        // We can forget client's dirty PGs and even skip restoring them on error because
+        // a failed SYNC drops the client's connection - there are no legitimate errors for SYNC
+        cl->dirty_pgs.clear();
+    }
     if (dirty_osds.size() == 0)
     {
         // Nothing to sync
         goto finish;
     }
-    // Save and clear unstable_writes
+    // Save and clear unstable_writes and dirty_pgs
     // In theory it is possible to do in on a per-client basis, but this seems to be an unnecessary complication
     // It would be cool not to copy these here at all, but someone has to deduplicate them by object IDs anyway
+    {
+        op_data->dirty_pg_count = dirty_pgs.size();
+        op_data->dirty_osd_count = dirty_osds.size();
+        void *dirty_buf = malloc_or_die(
+            sizeof(pool_pg_num_t)*dirty_pgs.size() +
+            sizeof(uint64_t)*dirty_pgs.size() +
+            sizeof(osd_num_t)*dirty_osds.size() +
+            sizeof(obj_ver_osd_t)*this->copies_to_delete_after_sync_count
+        );
+        op_data->dirty_pgs = (pool_pg_num_t*)dirty_buf;
+        uint64_t *pg_del_counts = (uint64_t*)((uint8_t*)op_data->dirty_pgs + (sizeof(pool_pg_num_t))*op_data->dirty_pg_count);
+        op_data->dirty_osds = (osd_num_t*)((uint8_t*)pg_del_counts + 8*op_data->dirty_pg_count);
+        if (this->copies_to_delete_after_sync_count)
+        {
+            op_data->copies_to_delete_count = 0;
+            op_data->copies_to_delete = (obj_ver_osd_t*)(op_data->dirty_osds + op_data->dirty_osd_count);
+        }
+        int dpg = 0;
+        for (auto dirty_pg_num: dirty_pgs)
+        {
+            auto pg_it = pgs.find(dirty_pg_num);
+            if (pg_it == pgs.end() || !(pg_it->second.state & PG_ACTIVE))
+                continue;
+            auto & pg = pg_it->second;
+            pg.inflight++;
+            op_data->dirty_pgs[dpg] = dirty_pg_num;
+            pg_del_counts[dpg] = pg.copies_to_delete_after_sync.size();
+            if (this->copies_to_delete_after_sync_count)
+            {
+                assert(pg.copies_to_delete_after_sync.size() <= this->copies_to_delete_after_sync_count - op_data->copies_to_delete_count);
+                memcpy(
+                    op_data->copies_to_delete + op_data->copies_to_delete_count,
+                    pg.copies_to_delete_after_sync.data(),
+                    sizeof(obj_ver_osd_t)*pg.copies_to_delete_after_sync.size()
+                );
+                op_data->copies_to_delete_count += pg.copies_to_delete_after_sync.size();
+            }
+            dpg++;
+        }
+        while (dpg < op_data->dirty_pg_count)
+        {
+            op_data->dirty_pgs[dpg++] = { 0, 0 };
+        }
+        dirty_pgs.clear();
+        dpg = 0;
+        for (auto osd_num: dirty_osds)
+        {
+            op_data->dirty_osds[dpg++] = osd_num;
+        }
+        dirty_osds.clear();
+    }
     if (unstable_writes.size() > 0)
     {
         op_data->unstable_write_osds = new std::vector<unstable_osd_num_t>();
@@ -79,51 +157,6 @@ resume_2:
         }
         this->unstable_writes.clear();
     }
-    {
-        op_data->dirty_pg_count = dirty_pgs.size();
-        op_data->dirty_osd_count = dirty_osds.size();
-        void *dirty_buf = malloc_or_die(
-            sizeof(pool_pg_num_t)*dirty_pgs.size() +
-            sizeof(uint64_t)*dirty_pgs.size() +
-            sizeof(osd_num_t)*dirty_osds.size() +
-            sizeof(obj_ver_osd_t)*this->copies_to_delete_after_sync_count
-        );
-        op_data->dirty_pgs = (pool_pg_num_t*)dirty_buf;
-        uint64_t *pg_del_counts = (uint64_t*)((uint8_t*)op_data->dirty_pgs + (sizeof(pool_pg_num_t))*op_data->dirty_pg_count);
-        op_data->dirty_osds = (osd_num_t*)((uint8_t*)pg_del_counts + 8*op_data->dirty_pg_count);
-        if (this->copies_to_delete_after_sync_count)
-        {
-            op_data->copies_to_delete_count = 0;
-            op_data->copies_to_delete = (obj_ver_osd_t*)(op_data->dirty_osds + op_data->dirty_osd_count);
-            for (auto dirty_pg_num: dirty_pgs)
-            {
-                auto & pg = pgs.at(dirty_pg_num);
-                assert(pg.copies_to_delete_after_sync.size() <= this->copies_to_delete_after_sync_count);
-                memcpy(
-                    op_data->copies_to_delete + op_data->copies_to_delete_count,
-                    pg.copies_to_delete_after_sync.data(),
-                    sizeof(obj_ver_osd_t)*pg.copies_to_delete_after_sync.size()
-                );
-                op_data->copies_to_delete_count += pg.copies_to_delete_after_sync.size();
-            }
-        }
-        int dpg = 0;
-        for (auto dirty_pg_num: dirty_pgs)
-        {
-            auto & pg = pgs.at(dirty_pg_num);
-            pg.inflight++;
-            op_data->dirty_pgs[dpg] = dirty_pg_num;
-            pg_del_counts[dpg] = pg.copies_to_delete_after_sync.size();
-            dpg++;
-        }
-        dirty_pgs.clear();
-        dpg = 0;
-        for (auto osd_num: dirty_osds)
-        {
-            op_data->dirty_osds[dpg++] = osd_num;
-        }
-        dirty_osds.clear();
-    }
     if (immediate_commit != IMMEDIATE_ALL)
     {
         // SYNC
@@ -157,7 +190,14 @@ resume_6:
         // Return PGs and OSDs back into their dirty sets
         for (int i = 0; i < op_data->dirty_pg_count; i++)
         {
-            dirty_pgs.insert(op_data->dirty_pgs[i]);
+            if (op_data->dirty_pgs[i].pg_num != 0)
+            {
+                auto pg_it = pgs.find(op_data->dirty_pgs[i]);
+                if (pg_it != pgs.end() && (pg_it->second.state & PG_ACTIVE))
+                {
+                    dirty_pgs.insert(op_data->dirty_pgs[i]);
+                }
+            }
         }
         for (int i = 0; i < op_data->dirty_osd_count; i++)
         {
@@ -176,7 +216,8 @@ resume_6:
                         .pool_id = INODE_POOL(w.oid.inode),
                         .pg_num = map_to_pg(w.oid),
                     };
-                    if (pgs.at(wpg).state & PG_ACTIVE)
+                    auto pg_it = pgs.find(wpg);
+                    if (pg_it != pgs.end() && (pg_it->second.state & PG_ACTIVE))
                     {
                         uint64_t & dest = this->unstable_writes[(osd_object_id_t){
                             .osd_num = unstable_osd.osd_num,
@@ -208,6 +249,9 @@ resume_8:
             uint64_t *pg_del_counts = (uint64_t*)((uint8_t*)op_data->dirty_pgs + (sizeof(pool_pg_num_t))*op_data->dirty_pg_count);
             for (int i = 0; i < op_data->dirty_pg_count; i++)
             {
+                if (op_data->dirty_pgs[i].pg_num == 0)
+                    continue;
+                // Protected by inflight++
                 auto & pg = pgs.at(op_data->dirty_pgs[i]);
                 auto n = pg_del_counts[i];
                 assert(copies_to_delete_after_sync_count >= n);
@@ -232,13 +276,21 @@ resume_8:
     }
     for (int i = 0; i < op_data->dirty_pg_count; i++)
     {
-        auto & pg = pgs.at(op_data->dirty_pgs[i]);
-        rm_inflight(pg);
+        if (op_data->dirty_pgs[i].pg_num != 0)
+        {
+            auto & pg = pgs.at(op_data->dirty_pgs[i]);
+            rm_inflight(pg);
+        }
     }
+finish:
     // FIXME: Free those in the destructor (not here)?
-    free(op_data->dirty_pgs);
-    op_data->dirty_pgs = NULL;
-    op_data->dirty_osds = NULL;
+    if (op_data->dirty_pgs)
+    {
+        free(op_data->dirty_pgs);
+        op_data->dirty_pgs = NULL;
+        op_data->dirty_osds = NULL;
+        op_data->copies_to_delete = NULL;
+    }
     if (op_data->unstable_writes)
     {
         delete op_data->unstable_write_osds;
@@ -246,21 +298,12 @@ resume_8:
         op_data->unstable_writes = NULL;
         op_data->unstable_write_osds = NULL;
     }
-    if (op_data->errors > 0)
+    if (cur_op->client_id && op_data->errcode)
     {
-        finish_op(cur_op, op_data->errcode);
+        // Forcibly drop client's connection instead of returning the error
+        msgr.stop_client(cur_op->client_id);
     }
-    else
-    {
-finish:
-        if (cur_op->client_id)
-        {
-            auto it = msgr.clients.find(cur_op->client_id);
-            if (it != msgr.clients.end())
-                it->second->dirty_pgs.clear();
-        }
-        finish_op(cur_op, 0);
-    }
+    finish_op(cur_op, op_data->errcode);
     assert(syncs_in_progress.front() == cur_op);
     syncs_in_progress.pop_front();
     if (syncs_in_progress.size() > 0)

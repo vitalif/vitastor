@@ -36,7 +36,7 @@ public:
     }
 
     // Pop the first queued op with the given opcode. Aborts if none.
-    blockstore_op_t *take(int opcode)
+    blockstore_op_t *take(int opcode, bool expect_exist = true)
     {
         for (auto it = queued.begin(); it != queued.end(); ++it)
         {
@@ -47,8 +47,12 @@ public:
                 return op;
             }
         }
-        fprintf(stderr, "capturing_bs_t::take: no queued op with opcode %d\n", opcode);
-        abort();
+        if (expect_exist)
+        {
+            fprintf(stderr, "capturing_bs_t::take: no queued op with opcode %d\n", opcode);
+            abort();
+        }
+        return NULL;
     }
 };
 
@@ -303,13 +307,19 @@ struct osd_test_fixture_t
         {
             if (kv.second->req.hdr.opcode == opcode)
             {
-                auto *op = kv.second;
-                cl->sent_ops.erase(op->req.hdr.id);
-                return op;
+                return kv.second;
             }
         }
         fprintf(stderr, "peer_take: OSD %ju has no sent op with opcode %ju\n", osd_num, opcode);
         abort();
+    }
+
+    void peer_complete(osd_op_t *op, int64_t retval)
+    {
+        auto *cl = osd->msgr.clients.at(op->client_id);
+        cl->sent_ops.erase(op->req.hdr.id);
+        op->reply.hdr.retval = retval;
+        op->callback(op);
     }
 
     // Drive ringloop to flush handle_peers and any pending lambdas.
@@ -331,8 +341,87 @@ struct osd_test_fixture_t
         return osd->msgr.osd_peers.at(osd_num);
     }
 
+    // Create a regular (non-OSD) incoming client with no real socket. Replies
+    // routed to it by finish_op -> outbox_push land in cl->sent_ops (see the
+    // mock messenger). Returns the new client_id.
+    uint64_t connect_client()
+    {
+        auto *msgr = &osd->msgr;
+        auto *cl = new osd_client_t();
+        cl->client_id = msgr->next_client_id++;
+        cl->osd_num = 0;
+        cl->peer_fd = -1;
+        cl->peer_state = PEER_CONNECTED;
+        cl->is_incoming = true;
+        msgr->clients[cl->client_id] = cl;
+        return cl->client_id;
+    }
+
+    osd_client_t *client(uint64_t client_id)
+    {
+        auto it = osd->msgr.clients.find(client_id);
+        return it == osd->msgr.clients.end() ? nullptr : it->second;
+    }
+
+    bool has_client(uint64_t client_id)
+    {
+        return osd->msgr.clients.find(client_id) != osd->msgr.clients.end();
+    }
+
     pg_t &pg(pool_id_t pool, pg_num_t num)
     {
         return osd->pgs.at({ .pool_id = pool, .pg_num = num });
+    }
+
+    void bs_zero_read_ok(uint64_t version)
+    {
+        auto *zr = bs->take(BS_OP_READ);
+        assert(zr->len == 0);
+        zr->version = version;
+        zr->retval = version ? 0 : -ENOENT;
+        zr->callback(zr);
+    }
+
+    void bs_write_ok(uint64_t opcode, uint64_t version)
+    {
+        auto *wr = bs->take(opcode);
+        wr->version = version;
+        wr->retval = wr->len;
+        wr->callback(wr);
+    }
+
+    void peer_write_ok(osd_num_t peer, uint64_t opcode, uint64_t version)
+    {
+        auto *pw = peer_take(peer, opcode);
+        if (opcode == OSD_OP_SEC_DELETE)
+        {
+            pw->reply.sec_del.version = version;
+            peer_complete(pw, 0);
+        }
+        else
+        {
+            pw->reply.sec_rw.version = version;
+            peer_complete(pw, pw->req.sec_rw.len);
+        }
+    }
+
+    bool has_pg(pool_id_t pool, pg_num_t num)
+    {
+        return osd->pgs.count({ .pool_id = pool, .pg_num = num }) > 0;
+    }
+
+    bool has_dirty_pg(pool_id_t pool, pg_num_t num)
+    {
+        return osd->dirty_pgs.count({ .pool_id = pool, .pg_num = num }) > 0;
+    }
+
+    bool has_dirty_osd(osd_num_t num)
+    {
+        return osd->dirty_osds.count(num) > 0;
+    }
+
+    size_t syncs_in_progress_size()
+    {
+        return osd->syncs_in_progress.size();
     }
 };

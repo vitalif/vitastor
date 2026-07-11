@@ -1231,6 +1231,7 @@ void osd_t::report_pg_states()
                         {
                             use_ec(pg_it->second.pg_size, pg_it->second.pg_data_size, false);
                         }
+                        assert(!pg_it->second.inflight);
                         this->pgs.erase(pg_it);
                     }
                 }

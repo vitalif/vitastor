@@ -119,6 +119,7 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
 
 void osd_t::repeer_pg(pg_t & pg)
 {
+    drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     if (!(pg.state & (PG_ACTIVE | PG_REPEERING)) || pg.can_repeer())
     {
         start_pg_peering(pg);
@@ -166,7 +167,6 @@ void osd_t::reset_pg(pg_t & pg)
         else
             it++;
     }
-    dirty_pgs.erase({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
 }
 
 // Drop connections of clients who have this PG in dirty_pgs
@@ -186,6 +186,7 @@ void osd_t::drop_dirty_pg_connections(pool_pg_num_t pg)
         {
             msgr.stop_client(client_id);
         }
+        dirty_pgs.erase({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     }
 }
 
@@ -195,7 +196,6 @@ void osd_t::start_pg_peering(pg_t & pg)
     pg.state = PG_PEERING;
     this->peering_state |= OSD_PEERING_PGS;
     reset_pg(pg);
-    drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     // Try to connect with current peers if they're up, but we don't have connections to them
     // Otherwise we may erroneously decide that the pg is incomplete :-)
     bool all_connected = true;
@@ -645,6 +645,7 @@ void osd_t::discard_list_subop(osd_op_t *list_op)
 
 bool osd_t::stop_pg(pg_t & pg)
 {
+    drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     if (pg.peering_state)
     {
         // Stop peering
@@ -666,7 +667,6 @@ bool osd_t::stop_pg(pg_t & pg)
     {
         return false;
     }
-    drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     pg.state = pg.state & ~PG_STARTING & ~PG_PEERING & ~PG_INCOMPLETE & ~PG_ACTIVE & ~PG_REPEERING & ~PG_OFFLINE | PG_STOPPING;
     if (pg.can_stop())
     {

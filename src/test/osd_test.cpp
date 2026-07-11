@@ -97,13 +97,7 @@ void test_replicated_write()
     // even for a "fresh" full-block replicated write — for our setup that
     // subop is a zero-length local read that just resolves the object's
     // current version.
-    assert(f.bs->queued.size() == 1);
-    auto *zero_read = f.bs->take();
-    assert(zero_read->opcode == BS_OP_READ);
-    assert(zero_read->len == 0);
-    zero_read->version = 0; // object doesn't exist yet -> current version 0
-    zero_read->retval = 0;
-    zero_read->callback(zero_read);
+    f.bs_zero_read_ok(0);
 
     // Stage 2: with fact_ver=0 and target_ver=1 the primary issues the
     // actual writes — one local (to bs) and one remote (to OSD 2).
@@ -176,13 +170,7 @@ void test_scrub_corruption_persists()
     f.exec(write_op);
 
     // Stage 1: zero-length read for version resolution
-    assert(f.bs->queued.size() == 1);
-    auto *zero_read = f.bs->take();
-    assert(zero_read->opcode == BS_OP_READ);
-    assert(zero_read->len == 0);
-    zero_read->version = 0;
-    zero_read->retval = 0;
-    zero_read->callback(zero_read);
+    f.bs_zero_read_ok(0);
 
     // Stage 2: local write + peer write
     assert(f.bs->queued.size() == 1);
@@ -194,9 +182,8 @@ void test_scrub_corruption_persists()
     local_write->retval = local_write->len;
     local_write->callback(local_write);
     assert(final_retval == -1); // still waiting for peer
-    peer_write->reply.hdr.retval = peer_write->req.sec_rw.len;
     peer_write->reply.sec_rw.version = 1;
-    peer_write->callback(peer_write);
+    f.peer_complete(peer_write, peer_write->req.sec_rw.len);
 
     assert(final_retval == 4096);
     assert(f.pg(1, 1).inflight == 0);
@@ -232,8 +219,7 @@ void test_scrub_corruption_persists()
     local_r1->callback(local_r1);
 
     auto *peer_r1 = f.peer_take(2, OSD_OP_SEC_READ);
-    peer_r1->reply.hdr.retval = -EIO;
-    peer_r1->callback(peer_r1);
+    f.peer_complete(peer_r1, -EIO);
 
     assert(scrub1_retval == 0);
 
@@ -281,8 +267,7 @@ void test_scrub_corruption_persists()
     local_r2->callback(local_r2);
 
     auto *peer_r2 = f.peer_take(2, OSD_OP_SEC_READ);
-    peer_r2->reply.hdr.retval = -EIO;
-    peer_r2->callback(peer_r2);
+    f.peer_complete(peer_r2, -EIO);
 
     assert(scrub2_retval == 0);
 
@@ -360,10 +345,9 @@ bool test_scrub_same_data_diff_bitmaps(int ctr)
     }
     else
         memset(peer_read->bitmap, 0xff, 4);
-    peer_read->reply.hdr.retval = peer_read->req.sec_rw.len;
     peer_read->reply.sec_rw.attr_len = 4;
     peer_read->reply.sec_rw.version = 1;
-    peer_read->callback(peer_read);
+    f.peer_complete(peer_read, peer_read->req.sec_rw.len);
 
     assert(scrub_retval == 0);
 
@@ -487,10 +471,9 @@ void test_ec33_scrub_only_first_part()
         else
             memcpy(peer_read->iov.buf[0].iov_base, data_buf.data() + (peer-1)*128*1024, peer_read->req.sec_rw.len);
         memcpy(peer_read->bitmap, bmp_buf.data() + (peer-1)*4, 4);
-        peer_read->reply.hdr.retval = peer_read->req.sec_rw.len;
         peer_read->reply.sec_rw.attr_len = 4;
         peer_read->reply.sec_rw.version = 1;
-        peer_read->callback(peer_read);
+        f.peer_complete(peer_read, peer_read->req.sec_rw.len);
     }
 
     assert(scrub_retval == 0);
@@ -569,10 +552,9 @@ void test_ec33_recovery_missing_first_part()
         assert(peer_read->iov.count == 1);
         memset(peer_read->iov.buf[0].iov_base, 0xab, peer_read->req.sec_rw.len);
         memset(peer_read->bitmap, 0xff, 4);
-        peer_read->reply.hdr.retval = peer_read->req.sec_rw.len;
         peer_read->reply.sec_rw.attr_len = 4;
         peer_read->reply.sec_rw.version = 1;
-        peer_read->callback(peer_read);
+        f.peer_complete(peer_read, peer_read->req.sec_rw.len);
     }
     {
         auto *peer_read = f.peer_take(4, OSD_OP_SEC_READ);
@@ -580,10 +562,9 @@ void test_ec33_recovery_missing_first_part()
         assert(peer_read->iov.count == 1);
         memset(peer_read->iov.buf[0].iov_base, 0xab, peer_read->req.sec_rw.len); // 0xab xored 3 times -> 0xab
         memset(peer_read->bitmap, 0xff, 4); // 0xff xored 3 times -> 0xff
-        peer_read->reply.hdr.retval = peer_read->req.sec_rw.len;
         peer_read->reply.sec_rw.attr_len = 4;
         peer_read->reply.sec_rw.version = 1;
-        peer_read->callback(peer_read);
+        f.peer_complete(peer_read, peer_read->req.sec_rw.len);
     }
 
     // Check writes
@@ -599,9 +580,8 @@ void test_ec33_recovery_missing_first_part()
         printf("osd 1 bitmap: %08x\n", *(uint32_t*)peer_write->bitmap);
         assert(memcheck((uint8_t*)peer_write->bitmap, 0xff, 4));
         peer_write->reply = {};
-        peer_write->reply.hdr.retval = peer_write->req.sec_rw.len;
         peer_write->reply.sec_rw.version = peer_write->req.sec_rw.version;
-        peer_write->callback(peer_write);
+        f.peer_complete(peer_write, peer_write->req.sec_rw.len);
     }
     {
         auto *local_write = f.bs->take(BS_OP_WRITE);
@@ -629,9 +609,8 @@ void test_ec33_recovery_missing_first_part()
             assert(memcheck((uint8_t*)peer_write->bitmap, peer <= 4 ? 0xff : (peer == 5 ? 0x11 : 0x00), 4));
         }
         peer_write->reply = {};
-        peer_write->reply.hdr.retval = peer_write->req.sec_rw.len;
         peer_write->reply.sec_rw.version = peer_write->req.sec_rw.version;
-        peer_write->callback(peer_write);
+        f.peer_complete(peer_write, peer_write->req.sec_rw.len);
     }
 
     assert(recovery_retval == 0);
@@ -688,10 +667,9 @@ void test_ec42_write_parityless()
         auto *peer_read = f.peer_take(1, OSD_OP_SEC_READ);
         assert(peer_read->req.sec_rw.len == 0);
         *(uint32_t*)peer_read->bitmap = 0xfffffffe;
-        peer_read->reply.hdr.retval = peer_read->req.sec_rw.len;
         peer_read->reply.sec_rw.attr_len = 4;
         peer_read->reply.sec_rw.version = 1;
-        peer_read->callback(peer_read);
+        f.peer_complete(peer_read, peer_read->req.sec_rw.len);
     }
 
     // Check writes
@@ -708,9 +686,8 @@ void test_ec42_write_parityless()
         printf("osd 1 bitmap: %08x\n", *(uint32_t*)peer_write->bitmap);
         assert(memcheck((uint8_t*)peer_write->bitmap, 0xff, 4));
         peer_write->reply = {};
-        peer_write->reply.hdr.retval = peer_write->req.sec_rw.len;
         peer_write->reply.sec_rw.version = peer_write->req.sec_rw.version;
-        peer_write->callback(peer_write);
+        f.peer_complete(peer_write, peer_write->req.sec_rw.len);
     }
     {
         auto *local_write = f.bs->take(BS_OP_WRITE);
@@ -738,9 +715,8 @@ void test_ec42_write_parityless()
             assert(memcheck((uint8_t*)peer_write->bitmap, peer <= 4 ? 0xff : (peer == 5 ? 0x00 : 0xff), 4));
         }
         peer_write->reply = {};
-        peer_write->reply.hdr.retval = peer_write->req.sec_rw.len;
         peer_write->reply.sec_rw.version = peer_write->req.sec_rw.version;
-        peer_write->callback(peer_write);
+        f.peer_complete(peer_write, peer_write->req.sec_rw.len);
     }
 
     assert(wr_retval == wr_op->req.rw.len);
@@ -858,8 +834,7 @@ void test_ec33_chain_read_phantom_bitmap_source()
         subop->buf = malloc(8 + 4);
         *(uint64_t*)subop->buf = 1;
         memcpy((uint8_t*)subop->buf + 8, &bmp, 4);
-        subop->reply.hdr.retval = 8 + 4;
-        subop->callback(subop);
+        f.peer_complete(subop, 8 + 4);
     };
 
     reply_bmp(1, child_inode,  0, 0); // child chunk is empty
@@ -1011,8 +986,7 @@ void test_chained_read_eio_retry()
         subop->buf = malloc(8 + 4);
         *(uint64_t*)subop->buf = 1;
         memcpy((uint8_t*)subop->buf + 8, &bmp, 4);
-        subop->reply.hdr.retval = 8 + 4;
-        subop->callback(subop);
+        f.peer_complete(subop, 8 + 4);
     };
 
     // --- First pass: reply to bitmap subops ---
@@ -1173,29 +1147,25 @@ bool test_flush_error_pg_repeer(int ctr)
     {
         // Complete OP_SEC_STAB on osd 1, then fail on osd 3
         auto *stab = f.peer_take(1, OSD_OP_SEC_STABILIZE);
-        stab->reply.hdr.retval = 0;
-        stab->callback(stab);
+        f.peer_complete(stab, 0);
 
         assert(pg.state == (PG_ACTIVE|PG_HAS_UNCLEAN));
 
         stab = f.peer_take(3, OSD_OP_SEC_STABILIZE);
-        stab->reply.hdr.retval = -EPIPE;
-        stab->callback(stab);
+        f.peer_complete(stab, -EPIPE);
     }
     else
     {
         // Fail OP_SEC_STAB on osd 3, then complete on osd 1
         auto *stab = f.peer_take(3, OSD_OP_SEC_STABILIZE);
-        stab->reply.hdr.retval = -EPIPE;
-        stab->callback(stab);
+        f.peer_complete(stab, -EPIPE);
 
         // The PG should only repeer when the batch is completed
         assert(pg.state == (PG_HAS_UNCLEAN|PG_REPEERING));
         assert(pg.flush_batch == fb);
 
         stab = f.peer_take(1, OSD_OP_SEC_STABILIZE);
-        stab->reply.hdr.retval = 0;
-        stab->callback(stab);
+        f.peer_complete(stab, 0);
     }
 
     // Now the PG should be peering
@@ -1207,6 +1177,625 @@ bool test_flush_error_pg_repeer(int ctr)
 
     printf("test_flush_error_pg_repeer[%d] passed\n", ctr);
     return ctr < 1;
+}
+
+// Sync/repeer invariants:
+//
+// 1. dirty_pgs / dirty_osds are populated only for PGs that were
+//    PG_ACTIVE at the moment of the write.
+// 2. pg.inflight can only grow while PG is PG_ACTIVE.
+//    prepare_primary_rw rejects new ops on non-active PGs.
+// 3. When a PG deactivates (repeer / stop), every client that had
+//    the PG in its cl->dirty_pgs is dropped synchronously, and
+//    the PG is removed from the OSD-wide dirty_pgs.
+// 4. A PG in PG_STOPPING or PG_REPEERING waits for inflight to
+//    drain to 0 before finish_stop_pg / start_pg_peering fires.
+// 5. continue_primary_sync only processes ACTIVE PGs. If a
+//    client's cl->dirty_pgs somehow still refers to a non-active
+//    PG (violation of (3)), the sync returns -EPIPE and drops
+//    the client — the defensive guard.
+
+static void do_lazy_write(osd_test_fixture_t &f, uint64_t client_id,
+    inode_t inode, uint64_t offset)
+{
+    auto *wr = make_write_op(inode, offset, 4096, 0xab);
+    wr->client_id = client_id;
+    f.exec(wr);
+    f.bs_zero_read_ok(0);
+    f.bs_write_ok(BS_OP_WRITE_STABLE, 1);
+    f.peer_write_ok(2, OSD_OP_SEC_WRITE_STABLE, 1);
+}
+
+void test_sync_nothing_to_sync()
+{
+    printf("test_sync_nothing_to_sync\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(1, 2, 1, 1, { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.complete_peering_empty();
+    assert(f.pg(1, 1).state == PG_ACTIVE);
+
+    uint64_t client_id = f.connect_client();
+
+    auto *sync = new osd_op_t();
+    sync->op_type = OSD_OP_IN;
+    sync->client_id = client_id;
+    sync->req.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    sync->req.hdr.id = 42;
+    sync->req.hdr.opcode = OSD_OP_SYNC;
+    f.exec(sync);
+
+    // No writes have happened => dirty_osds is empty => shortcut taken.
+    assert(f.bs->queued.empty());
+    assert(f.peer(2)->sent_ops.empty());
+    assert(f.pg(1, 1).inflight == 0);
+    assert(f.has_client(client_id));
+    // The reply must have been outbox_push'd to the client.
+    assert(f.client(client_id)->sent_ops.at(sync->req.hdr.id) == sync);
+    assert(sync->reply.hdr.retval == 0);
+    assert(f.syncs_in_progress_size() == 0);
+
+    printf("test_sync_nothing_to_sync passed\n");
+}
+
+void test_sync_happy_path_replicated()
+{
+    printf("test_sync_happy_path_replicated\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(1, 2, 1, 1, { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.complete_peering_empty();
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    uint64_t client_id = f.connect_client();
+
+    do_lazy_write(f, client_id, inode, 0);
+    assert(f.has_dirty_pg(1, 1));
+    assert(f.has_dirty_osd(1));
+    assert(f.has_dirty_osd(2));
+    assert(f.client(client_id)->dirty_pgs.count({ .pool_id = 1, .pg_num = 1 }) == 1);
+    assert(f.pg(1, 1).inflight == 0);   // write finished, no other ops
+
+    auto *sync = new osd_op_t();
+    sync->op_type = OSD_OP_IN;
+    sync->client_id = client_id;
+    sync->req.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    sync->req.hdr.id = 43;
+    sync->req.hdr.opcode = OSD_OP_SYNC;
+    f.exec(sync);
+    // Sync captured the dirty PG: dirty_pgs/dirty_osds emptied,
+    // inflight++'d, cl->dirty_pgs cleared by the client-check block.
+    assert(!f.has_dirty_pg(1, 1));
+    assert(!f.has_dirty_osd(1));
+    assert(!f.has_dirty_osd(2));
+    assert(f.client(client_id)->dirty_pgs.empty());
+    assert(f.pg(1, 1).inflight == 1);
+
+    // One local BS_OP_SYNC and one peer SEC_SYNC.
+    auto *local = f.bs->take(BS_OP_SYNC);
+    auto *peer_sync = f.peer_take(2, OSD_OP_SEC_SYNC);
+    f.peer_complete(peer_sync, 0);
+    local->retval = 0;
+    local->callback(local);
+
+    // Sync finished: rm_inflight balanced, client alive, reply delivered.
+    assert(f.pg(1, 1).inflight == 0);
+    assert(f.has_client(client_id));
+    assert(f.client(client_id)->sent_ops.at(sync->req.hdr.id) == sync);
+    assert(sync->reply.hdr.retval == 0);
+    assert(f.syncs_in_progress_size() == 0);
+
+    printf("test_sync_happy_path_replicated passed\n");
+}
+
+// Invariant (3) via repeer without parallel inflight
+void test_pg_repeer_drops_dirty_client()
+{
+    printf("test_pg_repeer_drops_dirty_client\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(1, 2, 1, 1, { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.complete_peering_empty();
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    uint64_t client_id = f.connect_client();
+    do_lazy_write(f, client_id, inode, 0);
+    assert(f.has_client(client_id));
+    assert(f.has_dirty_pg(1, 1));
+
+    // Peer disconnect -> repeer_pgs -> repeer_pg(1,1). Since inflight
+    // is 0, can_repeer() is true and PG immediately goes back to
+    // PG_PEERING via start_pg_peering. drop_dirty_pg_connections is
+    // called first and drops the client.
+    f.disconnect_peer(2);
+
+    assert(!f.has_client(client_id));
+    assert(!f.has_dirty_pg(1, 1));
+    // start_pg_peering -> PG_PEERING (peer no longer connected, may go
+    // to PG_INCOMPLETE via cur_size < minsize check, either way not ACTIVE).
+    assert(!(f.pg(1, 1).state & PG_ACTIVE));
+
+    // FIXME: make it pass without leaks with:
+    f.complete_peering_empty();
+
+    printf("test_pg_repeer_drops_dirty_client passed\n");
+}
+
+// Invariant (3) via repeer with parallel inflight
+void test_sync_replica_gone()
+{
+    printf("test_sync_replica_gone\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 2, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" }, // lazy writes
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.complete_peering_empty();
+    assert(f.pg(1, 1).state & PG_ACTIVE);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+
+    uint64_t client_id = f.connect_client();
+
+    // Client performs a lazy unsynced write
+    auto *wr = make_write_op(inode, 0, 4096, 0xab);
+    wr->client_id = client_id;
+    f.exec(wr);
+    {
+        // stage 1: zero-length version-resolving read
+        auto *zr = f.bs->take(BS_OP_READ);
+        assert(zr->len == 0);
+        zr->version = 0;
+        zr->retval = 0;
+        zr->callback(zr);
+    }
+    {
+        // stage 2: local write + replica(OSD 2) write, both acked
+        auto *lw = f.bs->take(BS_OP_WRITE_STABLE);
+        auto *pw = f.peer_take(2, OSD_OP_SEC_WRITE_STABLE);
+        lw->retval = lw->len;
+        lw->callback(lw);
+        pw->reply.sec_rw.version = 1;
+        f.peer_complete(pw, pw->req.sec_rw.len);
+    }
+
+    // A concurrent read on the same PG stays in flight, holding inflight
+    auto *rd = new osd_op_t();
+    rd->op_type = OSD_OP_IN;
+    rd->client_id = 0; // SELF_CLIENT: completes via callback, just here to hold inflight
+    rd->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    rd->req.rw.header.id = 2;
+    rd->req.rw.header.opcode = OSD_OP_READ;
+    rd->req.rw.inode = inode;
+    rd->req.rw.offset = 0;
+    rd->req.rw.len = 4096;
+    int rd_retval = -1;
+    rd->callback = [&rd_retval](osd_op_t *op) { rd_retval = op->reply.hdr.retval; };
+    f.exec(rd);
+    auto *rd_bs = f.bs->take(BS_OP_READ); // captured but intentionally NOT completed yet
+    assert(f.pg(1, 1).inflight == 1);
+
+    // Disconnect OSD 2 => client should be dropped
+    f.disconnect_peer(2);
+    assert((f.pg(1, 1).state & (PG_ACTIVE|PG_REPEERING)) == PG_REPEERING);
+    assert(!f.has_client(client_id));
+
+    // Release inflight
+    rd_bs->retval = rd_bs->len;
+    rd_bs->version = 1;
+    rd_bs->callback(rd_bs);
+    assert(rd_retval == 4096);
+
+    f.complete_peering_empty();
+
+    delete rd;
+
+    printf("test_sync_replica_gone passed\n");
+}
+
+// Sync interference with EC osd_flush
+void test_sync_interference()
+{
+    printf("test_sync_interference\n");
+
+    osd_test_fixture_t f;
+
+    // EC 2+1 pool, 2 PGs with OSD 1 primary
+    f.st_cli->set("/vitastor/config/pools", json11::Json::object {
+        { "1", json11::Json::object {
+            { "name", "pool_1" },
+            { "scheme", "ec" },
+            { "pg_size", 3 },
+            { "pg_minsize", 2 },
+            { "parity_chunks", 1 },
+            { "pg_count", 2 },
+            { "failure_domain", "osd" },
+            { "immediate_commit", "none" },
+        } },
+    });
+    f.st_cli->set("/vitastor/pg/config", json11::Json::object {
+        { "items", json11::Json::object{
+            { "1", json11::Json::object {
+                { "1", json11::Json::object {
+                    { "osd_set", json11::Json::array{ 1, 2, 3 } },
+                    { "primary", "1" },
+                } },
+                { "2", json11::Json::object {
+                    { "osd_set", json11::Json::array{ 1, 4, 5 } },
+                    { "primary", 1 },
+                } },
+            } }
+        } },
+    });
+
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+
+    // Connect peers 2..5
+    for (int peer = 2; peer <= 5; peer++)
+        f.connect_peer(peer);
+    f.complete_peering_empty();
+    f.ringloop->loop();
+    assert(f.pg(1, 1).state == PG_ACTIVE);
+    assert(f.pg(1, 2).state == PG_ACTIVE);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+
+    auto bs_ok = [&](uint64_t op)
+    {
+        auto *wr = f.bs->take(op);
+        wr->retval = 0;
+        wr->callback(wr);
+    };
+    auto wr_ok = [&](osd_num_t peer, uint64_t version)
+    {
+        auto *pw = f.peer_take(peer, OSD_OP_SEC_WRITE);
+        pw->reply.sec_rw.version = version;
+        f.peer_complete(pw, pw->req.sec_rw.len);
+    };
+
+    // Two clients - one writes to PG 1, another to PG 2
+    uint64_t client1 = f.connect_client();
+    uint64_t client2 = f.connect_client();
+    {
+        auto *wr = make_write_op(inode, 0, 256*1024, 0xab);
+        wr->client_id = client1;
+        f.exec(wr);
+        f.bs_zero_read_ok(0);
+        f.bs_write_ok(BS_OP_WRITE, 1);
+        wr_ok(2, 1);
+        wr_ok(3, 1);
+        assert(wr == f.client(client1)->sent_ops.at(wr->req.rw.header.id));
+    }
+    {
+        auto *wr = make_write_op(inode, 256*1024, 256*1024, 0xac);
+        wr->client_id = client2;
+        f.exec(wr);
+        f.bs_zero_read_ok(0);
+        f.bs_write_ok(BS_OP_WRITE, 1);
+        wr_ok(4, 1);
+        wr_ok(5, 1);
+        assert(wr == f.client(client2)->sent_ops.at(wr->req.rw.header.id));
+    }
+
+    // Try sync from client1
+    auto *sync = new osd_op_t();
+    sync->op_type = OSD_OP_IN;
+    sync->client_id = client1;
+    sync->req.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    sync->req.hdr.id = 2;
+    sync->req.hdr.opcode = OSD_OP_SYNC;
+    f.exec(sync);
+
+    // Check sync ops are present
+    f.peer_take(2, OSD_OP_SEC_SYNC);
+    for (osd_num_t p = 3; p <= 5; p++)
+    {
+        auto *ps = f.peer_take(p, OSD_OP_SEC_SYNC);
+        f.peer_complete(ps, 0);
+    }
+    bs_ok(BS_OP_SYNC);
+
+    // Disconnect OSD 2 => client 1 should be dropped, but not client 2
+    f.disconnect_peer(2);
+    assert((f.pg(1, 1).state & (PG_ACTIVE|PG_PEERING|PG_REPEERING)) == PG_PEERING);
+    assert((f.pg(1, 2).state & (PG_ACTIVE|PG_PEERING|PG_REPEERING)) == PG_ACTIVE);
+    assert(!f.has_client(client1));
+    assert(f.has_client(client2));
+    sync = NULL;
+
+    f.complete_peering_empty();
+    assert((f.pg(1, 1).state & (PG_ACTIVE|PG_PEERING|PG_REPEERING)) == PG_ACTIVE);
+
+    // Now again sync from client 2
+    sync = new osd_op_t();
+    sync->op_type = OSD_OP_IN;
+    sync->client_id = client2;
+    sync->req.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    sync->req.hdr.id = 2;
+    sync->req.hdr.opcode = OSD_OP_SYNC;
+    f.exec(sync);
+    bs_ok(BS_OP_SYNC);
+    for (osd_num_t p = 3; p <= 5; p++)
+    {
+        auto *ps = f.peer_take(p, OSD_OP_SEC_SYNC);
+        f.peer_complete(ps, 0);
+    }
+    bs_ok(BS_OP_STABLE);
+    // OSD 3 is not in unstable list because PG 1 is repeered again
+    for (osd_num_t p = 4; p <= 5; p++)
+    {
+        auto *ps = f.peer_take(p, OSD_OP_SEC_STABILIZE);
+        f.peer_complete(ps, 0);
+    }
+    assert(f.client(client2)->sent_ops.at(sync->req.hdr.id) == sync);
+
+    printf("test_sync_interference passed\n");
+}
+
+// Invariant (3) via stop_pg
+void test_pg_stop_drops_dirty_client()
+{
+    printf("test_pg_stop_drops_dirty_client\n");
+
+    osd_test_fixture_t f;
+    // Two PGs so that stopping PG 1 does not also nuke the whole
+    // OSD's PG map — we still want to inspect PG 2 for sanity.
+    f.configure_replicated_pool(1, 2, 1, 2, { { 1, 2 }, { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.complete_peering_empty();
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    uint64_t client_id = f.connect_client();
+    do_lazy_write(f, client_id, inode, 0);
+    assert(f.has_client(client_id));
+    assert(f.has_dirty_pg(1, 1));
+
+    // Move PG 1 primary to OSD 2
+    f.st_cli->set("/vitastor/pg/config", json11::Json::object {
+        { "items", json11::Json::object{
+            { "1", json11::Json::object {
+                { "1", json11::Json::object {
+                    { "osd_set", json11::Json::array { 1, 2 } },
+                    { "primary", 2 },
+                } },
+                { "2", json11::Json::object {
+                    { "osd_set", json11::Json::array { 1, 2 } },
+                    { "primary", 1 },
+                } },
+            } }
+        } },
+    });
+    f.ringloop->loop();
+
+    // Client dropped, dirty_pgs cleared, PG walked all the way to
+    // OFFLINE and (unpaused etcd mock) got erased.
+    assert(!f.has_client(client_id));
+    assert(!f.has_dirty_pg(1, 1));
+    // Depending on whether apply_pg_config re-takes it synchronously,
+    // PG 1 is either fully gone or back in PG_PEERING/PG_STARTING.
+    // Either way, not PG_STOPPING.
+    if (f.has_pg(1, 1))
+        assert(!(f.pg(1, 1).state & (PG_STOPPING | PG_OFFLINE)));
+    assert(f.has_pg(1, 2) && (f.pg(1, 2).state & PG_ACTIVE));
+
+    printf("test_pg_stop_drops_dirty_client passed\n");
+}
+
+// A second sync arriving while the first is in flight must wait for the first one,
+// then complete as a noop because nothing was written between the two
+void test_sync_queued_and_processed_in_order()
+{
+    printf("test_sync_queued_and_processed_in_order\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(1, 2, 1, 1, { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.complete_peering_empty();
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    uint64_t client_id = f.connect_client();
+    do_lazy_write(f, client_id, inode, 0);
+
+    // Both syncs are SELF_CLIENT to complete via callbacks
+    auto *sync1 = new osd_op_t();
+    sync1->op_type = OSD_OP_IN;
+    sync1->client_id = 0;   // SELF_CLIENT
+    sync1->req.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    sync1->req.hdr.id = 46;
+    sync1->req.hdr.opcode = OSD_OP_SYNC;
+    int r1 = -1;
+    sync1->callback = [&r1](osd_op_t *op) { r1 = op->reply.hdr.retval; };
+    f.exec(sync1);
+    // Sync #1 captured the dirty PG and submitted its sub-syncs.
+    assert(f.syncs_in_progress_size() == 1);
+    auto *local1 = f.bs->take(BS_OP_SYNC);
+    auto *peer1 = f.peer_take(2, OSD_OP_SEC_SYNC);
+
+    auto *sync2 = new osd_op_t();
+    sync2->op_type = OSD_OP_IN;
+    sync2->client_id = 0;   // SELF_CLIENT
+    sync2->req.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    sync2->req.hdr.id = 47;
+    sync2->req.hdr.opcode = OSD_OP_SYNC;
+    int r2 = -1;
+    sync2->callback = [&r2](osd_op_t *op) { r2 = op->reply.hdr.retval; };
+    f.exec(sync2);
+    // Sync 2 must be queued behind 1 — no new subops.
+    assert(f.syncs_in_progress_size() == 2);
+    assert(f.bs->queued.empty());
+    assert(f.peer(2)->sent_ops.size() == 1); // still just sync #1's peer op
+
+    // Finish sync 1. Its continuation should continue sync 2.
+    f.peer_complete(peer1, 0);
+    local1->retval = 0;
+    local1->callback(local1);
+
+    assert(r1 == 0);
+    assert(r2 == 0);
+    assert(f.pg(1, 1).inflight == 0);
+    assert(f.syncs_in_progress_size() == 0);
+    // Sync 2 did not fire any new subops.
+    assert(f.bs->queued.empty());
+    assert(f.peer(2)->sent_ops.empty());
+
+    delete sync2;
+    delete sync1;
+
+    printf("test_sync_queued_and_processed_in_order passed\n");
+}
+
+// PG must wait for inflight to drain before stopping
+void test_pg_stop_waits_for_inflight()
+{
+    printf("test_pg_stop_waits_for_inflight\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(1, 2, 1, 1, { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.complete_peering_empty();
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    uint64_t client_id = f.connect_client();
+    auto *wr = make_write_op(inode, 0, 4096, 0xab);
+    wr->client_id = client_id;
+    f.exec(wr);
+    f.bs_zero_read_ok(0);
+    // Local + peer stable writes now sit in the queues — DON'T complete
+    // them, so inflight stays at 1.
+    auto *local = f.bs->take(BS_OP_WRITE_STABLE);
+    auto *peer_wr = f.peer_take(2, OSD_OP_SEC_WRITE_STABLE);
+    assert(f.pg(1, 1).inflight >= 1);
+
+    // Move PG 1 primary to OSD 2
+    f.st_cli->set("/vitastor/pg/config", json11::Json::object {
+        { "items", json11::Json::object{
+            { "1", json11::Json::object {
+                { "1", json11::Json::object {
+                    { "osd_set", json11::Json::array { 1, 2 } },
+                    { "primary", 2 },
+                } },
+            } }
+        } },
+    });
+
+    // Held inflight blocks finish_stop_pg.
+    assert(f.pg(1, 1).state & PG_STOPPING);
+    assert(!(f.pg(1, 1).state & PG_OFFLINE));
+    assert(f.pg(1, 1).inflight >= 1);
+    assert(f.has_pg(1, 1));
+
+    // Complete the sub-writes. continue_primary_write will notice PG
+    // is no longer ACTIVE (line "if (!(pg.state & PG_ACTIVE))" after
+    // resume_4), cancel the write with -EPIPE, and rm_inflight'ing
+    // will finally trigger finish_stop_pg.
+    local->retval = local->len;
+    local->callback(local);
+    peer_wr->reply.sec_rw.version = 1;
+    f.peer_complete(peer_wr, peer_wr->req.sec_rw.len);
+
+    assert(!f.has_pg(1, 1) || f.pg(1, 1).inflight == 0);
+    // If apply_pg_config didn't retake it, it's either OFFLINE-then-
+    // erased or PG_PEERING again. Never PG_STOPPING now.
+    if (f.has_pg(1, 1))
+        assert(!(f.pg(1, 1).state & PG_STOPPING));
+
+    printf("test_pg_stop_waits_for_inflight passed\n");
+}
+
+// Reject writes on non-active PGs
+void test_no_new_write_on_non_active_pg()
+{
+    printf("test_no_new_write_on_non_active_pg\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(1, 2, 1, 1, { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    uint64_t client_id = f.connect_client();
+
+    assert(!(f.pg(1, 1).state & PG_ACTIVE));
+
+    auto *wr = make_write_op(inode, 0, 4096, 0xab);
+    wr->client_id = client_id;
+    f.exec(wr);
+
+    assert(!f.bs->take(BS_OP_WRITE, false));
+    assert(!f.bs->take(BS_OP_WRITE_STABLE, false));
+    // Reply is in the client's outbox with retval = -EPIPE.
+    assert(f.client(client_id)->sent_ops.at(wr->req.rw.header.id) == wr);
+    assert(wr->reply.hdr.retval == -EPIPE);
+    // inflight untouched.
+    assert(f.pg(1, 1).inflight == 0);
+
+    f.complete_peering_empty();
+
+    printf("test_no_new_write_on_non_active_pg passed\n");
 }
 
 int main(int narg, char *args[])
@@ -1221,5 +1810,14 @@ int main(int narg, char *args[])
     test_ec33_chain_read_phantom_bitmap_source();
     test_chained_read_eio_retry();
     for (int i = 0; test_flush_error_pg_repeer(i); i++) {}
+    test_sync_nothing_to_sync();
+    test_sync_happy_path_replicated();
+    test_pg_repeer_drops_dirty_client();
+    test_sync_replica_gone();
+    test_sync_interference();
+    test_pg_stop_drops_dirty_client();
+    test_sync_queued_and_processed_in_order();
+    test_pg_stop_waits_for_inflight();
+    test_no_new_write_on_non_active_pg();
     return 0;
 }

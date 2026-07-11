@@ -41,6 +41,14 @@ void etcd_state_client_mock_t::set(const std::string& key, json11::Json data, ui
     if (!mod_revision)
         mod_revision = ++this->mod_revision;
     this->data[key] = (etcd_mock_key_data_t){ .value = data.dump(), .mod_revision = mod_revision, .lease_id = lease_id };
+    etcd_kv_t kv = (etcd_kv_t){ .key = key, .value = data, .mod_revision = mod_revision };
+    parse_state(kv);
+    if (on_change_hook != NULL)
+    {
+        std::map<std::string, etcd_kv_t> changes;
+        changes[key] = std::move(kv);
+        on_change_hook(changes);
+    }
 }
 
 void etcd_state_client_mock_t::etcd_call(std::string api, json11::Json payload, int timeout,
