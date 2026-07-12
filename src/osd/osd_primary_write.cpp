@@ -135,7 +135,14 @@ resume_3:
             }
         }
         deref_object_state(pg, &op_data->object_state, true);
-        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
+        cur_op->reply.hdr.retval = op_data->errcode;
+        goto continue_others;
+    }
+    if (!(pg.state & PG_ACTIVE))
+    {
+        // FIXME: Move cleanup to op_data destructor
+        deref_object_state(pg, &op_data->object_state, true);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
         return;
     }
     // Check CAS version
@@ -222,9 +229,9 @@ resume_10:
             return;
         }
     }
-    // Recheck PG state after reporting history - maybe it's already stopping/restarting
-    if (pg.state & (PG_STOPPING|PG_REPEERING))
+    if (!(pg.state & PG_ACTIVE))
     {
+        pg.ver_override.erase(op_data->oid);
         deref_object_state(pg, &op_data->object_state, true);
         pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
         return;
@@ -280,7 +287,14 @@ resume_12:
         }
         pg.ver_override.erase(op_data->oid);
         deref_object_state(pg, &op_data->object_state, true);
-        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
+        cur_op->reply.hdr.retval = op_data->errcode;
+        goto continue_others;
+    }
+    if (!(pg.state & PG_ACTIVE))
+    {
+        pg.ver_override.erase(op_data->oid);
+        deref_object_state(pg, &op_data->object_state, true);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
         return;
     }
     if (pg.scheme != POOL_SCHEME_REPLICATED)
@@ -344,6 +358,18 @@ resume_7:
     {
         return;
     }
+    if (op_data->errors > 0)
+    {
+        deref_object_state(pg, &op_data->object_state, true);
+        cur_op->reply.hdr.retval = op_data->errcode;
+        goto continue_others;
+    }
+    if (!(pg.state & PG_ACTIVE))
+    {
+        deref_object_state(pg, &op_data->object_state, true);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
+        return;
+    }
     if (op_data->orig_ver == 0)
     {
         // Object is created
@@ -388,8 +414,8 @@ resume_8:
 resume_9:
             if (op_data->errors > 0)
             {
-                pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
-                return;
+                cur_op->reply.hdr.retval = op_data->errcode;
+                goto continue_others;
             }
         }
     }
@@ -520,11 +546,6 @@ resume_7:
             delete[] op_data->unstable_writes;
             op_data->unstable_writes = NULL;
             op_data->unstable_write_osds = NULL;
-            if (op_data->errors > 0)
-            {
-                pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
-                return false;
-            }
         }
     }
     else if (immediate_commit == IMMEDIATE_SMALL)

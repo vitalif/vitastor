@@ -765,7 +765,14 @@ resume_3:
     if (op_data->errors > 0)
     {
         deref_object_state(pg, &op_data->object_state, true);
-        pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
+        cur_op->reply.hdr.retval = op_data->errcode;
+        goto continue_others;
+    }
+    if (!(pg.state & PG_ACTIVE))
+    {
+        // FIXME: Move cleanup to op_data destructor
+        deref_object_state(pg, &op_data->object_state, true);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
         return;
     }
     // Check CAS version
@@ -793,8 +800,16 @@ resume_4:
 resume_5:
         if (op_data->errors > 0)
         {
+            pg.ver_override.erase(op_data->oid);
             deref_object_state(pg, &op_data->object_state, true);
-            pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
+            cur_op->reply.hdr.retval = op_data->errcode;
+            goto continue_others;
+        }
+        if (!(pg.state & PG_ACTIVE))
+        {
+            pg.ver_override.erase(op_data->oid);
+            deref_object_state(pg, &op_data->object_state, true);
+            pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
             return;
         }
         // Remove version override
