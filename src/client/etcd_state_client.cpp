@@ -359,15 +359,18 @@ void etcd_state_client_t::clean_nonexistent_pgs()
             }
         }
     }
+    std::vector<osd_num_t> stale_peers;
     for (auto & peer_item: peer_states)
     {
         if (seen_peers.find(peer_item.first) == seen_peers.end())
-        {
-            fprintf(stderr, "OSD %ju state disappeared after reload, forgetting it\n", peer_item.first);
-            parse_state((etcd_kv_t){
-                .key = etcd_prefix+"/osd/state/"+std::to_string(peer_item.first),
-            });
-        }
+            stale_peers.push_back(peer_item.first);
+    }
+    for (auto & stale_peer: stale_peers)
+    {
+        fprintf(stderr, "OSD %ju state disappeared after reload, forgetting it\n", stale_peer);
+        parse_state((etcd_kv_t){
+            .key = etcd_prefix+"/osd/state/"+std::to_string(stale_peer),
+        });
     }
     seen_peers.clear();
 }
