@@ -572,14 +572,14 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         std::string json_err;
         json11::Json config;
         bool err = false;
-        if (op->reply.hdr.retval < 0)
+        if (op->reply.hdr.retval <= 0)
         {
             err = true;
             fprintf(stderr, "Failed to get config from OSD %ju (retval=%jd), disconnecting peer\n", cl->osd_num, op->reply.hdr.retval);
         }
         else
         {
-            config = json11::Json::parse(std::string((char*)op->buf), json_err);
+            config = json11::Json::parse(std::string((char*)op->buf, op->reply.hdr.retval-1), json_err);
             if (json_err != "")
             {
                 err = true;
