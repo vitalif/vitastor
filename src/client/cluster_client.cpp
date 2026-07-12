@@ -872,7 +872,7 @@ void cluster_client_t::execute_cas(cluster_op_t *op)
             op->retval = -EIO;
         op->retval = op->retval == -EPIPE ? -EINTR : op->retval;
         auto peer_it = msgr.osd_peers.find(op->parts[0].osd_num);
-        if (op->retval != 0 || (op->flags & OP_IMMEDIATE_COMMIT))
+        if (op->retval != expected || (op->flags & OP_IMMEDIATE_COMMIT))
         {
             auto cb = std::move(op->callback);
             cb(op);
