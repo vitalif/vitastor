@@ -78,7 +78,7 @@ struct osd_client_t
     osd_op_t *read_op = NULL;
     iovec read_iov = { 0 };
     msghdr read_msg = { 0 };
-    int read_remaining = 0;
+    uint64_t read_remaining = 0;
     int read_state = 0;
     osd_op_buf_list_t recv_list;
     uint64_t read_op_id = 1;

@@ -421,12 +421,12 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
     if (op->reply.hdr.opcode == OSD_OP_SEC_READ || op->reply.hdr.opcode == OSD_OP_READ)
     {
         // Read data. In this case we assume that the buffer is preallocated by the caller (!)
-        unsigned bmp_len = (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->reply.sec_rw.attr_len : op->reply.rw.bitmap_len);
-        unsigned expected_size = (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->req.sec_rw.len : op->req.rw.len);
+        uint32_t bmp_len = (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->reply.sec_rw.attr_len : op->reply.rw.bitmap_len);
+        uint32_t expected_size = (op->reply.hdr.opcode == OSD_OP_SEC_READ ? op->req.sec_rw.len : op->req.rw.len);
         if (op->reply.hdr.retval >= 0 && (op->reply.hdr.retval != expected_size || bmp_len > op->bitmap_len))
         {
             // Check reply length to not overflow the buffer
-            fprintf(stderr, "Client %ju read reply of different length: expected %u+%u, got %jd+%u\n",
+            fprintf(stderr, "Error: peer %ju read reply has incorrect length: expected %u+%u, got %jd+%u, stopping\n",
                 cl->client_id, expected_size, op->bitmap_len, op->reply.hdr.retval, bmp_len);
             cl->sent_ops[op->req.hdr.id] = op;
             stop_client(cl->client_id);
@@ -459,6 +459,14 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_remaining = sizeof(obj_ver_id) * op->reply.hdr.retval;
+        if (cl->read_remaining < op->reply.hdr.retval) // check for overflow
+        {
+            fprintf(stderr, "Error: peer %ju object list length is too large: %jx objects, stopping\n",
+                cl->client_id, op->reply.hdr.retval);
+            stop_client(cl->client_id);
+            return false;
+        }
+        assert(!op->buf);
         op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_remaining);
         cl->recv_list.push_back(op->buf, cl->read_remaining);
     }
@@ -469,6 +477,14 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_remaining = op->reply.hdr.retval;
+        uint64_t expected_retval = (op->req.sec_read_bmp.len / sizeof(obj_ver_id) * (8 + clean_entry_bitmap_size));
+        if (op->reply.hdr.retval != expected_retval)
+        {
+            fprintf(stderr, "Error: peer %ju bitmap read reply has incorrect length: expected %jx, got %jx, stopping\n",
+                cl->client_id, expected_retval, op->reply.hdr.retval);
+            stop_client(cl->client_id);
+            return false;
+        }
         free(op->buf);
         op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_remaining);
         cl->recv_list.push_back(op->buf, cl->read_remaining);
@@ -479,6 +495,13 @@ bool osd_messenger_t::handle_reply_hdr(osd_client_t *cl)
         cl->read_op = op;
         cl->read_state = CL_READ_REPLY_DATA;
         cl->read_remaining = op->reply.hdr.retval;
+        if (op->reply.hdr.retval > MAX_SIMPLE_PAYLOAD_SIZE)
+        {
+            fprintf(stderr, "Error: peer %ju show_config response length too large (%ju > %u bytes), stopping\n",
+                cl->client_id, op->reply.hdr.retval, MAX_SIMPLE_PAYLOAD_SIZE);
+            stop_client(cl->client_id);
+            return false;
+        }
         free(op->buf);
         op->buf = malloc_or_die(op->reply.hdr.retval);
         cl->recv_list.push_back(op->buf, op->reply.hdr.retval);
