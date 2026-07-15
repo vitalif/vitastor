@@ -2767,6 +2767,78 @@ void test_big_padded_csum()
     printf("OK test_big_padded_csum\n");
 }
 
+void test_start_double_claim_reuse()
+{
+    blockstore_disk_t dsk;
+    _test_init(dsk, true);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+
+    blockstore_heap_t heap(&dsk, buffer_area.data());
+    heap.finish_recheck();
+
+    const uint32_t big_write_size = heap.get_big_entry_size();
+    const uint32_t small_write_size = heap.get_small_entry_size(0, 4096);
+    const uint32_t del_size = heap.get_simple_entry_size();
+    assert(big_write_size == 180);
+    assert(small_write_size == 64);
+    assert(del_size == 40);
+    const uint32_t epb = dsk.meta_block_size/big_write_size;
+
+    for (int i = 0; i < epb; i++)
+    {
+        _test_big_write(heap, dsk, 1, i*0x20000, 1, i*0x20000, true, 0, 0, buffer_area.data(), 0);
+        assert(heap.get_meta_block_used_space(0) == (i+1)*big_write_size);
+    }
+
+    for (int i = 1; heap.get_meta_block_used_space(0) <= dsk.meta_block_size-del_size; i++)
+    {
+        _test_small_write(heap, dsk, 1, i*0x20000, 2, 0, 4096, i*4096, true, buffer_area.data(), false, 0);
+    }
+
+    // Then 1 delete and 1 big_write to the second metadata block, reusing data block of the first object
+    {
+        uint32_t mblock = 999999;
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        assert(obj);
+        int res = heap.add_delete(obj, &mblock);
+        assert(mblock == 1);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+
+        _test_big_write(heap, dsk, 1, 0x20000, 1, 0, true, 0, 0, buffer_area.data(), 1);
+    }
+
+    // Persist
+    std::vector<uint8_t> tmp;
+    tmp.resize(2*dsk.meta_block_size);
+    heap.get_meta_block(0, tmp.data());
+    heap.get_meta_block(1, tmp.data()+dsk.meta_block_size);
+
+    {
+        // reload heap and check that delete is not discarded
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        uint64_t entries_loaded;
+        heap.load_blocks(0, 2*dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        assert(done);
+        heap.finish_recheck();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 1);
+        assert(mod[0] == 0);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        assert(obj);
+        assert(obj->entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE));
+        assert(!heap.prev(obj));
+    }
+
+    printf("OK test_start_double_claim_reuse\n");
+}
+
 // FIXME: Add a test for big_intent, incl. explicit_complete with big_intent over big_write over deletion over big_write :)
 
 int main(int narg, char *args[])
@@ -2806,5 +2878,6 @@ int main(int narg, char *args[])
     test_skip_double_claim();
     test_postpone_load();
     test_big_padded_csum();
+    test_start_double_claim_reuse();
     return 0;
 }

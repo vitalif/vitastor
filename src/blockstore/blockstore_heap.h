@@ -246,7 +246,6 @@ class blockstore_heap_t
     void gc_block(heap_block_info_t & inf);
     int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free);
     void insert_list_items(heap_list_item_t** v, size_t count, bool postpone);
-    void remove_list_item(heap_list_item_t *li);
     void unlink_list_item(heap_list_item_t *li);
     int add_entry(uint32_t wr_size, uint32_t *modified_block, bool allow_last_free,
         bool explicit_complete, std::function<void(heap_entry_t *wr)> fill_entry);

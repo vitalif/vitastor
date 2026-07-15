@@ -845,7 +845,7 @@ void blockstore_heap_t::recheck_full_gc()
                 if (inf.entries[i]->entry.is_garbage())
                 {
                     collected_garbage += inf.entries[i]->entry.size;
-                    remove_list_item(inf.entries[i]);
+                    unlink_list_item(inf.entries[i]);
                 }
                 else
                 {
@@ -2562,24 +2562,19 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
     {
         // Remove entry
         auto li = list_item(wr);
-        remove_list_item(li);
+        if (!li->next)
+        {
+            // The last freed entry must be a deletion
+            assert(!li->prev);
+            assert((li->entry.entry_type & ~BS_HEAP_GARBAGE) == (BS_HEAP_DELETE|BS_HEAP_STABLE));
+        }
+        else if (!li->prev && li->next->entry.entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
+        {
+            // free BS_HEAP_DELETEs when all previous entries are also freed
+            mark_garbage(li->next->block_num, &li->next->entry, UINT32_MAX);
+        }
+        unlink_list_item(li);
     }
-}
-
-void blockstore_heap_t::remove_list_item(heap_list_item_t *li)
-{
-    if (!li->next)
-    {
-        // The last freed entry must be a deletion
-        assert(!li->prev);
-        assert((li->entry.entry_type & ~BS_HEAP_GARBAGE) == (BS_HEAP_DELETE|BS_HEAP_STABLE));
-    }
-    else if (!li->prev && li->next->entry.entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
-    {
-        // free BS_HEAP_DELETEs when all previous entries are also freed
-        mark_garbage(li->next->block_num, &li->next->entry, UINT32_MAX);
-    }
-    unlink_list_item(li);
 }
 
 void blockstore_heap_t::unlink_list_item(heap_list_item_t *li)
