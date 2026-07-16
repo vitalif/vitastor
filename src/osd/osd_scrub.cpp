@@ -421,6 +421,7 @@ void osd_t::submit_scrub_subops(osd_op_t *cur_op)
         op_data->stripes[i].bmp_buf = (uint8_t*)cur_op->bitmap_buf + clean_entry_bitmap_size * i;
     }
     cur_op->buf = alloc_read_buffer(op_data->stripes, op_data->stripe_count, 0);
+    op_data->flags |= OP_DATA_ENOENT_OK;
     op_data->fact_ver = 0;
     op_data->done = op_data->errors = op_data->errcode = 0;
     op_data->n_subops = op_data->stripe_count;

@@ -400,9 +400,19 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
     osd_primary_op_data_t *op_data = cur_op->op_data;
     if (retval == -ENOENT && opcode == OSD_OP_SEC_READ)
     {
-        // ENOENT is not an error for almost all reads, except scrub
-        retval = expected;
-        memset(((osd_rmw_stripe_t*)subop->rmw_buf)->read_buf, 0, expected);
+        // 1) ENOENT is not an error for clean object reads from 1 replica
+        // 2) ENOENT is not an error for clean EC object reads if all replicas return ENOENT
+        //    (i.e. ENOENT is not an error, but fact_ver mismatch is)
+        // 3) ENOENT is not an error for scrub reads
+        // 4) In all other cases ENOENT is an error!
+        if (op_data->flags & OP_DATA_ENOENT_OK)
+        {
+            retval = expected;
+            memset(((osd_rmw_stripe_t*)subop->rmw_buf)->read_buf, 0, expected);
+            subop->reply.sec_rw.version = 0;
+        }
+        else
+            retval = -EIO;
         ((osd_rmw_stripe_t*)subop->rmw_buf)->not_exists = true;
     }
     if (opcode == OSD_OP_SEC_READ && (retval == -EIO || retval == -EDOM) ||
@@ -426,9 +436,10 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
             printf("subop %s %jx:%jx from client %ju: version = %ju\n", osd_op_names[opcode],
                 subop->req.sec_rw.oid.inode, subop->req.sec_rw.oid.stripe, subop->client_id, version);
 #endif
-        if (version != 0 && op_data->fact_ver != UINT64_MAX)
+        if (!(op_data->flags & OP_DATA_SKIP_VER_CHECK))
         {
-            if (op_data->fact_ver != 0 && op_data->fact_ver != version)
+            if (op_data->fact_ver != version && (op_data->errors > 0 || op_data->done > 0) &&
+                (version != 0 && op_data->fact_ver != 0 || !(op_data->flags & OP_DATA_ENOENT_OK)))
             {
                 fprintf(
                     stderr, "different fact_versions returned from %s %jx:%jx subops for a %s op: %ju vs %ju\n",

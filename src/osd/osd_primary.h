@@ -10,6 +10,10 @@
 #define SUBMIT_RMW_READ 1
 #define SUBMIT_WRITE 2
 
+#define OP_DATA_DEGRADED 1
+#define OP_DATA_ENOENT_OK 2
+#define OP_DATA_SKIP_VER_CHECK 4
+
 struct unstable_osd_num_t
 {
     osd_num_t osd_num;
@@ -24,7 +28,7 @@ struct osd_primary_op_data_t
     uint64_t target_ver = 0;
     uint64_t orig_ver = 0, fact_ver = 0;
     int n_subops = 0, done = 0, errors = 0, drops = 0, errcode = 0;
-    int degraded = 0;
+    uint64_t flags = 0;
     int stripe_count = 0;
     osd_rmw_stripe_t *stripes = NULL;
     pg_t *pg = NULL;

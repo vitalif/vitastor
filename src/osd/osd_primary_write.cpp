@@ -107,6 +107,10 @@ retry_1:
             goto continue_others;
         }
     }
+    if (!op_data->object_state)
+    {
+        op_data->flags |= OP_DATA_ENOENT_OK;
+    }
     // Read required blocks
     submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
 resume_2:
@@ -236,6 +240,7 @@ resume_10:
         pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
         return;
     }
+    op_data->flags &= ~OP_DATA_ENOENT_OK;
     submit_primary_subops(SUBMIT_WRITE, op_data->target_ver, pg.cur_set.data(), cur_op);
 resume_4:
     if (op_data->n_subops > 0)

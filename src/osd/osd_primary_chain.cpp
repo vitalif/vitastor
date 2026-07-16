@@ -50,6 +50,7 @@ resume_3:
         return;
     }
 resume_4:
+    // FIXME: Check fact_ver mismatch here too
     if (op_data->errors > 0)
     {
         if (pg && (op_data->errcode == -EIO || op_data->errcode == -EDOM))
@@ -259,7 +260,6 @@ int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
     }
     if (op_data->n_subops > 0)
     {
-        op_data->fact_ver = 0;
         op_data->done = op_data->errors = 0;
         op_data->subops = new osd_op_t[op_data->n_subops];
     }
@@ -446,7 +446,7 @@ int osd_t::submit_chained_read_requests(pg_t *pg, osd_op_t *cur_op)
                     finish_op(cur_op, -EIO);
                     return -1;
                 }
-                op_data->degraded = 1;
+                op_data->flags |= OP_DATA_DEGRADED;
             }
             else
             {
@@ -493,7 +493,7 @@ int osd_t::submit_chained_read_requests(pg_t *pg, osd_op_t *cur_op)
         }
     }
     // Submit all reads
-    op_data->fact_ver = UINT64_MAX;
+    op_data->flags |= OP_DATA_SKIP_VER_CHECK;
     op_data->done = op_data->errors = 0;
     op_data->n_subops = n_subops;
     if (!n_subops)
@@ -567,7 +567,7 @@ void osd_t::send_chained_read_results(pg_t *pg, osd_op_t *cur_op)
         (uint8_t*)op_data->chain_reads + sizeof(osd_chain_read_t) * op_data->chain_read_count
     );
     // Reconstruct parts if needed
-    if (op_data->degraded)
+    if (op_data->flags & OP_DATA_DEGRADED)
     {
         for (int cri = 0; cri < op_data->chain_read_count; cri++)
         {

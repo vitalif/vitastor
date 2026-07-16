@@ -260,6 +260,10 @@ resume_0:
             op_data->target_ver = UINT64_MAX;
             op_data->prev_set = &this->osd_num;
         }
+        if (!op_data->object_state)
+        {
+            op_data->flags |= OP_DATA_ENOENT_OK;
+        }
         if (!pg || pg->state == PG_ACTIVE || pg->scheme == POOL_SCHEME_REPLICATED)
         {
             // Fast happy-path
@@ -281,7 +285,7 @@ resume_0:
                 return;
             }
             // Submit reads
-            op_data->degraded = 1;
+            op_data->flags |= OP_DATA_DEGRADED;
             assert(!cur_op->buf);
             cur_op->buf = alloc_read_buffer(op_data->stripes, pg->pg_size, 0);
             submit_primary_subops(SUBMIT_RMW_READ, op_data->target_ver, op_data->prev_set, cur_op);
@@ -313,7 +317,7 @@ resume_2:
     }
     cur_op->reply.rw.version = op_data->fact_ver;
     cur_op->reply.rw.bitmap_len = (pg ? pg->pg_data_size : 1) * clean_entry_bitmap_size;
-    if (op_data->degraded)
+    if (op_data->flags & OP_DATA_DEGRADED)
     {
         // Reconstruct missing stripes
         osd_rmw_stripe_t *stripes = op_data->stripes;
