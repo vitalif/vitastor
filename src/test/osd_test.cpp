@@ -1880,6 +1880,158 @@ void test_pg_epoch_bump_blocks_write_until_reported()
     printf("test_pg_epoch_bump_blocks_write_until_reported passed\n");
 }
 
+static osd_op_t *make_self_rw(uint64_t opcode, inode_t inode, uint64_t offset, uint64_t len)
+{
+    auto *op = new osd_op_t();
+    op->op_type = OSD_OP_IN;
+    op->client_id = 0;
+    op->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    op->req.rw.header.id = 100 + opcode;
+    op->req.rw.header.opcode = opcode;
+    op->req.rw.inode = inode;
+    op->req.rw.offset = offset;
+    op->req.rw.len = len;
+    return op;
+}
+
+static bool maybe_complete_good_sec_read(osd_test_fixture_t &f, osd_num_t peer,
+    const uint8_t *data, const uint8_t *bitmap, uint32_t chunk_size)
+{
+    auto *cl = f.peer(peer);
+    for (auto &kv: cl->sent_ops)
+    {
+        auto *op = kv.second;
+        if (op->req.hdr.opcode != OSD_OP_SEC_READ)
+            continue;
+        assert(op->iov.count == 1);
+        assert(op->req.sec_rw.len == chunk_size);
+        memcpy(op->iov.buf[0].iov_base, data, chunk_size);
+        assert(op->bitmap);
+        memcpy(op->bitmap, bitmap, chunk_size/4096/8);
+        op->reply.sec_rw.attr_len = chunk_size/4096/8;
+        op->reply.sec_rw.version = 1;
+        f.peer_complete(op, chunk_size);
+        return true;
+    }
+    return false;
+}
+
+void test_ec42_inconsistent_read()
+{
+    const uint32_t chunk_size = 128*1024;
+    const uint32_t bitmap_size = 4;
+    printf("test_ec42_inconsistent_read\n");
+
+    osd_test_fixture_t f;
+    f.configure_ec_pool(4, 2);
+    f.start(json11::Json::object {
+        { "osd_num", 2 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", (uint64_t)chunk_size },
+        { "bitmap_granularity", 4096 },
+        { "no_recovery", true },
+    });
+
+    for (int peer = 1; peer <= 6; peer++)
+        if (peer != 2)
+            f.connect_peer(peer);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    object_id base_oid = { inode, 0 };
+
+    // Role 3 is absent, but its OSD remains connected and stays in pg.cur_set.
+    f.reply_peer_list(1, { { { inode, 0 }, 1 } }, 1);
+    f.reply_local_list({ { { inode, 1 }, 1 } }, 1);
+    f.reply_peer_list(3, { { { inode, 2 }, 1 } }, 1);
+    f.reply_peer_list(4, {}, 0);
+    f.reply_peer_list(5, { { { inode, 4 }, 1 } }, 1);
+    f.reply_peer_list(6, { { { inode, 5 }, 1 } }, 1);
+    f.ringloop->loop();
+    assert(f.pg(1, 1).state & PG_ACTIVE);
+
+    // Build a valid 4+2 codeword. D3 is deliberately nonzero: a correct
+    // read of its range must return 0xa5, not a zero-filled sparse response.
+    std::vector<uint8_t> chunks(6 * chunk_size);
+    std::vector<uint8_t> bitmaps(6 * bitmap_size, 0xff);
+    memset(chunks.data() + 0*chunk_size, 0xa1, chunk_size);
+    memset(chunks.data() + 1*chunk_size, 0xb2, chunk_size);
+    memset(chunks.data() + 2*chunk_size, 0xc3, chunk_size);
+    memset(chunks.data() + 3*chunk_size, 0xd4, chunk_size);
+    osd_num_t all_roles[6] = { 1, 2, 3, 4, 5, 6 };
+    osd_rmw_stripe_t stripes[6] = {};
+    for (int i = 0; i < 6; i++)
+        stripes[i].bmp_buf = bitmaps.data() + i*bitmap_size;
+    use_ec(6, 4, true);
+    split_stripes(4, chunk_size, 0, 4*chunk_size, stripes);
+    void *rmw_buf = calc_rmw(chunks.data(), stripes, all_roles, 6, 4, 6, all_roles, chunk_size, bitmap_size);
+    assert(rmw_buf);
+    calc_rmw_parity_ec(stripes, 6, 4, all_roles, all_roles, chunk_size, bitmap_size);
+    use_ec(6, 4, false);
+    memcpy(chunks.data() + 4*chunk_size, (uint8_t*)rmw_buf + 0*chunk_size, chunk_size);
+    memcpy(chunks.data() + 5*chunk_size, (uint8_t*)rmw_buf + 1*chunk_size, chunk_size);
+    printf("XXXXX %02x %02x\n", chunks[4*chunk_size], chunks[5*chunk_size]);
+    free(rmw_buf);
+
+    // Scrub sees one missing data role and one bad survivor. The other four
+    // survivor chunks are a source subset with no matching extra chunk.
+    chunks[4*chunk_size] ^= 1;
+    auto *scrub = make_self_rw(OSD_OP_SCRUB, inode, 0, 0);
+    int scrub_retval = -1;
+    scrub->callback = [&scrub_retval](osd_op_t *op) { scrub_retval = op->reply.hdr.retval; };
+    f.exec(scrub);
+
+    auto reply_reads = [&](bool read4, bool read6)
+    {
+        auto *local_read = f.bs->take(BS_OP_READ);
+        assert(local_read->len == chunk_size);
+        memcpy(local_read->buf, chunks.data() + 1*chunk_size, chunk_size);
+        assert(local_read->bitmap);
+        memcpy(local_read->bitmap, bitmaps.data() + 1*bitmap_size, bitmap_size);
+        local_read->retval = chunk_size;
+        local_read->version = 1;
+        local_read->callback(local_read);
+
+        assert(maybe_complete_good_sec_read(f, 1, chunks.data() + 0*chunk_size, bitmaps.data() + 0*bitmap_size, chunk_size));
+        assert(maybe_complete_good_sec_read(f, 3, chunks.data() + 2*chunk_size, bitmaps.data() + 2*bitmap_size, chunk_size));
+        if (f.peer(4)->sent_ops.size())
+        {
+            assert(read4);
+            auto *read_missing = f.peer_take(4, OSD_OP_SEC_READ);
+            f.peer_complete(read_missing, -ENOENT);
+        }
+        assert(maybe_complete_good_sec_read(f, 5, chunks.data() + 4*chunk_size, bitmaps.data() + 4*bitmap_size, chunk_size));
+        assert(maybe_complete_good_sec_read(f, 6, chunks.data() + 5*chunk_size, bitmaps.data() + 5*bitmap_size, chunk_size) || !read6);
+    };
+    reply_reads(false, true);
+
+    assert(scrub_retval == 0);
+    assert(f.pg(1, 1).state & PG_HAS_INCONSISTENT);
+    assert(f.pg(1, 1).inconsistent_objects.count(base_oid));
+    delete scrub;
+    chunks[4*chunk_size] ^= 1;
+
+    auto *read = make_self_rw(OSD_OP_READ, inode, 3*chunk_size, chunk_size);
+    int read_retval = -1;
+    read->callback = [&read_retval](osd_op_t *op) { read_retval = op->reply.hdr.retval; };
+    f.exec(read);
+
+    reply_reads(true, false);
+
+    uint8_t *b = (uint8_t*)read->buf;
+    printf("read %02x %02x %02x %02x %02x\n", b[0], b[chunk_size], b[2*chunk_size], b[3*chunk_size], b[4*chunk_size]);
+
+    printf("read retval=%d first_byte=%02x\n", read_retval,
+        read->iov.count >= 1 ? ((uint8_t*)read->iov.buf[read->iov.count-1].iov_base)[0] : 0);
+    assert(read_retval == chunk_size);
+    assert(read->iov.count >= 1); // bitmap+data
+    assert(read->iov.buf[read->iov.count-1].iov_len == chunk_size);
+    assert(memcmp(read->iov.buf[read->iov.count-1].iov_base, chunks.data()+3*chunk_size, chunk_size) == 0);
+
+    delete read;
+    printf("test_ec42_inconsistent_read passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -1902,5 +2054,6 @@ int main(int narg, char *args[])
     test_pg_stop_waits_for_inflight();
     test_no_new_write_on_non_active_pg();
     test_pg_epoch_bump_blocks_write_until_reported();
+    test_ec42_inconsistent_read();
     return 0;
 }
