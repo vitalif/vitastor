@@ -989,6 +989,7 @@ void osd_t::apply_pg_config()
                 pg.pool_id = pool_id;
                 pg.pg_num = pg_num;
                 pg.reported_epoch = pg_cfg.epoch;
+                pg.reporting_epoch = pg_cfg.epoch;
                 pg.target_history = pg_cfg.target_history;
                 pg.all_peers = vec_all_peers;
                 pg.next_scrub = pg_cfg.next_scrub;
@@ -1127,6 +1128,7 @@ void osd_t::report_pg_states()
             {
                 // Prevent race conditions (for the case when the monitor is updating this key at the same time)
                 pg.history_changed = false;
+                pg.reporting_epoch = pg.epoch;
                 std::string history_key = base64_encode(st_cli->etcd_prefix+"/pg/history/"+std::to_string(pg.pool_id)+"/"+std::to_string(pg.pg_num));
                 json11::Json::object history_value = {
                     { "epoch", pg.epoch },

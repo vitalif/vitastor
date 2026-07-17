@@ -209,22 +209,25 @@ resume_3:
     if (pg.epoch > pg.reported_epoch)
     {
         // Report newer epoch before writing
-        // FIXME: We don't have to report all changed PG states here
-        this->pg_state_dirty.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
-        if (pg.state != PG_ACTIVE)
+        if (pg.epoch > pg.reporting_epoch)
         {
-            // Check that current OSD set is in history and/or add it there
-            std::vector<osd_num_t> history_set;
-            for (auto peer_osd: pg.cur_set)
-                if (peer_osd != 0)
-                    history_set.push_back(peer_osd);
-            std::sort(history_set.begin(), history_set.end());
-            auto it = std::lower_bound(pg.target_history.begin(), pg.target_history.end(), history_set);
-            if (it == pg.target_history.end() || *it != history_set)
-                pg.target_history.insert(it, history_set);
+            // FIXME: We don't have to report all changed PG states here
+            this->pg_state_dirty.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
+            if (pg.state != PG_ACTIVE)
+            {
+                // Check that current OSD set is in history and/or add it there
+                std::vector<osd_num_t> history_set;
+                for (auto peer_osd: pg.cur_set)
+                    if (peer_osd != 0)
+                        history_set.push_back(peer_osd);
+                std::sort(history_set.begin(), history_set.end());
+                auto it = std::lower_bound(pg.target_history.begin(), pg.target_history.end(), history_set);
+                if (it == pg.target_history.end() || *it != history_set)
+                    pg.target_history.insert(it, history_set);
+            }
+            pg.history_changed = true;
+            report_pg_states();
         }
-        pg.history_changed = true;
-        report_pg_states();
 resume_10:
         if (pg.epoch > pg.reported_epoch)
         {

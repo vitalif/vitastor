@@ -92,7 +92,7 @@ struct pg_t
     uint64_t clean_count = 0, total_count = 0;
     bool disable_pg_locks = false;
     // epoch number - should increase with each non-clean activation of the PG
-    uint64_t epoch = 0, reported_epoch = 0;
+    uint64_t epoch = 0, reported_epoch = 0, reporting_epoch = 0;
     // target history and all potential peers
     std::vector<std::vector<osd_num_t>> target_history;
     std::vector<osd_num_t> all_peers;
