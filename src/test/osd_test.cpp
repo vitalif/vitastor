@@ -495,12 +495,6 @@ void test_ec33_recovery_missing_first_part()
 
     // EC 3+3 pool, PG 1, OSD set {1,2,3,4,5,6}, primary = OSD 2
     f.configure_ec_pool(3, 3);
-    // FIXME: Fix this test without this key.
-    f.st_cli->set("/vitastor/pg/history/1/1", json11::Json::object {
-        { "osd_sets", json11::Json::array {
-            json11::Json::array{ 1, 2, 3, 4, 5, 6 },
-        } },
-    });
 
     f.start(json11::Json::object {
         { "osd_num", 2 },
@@ -1798,6 +1792,94 @@ void test_no_new_write_on_non_active_pg()
     printf("test_no_new_write_on_non_active_pg passed\n");
 }
 
+// Writes must pause until a bumped PG epoch is reported to etcd
+void test_pg_epoch_bump_blocks_write_until_reported()
+{
+    printf("test_pg_epoch_bump_blocks_write_until_reported\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 2, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+        { "no_recovery", true },
+    });
+
+    // Bring PG to ACTIVE with epoch = 1, reported_epoch = 0.
+    f.connect_peer(2);
+    f.reply_local_list({ { { INODE_WITH_POOL(1, 1), 0x20000 }, 1 } }, 1);
+    f.reply_peer_list(2, {}, 0);
+    f.ringloop->loop();
+    assert(f.pg(1, 1).state & PG_ACTIVE);
+    assert(f.pg(1, 1).epoch == 1);
+    assert(f.pg(1, 1).reported_epoch == 0);
+
+    // Pause etcd mock so report_pg_states() never completes
+    f.st_cli->pause();
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+
+    auto *wr = make_write_op(inode, 0, 4096, 0xab);
+    int r1 = -1;
+    wr->callback = [&](osd_op_t *op) { r1 = op->reply.hdr.retval; };
+    f.exec(wr);
+    f.bs_zero_read_ok(0);
+
+    // The write should stop at epoch bump
+    assert(!f.st_cli->queue.empty());
+    assert(!f.peer(2)->sent_ops.size());
+    assert(!f.bs->queued.size());
+
+    // Send a second write - it shouldn't make OSD try to report PG state
+    // the second time after finishing the first report
+    auto *wr2 = make_write_op(inode, 0x40000, 4096, 0xab);
+    int r2 = -1;
+    wr2->callback = [&](osd_op_t *op) { r2 = op->reply.hdr.retval; };
+    f.exec(wr2);
+    f.bs_zero_read_ok(0);
+
+    f.st_cli->resume(1);
+    assert(f.st_cli->queue.empty());
+    f.st_cli->resume();
+    f.ringloop->loop();
+
+    assert(f.pg(1, 1).reported_epoch == 1);
+    assert(f.pg(1, 1).state & PG_ACTIVE);
+
+    // Both writes should resume
+    assert(f.bs->queued.size() == 2);
+    assert(f.peer(2)->sent_ops.size() == 2);
+
+    for (int i = 0; i < 2; i++)
+    {
+        auto *local_write = f.bs->take();
+        assert(local_write->opcode == BS_OP_WRITE_STABLE);
+        assert(local_write->len == 4096);
+        assert(local_write->version == 0x10001);
+        local_write->retval = local_write->len;
+        local_write->callback(local_write);
+
+        auto *peer_write = f.peer_take(2, OSD_OP_SEC_WRITE_STABLE);
+        assert(peer_write->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE);
+        assert(peer_write->req.sec_rw.version == 0x10001);
+        peer_write->reply.sec_rw.version = 0x10001;
+        f.peer_complete(peer_write, peer_write->req.sec_rw.len);
+    }
+
+    assert(f.pg(1, 1).inflight == 0);
+    assert(f.pg(1, 1).write_queue.empty());
+
+    assert(r1 == 4096 && r2 == 4096);
+    delete wr;
+    delete wr2;
+
+    printf("test_pg_epoch_bump_blocks_write_until_reported passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -1819,5 +1901,6 @@ int main(int narg, char *args[])
     test_sync_queued_and_processed_in_order();
     test_pg_stop_waits_for_inflight();
     test_no_new_write_on_non_active_pg();
+    test_pg_epoch_bump_blocks_write_until_reported();
     return 0;
 }

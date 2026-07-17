@@ -26,13 +26,25 @@ void etcd_state_client_mock_t::pause()
     paused = true;
 }
 
-void etcd_state_client_mock_t::resume()
+void etcd_state_client_mock_t::resume(size_t n)
 {
-    paused = false;
-    auto queue = std::move(this->queue);
-    for (auto& req: queue)
+    std::vector<etcd_mock_request_t> ran;
+    if (!n)
     {
-        etcd_call(req.api, req.payload, req.timeout, req.retries, req.interval, req.callback);
+        paused = false;
+        ran = std::move(queue);
+    }
+    else if (n >= queue.size())
+        ran = std::move(queue);
+    else
+    {
+        for (size_t i = 0; i < n; i++)
+            queue.push_back(std::move(queue[i]));
+        queue.erase(queue.begin(), queue.begin() + n);
+    }
+    for (auto& req: ran)
+    {
+        etcd_call_nopause(req.api, req.payload, req.timeout, req.retries, req.interval, req.callback);
     }
 }
 
@@ -59,6 +71,12 @@ void etcd_state_client_mock_t::etcd_call(std::string api, json11::Json payload, 
         queue.push_back({ api, payload, timeout, retries, interval, callback });
         return;
     }
+    etcd_call_nopause(api, payload, timeout, retries, interval, callback);
+}
+
+void etcd_state_client_mock_t::etcd_call_nopause(std::string api, json11::Json payload, int timeout,
+    int retries, int interval, std::function<void(std::string, json11::Json)> callback)
+{
     printf("+ etcd: %s\n", api.c_str());
     if (api == "/kv/txn")
     {

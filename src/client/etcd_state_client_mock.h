@@ -33,9 +33,10 @@ public:
     etcd_state_client_mock_t();
     void set(const std::string& key, json11::Json data, uint64_t mod_revision = 0, uint64_t lease_id = 0);
     void pause();
-    void resume();
+    void resume(size_t n = 0);
     void etcd_call_oneshot(std::string etcd_address, std::string api, json11::Json payload, int timeout, std::function<void(std::string, json11::Json)> callback) override;
     void etcd_call(std::string api, json11::Json payload, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback) override;
+    void etcd_call_nopause(std::string api, json11::Json payload, int timeout, int retries, int interval, std::function<void(std::string, json11::Json)> callback);
     void etcd_add_watch(json11::Json watch) override;
     void load_global_config() override;
     void load_pgs() override;
