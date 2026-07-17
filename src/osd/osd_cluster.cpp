@@ -1240,11 +1240,6 @@ void osd_t::report_pg_states()
             }
             // Push other PG state updates, if any
             report_pg_states();
-            if (!this->pg_state_dirty.size())
-            {
-                // Update statistics
-                report_statistics();
-            }
         }
     });
 }
