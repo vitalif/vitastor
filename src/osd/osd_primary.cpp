@@ -183,12 +183,18 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
 
 uint64_t* osd_t::get_object_osd_set(pg_t &pg, object_id &oid, pg_osd_set_state_t **object_state)
 {
-    if (!(pg.state & (PG_HAS_INCOMPLETE | PG_HAS_DEGRADED | PG_HAS_MISPLACED)))
+    if (!(pg.state & (PG_HAS_INCOMPLETE | PG_HAS_DEGRADED | PG_HAS_MISPLACED | PG_HAS_INCONSISTENT)))
     {
         *object_state = NULL;
         return pg.cur_set.data();
     }
-    auto st_it = pg.incomplete_objects.find(oid);
+    auto st_it = pg.inconsistent_objects.find(oid);
+    if (st_it != pg.inconsistent_objects.end())
+    {
+        *object_state = st_it->second;
+        return st_it->second->read_target.data();
+    }
+    st_it = pg.incomplete_objects.find(oid);
     if (st_it != pg.incomplete_objects.end())
     {
         *object_state = st_it->second;
