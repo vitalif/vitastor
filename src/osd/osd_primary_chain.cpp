@@ -56,7 +56,7 @@ resume_4:
         if (pg && (op_data->errcode == -EIO || op_data->errcode == -EDOM))
         {
             // Handle corrupted reads and retry...
-            check_corrupted_chained(*pg, cur_op);
+            check_corrupted_chained(pg, cur_op);
             free(cur_op->buf);
             cur_op->buf = NULL;
             free(op_data->chain_reads);
@@ -103,7 +103,7 @@ int osd_t::read_bitmaps(osd_op_t *cur_op, pg_t *pg, int base_state)
     }
     else
     {
-        if (submit_bitmap_subops(cur_op, *pg) < 0)
+        if (submit_bitmap_subops(cur_op, pg) < 0)
         {
             // Failure
             finish_op(cur_op, -EIO);
@@ -159,20 +159,20 @@ resume_1:
     return 0;
 }
 
-int osd_t::collect_bitmap_requests(osd_op_t *cur_op, pg_t & pg, std::vector<bitmap_request_t> & bitmap_requests)
+int osd_t::collect_bitmap_requests(osd_op_t *cur_op, pg_t *pg, std::vector<bitmap_request_t> & bitmap_requests)
 {
-    assert(&pg);
+    assert(pg);
     osd_primary_op_data_t *op_data = cur_op->op_data;
     for (int chain_num = 0; chain_num < op_data->chain_size; chain_num++)
     {
         object_id cur_oid = { .inode = op_data->read_chain[chain_num], .stripe = op_data->oid.stripe };
-        auto vo_it = pg.ver_override.find(cur_oid);
-        uint64_t target_version = vo_it != pg.ver_override.end() ? vo_it->second : UINT64_MAX;
-        uint64_t* cur_set = get_object_osd_set(pg, cur_oid, &op_data->chain_states[chain_num]);
-        if (pg.scheme == POOL_SCHEME_REPLICATED)
+        auto vo_it = pg->ver_override.find(cur_oid);
+        uint64_t target_version = vo_it != pg->ver_override.end() ? vo_it->second : UINT64_MAX;
+        uint64_t* cur_set = get_object_osd_set(*pg, cur_oid, &op_data->chain_states[chain_num]);
+        if (pg->scheme == POOL_SCHEME_REPLICATED)
         {
             osd_num_t read_target = 0;
-            for (int i = 0; i < pg.pg_size; i++)
+            for (int i = 0; i < pg->pg_size; i++)
             {
                 if (cur_set[i] == this->osd_num || cur_set[i] != 0 && read_target == 0)
                 {
@@ -190,31 +190,31 @@ int osd_t::collect_bitmap_requests(osd_op_t *cur_op, pg_t & pg, std::vector<bitm
         }
         else
         {
-            osd_rmw_stripe_t local_stripes[pg.pg_size];
-            memcpy(local_stripes, op_data->stripes, sizeof(osd_rmw_stripe_t) * pg.pg_size);
-            if (extend_missing_stripes(local_stripes, cur_set, pg.pg_data_size, pg.pg_size) < 0)
+            osd_rmw_stripe_t local_stripes[pg->pg_size];
+            memcpy(local_stripes, op_data->stripes, sizeof(osd_rmw_stripe_t) * pg->pg_size);
+            if (extend_missing_stripes(local_stripes, cur_set, pg->pg_data_size, pg->pg_size) < 0)
             {
                 return -1;
             }
             int need_at_least = 0;
-            for (int i = 0; i < pg.pg_size; i++)
+            for (int i = 0; i < pg->pg_size; i++)
             {
                 if (cur_set[i] == 0)
                 {
                     if (local_stripes[i].read_end != 0)
                     {
                         // We need this part of the bitmap, but it's unavailable
-                        need_at_least = pg.pg_data_size;
+                        need_at_least = pg->pg_data_size;
                     }
-                    op_data->missing_flags[chain_num*pg.pg_size + i] = 1;
+                    op_data->missing_flags[chain_num*pg->pg_size + i] = 1;
                 }
                 else
                 {
-                    op_data->missing_flags[chain_num*pg.pg_size + i] = 0;
+                    op_data->missing_flags[chain_num*pg->pg_size + i] = 0;
                 }
             }
             int found = 0;
-            for (int i = 0; i < pg.pg_size; i++)
+            for (int i = 0; i < pg->pg_size; i++)
             {
                 if (cur_set[i] != 0 && (local_stripes[i].read_end != 0 || found < need_at_least))
                 {
@@ -226,7 +226,7 @@ int osd_t::collect_bitmap_requests(osd_op_t *cur_op, pg_t & pg, std::vector<bitm
                             .stripe = cur_oid.stripe | i,
                         },
                         .version = target_version,
-                        .bmp_buf = (uint8_t*)op_data->snapshot_bitmaps + (chain_num*pg.pg_size + i)*clean_entry_bitmap_size,
+                        .bmp_buf = (uint8_t*)op_data->snapshot_bitmaps + (chain_num*pg->pg_size + i)*clean_entry_bitmap_size,
                     });
                     found++;
                 }
@@ -239,9 +239,9 @@ int osd_t::collect_bitmap_requests(osd_op_t *cur_op, pg_t & pg, std::vector<bitm
     return 0;
 }
 
-int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg)
+int osd_t::submit_bitmap_subops(osd_op_t *cur_op, pg_t *pg)
 {
-    assert(&pg);
+    assert(pg);
     osd_primary_op_data_t *op_data = cur_op->op_data;
     std::vector<bitmap_request_t> *bitmap_requests = new std::vector<bitmap_request_t>();
     if (collect_bitmap_requests(cur_op, pg, *bitmap_requests) < 0)
@@ -531,11 +531,11 @@ int osd_t::submit_chained_read_requests(pg_t *pg, osd_op_t *cur_op)
     return 0;
 }
 
-void osd_t::check_corrupted_chained(pg_t & pg, osd_op_t *cur_op)
+void osd_t::check_corrupted_chained(pg_t *pg, osd_op_t *cur_op)
 {
-    assert(&pg);
+    assert(pg);
     osd_primary_op_data_t *op_data = cur_op->op_data;
-    int stripe_count = (pg.scheme == POOL_SCHEME_REPLICATED ? 1 : pg.pg_size);
+    int stripe_count = (pg->scheme == POOL_SCHEME_REPLICATED ? 1 : pg->pg_size);
     osd_rmw_stripe_t *chain_stripes = (osd_rmw_stripe_t*)(
         (uint8_t*)op_data->chain_reads + sizeof(osd_chain_read_t) * op_data->chain_read_count
     );
@@ -554,7 +554,7 @@ void osd_t::check_corrupted_chained(pg_t & pg, osd_op_t *cur_op)
         }
         if (corrupted)
         {
-            mark_object_corrupted(pg, cur_oid, op_data->chain_states[op_data->chain_reads[cri].chain_pos], stripes, false);
+            mark_object_corrupted(*pg, cur_oid, op_data->chain_states[op_data->chain_reads[cri].chain_pos], stripes, false);
         }
     }
 }

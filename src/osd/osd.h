@@ -378,11 +378,11 @@ class osd_t
 
     void continue_chained_read(osd_op_t *cur_op);
     int submit_chained_read_requests(pg_t *pg, osd_op_t *cur_op);
-    void check_corrupted_chained(pg_t & pg, osd_op_t *cur_op);
+    void check_corrupted_chained(pg_t *pg, osd_op_t *cur_op);
     void send_chained_read_results(pg_t *pg, osd_op_t *cur_op);
     std::vector<osd_chain_read_t> collect_chained_read_requests(osd_op_t *cur_op);
-    int collect_bitmap_requests(osd_op_t *cur_op, pg_t & pg, std::vector<bitmap_request_t> & bitmap_requests);
-    int submit_bitmap_subops(osd_op_t *cur_op, pg_t & pg);
+    int collect_bitmap_requests(osd_op_t *cur_op, pg_t *pg, std::vector<bitmap_request_t> & bitmap_requests);
+    int submit_bitmap_subops(osd_op_t *cur_op, pg_t *pg);
     int read_bitmaps(osd_op_t *cur_op, pg_t *pg, int base_state);
 
     inline pg_num_t map_to_pg(object_id oid)
