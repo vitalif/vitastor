@@ -343,6 +343,9 @@ resume_11:
             data->iov = { 0 };
             data->callback = [this, op, fs = data_fsync_cur](ring_data_t *data)
             {
+                live = true;
+                if (data->res != 0)
+                    disk_error_abort("sync data", data->res, 0);
                 if (fs > data_fsync_done)
                 {
                     data_fsync_done = fs;
