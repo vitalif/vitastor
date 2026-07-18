@@ -1311,7 +1311,8 @@ std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int p
                 for (int j = 0; j < i; j++)
                 {
                     if (stripes[j].role == stripes[i].role &&
-                        memcmp(stripes[i].read_buf, stripes[j].read_buf, chunk_size) == 0)
+                        memcmp(stripes[i].read_buf, stripes[j].read_buf, chunk_size) == 0 &&
+                        (!bitmap_size || memcmp(stripes[i].bmp_buf, stripes[j].bmp_buf, bitmap_size) == 0))
                     {
                         eq_to[i] = eq_to[j];
                         break;
