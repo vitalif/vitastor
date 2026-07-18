@@ -345,7 +345,7 @@ void blockstore_impl_t::process_list(blockstore_op_t *op)
         std::sort(result, result + stable_count);
         if (stable_count > op->list_stable_limit)
         {
-            memmove(result + op->list_stable_limit, result + stable_count, unstable_count);
+            memmove(result + op->list_stable_limit, result + stable_count, unstable_count*sizeof(obj_ver_id));
             stable_count = op->list_stable_limit;
         }
     }

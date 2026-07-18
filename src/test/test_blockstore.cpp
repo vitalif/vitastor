@@ -913,6 +913,69 @@ static void test_padded_csum_sparse_leading_hole()
     free(op2.buf);
 }
 
+static void test_list_limit()
+{
+    printf("\n-- test_list_limit\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+
+    void *st = test.bs->reshard_start(1, 1, 0x20000, 0);
+    assert(!st);
+
+    printf("writing 1:0 0+4K\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 4096;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    memset(op.buf, 0xaa, 4096);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    printf("writing 1:128K 0+4K\n");
+    op.oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 128*1024 };
+    op.version = 1;
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    printf("writing 1:256K 0+4K\n");
+    op.oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 256*1024 };
+    op.version = 1;
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    printf("writing 4K+4K unstable\n");
+    op.oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0*1024 };
+    op.opcode = BS_OP_WRITE;
+    op.version = 2;
+    op.offset = 4096;
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    op.opcode = BS_OP_LIST;
+    free(op.buf);
+    op.buf = NULL;
+    op.min_oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+    op.max_oid = { .inode = INODE_WITH_POOL(1, 1000), .stripe = 0 };
+    op.pg_alignment = 128*1024;
+    op.pg_count = 1;
+    op.pg_number = 0;
+    op.list_stable_limit = 1;
+
+    test.exec_op(&op);
+    assert(op.retval == 2);
+    assert(op.version == 1);
+    obj_ver_id *lst = (obj_ver_id*)op.buf;
+    assert((lst[0] == (obj_ver_id){ .oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 }, .version = 1 }));
+    assert((lst[1] == (obj_ver_id){ .oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 }, .version = 2 }));
+
+    free(op.buf);
+}
+
 // FIXME Add a simple intent_write / big_intent test
 
 int main(int narg, char *args[])
@@ -932,5 +995,6 @@ int main(int narg, char *args[])
     test_compact_rollback();
     test_fsync_almost_batch_big();
     test_fsync_batch_big();
+    test_list_limit();
     return 0;
 }
