@@ -1141,9 +1141,9 @@ bool blockstore_heap_t::calc_block_checksums(uint32_t *block_csums, uint8_t *bit
     uint32_t pos = start;
     uint32_t block_end = (start/dsk->csum_block_size + 1)*dsk->csum_block_size;
     uint32_t block_crc = 0;
-    bool isset = false;
     while (pos < end)
     {
+        bool isset = false;
         uint32_t blk_start = pos;
         if (bitmap)
         {
