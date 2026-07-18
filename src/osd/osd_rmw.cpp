@@ -1162,14 +1162,27 @@ static bool next_combination(int *subset, int k, int n)
 static uint64_t c_n_k(uint64_t n, uint64_t k)
 {
     uint64_t c = 1;
-    for (uint64_t i = n; i > k; i--)
+    uint64_t mul = n;
+    uint64_t div = 2;
+    while (mul > k)
     {
-        if ((c*i) < i)
+        // do some divisions on overflow
+        while ((c*mul)/mul != c && div <= (n-k))
+        {
+            c /= div;
+            div++;
+        }
+        // divisions didn't help, return the overflown value
+        if ((c*mul)/mul != c)
             return UINT64_MAX;
-        c *= i;
+        c *= mul;
+        mul--;
     }
-    for (uint64_t i = 2; i <= (n-k); i++)
-        c /= i;
+    while (div <= (n-k))
+    {
+        c /= div;
+        div++;
+    }
     return c;
 }
 

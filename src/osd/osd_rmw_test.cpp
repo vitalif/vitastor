@@ -35,6 +35,7 @@ void test_recover_22();
 void test_ec_find_good_multi_chunks();
 void test_ec_find_good_42_no_good();
 void test_ec_partial_write_no_parity_preserves_bitmap();
+void test_c_n_k();
 
 int main(int narg, char *args[])
 {
@@ -83,6 +84,8 @@ int main(int narg, char *args[])
     test_recover_22();
     // Test 21
     test_ec_partial_write_no_parity_preserves_bitmap();
+    // Test 22
+    test_c_n_k();
     // End
     printf("all ok\n");
     return 0;
@@ -1537,4 +1540,16 @@ void test_ec_partial_write_no_parity_preserves_bitmap()
     assert(stripes[4].read_end == 0);
     free(rmw_buf);
     free(write_buf);
+}
+
+/***
+
+22. C_N_K test O_o
+
+***/
+
+void test_c_n_k()
+{
+    assert(c_n_k(25, 5) == 53130);
+    assert(c_n_k(100, 20) == UINT64_MAX);
 }
