@@ -3,6 +3,9 @@
 
 const { parse_level_indexes, parse_pg_dsl } = require('./lp_optimizer/dsl_pgs.js');
 
+const MIN_DATA_BLOCK_SIZE = 4096;
+const MAX_DATA_BLOCK_SIZE = 128*1024*1024;
+
 function validate_pool_cfg(pool_id, pool_cfg, placement_levels, warn)
 {
     pool_cfg.pg_size = Math.floor(pool_cfg.pg_size);
@@ -23,7 +26,8 @@ function validate_pool_cfg(pool_id, pool_cfg, placement_levels, warn)
             console.log('Pool '+pool_id+' has invalid coding scheme (one of "xor", "replicated", "ec" and "jerasure" required)');
         return false;
     }
-    if (!pool_cfg.pg_size || pool_cfg.pg_size < 1 || pool_cfg.pg_size > 256 ||
+    // OSDs don't support pg_size > 64 for now
+    if (!pool_cfg.pg_size || pool_cfg.pg_size < 1 || pool_cfg.pg_size > 64 ||
         pool_cfg.scheme !== 'replicated' && pool_cfg.pg_size < 3)
     {
         if (warn)
@@ -48,6 +52,18 @@ function validate_pool_cfg(pool_id, pool_cfg, placement_levels, warn)
     {
         if (warn)
             console.log('Pool '+pool_id+' has invalid parity_chunks (must be between 1 and pg_size-2)');
+        return false;
+    }
+    if (pool_cfg.block_size &&
+        (!Number(pool_cfg.block_size) || (pool_cfg.block_size & (pool_cfg.block_size-1)) ||
+        pool_cfg.block_size < MIN_DATA_BLOCK_SIZE || pool_cfg.block_size > MAX_DATA_BLOCK_SIZE ||
+        pool_cfg.scheme !== 'replicated' && pool_cfg.block_size*pool_cfg.pg_size > 0xFFFFFFFF))
+    {
+        if (warn)
+        {
+            console.log('Pool '+pool_id+' has invalid block_size (must be a power of two between '+
+                MIN_DATA_BLOCK_SIZE+' and '+MAX_DATA_BLOCK_SIZE+'; must not exceed 2^32-1 when multiplied by pg_size)');
+        }
         return false;
     }
     if (!pool_cfg.pg_count || pool_cfg.pg_count < 1)

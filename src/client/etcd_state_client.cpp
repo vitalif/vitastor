@@ -417,10 +417,9 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
             // PG Size
             pc.pg_size = pool_item.second["pg_size"].uint64_value();
             if (pc.pg_size < 1 ||
-                pool_item.second["pg_size"].uint64_value() < 3 &&
-                (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_EC) ||
+                pc.pg_size < 3 && (pc.scheme == POOL_SCHEME_XOR || pc.scheme == POOL_SCHEME_EC) ||
                 // limit is 64 because osd_peering_pg.cpp uses a 64-bit mask for has_roles
-                pool_item.second["pg_size"].uint64_value() > 64)
+                pc.pg_size > 64)
             {
                 fprintf(stderr, "Pool %u has invalid pg_size, skipping pool\n", pool_id);
                 continue;
@@ -468,16 +467,18 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 continue;
             }
             // Data Block Size
-            pc.data_block_size = pool_item.second["block_size"].uint64_value();
-            if (!pc.data_block_size)
-                pc.data_block_size = global_block_size;
-            if ((pc.data_block_size & (pc.data_block_size-1)) ||
-                pc.data_block_size < MIN_DATA_BLOCK_SIZE || pc.data_block_size > MAX_DATA_BLOCK_SIZE)
+            uint64_t data_block_size = pool_item.second["block_size"].uint64_value();
+            if (!data_block_size)
+                data_block_size = global_block_size;
+            if ((data_block_size & (data_block_size-1)) ||
+                data_block_size < MIN_DATA_BLOCK_SIZE || data_block_size > MAX_DATA_BLOCK_SIZE ||
+                pc.scheme != POOL_SCHEME_REPLICATED && data_block_size*pc.pg_size > UINT32_MAX)
             {
-                fprintf(stderr, "Pool %u has invalid block_size (must be a power of two between %u and %u), skipping pool\n",
+                fprintf(stderr, "Pool %u has invalid block_size (must be a power of two between %u and %u; must not exceed 2^32-1 when multiplied by pg_size), skipping pool\n",
                     pool_id, MIN_DATA_BLOCK_SIZE, MAX_DATA_BLOCK_SIZE);
                 continue;
             }
+            pc.data_block_size = data_block_size;
             // Bitmap Granularity
             pc.bitmap_granularity = pool_item.second["bitmap_granularity"].uint64_value();
             if (!pc.bitmap_granularity)
