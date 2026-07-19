@@ -9,8 +9,6 @@ const os = require('os');
 const path = require('path');
 const readline = require('readline');
 
-run().catch(e => { console.error(e); process.exit(1); });
-
 const help_text = `Initialize a Vitastor cluster (etcd, vitastor.conf and TLS certificates)
 (c) Vitaliy Filippov, 2026+ (MIT)
 
@@ -44,7 +42,7 @@ OPTIONS:
 async function run()
 {
     let config_path = '/etc/vitastor/vitastor.conf';
-    let config_dir = '/etc/vitastor/';
+    let config_dir = '/etc/vitastor';
     let gen_certs = 'auto';
     let antietcd_only = false;
     let copy = 'ask';
@@ -125,7 +123,7 @@ async function run()
     }
     if (tls)
     {
-        const etcd_ca = config_dir+'/'+path.basename(config.etcd_ca);
+        const etcd_ca = config_dir+'/'+path.basename(config.etcd_ca || '/etc/vitastor/etcd_ca.crt');
         if (gen_certs === true)
         {
             console.log('Certificate generation is requested explicitly, generating');
@@ -158,7 +156,7 @@ async function run()
         if (gen_certs)
         {
             if (copy === 'ask')
-                copy = await ask_copy('Copy certificates and vitastor.conf to other nodes after generation?');
+                copy = await ask_copy('Copy certificates and vitastor.conf to other nodes after generation? ');
             copy = (copy === 'y' || copy === 'yes');
             await make_certs(config_dir, copy, etcds, use_perms, antietcd_only);
         }
@@ -201,7 +199,7 @@ async function copy_to_osd_nodes(to, dir, use_perms, antietcd_only)
         osd_to_copy.push('osd.crt', 'osd.key', 'client_ca.crt');
     console.warn('Copying configuration to OSD nodes '+to.join(', '));
     for (const node of to)
-        await system("scp "+dir+osd_to_copy.join(" "+dir)+" root@"+node+":/etc/vitastor/");
+        await system("scp "+dir+"/"+osd_to_copy.join(" "+dir+"/")+" root@"+(node.indexOf(':') >= 0 ? "["+node+"]" : node)+":/etc/vitastor/");
 }
 
 async function make_certs(dir, copy, etcds, use_perms, antietcd_only)
@@ -214,24 +212,24 @@ Generating certificates in ${dir}
     const osd_to_copy = [ 'vitastor.conf' ];
     if (!antietcd_only)
     {
-        await make_ca("/O=Vitastor etcd CA", dir+"etcd_ca");
-        await make_signed("/CN=Vitastor etcd", dir+"etcd", dir+"etcd_ca", etcds.map(e => "IP:"+e.ip).join(','));
+        await make_ca("/O=Vitastor etcd CA", dir+"/etcd_ca");
+        await make_signed("/CN=Vitastor etcd", dir+"/etcd", dir+"/etcd_ca", etcds.map(e => "IP:"+e.ip).join(','));
         to_copy.push('etcd_ca.crt', 'etcd.crt', 'etcd.key');
         if (!use_perms)
             osd_to_copy.push('etcd_ca.crt');
     }
     if (use_perms || antietcd_only)
     {
-        await make_ca("/O=Vitastor Antietcd CA", dir+"antietcd_ca");
-        await make_signed("/CN=Vitastor Antietcd", dir+"antietcd", dir+"antietcd_ca", etcds.map(e => "IP:"+e.ip).join(','));
+        await make_ca("/O=Vitastor Antietcd CA", dir+"/antietcd_ca");
+        await make_signed("/CN=Vitastor Antietcd", dir+"/antietcd", dir+"/antietcd_ca", etcds.map(e => "IP:"+e.ip).join(','));
         to_copy.push('antietcd_ca.crt', 'antietcd.crt', 'antietcd.key');
         osd_to_copy.push('antietcd_ca.crt');
     }
     if (use_perms)
     {
-        await make_ca("/CN=Vitastor OSD", dir+"osd");
-        await make_ca("/O=Vitastor Client CA", dir+"client_ca");
-        await make_signed("/CN=admin", dir+"admin", dir+"client_ca");
+        await make_ca("/CN=Vitastor OSD", dir+"/osd");
+        await make_ca("/O=Vitastor Client CA", dir+"/client_ca");
+        await make_signed("/CN=admin", dir+"/admin", dir+"/client_ca");
         to_copy.push('osd.crt', 'osd.key', 'client_ca.crt');
         osd_to_copy.push('osd.crt', 'osd.key', 'client_ca.crt');
     }
@@ -249,7 +247,8 @@ Certificates generated, commands to copy them:
     {
         for (const node of etcds)
         {
-            await system("scp "+dir+to_copy.join(" "+dir)+" root@"+node.ip+":/etc/vitastor/");
+            await system("scp "+dir+"/"+to_copy.join(" "+dir+"/")+" root@"+(node.ip.indexOf(':') >= 0 ? "["+node.ip+"]" : node.ip)+
+                ":/etc/vitastor/ && chown vitastor:vitastor "+dir+"/*.key");
         }
     }
     else
@@ -267,7 +266,7 @@ async function write_auth_config(config, config_path, etcds, use_perms, antietcd
         if (!antietcd_only)
         {
             auth["etcd_proxy"] = {
-                urls: etcds.map(e => e.ip+':2381'),
+                urls: etcds.map(e => (e.ip.indexOf(':') >= 0 ? '['+e.ip+']' : e.ip)+':2381'),
                 cert: "/etc/vitastor/antietcd.crt",
                 key: "/etc/vitastor/antietcd.key",
                 ca: "/etc/vitastor/etcd_ca.crt",
@@ -321,7 +320,8 @@ async function configure_etcd(etcds, num, tls, use_perms)
 {
     const in_docker = fs.existsSync("/etc/vitastor/etcd.conf") &&
         fs.existsSync("/etc/vitastor/docker.conf");
-    if (!in_docker && fs.existsSync("/etc/systemd/system/vitastor-etcd.service"))
+    if (!in_docker && fs.existsSync("/etc/systemd/system/vitastor-etcd.service") &&
+        fs.existsSync("/etc/vitastor/etcd.conf"))
     {
         console.log("/etc/systemd/system/vitastor-etcd.service already exists");
         process.exit(1);
@@ -361,7 +361,7 @@ async function configure_etcd(etcds, num, tls, use_perms)
         if (use_perms)
         {
             options['peer_client_cert_auth'] = '1';
-            options['peer_trusted_ca_file'] = '/etc/vitastor/etcd.crt';
+            options['peer_trusted_ca_file'] = '/etc/vitastor/etcd_ca.crt';
         }
     }
     let etcd_conf = fs.existsSync("/etc/vitastor/etcd.conf")
@@ -402,6 +402,10 @@ RestartSec=10
 WantedBy=multi-user.target
 `);
     await system(`useradd etcd`);
+    if (options['key_file'])
+    {
+        await system(`chown etcd `+options['key_file']);
+    }
     await system(`systemctl daemon-reload`);
     // Disable distribution etcd unit and enable our one
     await system(`systemctl disable --now etcd`);
@@ -417,7 +421,9 @@ function replace_env(text, key, value)
 {
     let found = false;
     text = text.replace(new RegExp('^'+key+'\\s*=.*', 'm'), () => { found = true; return key+'='+value; });
-    return found ? text : text.replace(/\s*$/, '\n')+key+'='+value+'\n';
+    if (found)
+        return text;
+    return (text != '' ? text.replace(/\s*$/, '\n') : '')+key+'='+value+'\n';
 }
 
 function select_local_etcd(etcds)
@@ -446,11 +452,13 @@ function select_local_etcd(etcds)
 async function system(cmd)
 {
     console.log('Running '+cmd);
+    process.stdin.pause();
     const cp = child_process.spawn(cmd, { shell: true, stdio: [ 0, 1, 2 ] });
     let finish_cb;
     cp.on('exit', () => finish_cb && finish_cb());
     if (cp.exitCode == null)
         await new Promise(ok => finish_cb = ok);
+    process.stdin.resume();
     return cp.exitCode;
 }
 
@@ -465,7 +473,9 @@ async function make_signed(subj, f, ca, san)
 {
     if (await system(`openssl req -subj '${subj}' ${san ? "-addext 'subjectAltName="+san+"'" : ""} -nodes -new -keyout ${f}.key -out ${f}.csr`))
         process.exit(1);
-    if (await system(`openssl x509 -req -days 3650 -CA ${ca}.crt -CAkey ${ca}.key -CAcreateserial -in ${f}.csr -out ${f}.crt`))
+    if (await system(`openssl x509 -req -days 3650 -copy_extensions copy -CA ${ca}.crt -CAkey ${ca}.key -CAcreateserial -in ${f}.csr -out ${f}.crt`))
         process.exit(1);
     fs.unlinkSync(f+".csr");
 }
+
+run().catch(e => { console.error(e); process.exit(1); });

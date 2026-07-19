@@ -33,11 +33,11 @@ const static_perms = {
         keys: { '/pg/config': true, '/stats': true, '/history/last_clean_pgs': true },
         prefixes: {
             '/config/': false, '/osd/': false, '/mon/': true, '/pg/history/': true,
-            '/pgstats/': false, '/inode/stats/': true, '/pool/stats/': true,
+            '/pg/stats/': true, '/pgstats/': true, '/inode/stats/': true, '/pool/stats/': true,
         },
     },
     admin: {
-        keys: { '/stats': false },
+        keys: { '/pg/config': true, '/stats': true, '/history/last_clean_pgs': true },
         prefixes: {
             '/config/': true, '/osd/': true, '/index/': true, '/pg/history/': true,
             '/mon/': false, '/pg/': false, '/pgstats/': false, '/inode/stats/': false, '/pool/stats/': false,
