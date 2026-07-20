@@ -591,9 +591,9 @@ bool osd_messenger_t::derive_aes_keys(osd_client_t *cl, bool update_my, bool upd
 
 void osd_messenger_t::init_tls()
 {
-    if (!tls_cert.empty() || !tls_key.empty() || !osd_tls_ca.empty() || !client_tls_ca.empty())
+    if (!client_cert.empty() || !client_key.empty() || !osd_ca.empty() || !client_ca.empty() || !admin_ca.empty())
     {
-        if (tls_cert.empty() || tls_key.empty() || osd_tls_ca.empty() || osd_num && client_tls_ca.empty())
+        if (client_cert.empty() || client_key.empty() || osd_ca.empty() || osd_num && client_ca.empty())
         {
             if (osd_num)
                 fprintf(stderr, "Vitastor transport encryption requires osd_cert, osd_pkey, osd_ca, client_ca options for OSDs\n");
@@ -606,7 +606,7 @@ void osd_messenger_t::init_tls()
 #ifndef __MOCK__
             gcm_enabled = true;
             hs_ctx = msgr_handshake_ctx_i::create_ctx();
-            if (!hs_ctx->init(tls_cert, tls_key, osd_tls_ca, client_tls_ca))
+            if (!hs_ctx->init(client_cert, client_key, osd_ca, client_ca, admin_ca))
             {
                 fprintf(stderr, "Error: %s\n", hs_ctx->get_error().c_str());
                 exit(1);

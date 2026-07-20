@@ -37,6 +37,8 @@ struct http_message_t
     int status_code = 0;
     std::string status_line;
     std::map<std::string, std::string> headers;
+    std::string tls_cn;
+    int tls_ca_idx = -1;
     uint8_t ws_msg_type = -1;
     std::string body;
 
@@ -48,6 +50,7 @@ struct http_co_t;
 
 http_context_t* http_context_init(timerfd_manager_t *tfd, const std::string & ssl_cert, const std::string & ssl_key,
     const std::string & ssl_ca, bool verify_peer, std::string & error);
+bool http_context_add_ca(http_context_t *ctx, const std::string & add_ca);
 std::string http_context_get_ssl_cn(http_context_t *ctx);
 void http_resolve(http_context_t *ctx, bool ssl, std::string host,
     std::function<void(const std::string & error, const std::vector<std::string> & addrs)> cb);

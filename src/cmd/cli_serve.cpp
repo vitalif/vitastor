@@ -114,33 +114,46 @@ struct cli_serve_t
             listen_backlog = 128;
         use_perms = json_is_true(parent->cli->config["use_perms"]);
         {
-            std::string tls_cert = (parent->cli->config.find("api_cert") != parent->cli->config.end()
+            std::string api_cert = (parent->cli->config.find("api_cert") != parent->cli->config.end()
                 ? parent->cli->config["api_cert"].string_value() : "");
-            std::string tls_key = (parent->cli->config.find("api_pkey") != parent->cli->config.end()
+            std::string api_pkey = (parent->cli->config.find("api_pkey") != parent->cli->config.end()
                 ? parent->cli->config["api_pkey"].string_value() : "");
-            std::string tls_ca = (parent->cli->config.find("client_ca") != parent->cli->config.end()
+            std::string client_ca = (parent->cli->config.find("client_ca") != parent->cli->config.end()
                 ? parent->cli->config["client_ca"].string_value() : "");
-            if (tls_cert != "" || tls_key != "" || tls_ca != "")
+            std::string admin_ca = (parent->cli->config.find("admin_ca") != parent->cli->config.end()
+                ? parent->cli->config["admin_ca"].string_value() : "");
+            if (api_cert != "" || api_pkey != "" || client_ca != "" || admin_ca != "")
             {
                 ssl = true;
-                if (tls_cert == "" || tls_key == "")
+                if (api_cert == "" || api_pkey == "")
                 {
                     result = (cli_result_t){ .err = EINVAL, .text = "api_cert and api_pkey are required to serve HTTPS" };
                     state = 100;
                     return;
                 }
                 std::string error;
-                http_ctx = http_context_init(parent->epmgr->tfd, tls_cert, tls_key, tls_ca, tls_ca != "", error);
+                http_ctx = http_context_init(parent->epmgr->tfd, api_cert, api_pkey, client_ca, client_ca != "", error);
                 if (error != "")
                 {
                     result = (cli_result_t){ .err = EINVAL, .text = error };
                     state = 100;
                     return;
                 }
+                if (client_ca != "" && admin_ca != "")
+                {
+                    bool ok = http_context_add_ca(http_ctx, admin_ca);
+                    if (!ok)
+                    {
+                        http_context_destroy(http_ctx);
+                        result = (cli_result_t){ .err = EINVAL, .text = "Failed to load admin_ca" };
+                        state = 100;
+                        return;
+                    }
+                }
             }
-            else if (use_perms)
+            if (use_perms && client_ca == "")
             {
-                result = (cli_result_t){ .err = EINVAL, .text = "use_perms requires encryption" };
+                result = (cli_result_t){ .err = EINVAL, .text = "use_perms requires client_ca" };
                 state = 100;
                 return;
             }
@@ -365,7 +378,8 @@ struct cli_serve_t
         conn->response_type = "";
         if (use_perms)
         {
-            conn->p->user = parent->cli->st_cli->get_user(msg->headers["_tls_common_name"]);
+            conn->p->user = parent->cli->st_cli->get_user(msg->tls_cn);
+            conn->p->is_admin = msg->tls_ca_idx >= 1;
         }
         auto ctype = msg->headers["content-type"];
         if (conn->request_method != "GET" && conn->request_method != "POST")
@@ -397,7 +411,7 @@ struct cli_serve_t
                 if (use_perms)
                 {
                     // Filter available paths by privileges
-                    if (conn->p->user->type == user_type_t::CLIENT)
+                    if (!conn->p->is_admin)
                     {
                         std::string error;
                         auto openapi = json11::Json::parse(openapi_description, error).object_items();
@@ -414,7 +428,7 @@ struct cli_serve_t
                         conn->response_type = "application/json";
                         conn->result = { .text = json11::Json(openapi).dump() };
                     }
-                    else if (conn->p->user->type != user_type_t::ADMIN)
+                    else if (!conn->p->user)
                     {
                         conn->response_type = "";
                         conn->result = { .err = EACCES, .text = "Access denied" };
@@ -429,7 +443,7 @@ struct cli_serve_t
             {
                 conn->result = { .err = ENOSYS, .text = "method /"+uri[0]+" only allows POST requests" };
             }
-            else if (use_perms && conn->p->user->type == user_type_t::CLIENT && !cmd_it->second.allow_client)
+            else if (use_perms && !conn->p->is_admin && !cmd_it->second.allow_client)
             {
                 conn->result = { .err = EACCES, .text = "Access denied" };
             }

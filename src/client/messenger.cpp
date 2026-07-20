@@ -279,19 +279,20 @@ void osd_messenger_t::parse_config(const json11::Json & config, bool init)
 #endif
     if (!osd_num)
     {
-        tls_cert = config["cert"].string_value();
-        tls_key = config["pkey"].string_value();
-        osd_tls_ca = config["osd_ca"].string_value();
+        client_cert = config["cert"].string_value();
+        client_key = config["pkey"].string_value();
+        osd_ca = config["osd_ca"].string_value();
     }
     else
     {
-        tls_cert = config["osd_cert"].string_value();
-        tls_key = config["osd_pkey"].string_value();
-        osd_tls_ca = config["osd_ca"].string_value();
-        client_tls_ca = config["client_ca"].string_value();
+        client_cert = config["osd_cert"].string_value();
+        client_key = config["osd_pkey"].string_value();
+        osd_ca = config["osd_ca"].string_value();
+        client_ca = config["client_ca"].string_value();
+        admin_ca = config["admin_ca"].string_value();
     }
     this->use_proto_checksums = parse_proto_checksums(config["proto_checksums"], MSGR_CSUM_PAYLOAD);
-    this->force_proto_checksums = parse_proto_checksums(config["force_proto_checksums"], tls_cert != "" ? MSGR_CSUM_PAYLOAD : 0);
+    this->force_proto_checksums = parse_proto_checksums(config["force_proto_checksums"], client_cert != "" ? MSGR_CSUM_PAYLOAD : 0);
     if (!osd_num)
         this->iothread_count = (uint32_t)config["client_iothread_count"].uint64_value();
     else
@@ -807,7 +808,7 @@ bool osd_messenger_t::is_use_rdmacm()
 
 bool osd_messenger_t::is_encryption_enabled()
 {
-    return tls_cert != "" || tls_key != "" || osd_tls_ca != "";
+    return client_cert != "" || client_key != "" || osd_ca != "";
 }
 
 json11::Json::object osd_messenger_t::read_config(const json11::Json & config)

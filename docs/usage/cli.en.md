@@ -507,15 +507,12 @@ the Vitastor authorization model.
 
 ## modify-user
 
-`vitastor-cli modify-user --type <type> --groups <group1,group2,...> <username>`
+`vitastor-cli modify-user --groups <group1,group2,...> <username>`
 
 Create or update a user with the given name (matching TLS certificate CN).
 
 Options:
 
-* `--type TYPE` - Set user type: `client` or `admin`. Default is `client`.
-  Administrators (`admin`) have full access to all cluster operations; clients (`client`)
-  have limited access based on ownership and group membership of images.
 * `--groups GROUPS` - Set user's groups (comma-separated). Groups are used together with
   `--owner-group` / `--reader-group` fields of images and `--creator_group` of the pool to
   authorize operations. Pass an empty string to clear the groups.
@@ -534,23 +531,25 @@ Start an HTTP server that handles vitastor-cli commands over a REST API in JSON 
 
 Options:
 
-| <!-- -->             | <!-- -->                                                                    |
-|----------------------|-----------------------------------------------------------------------------|
-| `--bind_address ADDR` | Server IP address(es), separated by space. Default is `127.0.0.1`.         |
-| `--port 8080`         | Server port. Default is `8080`.                                            |
-| `--api_cert FILE`     | Path to server TLS certificate file (PEM format). Required for HTTPS.      |
-| `--api_pkey FILE`     | Path to server TLS private key file (PEM format). Required for HTTPS.      |
-| `--client_ca FILE`    | Path to file with TLS CA certificates used to validate client connections. |
+| <!-- -->              | <!-- -->                                                                      |
+|-----------------------|-------------------------------------------------------------------------------|
+| `--bind_address ADDR` | Server IP address(es), separated by space. Default is `127.0.0.1`.            |
+| `--port 8080`         | Server port. Default is `8080`.                                               |
+| `--api_cert FILE`     | Server TLS certificate.                                                       |
+| `--api_pkey FILE`     | Private key for `--api_cert`.                                                 |
+| `--cert FILE`         | Administrator or client certificate used by the server to access the cluster. |
+| `--pkey FILE`         | Private key for `--cert`.                                                     |
 
 When `api_cert`/`api_pkey` are set the server operates in HTTPS mode. If `client_ca`
-is also set, connecting clients are authenticated by their TLS certificates.
-When [use_perms](../config/security.en.md#use_perms) is enabled, HTTPS with client
-authentication is mandatory and per-user permissions are enforced.
+is also set (in configuration or on the command line), connecting clients are authenticated by their
+TLS certificates. When [use_perms](../config/security.en.md#use_perms) is enabled, HTTPS with client
+authentication is mandatory and per-user permissions are enforced. For regular clients the server only
+allows operations on images that the user owns or has group access to; all other operations require
+administrator privileges.
 
 The vitastor-cli process itself must be authenticated as an admin user (its own client
-`cert`/`pkey` must belong to a user of `type=admin`) to be able to serve requests.
-For regular clients the server only allows operations on images that the user owns
-or has group access to; all other operations require administrator rights.
+[cert](../config/security.en.md#cert) must be signed with [admin_ca](../config/security.en.md#admin_ca))
+to be able to serve all requests.
 
 `vitastor-cli serve` exposes a full OpenAPI specification at `/openapi` endpoint.
 Start the server and check it out for the information about available API methods.

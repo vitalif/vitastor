@@ -220,10 +220,11 @@ protected:
     int iothread_count = 0;
     int max_cipher_pool_size = 256;
 
-    std::string tls_cert;
-    std::string tls_key;
-    std::string osd_tls_ca;
-    std::string client_tls_ca;
+    std::string client_cert;
+    std::string client_key;
+    std::string osd_ca;
+    std::string client_ca;
+    std::string admin_ca;
 
 #ifdef WITH_RDMA
     bool use_rdma = true;

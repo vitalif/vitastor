@@ -24,6 +24,7 @@ struct msgr_handshake_result_t
 {
     X509 *peer_cert = NULL;
     bool peer_is_osd = false;
+    bool peer_is_admin = false;
     std::vector<uint8_t> shared_secret;
 };
 
@@ -50,7 +51,7 @@ public:
     virtual ~msgr_handshake_ctx_i() = default;
     virtual msgr_handshake_i* create() = 0;
     virtual bool init(const std::string & pem_cert, const std::string & pem_key,
-        const std::string & pem_osd_ca, const std::string & pem_client_ca) = 0;
+        const std::string & pem_osd_ca, const std::string & pem_client_ca, const std::string & pem_admin_ca) = 0;
     virtual std::string get_error() = 0;
     virtual bool derive_kdf(const uint8_t* insecret, size_t insecret_len,
         const uint8_t* salt, size_t salt_len, const char *label, uint8_t *outsecret, size_t outsize) = 0;

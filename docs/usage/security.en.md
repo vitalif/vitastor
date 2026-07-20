@@ -75,13 +75,11 @@ For a quick setup, use the `/usr/lib/vitastor/mon/make-etcd` script:
 3. Run `/usr/lib/vitastor/mon/make-etcd` without parameters or with the `--antietcd-only`
    parameter if you want to initialize the cluster with Antietcd only, without etcd.
 4. The script will generate all necessary certificates and offer to copy them to the other
-   monitor nodes (agree!).
-5. Log in to all other monitor nodes and repeat the `/usr/lib/vitastor/mon/make-etcd` call there.
-6. If you also have nodes with OSDs only (without monitors), run the following command to
-   copy only the required configuration to these nodes:
-   ```
-   /usr/lib/vitastor/mon/make-etcd --copy-to-osd osdnode1,osdnode2,...
-   ```
+   monitor nodes. Root ssh access to these nodes is required to do it, so agree if it's
+   available.
+5. If you don't have root ssh access from the first node to other nodes, copy configuration
+   manually (vitastor.conf and all certificates/keys, except CA `*_ca.key`) and call
+   `/usr/lib/vitastor/mon/make-etcd` on every node.
 
 After that, you can proceed with OSD initialization.
 
@@ -162,26 +160,28 @@ When OSD transport encryption is enabled (at least for headers), you can enable 
 control by turning on the `use_perms=true` option. When this option is enabled, each user
 (and even an OSD or a monitor) can perform only operations allowed for him.
 
-Each user (or administrator) must have their own certificate signed by a common root
-certificate for clients (`client_ca`), with a Common Name equal to the user name.
-Privilege settings are stored in etcd. OSDs and monitors don't need user accounts;
-they authenticate via separate certificates.
+Each user, administrator, OSD or monitor must have their own certificate signed by a specific
+root certificate:
+- `client_ca` for regular users. Common Name of the certificate must be equal to the user's
+  name. Regular users can only read and modify explicitly permitted images and can't modify
+  cluster state.
+- `admin_ca` for administrators. Administrators can read and modify all images, and also
+  adminster the cluster: view overall statistics and status, create and delete OSDs, etc.
+  Common Name is not checked for admin users.
+- `osd_ca` for OSDs and `mon_ca` for monitors (if Antietcd runs separately). OSDs and monitors
+  also have distinct permission sets.
 
-User privileges are stored in etcd data under the keys `/vitastor/config/user/<name>`.
-The following is defined per user in this key:
-- Type:
-  - Client (`type=client` or omitted) — can only read and modify explicitly permitted images.
-  - Administrator (`type=admin`) — can read and modify all images, and also administer the
-    cluster: view overall statistics and status, create and delete OSDs, etc.
-- List of group names the user is a member of.
+User privileges for regular users are stored in etcd data and currently consist of only
+one property in `/vitastor/config/user/<name>`:
+- `groups` - List of group names the user is a member of.
 
 Images have the following properties:
-- Owner (owner) — the user name that is allowed to both read and modify the image
-- Owner group (owner_group) — the owner group name
-- Reader group (reader_group) — the name of the group of users allowed to read the image
+- Owner (`owner`) — the user name that is allowed to both read and modify the image
+- Owner group (`owner_group`) — the owner group name
+- Reader group (`reader_group`) — the name of the group of users allowed to read the image
 
 And there is also a property on the pool:
-- Creator group (creator_group) — the name of the group of users allowed to create images in the pool
+- Creator group (`creator_group`) — the name of the group of users allowed to create images in the pool
 
 For the list of allowed operations on image data on the OSD side, see the
 [OSD data access rights](#osd-data-access-rights) section.
@@ -212,15 +212,17 @@ For the list of allowed operations with etcd data, see the
 
 ### Configuring OSD transport encryption
 
-You need 2 certificates: one for OSDs and one for signing all client certificates.
-For OSDs, you can use a self-signed certificate (osd_ca.crt) or a separate certificate (osd.crt)
-signed by a trusted osd_ca.crt certificate. For clients, you must use separate certificates
-signed by a common trusted (client_ca.crt).
+You need 3 certificates: one for OSDs, one for signing client certificates and one for
+signing administrator certificates. For OSDs, you can use a self-signed certificate (osd_ca.crt)
+or a separate certificate (osd.crt) signed by a trusted osd_ca.crt certificate. For clients,
+you must use separate certificates signed by a common CA certificate (client_ca.crt). One more
+CA certificate (admin_ca.crt) is required for signing administrator certificates.
 
 Add to the Vitastor configuration on OSD servers:
 - use_perms: true
 - osd_ca: osd_ca.crt
 - client_ca: client_ca.crt
+- admin_ca: admin_ca.crt
 - osd_cert: osd_ca.crt
 - osd_pkey: osd_ca.key
 
@@ -235,8 +237,7 @@ The following configuration options are available:
 
 #### Mon with embedded Antietcd
 
-The simplest option. You need 1 certificate for Antietcd (antietcd.crt), plus root
-certificates for OSDs and clients.
+The simplest option. Apart from OSD certificates, you only need 1 certificate for Antietcd (antietcd.crt).
 
 Vitastor settings (`/etc/vitastor/vitastor.conf`):
 - etcd_address: [ "http://mon1:2379", ... ] (addresses of your monitors with port 2379)
@@ -247,6 +248,7 @@ Vitastor settings (`/etc/vitastor/vitastor.conf`):
 - etcd_ca: antietcd.crt
 - osd_ca: osd_ca.crt
 - client_ca: client_ca.crt
+- admin_ca: admin_ca.crt
 
 #### Mon as an Etcd proxy
 
@@ -254,7 +256,6 @@ If you want to enable privileges, but stay on etcd, you can use etcd proxy mode.
 
 You will need 2 separate certificates: one for etcd (etcd.crt) and one for antietcd (antietcd.crt).
 The etcd client port must be different from the standard 2379 — for example, you can pick 2381.
-OSD and client certificates are also needed.
 
 Vitastor settings:
 - etcd_address: [ "http://mon1:2379", ... ] (addresses of your monitors with port 2379)
@@ -274,6 +275,7 @@ Vitastor settings:
 - etcd_ca: antietcd.crt
 - osd_ca: osd_ca.crt
 - client_ca: client_ca.crt
+- admin_ca: admin_ca.crt
 
 etcd command-line options:
 ```
@@ -284,11 +286,11 @@ etcd command-line options:
 
 #### Mon with a separate Antietcd Proxy
 
-If in addition to the previous option you want to offload Antietcd from the Vitastor monitor's
-tasks, you can run it separately.
+If in addition to the previous option you want to offload Vitastor monitor's tasks from Antietcd,
+you can run it separately.
 
 Similar to the previous option, 2 certificates are needed: one for etcd and one for antietcd,
-plus separate certificates for clients, OSDs, and monitors will be needed.
+plus a separate certificate for the monitor.
 
 Vitastor settings:
 - etcd_address: [ "http://mon1:2379", ... ] (addresses of your monitors with port 2379)
@@ -297,15 +299,18 @@ Vitastor settings:
 - etcd_ca: antietcd.crt
 - osd_ca: osd_ca.crt
 - client_ca: client_ca.crt
+- admin_ca: admin_ca.crt
 - mon_etcd_client_cert: mon_ca.crt
 - mon_etcd_client_key: mon_ca.key
 
 Antietcd command-line options:
 ```
---port 2379 \
---client_cert_auth 1 --auth_filter vitastor_auth_filter.js --etcd_proxy url1,url2,... \
---cert antietcd.crt --key antietcd.key --ca client_ca.crt --osd_ca osd_ca.crt --mon_ca mon_ca.crt \
---etcd_cert antietcd.crt --etcd_key antietcd.key --etcd_ca etcd.crt
+--port 2379 --cert /etc/vitastor/antietcd.crt --key /etc/vitastor/antietcd.key \
+--client_cert_auth 1 --auth_filter /usr/lib/vitastor/mon/vitastor_auth_filter.js \
+--ca /etc/vitastor/client_ca.crt --admin_ca /etc/vitastor/admin_ca.crt \
+--osd_ca /etc/vitastor/osd_ca.crt --mon_ca /etc/vitastor/mon_ca.crt \
+--etcd_proxy url1,url2,... --etcd_ca /etc/vitastor/etcd.crt \
+--etcd_cert /etc/vitastor/antietcd.crt --etcd_key /etc/vitastor/antietcd.key
 ```
 
 etcd command-line options (same as in the previous option):
@@ -326,15 +331,17 @@ Vitastor settings (same as in the previous option):
 - etcd_ca: antietcd.crt
 - osd_ca: osd_ca.crt
 - client_ca: client_ca.crt
+- admin_ca: admin_ca.crt
 - mon_etcd_client_cert: mon_ca.crt
 - mon_etcd_client_key: mon_ca.key
 
 Antietcd command-line options:
 ```
---port 2379 \
---client_cert_auth 1 --auth_filter vitastor_auth_filter.js \
---persist_filter vitastor_persist_filter.js \
---cert antietcd.crt --key antietcd.key --ca client_ca.crt --osd_ca osd_ca.crt --mon_ca mon_ca.crt
+--port 2379 --cert /etc/vitastor/antietcd.crt --key /etc/vitastor/antietcd.key \
+--client_cert_auth 1 --auth_filter /usr/lib/vitastor/mon/vitastor_auth_filter.js \
+--ca /etc/vitastor/client_ca.crt --admin_ca /etc/vitastor/admin_ca.crt \
+--osd_ca /etc/vitastor/osd_ca.crt --mon_ca /etc/vitastor/mon_ca.crt \
+--persist_filter /usr/lib/vitastor/mon/vitastor_persist_filter.js
 ```
 
 ### Vault/OpenBao setup
@@ -455,7 +462,7 @@ Step-by-step instructions for setting up a test Vault using OpenBao as an exampl
 
 Below, all key names are given without the common prefix `/vitastor`.
 
-Allowed operations with keys in Antietcd for clients (`type=client`):
+Allowed operations with keys in Antietcd for regular users:
 - Read-only:
   - Always allowed:
     - `/config/global`
@@ -476,7 +483,7 @@ Allowed operations with keys in Antietcd for clients (`type=client`):
     - `/config/inode/*`
     - `/index/image/*`
 
-Allowed operations with keys in Antietcd for administrators (`type=admin`):
+Allowed operations with keys in Antietcd for administrators:
 - Read:
   - `/stats`
   - `/mon/*`
@@ -488,7 +495,10 @@ Allowed operations with keys in Antietcd for administrators (`type=admin`):
   - `/config/*`
   - `/osd/*`
   - `/index/*`
+  - `/pg/config`
   - `/pg/history/*`
+  - `/stats`
+  - `/history/last_clean_pgs`
 
 Allowed operations with keys in etcd for OSDs:
 - Read:
@@ -511,6 +521,8 @@ Allowed operations with keys in etcd for monitors:
   - `/history/last_clean_pgs`
   - `/mon/*`
   - `/pg/history/*`
+  - `/pg/stats/*`
+  - `/pgstats/*`
   - `/inode/stats/*`
   - `/pool/stats/*`
 
@@ -547,20 +559,21 @@ Cluster operations — allowed only for other OSDs:
 
 [vitastor-cli serve](../usage/cli.en.md#serve) also supports client authentication
 via certificates. Only certificates signed by `client_ca` are accepted. A separate
-certificate `server_cert` with the key `server_pkey` is used as the server certificate.
+certificate `api_cert` with the key `api_pkey` is used as the server certificate.
 
-For `vitastor-cli serve` to work correctly, it itself must use a certificate
-(`cert`+`pkey`) of a user with administrator rights (`type=admin`) to access Vitastor.
+For `vitastor-cli serve` to work correctly, it must use a certificate of an administrator
+(`cert`+`pkey` signed by `admin_ca`) to access Vitastor and serve all requests correctly.
 
-Regular clients (users with `type=client`), when accessing the API, are only allowed API operations on images
-available to them either for reading (for read-only operations) or for writing (for modification):
+Regular users (with `client_ca`-signed certificates), when accessing the API, are only
+allowed operations on images available to them either for reading (for read-only operations)
+or for writing (for modification):
 
 - image/list — for images the user can read.
 - image/create — for pools in which the user is allowed to create images, or for
   creating snapshots of images owned by the user.
 - image/delete, image/flatten, image/modify — for images owned by the user.
 
-All other operations are allowed only for administrators (`type=admin`).
+All other operations are allowed only for administrators.
 
 ## Encryption performance
 

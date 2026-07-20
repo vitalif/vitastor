@@ -58,6 +58,7 @@ class msgr_handshake_ctx_t: public msgr_handshake_ctx_i
     X509_STORE *ca = NULL;
     X509 *osd_ca = NULL;
     X509 *client_ca = NULL;
+    X509 *admin_ca = NULL;
     std::string my_cert_pem;
     X509 *my_cert = NULL;
     EVP_PKEY *my_pubkey = NULL;
@@ -72,7 +73,7 @@ public:
     ~msgr_handshake_ctx_t();
     msgr_handshake_i* create() override;
     bool init(const std::string & pem_cert, const std::string & pem_key,
-        const std::string & pem_osd_ca, const std::string & pem_client_ca) override;
+        const std::string & pem_osd_ca, const std::string & pem_client_ca, const std::string & pem_admin_ca) override;
     std::string get_error() override;
     bool derive_kdf(const uint8_t* insecret, size_t insecret_len,
         const uint8_t* salt, size_t salt_len, const char *label, uint8_t *outsecret, size_t outsize) override;
@@ -94,6 +95,7 @@ class msgr_handshake_t: public msgr_handshake_i
     EVP_PKEY *ec_key = NULL;
     X509 *peer_cert = NULL;
     bool peer_is_osd = false;
+    bool peer_is_admin = false;
     std::vector<uint8_t> shared_secret;
     std::vector<uint8_t> hs_key, peer_hs_key;
 
@@ -146,7 +148,7 @@ msgr_handshake_i* msgr_handshake_ctx_t::create()
 }
 
 bool msgr_handshake_ctx_t::init(const std::string & pem_cert, const std::string & pem_key,
-    const std::string & pem_osd_ca, const std::string & pem_client_ca)
+    const std::string & pem_osd_ca, const std::string & pem_client_ca, const std::string & pem_admin_ca)
 {
     if (pem_cert.substr(0, 5) == "-----")
         my_cert_pem = pem_cert;
@@ -184,6 +186,10 @@ bool msgr_handshake_ctx_t::init(const std::string & pem_cert, const std::string 
         return on_error("Failed to load client CA certificate: ");
     if (client_ca && X509_STORE_add_cert(ca, client_ca) <= 0)
         return on_error("X509_STORE_add_cert client CA: ");
+    if (!pem_admin_ca.empty() && !(admin_ca = openssl_load_cert(pem_admin_ca)))
+        return on_error("Failed to load admin CA certificate: ");
+    if (admin_ca && X509_STORE_add_cert(ca, admin_ca) <= 0)
+        return on_error("X509_STORE_add_cert admin CA: ");
     if (!(pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL)))
         return on_error("EVP_PKEY_CTX_new_id: ");
     if (EVP_PKEY_paramgen_init(pctx) <= 0)
@@ -217,6 +223,8 @@ msgr_handshake_ctx_t::~msgr_handshake_ctx_t()
         X509_free(osd_ca);
     if (client_ca)
         X509_free(client_ca);
+    if (admin_ca)
+        X509_free(admin_ca);
     my_pubkey = NULL;
     if (my_cert)
         X509_free(my_cert);
@@ -561,7 +569,14 @@ bool msgr_handshake_t::verify_peer(const uint8_t *peer_cert_pem, size_t peer_cer
         state = MSGR_HS_ERROR;
         return false;
     }
-    peer_is_osd = (X509_verify(peer_cert, X509_get0_pubkey(ctx->osd_ca)) > 0);
+    auto peer_hash = X509_issuer_name_hash(peer_cert);
+    peer_is_osd = (peer_hash == X509_subject_name_hash(ctx->osd_ca) &&
+        X509_verify(peer_cert, X509_get0_pubkey(ctx->osd_ca)) > 0);
+    if (is_server && ctx->admin_ca)
+    {
+        peer_is_admin = (peer_hash == X509_subject_name_hash(ctx->admin_ca) &&
+            X509_verify(peer_cert, X509_get0_pubkey(ctx->admin_ca)) > 0);
+    }
     if (!is_server && !peer_is_osd)
     {
         error = "Peer is not an OSD";
@@ -800,6 +815,7 @@ msgr_handshake_result_t msgr_handshake_t::get_result()
     return msgr_handshake_result_t{
         .peer_cert = peer_cert,
         .peer_is_osd = peer_is_osd,
+        .peer_is_admin = peer_is_admin,
         .shared_secret = shared_secret,
     };
 }

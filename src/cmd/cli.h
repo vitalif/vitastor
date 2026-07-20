@@ -41,6 +41,7 @@ public:
     bool color = false;
 
     std::shared_ptr<user_info_t> user; // for http mode
+    bool is_admin = false;
 
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;

@@ -80,7 +80,8 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
             finish_op(cur_op, -EPERM);
             return false;
         }
-        if (!st_cli->check_image_perm(cl->user_info, cur_op->req.rw.inode, (cur_op->req.hdr.opcode != OSD_OP_READ)))
+        if (!cl->hs_result.peer_is_admin &&
+            (!cl->user_info || !st_cli->check_image_perm(cl->user_info, cur_op->req.rw.inode, (cur_op->req.hdr.opcode != OSD_OP_READ))))
         {
             finish_op(cur_op, -EPERM);
             return false;

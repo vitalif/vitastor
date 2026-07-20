@@ -111,12 +111,6 @@ struct http_url_t
     std::string path;
 };
 
-enum class user_type_t
-{
-    CLIENT = 0,
-    ADMIN = 1,
-};
-
 struct user_perm_t
 {
     enum class perm_type_t: uint8_t;
@@ -130,7 +124,6 @@ struct user_perm_t
 struct user_info_t
 {
     std::string name;
-    user_type_t type;
     robin_hood::unordered_flat_set<std::string> groups;
     robin_hood::unordered_flat_map<inode_t, user_perm_t> perm_cache;
 };

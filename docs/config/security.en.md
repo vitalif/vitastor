@@ -19,6 +19,7 @@ a PEM string with certificate or a private key. In the latter case, the string m
 - [pkey](#pkey)
 - [etcd_ca](#etcd_ca)
 - [client_ca](#client_ca)
+- [admin_ca](#admin_ca)
 - [osd_ca](#osd_ca)
 - [mon_ca](#mon_ca)
 - [antietcd_cert](#antietcd_cert)
@@ -85,6 +86,12 @@ certificate itself - it's fine to use it for etcd_ca.
 
 Trusted TLS CA to verify Vitastor client certificates.
 Mandatory for Vitastor protocol encryption.
+
+## admin_ca
+
+- Type: string
+
+Trusted TLS CA to verify Vitastor administrator certificates.
 
 ## osd_ca
 

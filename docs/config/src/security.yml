@@ -39,6 +39,12 @@
   info_ru: |
     Доверенный TLS-сертификат для проверки сертификатов клиентов Vitastor.
     Требуется для шифрования протокола Vitastor.
+- name: admin_ca
+  type: string
+  info: |
+    Trusted TLS CA to verify Vitastor administrator certificates.
+  info_ru: |
+    Доверенный TLS-сертификат для проверки сертификатов администраторов Vitastor.
 - name: osd_ca
   type: string
   info: |

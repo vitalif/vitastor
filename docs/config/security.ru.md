@@ -21,6 +21,7 @@ OSD, мониторами и клиентами.
 - [pkey](#pkey)
 - [etcd_ca](#etcd_ca)
 - [client_ca](#client_ca)
+- [admin_ca](#admin_ca)
 - [osd_ca](#osd_ca)
 - [mon_ca](#mon_ca)
 - [antietcd_cert](#antietcd_cert)
@@ -87,6 +88,12 @@ OSD, мониторами и клиентами.
 
 Доверенный TLS-сертификат для проверки сертификатов клиентов Vitastor.
 Требуется для шифрования протокола Vitastor.
+
+## admin_ca
+
+- Тип: строка
+
+Доверенный TLS-сертификат для проверки сертификатов администраторов Vitastor.
 
 ## osd_ca
 

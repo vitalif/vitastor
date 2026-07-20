@@ -74,7 +74,7 @@ void osd_t::start()
     msgr.check_config_hook = [this](osd_client_t *cl, json11::Json conf) { return check_peer_config(cl, conf); };
     msgr.handshake_hook = [this](osd_client_t *cl)
     {
-        if (!cl->hs_result.peer_is_osd)
+        if (!cl->hs_result.peer_is_osd && !cl->hs_result.peer_is_admin)
             cl->user_info = st_cli->get_user(openssl_get_cn(cl->hs_result.peer_cert));
     };
     msgr.init();

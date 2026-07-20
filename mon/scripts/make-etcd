@@ -20,7 +20,8 @@ USAGE:
 2) Run: ${process.argv[1]} [./vitastor.conf] [--antietcd-only]
    You can run it on etcd/monitor nodes or on an external node.
    It configures etcd, generates TLS certificates (on the first or external node), copies
-   them to other etcd/monitor nodes, and updates vitastor.conf with TLS options.
+   them to other etcd/monitor nodes using root ssh, and updates vitastor.conf with TLS options.
+   You can also copy configuration and certificates manually.
 3) If you have OSD-only nodes, run:
    ${process.argv[1]} --copy-to-osd-node NODE_NAME ./vitastor.conf
    It copies vitastor.conf and required TLS certificates to that node.
@@ -156,10 +157,17 @@ async function run()
         if (gen_certs)
         {
             if (copy === 'ask')
-                copy = await ask_copy('Copy certificates and vitastor.conf to other nodes after generation? ');
+                copy = await ask_copy('Copy certificates and vitastor.conf to other nodes and start them (requires root ssh)? ');
             copy = (copy === 'y' || copy === 'yes');
-            await make_certs(config_dir, copy, etcds, use_perms, antietcd_only);
+            await make_certs(config_dir, copy, etcds, num, use_perms, antietcd_only);
         }
+    }
+    else if (num <= 0)
+    {
+        if (copy === 'ask')
+            copy = await ask_copy('Copy vitastor.conf to other nodes and start them (requires root ssh)? ');
+        if (copy === 'y' || copy === 'yes')
+            await copy_nontls(config_dir, etcds, num);
     }
     if (num < 0)
     {
@@ -167,7 +175,6 @@ async function run()
         process.exit(tls && gen_certs ? 0 : 1);
     }
     await configure_etcd(etcds, num, tls, use_perms);
-    await enable_mon();
     process.exit(0);
 }
 
@@ -202,7 +209,7 @@ async function copy_to_osd_nodes(to, dir, use_perms, antietcd_only)
         await system("scp "+dir+"/"+osd_to_copy.join(" "+dir+"/")+" root@"+(node.indexOf(':') >= 0 ? "["+node+"]" : node)+":/etc/vitastor/");
 }
 
-async function make_certs(dir, copy, etcds, use_perms, antietcd_only)
+async function make_certs(dir, copy, etcds, num, use_perms, antietcd_only)
 {
     console.log(`-----
 Generating certificates in ${dir}
@@ -229,9 +236,10 @@ Generating certificates in ${dir}
     {
         await make_ca("/CN=Vitastor OSD", dir+"/osd");
         await make_ca("/O=Vitastor Client CA", dir+"/client_ca");
-        await make_signed("/CN=admin", dir+"/admin", dir+"/client_ca");
-        to_copy.push('osd.crt', 'osd.key', 'client_ca.crt');
-        osd_to_copy.push('osd.crt', 'osd.key', 'client_ca.crt');
+        await make_ca("/O=Vitastor Admin CA", dir+"/admin_ca");
+        await make_signed("/CN=admin", dir+"/admin", dir+"/admin_ca");
+        to_copy.push('osd.crt', 'osd.key', 'client_ca.crt', 'admin_ca.crt', 'admin.crt', 'admin.key');
+        osd_to_copy.push('osd.crt', 'osd.key', 'client_ca.crt', 'admin_ca.crt', 'admin.crt', 'admin.key');
     }
     console.log(`-----
 Certificates generated, commands to copy them:
@@ -241,19 +249,37 @@ Certificates generated, commands to copy them:
   cd ${dir} && scp ${to_copy.filter(f => f != 'osd.key').join(' ')} root@NODE:/etc/vitastor/
 - OSD node:
   cd ${dir} && scp ${osd_to_copy.join(' ')} root@NODE:/etc/vitastor/
+Then don't forget to run:
+chown vitastor:vitastor /etc/vitastor/*.key && /usr/lib/vitastor/mon/make-etcd
 -----
 `);
     if (copy)
     {
-        for (const node of etcds)
+        for (let i = 0; i < etcds.length; i++)
         {
+            if (i == num)
+                continue;
+            const node = etcds[i];
             await system("scp "+dir+"/"+to_copy.join(" "+dir+"/")+" root@"+(node.ip.indexOf(':') >= 0 ? "["+node.ip+"]" : node.ip)+
-                ":/etc/vitastor/ && chown vitastor:vitastor "+dir+"/*.key");
+                ":/etc/vitastor/ && ssh root@"+node.ip+" 'chown vitastor:vitastor /etc/vitastor/*.key && /usr/lib/vitastor/mon/make-etcd'");
         }
     }
     else
     {
         console.warn('Certificates generated in '+dir+', please copy them to other nodes');
+    }
+}
+
+async function copy_nontls(dir, etcds, num)
+{
+    const to_copy = [ 'vitastor.conf' ];
+    for (let i = 0; i < etcds.length; i++)
+    {
+        if (i == num)
+            continue;
+        const node = etcds[i];
+        await system("scp "+dir+"/"+to_copy.join(" "+dir+"/")+" root@"+(node.ip.indexOf(':') >= 0 ? "["+node.ip+"]" : node.ip)+
+            ":/etc/vitastor/ && ssh root@"+node.ip+" '/usr/lib/vitastor/mon/make-etcd'");
     }
 }
 
@@ -279,6 +305,7 @@ async function write_auth_config(config, config_path, etcds, use_perms, antietcd
         auth["osd_pkey"] = "/etc/vitastor/osd.key";
         auth["osd_ca"] = "/etc/vitastor/osd.crt";
         auth["client_ca"] = "/etc/vitastor/client_ca.crt";
+        auth["admin_ca"] = "/etc/vitastor/admin_ca.crt";
         auth["cert"] = "/etc/vitastor/admin.crt";
         auth["pkey"] = "/etc/vitastor/admin.key";
     }
@@ -354,7 +381,7 @@ async function configure_etcd(etcds, num, tls, use_perms)
         if (use_perms)
         {
             options['client_cert_auth'] = '1';
-            options['trusted_ca_file'] = '/etc/vitastor/antietcd.crt';
+            options['trusted_ca_file'] = '/etc/vitastor/antietcd_ca.crt';
         }
         options['peer_cert_file'] = '/etc/vitastor/etcd.crt';
         options['peer_key_file'] = '/etc/vitastor/etcd.key';
@@ -402,6 +429,7 @@ RestartSec=10
 WantedBy=multi-user.target
 `);
     await system(`useradd etcd`);
+    await system(`chown vitastor:vitastor /etc/vitastor/*.key`);
     if (options['key_file'])
     {
         await system(`chown etcd `+options['key_file']);
@@ -410,10 +438,6 @@ WantedBy=multi-user.target
     // Disable distribution etcd unit and enable our one
     await system(`systemctl disable --now etcd`);
     await system(`systemctl enable --now vitastor-etcd`);
-}
-
-async function enable_mon()
-{
     await system(`systemctl enable --now vitastor-mon`);
 }
 

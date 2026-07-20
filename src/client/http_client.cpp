@@ -50,6 +50,7 @@ struct http_context_t
 #ifdef WITH_OPENSSL
     SSL_CTX *ssl_ctx = NULL;
     std::string ssl_cn;
+    std::vector<X509*> ssl_ca_certs;
 #endif
 
     ~http_context_t()
@@ -62,6 +63,11 @@ struct http_context_t
             SSL_CTX_free(ssl_ctx);
             ssl_ctx = NULL;
         }
+        for (X509 *ca: ssl_ca_certs)
+        {
+            X509_free(ca);
+        }
+        ssl_ca_certs.clear();
 #endif
     }
 };
@@ -178,7 +184,6 @@ http_context_t* http_context_init(timerfd_manager_t *tfd, const std::string & ss
     SSL_CTX *ssl_ctx = SSL_CTX_new(TLS_method());
     ctx->ssl_cert = ssl_cert;
     ctx->ssl_key = ssl_key;
-    ctx->ssl_ca = ssl_ca;
     ctx->ssl_ctx = ssl_ctx;
     ctx->ssl_cn = "";
     if (!ssl_ctx)
@@ -186,8 +191,14 @@ http_context_t* http_context_init(timerfd_manager_t *tfd, const std::string & ss
     SSL_CTX_set_verify(ssl_ctx, verify_peer ? SSL_VERIFY_PEER : SSL_VERIFY_NONE, NULL);
     if (!SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_2_VERSION))
         goto init_err;
-    if (!openssl_ctx_use_ca(ssl_ctx, ssl_ca))
-        goto init_err;
+    if (ssl_ca != "")
+    {
+        X509 *ca = openssl_load_cert(ssl_ca);
+        if (!ca)
+            goto init_err;
+        ctx->ssl_ca_certs.push_back(ca);
+        X509_STORE_add_cert(SSL_CTX_get_cert_store(ssl_ctx), ca);
+    }
     if (ssl_cert != "" && ssl_key != "" &&
         (!openssl_ctx_use_cert(ssl_ctx, ssl_cert, ctx->ssl_cn) ||
         !openssl_ctx_use_key(ssl_ctx, ssl_key)))
@@ -198,6 +209,18 @@ init_err:
     error = std::string("openssl initialization failed: ")+ERR_error_string(ERR_get_error(), NULL);
     delete ctx;
     return NULL;
+}
+
+bool http_context_add_ca(http_context_t *ctx, const std::string & add_ca)
+{
+    if (!ctx->ssl_ctx || !ctx->ssl_ca_certs.size())
+        return false;
+    X509 *ca = openssl_load_cert(add_ca);
+    if (!ca)
+        return false;
+    ctx->ssl_ca_certs.push_back(ca);
+    X509_STORE_add_cert(SSL_CTX_get_cert_store(ctx->ssl_ctx), ca);
+    return true;
 }
 
 std::string http_context_get_ssl_cn(http_context_t *ctx)
@@ -1068,7 +1091,22 @@ bool http_co_t::handle_read()
             if (ssl)
             {
                 auto x509 = SSL_get0_peer_certificate(ssl_cli);
-                parsed.headers["_tls_common_name"] = openssl_get_cn(x509);
+                parsed.tls_cn = openssl_get_cn(x509);
+                if (ctx->ssl_ca_certs.size() > 1)
+                {
+                    int ca_idx = 0;
+                    auto hash = X509_issuer_name_hash(x509);
+                    for (X509 *ca: ctx->ssl_ca_certs)
+                    {
+                        if (hash == X509_subject_name_hash(ca) &&
+                            X509_verify(x509, X509_get0_pubkey(ca)) > 0)
+                        {
+                            break;
+                        }
+                        ca_idx++;
+                    }
+                    parsed.tls_ca_idx = ca_idx;
+                }
             }
             auto conn_it = parsed.headers.find("connection");
             keepalive = (conn_it != parsed.headers.end() && conn_it->second == "keep-alive");

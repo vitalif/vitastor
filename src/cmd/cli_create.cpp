@@ -121,7 +121,8 @@ struct image_creator_t
 
     bool check_pool_permission()
     {
-        if (!parent->user || parent->user->type == user_type_t::ADMIN)
+        // !user == not http mode
+        if (!parent->user || parent->is_admin)
         {
             return true;
         }

@@ -11,7 +11,6 @@ struct cli_modify_user_t
     cli_tool_t *parent;
 
     std::string user_name;
-    std::string user_type;
     json11::Json groups;
     bool del = false;
 
@@ -31,12 +30,6 @@ struct cli_modify_user_t
             goto resume_1;
         else if (state == 2)
             goto resume_2;
-        if (user_type != "client" && user_type != "admin")
-        {
-            result = (cli_result_t){ .err = EINVAL, .text = "Unknown user type: "+user_type };
-            state = 100;
-            return;
-        }
         if (groups.is_string())
         {
             groups = groups == "" ? std::vector<std::string>() : explode(",", groups.string_value(), true);
@@ -94,10 +87,6 @@ resume_1:
             }
             if (!groups.is_null())
                 new_cfg["groups"] = groups;
-            if (user_type != "")
-                new_cfg["type"] = user_type;
-            if (!new_cfg["type"].is_string())
-                new_cfg["type"] = "client";
             parent->etcd_txn(json11::Json::object {
                 { "compare", json11::Json::array { json11::Json::object {
                     { "key", base64_encode(parent->cli->st_cli->etcd_prefix+"/config/user/"+user_name) },
@@ -144,7 +133,6 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_modify_user(json11::Json c
     auto creator = new cli_modify_user_t();
     creator->parent = this;
     creator->user_name = cfg["name"].string_value();
-    creator->user_type = cfg["type"].string_value();
     creator->groups = cfg["groups"];
     creator->del = cfg["remove"].bool_value();
     return [creator](cli_result_t & result)

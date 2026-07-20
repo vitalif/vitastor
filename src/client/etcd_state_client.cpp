@@ -66,10 +66,6 @@ std::shared_ptr<user_info_t> etcd_state_client_t::get_user(const std::string & u
 
 bool etcd_state_client_t::check_image_perm(const std::shared_ptr<user_info_t> & user_info, inode_t inode_num, bool write)
 {
-    if (user_info->type == user_type_t::ADMIN)
-    {
-        return true;
-    }
     auto cache_it = user_info->perm_cache.find(inode_num);
     if (cache_it != user_info->perm_cache.end() &&
         cache_it->second.mod_revision == user_perm_cache_revision)
@@ -906,7 +902,6 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
         {
             if (inf)
             {
-                inf->type = user_type_t::CLIENT;
                 inf->groups.clear();
                 inf->perm_cache.clear();
             }
@@ -919,7 +914,6 @@ void etcd_state_client_t::parse_state(const etcd_kv_t & kv)
                 inf = std::make_shared<user_info_t>();
                 inf->name = name;
             }
-            inf->type = value["type"] == "admin" ? user_type_t::ADMIN : user_type_t::CLIENT;
             inf->groups.clear();
             for (auto & group: value["groups"].array_items())
             {

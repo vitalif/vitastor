@@ -85,6 +85,7 @@ class AntiEtcdAdapter
                     antietcd_config.ca = config.client_ca;
                     antietcd_config.osd_ca = config.osd_ca;
                     antietcd_config.mon_ca = config.mon_ca;
+                    antietcd_config.admin_ca = config.admin_ca;
                 }
                 for (const key in config)
                 {

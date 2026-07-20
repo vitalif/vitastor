@@ -100,7 +100,7 @@ void osd_t::continue_primary_describe(osd_op_t *cur_op)
             finish_op(cur_op, -EPERM);
             return;
         }
-        if (cl->user_info->type != user_type_t::ADMIN)
+        if (!cl->hs_result.peer_is_admin)
         {
             finish_op(cur_op, -EPERM);
             return;

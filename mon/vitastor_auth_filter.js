@@ -5,10 +5,7 @@
 // Permissions are based on:
 // 1. Users.
 //    Stored in /vitastor/config/user/<username>.
-//    Has 2 properties:
-//    - type, one of: admin, client.
-//      admin has full access to all images and also to cluster config.
-//      client has r/w access to owned images and r/o access to images with reader_group.
+//    Has 1 property:
 //    - groups, a list of group names the user is included in.
 // 2. Images.
 //    Stored in /vitastor/config/inode/<pool>/<inode>. Has the following properties:
@@ -16,7 +13,9 @@
 //    - owner_group (group name)
 //    - reader_group
 // 3. Certificates.
-//    - osd, mon use their own trusted certificates.
+//    - osd_ca identifies OSDs.
+//    - admin_ca (optional) identifies administrators.
+//    - mon_ca (optional) identifies monitors.
 
 const { X509Certificate } = require('node:crypto');
 
@@ -71,7 +70,7 @@ class VitastorAuthFilter
         if (!this.cfg.cert || !this.cfg.key || !this.cfg.ca || !this.cfg.osd_ca || !this.cfg.client_cert_auth)
         {
             throw new Error('Authenticated Vitastor setups require enabled client_cert_auth, cert, key'+
-                ' and separate ca (client CA), osd_ca and optionally mon_ca');
+                ' and separate ca (client CA), osd_ca and optionally admin_ca and mon_ca');
         }
         this.osd_ca = await this.antietcd.readPEM(this.cfg.osd_ca);
         this.osd_ca_obj = new X509Certificate(this.osd_ca);
@@ -79,27 +78,31 @@ class VitastorAuthFilter
         if (this.cfg.mon_ca)
         {
             this.mon_ca = await this.antietcd.readPEM(this.cfg.mon_ca);
-            this.mon_ca_obj = new X509Certificate(this.mon_ca_obj);
+            this.mon_ca_obj = new X509Certificate(this.mon_ca);
             this.antietcd.tls.ca.push(this.mon_ca);
+        }
+        if (this.cfg.admin_ca)
+        {
+            this.admin_ca = await this.antietcd.readPEM(this.cfg.admin_ca);
+            this.admin_ca_obj = new X509Certificate(this.admin_ca);
+            this.antietcd.tls.ca.push(this.admin_ca);
         }
     }
 
-    init_context(context, clientCert)
+    init_context(context, socket)
     {
-        let cert = clientCert;
-        while (cert)
+        let cert = socket.getPeerX509Certificate();
+        if (cert.issuer == this.osd_ca_obj.subject && cert.verify(this.osd_ca_obj.publicKey))
         {
-            if (cert.fingerprint256 == this.osd_ca_obj.fingerprint256)
-            {
-                context.user_type = 'osd';
-                break;
-            }
-            if (this.mon_ca_obj && cert.fingerprint256 == this.mon_ca_obj.fingerprint256)
-            {
-                context.user_type = 'mon';
-                break;
-            }
-            cert = cert.issuerCertificate;
+            context.user_type = 'osd';
+        }
+        else if (this.mon_ca_obj && cert.issuer == this.mon_ca_obj.subject && cert.verify(this.mon_ca_obj.publicKey))
+        {
+            context.user_type = 'mon';
+        }
+        else if (this.admin_ca_obj && cert.issuer == this.admin_ca_obj.subject && cert.verify(this.admin_ca_obj.publicKey))
+        {
+            context.user_type = 'admin';
         }
     }
 
@@ -146,7 +149,7 @@ class VitastorAuthFilter
         return cur;
     }
 
-    // userInfo: { name: string, type: string, perms: static_perms[type], groups: { [string]: true } }
+    // userInfo: { name: string, perms: static_perms[type], groups: { [string]: true } }
     _check_compare(check, userInfo, checked)
     {
         let key = String(check.key);
@@ -403,7 +406,7 @@ class VitastorAuthFilter
 
     _get_user(context)
     {
-        if (context.user_type === 'osd' || context.user_type === 'mon')
+        if (context.user_type === 'osd' || context.user_type === 'mon' || context.user_type === 'admin')
         {
             return {
                 name: context.user_type,
@@ -418,11 +421,7 @@ class VitastorAuthFilter
         let userInfo = this._get([ ...this.prefix_parts, 'config', 'user', context.username ], true);
         if (!userInfo)
         {
-            userInfo = { type: 'client' };
-        }
-        else if (userInfo.type !== 'client' && userInfo.type !== 'admin')
-        {
-            userInfo.type = 'client';
+            userInfo = {};
         }
         userInfo.perms = static_perms[userInfo.type] || static_perms['invalid'];
         userInfo.name = context.username;
@@ -440,17 +439,9 @@ class VitastorAuthFilter
     filter_api(context, api/*, data*/)
     {
         let type = 'client';
-        if (context.user_type === 'osd' || context.user_type === 'mon')
+        if (context.user_type === 'osd' || context.user_type === 'mon' || context.user_type === 'admin')
         {
             type = context.user_type;
-        }
-        else if (context.username)
-        {
-            const userInfo = this._get([ ...this.prefix_parts, 'config', 'user', context.username ], true);
-            if (userInfo && userInfo.type === 'admin')
-            {
-                type = 'admin';
-            }
         }
         return api_perms[type] && api_perms[type][api];
     }

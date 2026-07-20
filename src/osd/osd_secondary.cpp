@@ -121,12 +121,12 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
         bool allowed = false;
         if (cur_op->req.hdr.opcode == OSD_OP_SEC_LIST)
         {
-            if (cl->user_info->type == user_type_t::ADMIN)
+            if (cl->hs_result.peer_is_admin)
             {
                 // Admin is allowed to execute arbitrary listings
                 allowed = true;
             }
-            else if (cl->user_info->type == user_type_t::CLIENT && cur_op->req.sec_list.min_inode &&
+            else if (cl->user_info && cur_op->req.sec_list.min_inode &&
                 cur_op->req.sec_list.min_inode == cur_op->req.sec_list.max_inode)
             {
                 // Clients are only allowed to execute listings for readable inodes
