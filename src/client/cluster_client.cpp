@@ -1002,7 +1002,7 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
                     return false;
                 }
                 if (INODE_POOL(ino_it->second.parent_id) == INODE_POOL(ino_it->first) &&
-                    wb->has_inode(ino_it->second.parent_id))
+                    wb->has_dirty(ino_it->second.parent_id, op->offset, op->len))
                 {
                     // Deoptimise reads - we have dirty data for one of the parent layer(s).
                     op->deoptimise_snapshot = true;

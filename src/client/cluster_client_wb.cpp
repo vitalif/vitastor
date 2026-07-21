@@ -17,15 +17,6 @@ writeback_cache_t::~writeback_cache_t()
     dirty_buffers.clear();
 }
 
-bool writeback_cache_t::has_inode(uint64_t inode)
-{
-    auto dirty_it = dirty_buffers.lower_bound((object_id){
-        .inode = inode,
-        .stripe = 0,
-    });
-    return dirty_it != dirty_buffers.end() && dirty_it->first.inode == inode;
-}
-
 bool writeback_cache_t::has_dirty(uint64_t inode, uint64_t offset, uint64_t len)
 {
     auto dirty_it = find_dirty(inode, offset);
