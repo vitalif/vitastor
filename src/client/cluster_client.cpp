@@ -852,10 +852,8 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
     }
 }
 
-void cluster_client_t::execute_cas(cluster_op_t *op)
+void cluster_client_t::execute_cas(cluster_op_t *op, bool nosync)
 {
-    slice_rw(op);
-    op->needs_reslice = false;
     if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && op->version && op->parts.size() > 1)
     {
         // Atomic writes to multiple stripes are unsupported
@@ -864,6 +862,22 @@ void cluster_client_t::execute_cas(cluster_op_t *op)
         cb(op);
         return;
     }
+    if (!(op->flags & OP_IMMEDIATE_COMMIT) && !nosync &&
+        wb->has_dirty(op->inode, op->offset, op->len))
+    {
+        cluster_op_t *sync_op = new cluster_op_t;
+        sync_op->opcode = OSD_OP_SYNC;
+        sync_op->flags = 0;
+        sync_op->callback = [this, op](cluster_op_t* sync_op)
+        {
+            execute_cas(op, true);
+            delete sync_op;
+        };
+        execute_internal(sync_op);
+        return;
+    }
+    slice_rw(op);
+    op->needs_reslice = false;
     int res = try_send(op, 0, [this, op](osd_op_t *part)
     {
         int expected = part->req.hdr.opcode == OSD_OP_DELETE ? 0 : part->req.rw.len;

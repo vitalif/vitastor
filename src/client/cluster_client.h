@@ -169,7 +169,7 @@ protected:
     void on_change_node_placement_hook();
 
     void execute_internal(cluster_op_t *op);
-    void execute_cas(cluster_op_t *op);
+    void execute_cas(cluster_op_t *op, bool nosync = false);
     void unshift_op(cluster_op_t *op);
     int continue_rw(cluster_op_t *op);
     bool check_rw(cluster_op_t *op);
