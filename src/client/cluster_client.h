@@ -16,6 +16,7 @@
 
 #define OSD_OP_IGNORE_READONLY 0x08
 #define OSD_OP_WAIT_UP_TIMEOUT 0x10
+#define OSD_OP_IGNORE_WRITEBACK 0x20
 
 struct cluster_op_t;
 
@@ -27,7 +28,7 @@ struct cluster_op_part_t
     pg_num_t pg_num;
     osd_num_t osd_num;
     osd_op_buf_list_t iov;
-    unsigned flags;
+    uint32_t flags;
     osd_op_t op;
 };
 
@@ -38,10 +39,11 @@ struct __attribute__((visibility("default"))) cluster_op_t
     uint64_t offset;
     uint64_t len;
     // for reads and writes within a single object (stripe),
-    // reads can return current version and writes can use "CAS" semantics
+    // non-cached reads return current version and writes can use "CAS" semantics
     uint64_t version = 0;
     // flags: OSD_OP_IGNORE_READONLY - ignore inode readonly flag
     // OSD_OP_WAIT_UP_TIMEOUT - do not retry the operation infinitely if PG is inactive, only for for <wait_up_timeout>
+    // OSD_OP_IGNORE_WRITEBACK - do not read from write-back/write-repeat cache (it doesn't return version number)
     uint64_t flags = 0;
     // negative retval is an error number
     // write and read return len on success

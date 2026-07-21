@@ -744,7 +744,7 @@ void cluster_client_t::execute(cluster_op_t *op)
         offline_ops.push_back(op);
         return;
     }
-    op->flags = op->flags & (OSD_OP_IGNORE_READONLY | OSD_OP_WAIT_UP_TIMEOUT); // allowed client flags
+    op->flags = op->flags & (OSD_OP_IGNORE_READONLY | OSD_OP_WAIT_UP_TIMEOUT | OSD_OP_IGNORE_WRITEBACK); // allowed client flags
     execute_internal(op);
 }
 

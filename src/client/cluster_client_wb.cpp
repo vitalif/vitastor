@@ -523,7 +523,8 @@ bool writeback_cache_t::read_from_cache(cluster_op_t *op, uint32_t bitmap_granul
 {
     bool dirty_copied = false;
     if (dirty_buffers.size() && (op->opcode == OSD_OP_READ ||
-        op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP))
+        op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP) &&
+        !(op->flags & OSD_OP_IGNORE_WRITEBACK))
     {
         // We also have to return reads from CACHE_REPEATING buffers - they are not
         // guaranteed to be present on target OSDs at the moment of repeating
