@@ -648,6 +648,161 @@ void test_writeback_queue_split()
     printf("[ok] test_writeback_queue_split\n");
 }
 
+void test_deoptimize_snapshot_read()
+{
+    json11::Json config = json11::Json::object {
+        { "client_enable_writeback", true },
+        { "client_writeback_allowed", true },
+        { "client_max_buffered_bytes", 1024*1024 },
+        { "client_max_buffered_ops", 4 },
+        { "client_max_writeback_iodepth", 2 },
+        { "client_max_dirty_bytes", 1024*1024 },
+        { "client_max_dirty_ops", 4 },
+    };
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
+
+    configure_single_pg_pool(mock);
+    // Snapshot chain in the same pool: child -> parent
+    mock->set("/vitastor/config/inode/1/1", json11::Json::object {
+        { "name", "parent" },
+    });
+    mock->set("/vitastor/config/inode/1/2", json11::Json::object {
+        { "name", "child" },
+        { "parent_id", 1 },
+    });
+    mock->resume();
+    pretend_connected(cli, 1);
+
+    uint64_t parent_inode = 0x1000000000001;
+    uint64_t child_inode  = 0x1000000000002;
+
+    // Buffer a write to the parent inode via the writeback cache at [0, 0x1000].
+    // test_write() uses inode 0x1000000000001 by default which matches parent_inode.
+    assert((long)test_write(cli, 0, 0x1000, 0x55, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+
+    // Case 1: read from the child at a range that does NOT overlap the dirty
+    // parent range. has_dirty(parent, 0x2000, 0x1000) is false, so
+    // deoptimise_snapshot stays off and the read is issued with meta_revision
+    // set - the server performs the chain read itself.
+    {
+        cluster_op_t *op = new cluster_op_t();
+        op->opcode = OSD_OP_READ;
+        op->inode = child_inode;
+        op->offset = 0x2000;
+        op->len = 0x1000;
+        op->iov.push_back(malloc_or_die(op->len), op->len);
+        int done = 0;
+        op->callback = [&done](cluster_op_t *op)
+        {
+            assert(op->retval == (int)op->len);
+            free(op->iov.buf[0].iov_base);
+            delete op;
+            done = 1;
+        };
+        cli->execute(op);
+        check_op_count(cli, 1, 1);
+        auto cl = cli->msgr.osd_peers.at(1);
+        osd_op_t *read_op = cl->sent_ops.begin()->second;
+        assert(read_op->req.hdr.opcode == OSD_OP_READ);
+        assert(read_op->req.rw.inode == child_inode);
+        assert(read_op->req.rw.offset == 0x2000);
+        assert(read_op->req.rw.len == 0x1000);
+        // Not deoptimised: meta_revision is set so the OSD chain-reads on the server side
+        assert(read_op->req.rw.meta_revision != 0);
+        pretend_op_completed(cli, read_op, 0);
+        assert(done == 1);
+    }
+    check_op_count(cli, 1, 0);
+
+    // Case 2: read from the child at a range that OVERLAPS the dirty parent
+    // range. has_dirty(parent, 0, 0x1000) is true, so deoptimise_snapshot is
+    // set. The child read is issued with meta_revision == 0 (otherwise the
+    // OSD would chain-read past the parent layer and return stale data).
+    // After the child read completes the client walks the chain to the parent
+    // itself, and the parent's data is fully satisfied from the writeback
+    // cache - no OSD read is sent for the parent inode.
+    {
+        cluster_op_t *op = new cluster_op_t();
+        op->opcode = OSD_OP_READ;
+        op->inode = child_inode;
+        op->offset = 0;
+        op->len = 0x1000;
+        op->iov.push_back(malloc_or_die(op->len), op->len);
+        memset(op->iov.buf[0].iov_base, 0, op->len);
+        uint8_t *rd_buf = (uint8_t*)op->iov.buf[0].iov_base;
+        uint64_t rd_len = op->len;
+        int done = 0;
+        op->callback = [&done, rd_buf, rd_len](cluster_op_t *op)
+        {
+            assert(op->retval == (int)op->len);
+            for (uint64_t i = 0; i < rd_len; i++)
+                assert(rd_buf[i] == 0x55);
+            free(op->iov.buf[0].iov_base);
+            delete op;
+            done = 1;
+        };
+        cli->execute(op);
+        check_op_count(cli, 1, 1);
+        auto cl = cli->msgr.osd_peers.at(1);
+        osd_op_t *read_op = cl->sent_ops.begin()->second;
+        assert(read_op->req.hdr.opcode == OSD_OP_READ);
+        assert(read_op->req.rw.inode == child_inode);
+        assert(read_op->req.rw.offset == 0);
+        assert(read_op->req.rw.len == 0x1000);
+        assert(read_op->req.rw.meta_revision == 0);
+        pretend_op_completed(cli, read_op, 0);
+        // No follow-up OSD read: the parent range is fully covered by the writeback cache
+        check_op_count(cli, 1, 0);
+        assert(done == 1);
+    }
+
+    // Case 3: read from the child at a range that overlaps the dirty parent
+    // range only at the beginning. has_dirty() still returns true, so the
+    // child read is deoptimised. The follow-up parent read (needed for the
+    // non-overlapping tail) is issued to the OSD, also with meta_revision == 0.
+    {
+        cluster_op_t *op = new cluster_op_t();
+        op->opcode = OSD_OP_READ;
+        op->inode = child_inode;
+        op->offset = 0;
+        op->len = 0x2000;
+        op->iov.push_back(malloc_or_die(op->len), op->len);
+        int done = 0;
+        op->callback = [&done](cluster_op_t *op)
+        {
+            assert(op->retval == (int)op->len);
+            free(op->iov.buf[0].iov_base);
+            delete op;
+            done = 1;
+        };
+        cli->execute(op);
+        check_op_count(cli, 1, 1);
+        auto cl = cli->msgr.osd_peers.at(1);
+        osd_op_t *child_read = cl->sent_ops.begin()->second;
+        assert(child_read->req.hdr.opcode == OSD_OP_READ);
+        assert(child_read->req.rw.inode == child_inode);
+        assert(child_read->req.rw.meta_revision == 0);
+        pretend_op_completed(cli, child_read, 0);
+        // Parent read for the non-overlapping tail must be issued, also deoptimised
+        check_op_count(cli, 1, 1);
+        osd_op_t *parent_read = cl->sent_ops.begin()->second;
+        assert(parent_read->req.hdr.opcode == OSD_OP_READ);
+        assert(parent_read->req.rw.inode == parent_inode);
+        assert(parent_read->req.rw.meta_revision == 0);
+        pretend_op_completed(cli, parent_read, 0);
+        assert(done == 1);
+    }
+    check_op_count(cli, 1, 0);
+
+    delete cli;
+    delete tfd;
+    printf("[ok] deoptimize snapshot read test\n");
+}
+
 int main(int narg, char *args[])
 {
     test1();
@@ -655,5 +810,6 @@ int main(int narg, char *args[])
     test_writeback();
     test_writeback_merge();
     test_writeback_queue_split();
+    test_deoptimize_snapshot_read();
     return 0;
 }
