@@ -340,6 +340,13 @@ void http_co_t::start_connection()
     tfd->set_fd_handler(peer_fd, true, [this](int peer_fd, int epoll_events)
     {
         this->epoll_events |= epoll_events;
+        if (this->epoll_events & EPOLLOUT)
+        {
+            // Kernel sometimes reports EPOLLRDHUP before connect() actually succeeds
+            // and it means absolutely nothing, it's just an erroneous event
+            // EPOLLOUT, on the other hand, ALWAYS means a completed connection attempt
+            this->epoll_events &= (EPOLLOUT|EPOLLIN);
+        }
         handle_events();
     });
     connected_host = host;
@@ -354,7 +361,10 @@ void http_co_t::handle_events()
     {
         if (state == HTTP_CO_CONNECTING)
         {
-            handle_connect_result();
+            if (epoll_events & (EPOLLOUT|EPOLLERR))
+            {
+                handle_connect_result();
+            }
         }
         else
         {

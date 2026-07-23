@@ -404,8 +404,13 @@ void osd_messenger_t::try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_
     clients_by_fd[peer_fd] = cl;
     tfd->set_fd_handler(peer_fd, true, [this](int peer_fd, int epoll_events)
     {
-        // Either OUT (connected) or HUP
-        handle_connect_epoll(peer_fd);
+        // Kernel sometimes reports EPOLLRDHUP before connect() actually succeeds
+        // and it means absolutely nothing, it's just an erroneous event
+        // EPOLLOUT, on the other hand, ALWAYS means a completed connection attempt
+        if (epoll_events & (EPOLLOUT|EPOLLERR))
+        {
+            handle_connect_epoll(peer_fd);
+        }
     });
     if (peer_connect_timeout > 0)
     {
