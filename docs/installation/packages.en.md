@@ -14,10 +14,9 @@
   - Debian 13 (Trixie/Sid): `deb https://vitastor.io/debian trixie main`
   - Debian 12 (Bookworm): `deb https://vitastor.io/debian bookworm main`
   - Debian 11 (Bullseye): `deb https://vitastor.io/debian bullseye main`
-  - Debian 10 (Buster): `deb https://vitastor.io/debian buster main`
-  - Ubuntu 22.04 (Jammy): `deb https://vitastor.io/debian jammy main`
-  - Ubuntu 24.04 (Noble): `deb https://vitastor.io/debian noble main`
   - Ubuntu 26.04 (Resolute): `deb https://vitastor.io/debian resolute main`
+  - Ubuntu 24.04 (Noble): `deb https://vitastor.io/debian noble main`
+  - Ubuntu 22.04 (Jammy): `deb https://vitastor.io/debian jammy main`
 - To always prefer vitastor-patched QEMU and Libvirt versions, add the following to `/etc/apt/preferences`:
   ```
   Package: *
@@ -29,17 +28,14 @@
 ## CentOS
 
 - Add Vitastor package repository:
-  - CentOS 7: `yum install https://vitastor.io/rpms/centos/7/vitastor-release.rpm`
   - CentOS 8: `dnf install https://vitastor.io/rpms/centos/8/vitastor-release.rpm`
   - AlmaLinux 9 and other RHEL 9 clones (Rocky, Oracle...): `dnf install https://vitastor.io/rpms/centos/9/vitastor-release.rpm`
   - AlmaLinux 10 and other RHEL 10 clones: `dnf install https://vitastor.io/rpms/centos/10/vitastor-release.rpm`
 - Enable EPEL: `yum/dnf install epel-release`
 - Enable additional CentOS repositories:
-  - CentOS 7: `yum install centos-release-scl`
   - CentOS 8: `dnf install centos-release-advanced-virtualization`
   - RHEL 9/10 clones: not required
 - Enable elrepo-kernel:
-  - CentOS 7: `yum install https://www.elrepo.org/elrepo-release-7.el7.elrepo.noarch.rpm`
   - CentOS 8: `dnf install https://www.elrepo.org/elrepo-release-8.el8.elrepo.noarch.rpm`
   - RHEL 9 clones: `dnf install https://www.elrepo.org/elrepo-release-9.el9.elrepo.noarch.rpm`
   - RHEL 10 clones: not required
