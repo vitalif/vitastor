@@ -15,7 +15,7 @@ RUN yum -y --enablerepo=extras install centos-release-scl epel-release yum-utils
 RUN perl -i -pe 's!mirrorlist=!#mirrorlist=!s; s!#\s*baseurl=http://mirror.centos.org!baseurl=http://vault.centos.org!' /etc/yum.repos.d/CentOS-SCLo-scl*.repo
 RUN yum -y install https://vitastor.io/rpms/centos/7/vitastor-release-1.0-1.el7.noarch.rpm
 RUN yum -y install devtoolset-9-gcc-c++ devtoolset-9-libatomic-devel gcc make cmake gperftools-devel \
-    fio rh-nodejs12 jerasure-devel libisa-l-devel gf-complete-devel rdma-core-devel libnl3-devel c-ares-devel
+    fio rh-nodejs12 jerasure-devel libisa-l-devel libisa-l_crypto-devel gf-complete-devel rdma-core-devel libnl3-devel c-ares-devel
 RUN yumdownloader --disablerepo=centos-sclo-rh --source fio
 RUN rpm --nomd5 -i fio*.src.rpm
 RUN rm -f /etc/yum.repos.d/CentOS-Media.repo

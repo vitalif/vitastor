@@ -12,6 +12,7 @@ BuildRequires:  gcc-toolset-9-gcc-c++
 BuildRequires:  nodejs >= 10
 BuildRequires:  jerasure-devel
 BuildRequires:  libisa-l-devel
+BuildRequires:  libisa-l_crypto-devel
 BuildRequires:  gf-complete-devel
 BuildRequires:  rdma-core-devel
 BuildRequires:  cmake

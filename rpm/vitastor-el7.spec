@@ -13,6 +13,7 @@ BuildRequires:  rh-nodejs12
 BuildRequires:  rh-nodejs12-npm
 BuildRequires:  jerasure-devel
 BuildRequires:  libisa-l-devel
+BuildRequires:  libisa-l_crypto-devel
 BuildRequires:  gf-complete-devel
 BuildRequires:  rdma-core-devel
 BuildRequires:  cmake3
