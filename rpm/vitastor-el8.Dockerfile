@@ -11,9 +11,11 @@ RUN rm -f /etc/yum.repos.d/CentOS-Media.repo
 RUN sed -i 's/^mirrorlist=/#mirrorlist=/; s!#baseurl=http://mirror.centos.org/!baseurl=http://vault.centos.org/!' /etc/yum.repos.d/*.repo
 RUN dnf -y install centos-release-advanced-virtualization epel-release dnf-plugins-core
 RUN sed -i 's/^mirrorlist=/#mirrorlist=/; s!#baseurl=.*!baseurl=http://vault.centos.org/centos/8.4.2105/virt/$basearch/$avdir/!; s!^baseurl=.*Source/.*!baseurl=http://vault.centos.org/centos/8.4.2105/virt/Source/advanced-virtualization/!' /etc/yum.repos.d/CentOS-Advanced-Virtualization.repo
-RUN yum -y install https://vitastor.io/rpms/centos/8/vitastor-release-1.0-1.el8.noarch.rpm
-RUN dnf -y install gcc-toolset-9 gcc-toolset-9-gcc-c++ gperftools-devel \
-    fio nodejs rpm-build jerasure-devel libisa-l-devel libisa-l_crypto-devel gf-complete-devel libibverbs-devel libarchive cmake libnl3-devel c-ares-devel
+RUN yum -y install https://vitastor.io/rpms/centos/8/vitastor-release-1.0-2.el8.noarch.rpm
+RUN sed -i 's/metalink=/#metalink=/' /etc/yum.repos.d/epel.repo
+RUN sed -i 's!#baseurl=.*epel/!baseurl=https://mirror.yandex.ru/epel/!' /etc/yum.repos.d/epel.repo
+RUN dnf -y install gcc-toolset-9 gcc-toolset-9-gcc-c++ gperftools-devel fio nodejs rpm-build jerasure-devel \
+    libisa-l-devel openssl3-devel libisa-l_crypto-devel gf-complete-devel libibverbs-devel libarchive cmake libnl3-devel c-ares-devel
 RUN dnf download --source fio
 RUN rpm --nomd5 -i fio*.src.rpm
 RUN cd ~/rpmbuild/SPECS && dnf builddep -y --enablerepo=powertools --spec fio.spec

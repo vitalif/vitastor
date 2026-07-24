@@ -5,9 +5,7 @@
 
 #include <string>
 
-#ifdef WITH_OPENSSL
 #include <openssl/types.h>
-#endif
 
 X509 *openssl_load_cert(const std::string & file_or_pem);
 EVP_PKEY *openssl_load_key(const std::string & file_or_pem);

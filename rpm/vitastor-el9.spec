@@ -11,13 +11,14 @@ BuildRequires:  gperftools-devel
 BuildRequires:  gcc-c++
 BuildRequires:  nodejs >= 10
 BuildRequires:  jerasure-devel
+BuildRequires:  openssl-devel
 BuildRequires:  libisa-l-devel
 BuildRequires:  libisa-l_crypto-devel
 BuildRequires:  gf-complete-devel
 BuildRequires:  rdma-core-devel
 BuildRequires:  cmake
 BuildRequires:  libnl3-devel
-BuildRequires:  c-ares-devel
+BuildRequires:  c-ares-devel >= 1.16
 Requires:       vitastor-osd = %{version}-%{release}
 Requires:       vitastor-mon = %{version}-%{release}
 Requires:       vitastor-client = %{version}-%{release}

@@ -78,10 +78,11 @@ if (RDMACM_LIBRARIES)
 	add_definitions(-DWITH_RDMACM)
 endif (RDMACM_LIBRARIES)
 
-find_package(OpenSSL REQUIRED)
+find_package(OpenSSL 3.0 REQUIRED)
 add_definitions(-DWITH_OPENSSL)
+include_directories(${OPENSSL_INCLUDE_DIR})
 
-pkg_check_modules(CARES REQUIRED libcares)
+pkg_check_modules(CARES REQUIRED libcares>=1.16)
 include_directories(${CARES_INCLUDE_DIRS})
 
 if (${WITH_SYSTEM_LIBURING})

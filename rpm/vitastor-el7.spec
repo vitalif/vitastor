@@ -12,13 +12,14 @@ BuildRequires:  devtoolset-9-gcc-c++
 BuildRequires:  rh-nodejs12
 BuildRequires:  rh-nodejs12-npm
 BuildRequires:  jerasure-devel
+BuildRequires:  openssl3-devel
 BuildRequires:  libisa-l-devel
 BuildRequires:  libisa-l_crypto-devel
 BuildRequires:  gf-complete-devel
 BuildRequires:  rdma-core-devel
 BuildRequires:  cmake3
 BuildRequires:  libnl3-devel
-BuildRequires:  c-ares-devel
+BuildRequires:  c-ares-devel >= 1.16
 Requires:       vitastor-osd = %{version}-%{release}
 Requires:       vitastor-mon = %{version}-%{release}
 Requires:       vitastor-client = %{version}-%{release}
@@ -106,7 +107,7 @@ Vitastor storage plugin for OpenNebula.
 
 %build
 . /opt/rh/devtoolset-9/enable
-%cmake3 .
+%cmake3 . -DOPENSSL_CRYPTO_LIBRARY=%{_libdir}/openssl3/libcrypto.so -DOPENSSL_SSL_LIBRARY=%{_libdir}/openssl3/libssl.so -DOPENSSL_INCLUDE_DIR=%{_includedir}/openssl3
 %make_build
 
 
