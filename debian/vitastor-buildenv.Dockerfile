@@ -12,7 +12,9 @@ ARG REL=
 WORKDIR /root
 
 RUN set -e -x; \
-    perl -i -pe 's/deb.debian.org/archive.debian.org/' /etc/apt/sources.list; \
+    if [ "$REL" = "buster" ]; then \
+        perl -i -pe 's/deb.debian.org/archive.debian.org/' /etc/apt/sources.list; \
+    fi; \
     apt-get update; \
     apt-get -y install wget; \
     wget https://vitastor.io/debian/pubkey.gpg -O /etc/apt/trusted.gpg.d/vitastor.gpg; \
