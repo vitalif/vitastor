@@ -54,6 +54,9 @@ const char *help_text =
     "vitastor-ublk unmap [--force] /dev/ublkb<N>\n"
     "  Unmap a Vitastor ublk device. Do not check if it's actually mapped if --force is specified.\n"
     "\n"
+    "vitastor-ublk resize /dev/ublkb<N> --size <size in bytes>\n"
+    "  Update kernel-visible size of a mapped ublk device after resizing the backing image.\n"
+    "\n"
     "vitastor-ublk ls [--json]\n"
     "  List mapped Vitastor ublk devices, optionally in JSON format.\n"
     "\n"
@@ -179,6 +182,31 @@ public:
             }
             open_control();
             unmap_device(cfg["dev_num"].uint64_value(), cfg["unpriv"].bool_value(), cfg["wait"].bool_value());
+        }
+        else if (cfg["command"] == "resize")
+        {
+            if (!cfg["dev_num"].is_number() &&
+                cfg["dev_num"].string_value() != "0" &&
+                !cfg["dev_num"].uint64_value())
+            {
+                fprintf(stderr, "device name or number is missing\n");
+                exit(1);
+            }
+            uint64_t size = cfg["size"].is_string()
+                ? parse_size(cfg["size"].string_value())
+                : cfg["size"].uint64_value();
+            if (!size)
+            {
+                fprintf(stderr, "device size is missing\n");
+                exit(1);
+            }
+            if (size % 512)
+            {
+                fprintf(stderr, "device size must be aligned to 512 bytes\n");
+                exit(1);
+            }
+            open_control();
+            resize_device(cfg["dev_num"].uint64_value(), size);
         }
         else if (cfg["command"] == "ls" || cfg["command"] == "list" || cfg["command"] == "list-mapped")
         {
@@ -859,6 +887,17 @@ protected:
             exit(1);
         }
         return res;
+    }
+
+    void resize_device(int dev_num, uint64_t size)
+    {
+        ublk_dev.dev_id = dev_num;
+        int res = sync_unpriv_cmd(false, UBLK_U_CMD_UPDATE_SIZE, NULL, 0, size / 512);
+        if (res != 0)
+        {
+            fprintf(stderr, "Failed to update size of /dev/ublkb%d to %lu bytes: %s (code %d)\n", dev_num, size, strerror(-res), res);
+            exit(1);
+        }
     }
 
     void unmap_device(int dev_num, bool unpriv, bool wait)

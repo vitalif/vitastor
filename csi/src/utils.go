@@ -425,6 +425,16 @@ func mapUblk(stateDir string, volName string, configPath string, readonly bool, 
     return "", err
 }
 
+func resizeUblk(devicePath string, size int64) error
+{
+    if (len(devicePath) < 10 || devicePath[0:10] != "/dev/ublkb")
+    {
+        return fmt.Errorf("device path %s does not start with /dev/ublkb", devicePath)
+    }
+    _, _, err := system("/usr/bin/vitastor-ublk", "resize", devicePath, "--size", fmt.Sprintf("%d", size))
+    return err
+}
+
 func unmapUblk(stateDir, devicePath string)
 {
     if (len(devicePath) < 10 || devicePath[0:10] != "/dev/ublkb")

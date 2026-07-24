@@ -687,7 +687,7 @@ func (cs *ControllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 
     return &csi.ControllerExpandVolumeResponse{
         CapacityBytes: int64(inodeCfg[0].Size),
-        NodeExpansionRequired: false,
+        NodeExpansionRequired: true,
     }, nil
 }
 
