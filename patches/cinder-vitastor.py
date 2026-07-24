@@ -608,7 +608,7 @@ class VitastorDriver(driver.CloneableImageVD,
         """Extend an existing volume."""
         vol_name = utils.convert_str(volume.name)
         size = int(new_size) * units.Gi
-        self._cli('extend volume', 'modify', vol_name, '--resize', new_size)
+        self._cli('extend volume', 'modify', vol_name, '--resize', size)
         LOG.debug(
             "Extend volume from %(old_size)s GB to %(new_size)s GB.",
             {'old_size': volume.size, 'new_size': new_size}
