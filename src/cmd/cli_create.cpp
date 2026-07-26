@@ -241,6 +241,8 @@ resume_3:
             goto resume_3;
         else if (state == 4)
             goto resume_4;
+        else if (state == 5)
+            goto resume_5;
         // FIXME: take all info from etcd requests, not mixed with st_cli->inode_config
         for (auto & ic: parent->cli->st_cli->inode_config)
         {
@@ -287,9 +289,23 @@ resume_3:
             {
                 return;
             }
-            attempt_create();
+            parent->etcd_txn(json11::Json::object {
+                { "success", json11::Json::array { get_next_id() } }
+            });
             state = 4;
 resume_4:
+            if (parent->waiting > 0)
+                return;
+            if (parent->etcd_err.err)
+            {
+                result = parent->etcd_err;
+                state = 100;
+                return;
+            }
+            extract_next_id(parent->etcd_result["responses"][0]);
+            attempt_create();
+            state = 5;
+resume_5:
             if (parent->waiting > 0)
                 return;
             if (parent->etcd_err.err)
@@ -371,7 +387,6 @@ resume_4:
         else if (state == 3)
             goto resume_3;
         parent->etcd_txn(json11::Json::object { { "success", json11::Json::array {
-            get_next_id(),
             json11::Json::object {
                 { "request_range", json11::Json::object {
                     { "key", base64_encode(
@@ -390,11 +405,10 @@ resume_2:
             state = 100;
             return;
         }
-        extract_next_id(parent->etcd_result["responses"][0]);
         old_id = 0;
         old_pool_id = 0;
         idx_mod_rev = 0;
-        if (parent->etcd_result["responses"][1]["response_range"]["kvs"].array_items().size() == 0)
+        if (parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items().size() == 0)
         {
             for (auto & ic: parent->cli->st_cli->inode_config)
             {
@@ -412,7 +426,7 @@ resume_2:
         {
             // FIXME: Parse kvs in etcd_state_client automatically
             {
-                auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][1]["response_range"]["kvs"][0]);
+                auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][0]["response_range"]["kvs"][0]);
                 old_id = INODE_NO_POOL(kv.value["id"].uint64_value());
                 old_pool_id = (pool_id_t)kv.value["pool_id"].uint64_value();
                 idx_mod_rev = kv.mod_revision;
@@ -450,10 +464,6 @@ resume_3:
                 cur_cfg = parent->cli->st_cli->deserialize_inode_cfg(INODE_WITH_POOL(old_pool_id, old_id), kv.value, kv.mod_revision);
                 size = cur_cfg.size;
             }
-        }
-        if (!new_pool_id)
-        {
-            new_pool_id = old_pool_id;
         }
     }
 

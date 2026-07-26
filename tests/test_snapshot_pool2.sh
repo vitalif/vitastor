@@ -46,4 +46,7 @@ qemu-img convert -p \
 
 cmp ./testdata/bin/res.bin ./testdata/bin/mirror.bin
 
+# test snap-create same pool autodetection
+$VITASTOR_CLI snap-create testchain@snap3
+
 format_green OK
