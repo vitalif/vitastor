@@ -5,7 +5,6 @@ project(vitastor)
 # vitastor-nfs
 add_executable(vitastor-nfs
 	nfs_proxy.cpp
-	nfs_proxy_rdma.cpp
 	nfs_block.cpp
 	nfs_kv.cpp
 	nfs_kv_create.cpp
@@ -30,6 +29,9 @@ add_executable(vitastor-nfs
 	proto/portmap_xdr.cpp
 	proto/nfs_xdr.cpp
 )
+if (RDMACM_LIBRARIES)
+	target_sources(vitastor-nfs PRIVATE nfs_proxy_rdma.cpp)
+endif (RDMACM_LIBRARIES)
 target_link_libraries(vitastor-nfs
 	vitastor_client
 	vitastor_kv
@@ -37,6 +39,6 @@ target_link_libraries(vitastor-nfs
 )
 
 # test_rdma_alloc
-add_executable(test_rdma_alloc EXCLUDE_FROM_ALL test_rdma_alloc.cpp rdma_alloc.cpp)
+add_executable(test_rdma_alloc EXCLUDE_FROM_ALL test_rdma_alloc.cpp)
 add_dependencies(build_tests test_rdma_alloc)
 add_test(NAME test_rdma_alloc COMMAND test_rdma_alloc)

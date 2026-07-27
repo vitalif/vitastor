@@ -46,7 +46,7 @@ struct nfs_rdma_dev_state_t
     ibv_device_attr dev_attr;
     ibv_comp_channel *channel = NULL;
     ibv_cq *cq = NULL;
-    rdma_allocator_t *alloc = NULL;
+    dma_allocator_i *alloc = NULL;
     int max_cqe = 0;
 
     static nfs_rdma_dev_state_t *create(rdma_cm_id *cmid, uint64_t rdma_malloc_round_to, uint64_t rdma_max_unused_buffers);
@@ -98,7 +98,7 @@ nfs_rdma_dev_state_t::~nfs_rdma_dev_state_t()
     }
     if (alloc)
     {
-        rdma_malloc_destroy(alloc);
+        delete alloc;
         alloc = NULL;
     }
 }
@@ -656,8 +656,9 @@ chunk_error:
         uint32_t wr_pos = 0;
         // Use a buffer from rdma_malloc for the reply
         assert(!rop->buffer);
-        rop->buffer = rdma_malloc_alloc(conn_dev->alloc, hdr_size+msg_size);
-        auto buf_lkey = rdma_malloc_get_lkey(conn_dev->alloc, rop->buffer);
+        ibv_mr *handle = NULL;
+        rop->buffer = conn_dev->alloc->alloc(hdr_size+msg_size, (void**)&handle);
+        auto buf_lkey = handle->lkey;
         size_t pos = 0;
         {
             // Copy and free the RDMA-RPC header
@@ -716,7 +717,7 @@ chunk_error:
             sges[wr_pos] = {
                 .addr = (uintptr_t)chunk_iov->iov_base,
                 .length = (uint32_t)chunk_iov->iov_len,
-                .lkey = rdma_malloc_get_lkey(conn_dev->alloc, chunk_iov->iov_base),
+                .lkey = ((ibv_mr*)conn_dev->alloc->get_handle(chunk_iov->iov_base))->lkey,
             };
             wrs[wr_pos] = (ibv_send_wr){
                 .wr_id = 4, // 4 is chunk write
@@ -853,13 +854,13 @@ void nfs_rdma_conn_t::free_rdma_rpc_op(rpc_op_t *rop)
 {
     if (rop->buffer)
     {
-        rdma_malloc_free(conn_dev->alloc, rop->buffer);
+        conn_dev->alloc->free(rop->buffer);
         rop->buffer = NULL;
     }
     auto rdma_chunk = xdr_get_rdma_chunk(rop->xdrs);
     if (rdma_chunk)
     {
-        rdma_malloc_free(conn_dev->alloc, rdma_chunk);
+        conn_dev->alloc->free(rdma_chunk);
         xdr_set_rdma_chunk(rop->xdrs, NULL);
     }
     ctx->proxy->free_xdr(rop->xdrs);
@@ -1008,8 +1009,9 @@ int nfs_rdma_conn_t::post_chunk_reads(rpc_op_t *rop, bool push)
             chunk_read_postponed.push_back(rop);
         return 0;
     }
-    void *buf = rdma_malloc_alloc(conn_dev->alloc, read_chunk_size);
-    auto buf_lkey = rdma_malloc_get_lkey(conn_dev->alloc, buf);
+    ibv_mr *handle = NULL;
+    void *buf = conn_dev->alloc->alloc(read_chunk_size, (void**)&handle);
+    uint32_t buf_lkey = handle->lkey;
     ibv_sge chunk_sge[read_chunk_count];
     ibv_send_wr chunk_wr[read_chunk_count];
     size_t i = 0;
@@ -1056,12 +1058,12 @@ int nfs_rdma_conn_t::post_chunk_reads(rpc_op_t *rop, bool push)
 
 void *nfs_client_t::rdma_malloc(size_t size)
 {
-    return rdma_malloc_alloc(rdma_conn->conn_dev->alloc, size);
+    return rdma_conn->conn_dev->alloc->alloc(size);
 }
 
 void nfs_client_t::rdma_free(void *buf)
 {
-    rdma_malloc_free(rdma_conn->conn_dev->alloc, buf);
+    rdma_conn->conn_dev->alloc->free(buf);
 }
 
 void nfs_client_t::destroy_rdma_conn()
