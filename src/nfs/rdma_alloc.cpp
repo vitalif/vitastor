@@ -7,6 +7,8 @@
 #include <assert.h>
 #include <map>
 #include <set>
+#include <unistd.h>
+#include <sys/mman.h>
 #ifdef WITH_RDMA
 #include <infiniband/verbs.h>
 #endif
@@ -17,8 +19,11 @@ struct dma_region_t
 {
     void *buf = NULL;
     size_t len = 0;
+    bool mapped = false;
     void *handle = NULL;
 };
+
+#define HUGEPAGE_SIZE (2UL << 20)
 
 struct dma_frag_t
 {
@@ -41,8 +46,11 @@ inline bool operator < (const dma_free_t &a, const dma_free_t &b)
 class dma_allocator_t: public dma_allocator_i
 {
 protected:
+    size_t page_size = 4096;
     size_t region_size = 1048576;
     size_t max_unused = 500*1048576;
+    size_t alignment = 1;
+    bool try_hugepages = false;
 
     std::set<dma_region_t*> regions;
     std::map<void*, dma_frag_t> frags;
@@ -50,34 +58,23 @@ protected:
     size_t freebuffers = 0;
 
     virtual void* reg_mr(void* buf, size_t len) = 0;
-    virtual void dereg_mr(void *handle) = 0;
+    virtual void dereg_mr(void* handle) = 0;
+    void destroy_region(dma_region_t *rgn);
     void free_unused_buffers(size_t max_unused, bool force);
 public:
-    dma_allocator_t(size_t region_size, size_t max_unused);
+    dma_allocator_t(size_t region_size, size_t max_unused, size_t alignment);
     virtual ~dma_allocator_t();
-    void *alloc(size_t size) override;
+    void *alloc(size_t size, void **handle = NULL, size_t *offset = NULL) override;
     void free(void *buf) override;
-    void *get_handle(void *buf) override;
+    void *get_handle(void *buf, size_t *offset = NULL) override;
 };
 
 #ifdef WITH_RDMA
 class rdma_allocator_t: public dma_allocator_t
 {
+protected:
     int ibv_access = IBV_ACCESS_LOCAL_WRITE;
     ibv_pd *pd = NULL;
-
-public:
-    rdma_allocator_t(ibv_pd *pd, size_t region_size, size_t max_unused, int ibv_access):
-        dma_allocator_t(region_size, max_unused)
-    {
-        this->pd = pd;
-        this->ibv_access = ibv_access;
-    }
-
-    ~rdma_allocator_t()
-    {
-        free_unused_buffers(0, true);
-    }
 
     void* reg_mr(void* buf, size_t len) override
     {
@@ -90,17 +87,52 @@ public:
         return mr;
     }
 
-    void dereg_mr(void *handle) override
+    void dereg_mr(void* handle) override
     {
         ibv_dereg_mr((ibv_mr*)handle);
+    }
+
+public:
+    rdma_allocator_t(ibv_pd *pd, size_t region_size, size_t max_unused, int ibv_access):
+        dma_allocator_t(region_size, max_unused, 1)
+    {
+        this->pd = pd;
+        this->ibv_access = ibv_access;
+    }
+
+    ~rdma_allocator_t()
+    {
+        free_unused_buffers(0, true);
     }
 };
 #endif
 
-dma_allocator_t::dma_allocator_t(size_t region_size, size_t max_unused)
+dma_allocator_t::dma_allocator_t(size_t region_size, size_t max_unused, size_t alignment)
 {
+    this->page_size = (size_t)sysconf(_SC_PAGESIZE);
+    if ((alignment & (alignment - 1)) || alignment > this->page_size)
+    {
+        fprintf(stderr, "DMA allocator alignment must be a power of 2 and not exceed page_size");
+        abort();
+    }
     this->region_size = region_size ? region_size : 1048576;
     this->max_unused = max_unused ? max_unused : 500*1048576;
+    this->alignment = alignment ? alignment : 8;
+    size_t region_align = (alignment < page_size ? page_size : alignment);
+    this->region_size = ((this->region_size + region_align-1) / region_align) * region_align;
+    this->try_hugepages = !(this->region_size % HUGEPAGE_SIZE) && !(HUGEPAGE_SIZE % alignment);
+}
+
+void dma_allocator_t::destroy_region(dma_region_t *rgn)
+{
+    freebuffers -= rgn->len;
+    dereg_mr(rgn->handle);
+    if (rgn->mapped)
+        munmap(rgn->buf, rgn->len);
+    else
+        ::free(rgn->buf);
+    regions.erase(rgn);
+    delete rgn;
 }
 
 void dma_allocator_t::free_unused_buffers(size_t max_unused, bool force)
@@ -122,10 +154,7 @@ void dma_allocator_t::free_unused_buffers(size_t max_unused, bool force)
             }
             break;
         }
-        freebuffers -= frag_it->second.rgn->len;
-        dereg_mr(frag_it->second.rgn->handle);
-        free(frag_it->second.rgn);
-        regions.erase(frag_it->second.rgn);
+        destroy_region(frag_it->second.rgn);
         frags.erase(frag_it);
         if (free_it == freelist.begin())
         {
@@ -144,15 +173,23 @@ dma_allocator_t::~dma_allocator_t()
     assert(!freelist.size());
 }
 
-void *dma_allocator_t::alloc(size_t size)
+void *dma_allocator_t::alloc(size_t size, void **handle, size_t *offset)
 {
     auto it = freelist.lower_bound((dma_free_t){ .len = size });
+    size = (size + alignment - 1) & ~(alignment - 1);
     if (it == freelist.end())
     {
-        // round size up to dma_malloc_size (1 MB)
+        // round size up to region_size
         size_t alloc_size = ((size + region_size - 1) / region_size) * region_size;
-        dma_region_t *r = (dma_region_t*)malloc_or_die(alloc_size + sizeof(dma_region_t));
-        r->buf = r+1;
+        dma_region_t *r = new dma_region_t;
+        if (try_hugepages)
+        {
+            r->buf = mmap(NULL, alloc_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE | MAP_HUGETLB, -1, 0);
+            if (r->buf != MAP_FAILED)
+                r->mapped = true;
+        }
+        if (!try_hugepages || r->buf == MAP_FAILED)
+            r->buf = memalign_or_die(page_size, alloc_size);
         r->len = alloc_size;
         r->handle = reg_mr(r->buf, r->len);
         regions.insert(r);
@@ -178,6 +215,14 @@ void *dma_allocator_t::alloc(size_t size)
         frag.len -= size;
         ptr = (uint8_t*)ptr + frag.len;
         frags[ptr] = (dma_frag_t){ .rgn = frag.rgn, .len = size, .is_free = false };
+    }
+    if (handle)
+    {
+        *handle = frag.rgn->handle;
+    }
+    if (offset)
+    {
+        *offset = ((uint8_t*)ptr - (uint8_t*)frag.rgn->buf);
     }
     return ptr;
 }
@@ -243,14 +288,18 @@ void dma_allocator_t::free(void *buf)
     }
 }
 
-void* dma_allocator_t::get_handle(void *buf)
+void* dma_allocator_t::get_handle(void *buf, size_t *offset)
 {
     auto frag_it = frags.upper_bound(buf);
     if (frag_it != frags.begin())
     {
         frag_it--;
         if ((uint8_t*)frag_it->first + frag_it->second.len > buf)
+        {
+            if (offset)
+                *offset = (uint8_t*)buf - (uint8_t*)frag_it->second.rgn->buf;
             return frag_it->second.rgn->handle;
+        }
     }
     fprintf(stderr, "BUG: Attempt to use an unknown DMA allocator buffer fragment 0x%zx\n", (size_t)buf);
     abort();

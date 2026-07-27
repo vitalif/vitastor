@@ -13,9 +13,9 @@ class dma_allocator_i
 {
 public:
     virtual ~dma_allocator_i() = default;
-    virtual void *alloc(size_t size) = 0;
+    virtual void *alloc(size_t size, void **handle = NULL, size_t *offset = NULL) = 0;
     virtual void free(void *buf) = 0;
-    virtual void *get_handle(void *buf) = 0;
+    virtual void *get_handle(void *buf, size_t *offset = NULL) = 0;
 };
 
 dma_allocator_i *rdma_malloc_create(ibv_pd *pd, size_t rdma_alloc_size, size_t rdma_max_unused, int rdma_access);
