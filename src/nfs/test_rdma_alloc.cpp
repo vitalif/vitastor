@@ -1,14 +1,12 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#undef WITH_RDMA
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <set>
-#include "rdma_alloc.cpp"
+#include "dma_alloc_impl.h"
 
 class test_dma_allocator_t: public dma_allocator_t
 {
@@ -25,14 +23,14 @@ public:
         free_unused_buffers(0, true);
     }
 
-    void* reg_mr(void* buf, size_t len) override
+    void* reg_mr(void *buf, size_t len) override
     {
         bool added = mrs.insert(buf).second;
         assert(added);
         return buf;
     }
 
-    void dereg_mr(void *handle) override
+    void dereg_mr(void *buf, size_t len, void *handle) override
     {
         auto erased = mrs.erase(handle);
         assert(erased);

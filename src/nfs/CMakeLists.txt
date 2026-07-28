@@ -21,6 +21,7 @@ add_executable(vitastor-nfs
 	nfs_fsstat.cpp
 	nfs_mount.cpp
 	nfs_portmap.cpp
+	dma_alloc_impl.cpp
 	rdma_alloc.cpp
 	../util/sha256.c
 	proto/xdr_impl.cpp
@@ -39,6 +40,6 @@ target_link_libraries(vitastor-nfs
 )
 
 # test_rdma_alloc
-add_executable(test_rdma_alloc EXCLUDE_FROM_ALL test_rdma_alloc.cpp)
+add_executable(test_rdma_alloc EXCLUDE_FROM_ALL test_rdma_alloc.cpp dma_alloc_impl.cpp)
 add_dependencies(build_tests test_rdma_alloc)
 add_test(NAME test_rdma_alloc COMMAND test_rdma_alloc)
