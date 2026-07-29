@@ -10,6 +10,8 @@
 
 size_t read_blocking(int fd, void *read_buf, size_t remaining);
 size_t write_blocking(int fd, void *write_buf, size_t remaining);
+size_t pread_blocking(int fd, void *read_buf, size_t remaining, off_t offset);
+size_t pwrite_blocking(int fd, void *write_buf, size_t remaining, off_t offset);
 int readv_blocking(int fd, iovec *iov, int iovcnt);
 int writev_blocking(int fd, iovec *iov, int iovcnt);
 int sendv_blocking(int fd, iovec *iov, int iovcnt, int flags);

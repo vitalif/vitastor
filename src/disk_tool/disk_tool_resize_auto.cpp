@@ -2,7 +2,6 @@
 // License: VNPL-1.1 (see README.md for details)
 
 #include "disk_tool.h"
-#include "rw_blocking.h"
 #include "str_util.h"
 #include "json_util.h"
 

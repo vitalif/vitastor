@@ -130,7 +130,7 @@ uint32_t disk_tool_t::write_osd_superblock(std::string device, json11::Json para
         free(buf);
         return 0;
     }
-    int r = write_blocking(fd, buf, buf_len);
+    int r = pwrite_blocking(fd, buf, buf_len, 0);
     if (r < 0)
     {
         fprintf(stderr, "Failed to write to %s: %s\n", device.c_str(), strerror(errno));
@@ -162,7 +162,7 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_ex
         return osd_params;
     }
     buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
-    r = read_blocking(fd, buf, 4096);
+    r = pread_blocking(fd, buf, 4096, 0);
     if (r != 4096)
     {
         fprintf(stderr, "Failed to read OSD superblock from %s: %s\n", device.c_str(), strerror(errno));
@@ -188,8 +188,7 @@ json11::Json disk_tool_t::read_osd_superblock(std::string device, bool expect_ex
         uint64_t sb_size = ((sb->size+4095)/4096)*4096;
         free(buf);
         buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, sb_size);
-        lseek64(fd, 0, 0);
-        r = read_blocking(fd, buf, sb_size);
+        r = pread_blocking(fd, buf, sb_size, 0);
         if (r != sb_size)
         {
             fprintf(stderr, "Failed to read OSD superblock from %s: %s\n", device.c_str(), strerror(errno));
@@ -407,7 +406,7 @@ int disk_tool_t::clear_osd_superblock(const std::string & dev)
     if (r >= 0)
     {
         fd = r;
-        r = read_blocking(fd, buf, 4096);
+        r = pread_blocking(fd, buf, 4096, 0);
         if (r == 4096)
         {
             // Clear magic and CRC
@@ -415,7 +414,7 @@ int disk_tool_t::clear_osd_superblock(const std::string & dev)
             r = lseek64(fd, 0, 0);
             if (r == 0)
             {
-                r = write_blocking(fd, buf, 4096);
+                r = pwrite_blocking(fd, buf, 4096, 0);
                 if (r == 4096)
                     r = 0;
             }

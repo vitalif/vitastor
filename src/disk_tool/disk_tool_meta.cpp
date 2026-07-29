@@ -46,8 +46,7 @@ close_error:
         goto close_error;
     }
     // Check superblock
-    lseek64(dsk.meta_fd, dsk.meta_offset, 0);
-    read_blocking(dsk.meta_fd, hdr, dsk.meta_block_size);
+    pread_blocking(dsk.meta_fd, hdr, dsk.meta_block_size, dsk.meta_offset);
     if (hdr->zero == 0 && hdr->magic == BLOCKSTORE_META_MAGIC_V1 && hdr->version == BLOCKSTORE_META_FORMAT_HEAP)
     {
         if (hdr->data_csum_type != 0 &&
@@ -88,11 +87,10 @@ close_error:
                 goto close_error;
             }
             uint64_t journal_pos = 0;
-            lseek64(dsk.journal_fd, dsk.journal_offset+journal_pos, 0);
             while (journal_pos < dsk.journal_len)
             {
                 uint64_t read_len = buf_size < dsk.journal_len-journal_pos ? buf_size : dsk.journal_len-journal_pos;
-                read_blocking(dsk.journal_fd, buffer_area+journal_pos, read_len);
+                pread_blocking(dsk.journal_fd, buffer_area+journal_pos, read_len, dsk.journal_offset+journal_pos);
                 journal_pos += read_len;
             }
         }
@@ -106,12 +104,11 @@ close_error:
         // Load heap and just iterate it in memory
         hdr_fn(hdr);
         uint64_t meta_pos = dsk.meta_block_size;
-        lseek64(dsk.meta_fd, dsk.meta_offset+meta_pos, 0);
         uint64_t entries_loaded = 0;
         while (meta_pos < hdr->meta_area_size)
         {
             uint64_t read_len = buf_size < hdr->meta_area_size-meta_pos ? buf_size : hdr->meta_area_size-meta_pos;
-            read_blocking(dsk.meta_fd, data, read_len);
+            pread_blocking(dsk.meta_fd, data, read_len, dsk.meta_offset+meta_pos);
             r = heap->load_blocks(meta_pos-dsk.meta_block_size, read_len, data, true, entries_loaded);
             meta_pos += read_len;
         }
@@ -170,11 +167,10 @@ csum_unknown:
         uint64_t block_num = 0;
         hdr_fn(hdr);
         uint64_t meta_pos = dsk.meta_block_size;
-        lseek64(dsk.meta_fd, dsk.meta_offset+meta_pos, 0);
         while (meta_pos < dsk.min_meta_len)
         {
             uint64_t read_len = buf_size < dsk.min_meta_len-meta_pos ? buf_size : dsk.min_meta_len-meta_pos;
-            read_blocking(dsk.meta_fd, data, read_len);
+            pread_blocking(dsk.meta_fd, data, read_len, dsk.meta_offset+meta_pos);
             meta_pos += read_len;
             for (uint64_t blk = 0; blk < read_len; blk += dsk.meta_block_size)
             {
@@ -201,7 +197,6 @@ csum_unknown:
     else
     {
         // Vitastor 0.4-0.5 - static array of clean_disk_entry without header
-        lseek64(dsk.meta_fd, dsk.meta_offset, 0);
         dsk.clean_entry_bitmap_size = 0;
         dsk.clean_entry_size = sizeof(clean_disk_entry);
         uint64_t meta_pos = 0;
@@ -210,7 +205,7 @@ csum_unknown:
         while (meta_pos < dsk.min_meta_len)
         {
             uint64_t read_len = buf_size < dsk.min_meta_len-meta_pos ? buf_size : dsk.min_meta_len-meta_pos;
-            read_blocking(dsk.meta_fd, data, read_len);
+            pread_blocking(dsk.meta_fd, data, read_len, dsk.meta_offset+meta_pos);
             meta_pos += read_len;
             for (uint64_t blk = 0; blk < read_len; blk += dsk.meta_block_size)
             {

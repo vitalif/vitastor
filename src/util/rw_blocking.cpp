@@ -57,6 +57,55 @@ size_t write_blocking(int fd, void *write_buf, size_t remaining)
     return done;
 }
 
+size_t pread_blocking(int fd, void *read_buf, size_t remaining, off_t offset)
+{
+    size_t done = 0;
+    while (done < remaining)
+    {
+        ssize_t r = pread(fd, read_buf, remaining-done, offset);
+        if (r <= 0)
+        {
+            if (!errno)
+            {
+                // EOF
+                return done;
+            }
+            else if (errno != EINTR && errno != EAGAIN && errno != EPIPE)
+            {
+                perror("read");
+                exit(1);
+            }
+            continue;
+        }
+        done += (size_t)r;
+        offset += (off_t)r;
+        read_buf = (uint8_t*)read_buf + r;
+    }
+    return done;
+}
+
+size_t pwrite_blocking(int fd, void *write_buf, size_t remaining, off_t offset)
+{
+    size_t done = 0;
+    while (done < remaining)
+    {
+        ssize_t r = pwrite(fd, write_buf, remaining-done, offset);
+        if (r < 0)
+        {
+            if (errno != EINTR && errno != EAGAIN && errno != EPIPE)
+            {
+                perror("write");
+                exit(1);
+            }
+            continue;
+        }
+        done += (size_t)r;
+        offset += (off_t)r;
+        write_buf = (uint8_t*)write_buf + r;
+    }
+    return done;
+}
+
 int readv_blocking(int fd, iovec *iov, int iovcnt)
 {
     int v = 0;

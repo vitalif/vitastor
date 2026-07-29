@@ -518,8 +518,7 @@ int disk_tool_t::resize_write_new_journal()
         fprintf(stderr, "Failed to open new journal device %s: %s\n", new_journal_device.c_str(), strerror(errno));
         return 1;
     }
-    lseek64(new_journal_fd, new_journal_offset, 0);
-    write_blocking(new_journal_fd, new_journal_buf, new_journal_len);
+    pwrite_blocking(new_journal_fd, new_journal_buf, new_journal_len, new_journal_offset);
     fsync(new_journal_fd);
     close(new_journal_fd);
     new_journal_fd = -1;
@@ -698,8 +697,7 @@ int disk_tool_t::resize_write_new_meta()
         fprintf(stderr, "Failed to open new metadata device %s: %s\n", new_meta_device.c_str(), strerror(errno));
         return 1;
     }
-    lseek64(new_meta_fd, new_meta_offset, 0);
-    write_blocking(new_meta_fd, new_meta_buf, new_meta_len);
+    pwrite_blocking(new_meta_fd, new_meta_buf, new_meta_len, new_meta_offset);
     fsync(new_meta_fd);
     close(new_meta_fd);
     new_meta_fd = -1;
