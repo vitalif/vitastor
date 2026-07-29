@@ -15,21 +15,6 @@
 #include "disk_util.h"
 #include "allocator.h"
 
-static uint32_t is_power_of_two(uint64_t value)
-{
-    uint32_t l = 0;
-    while (value > 1)
-    {
-        if (value & 1)
-        {
-            return 64;
-        }
-        value = value >> 1;
-        l++;
-    }
-    return l;
-}
-
 void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config)
 {
     // Parse
@@ -127,7 +112,7 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     {
         data_block_size = (1 << DEFAULT_DATA_BLOCK_ORDER);
     }
-    if (is_power_of_two(data_block_size) >= 64 || data_block_size < MIN_DATA_BLOCK_SIZE || data_block_size >= MAX_DATA_BLOCK_SIZE)
+    if ((data_block_size & (data_block_size-1)) || data_block_size < MIN_DATA_BLOCK_SIZE || data_block_size >= MAX_DATA_BLOCK_SIZE)
     {
         throw std::runtime_error("Bad block size");
     }
