@@ -12,6 +12,7 @@
 #include "blockstore_disk.h"
 #include "blockstore_heap.h"
 #include "str_util.h"
+#include "disk_util.h"
 #include "allocator.h"
 
 static uint32_t is_power_of_two(uint64_t value)
@@ -335,41 +336,6 @@ void blockstore_disk_t::check_lengths()
     if (journal_len < MIN_JOURNAL_SIZE)
     {
         throw std::runtime_error("Journal is too small, need at least "+std::to_string(MIN_JOURNAL_SIZE)+" bytes");
-    }
-}
-
-// FIXME: Move to utils
-static void check_size(int fd, uint64_t *size, uint64_t *sectsize, std::string name)
-{
-    int sect;
-    struct stat st;
-    if (fstat(fd, &st) < 0)
-    {
-        throw std::runtime_error("Failed to stat "+name);
-    }
-    if (S_ISREG(st.st_mode))
-    {
-        *size = st.st_size;
-        if (sectsize)
-        {
-            *sectsize = st.st_blksize;
-        }
-    }
-    else if (S_ISBLK(st.st_mode))
-    {
-        if (ioctl(fd, BLKGETSIZE64, size) < 0 ||
-            ioctl(fd, BLKSSZGET, &sect) < 0)
-        {
-            throw std::runtime_error("Failed to get "+name+" size or block size: "+strerror(errno));
-        }
-        if (sectsize)
-        {
-            *sectsize = sect;
-        }
-    }
-    else
-    {
-        throw std::runtime_error(name+" is neither a file nor a block device");
     }
 }
 
