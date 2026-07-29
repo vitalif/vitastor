@@ -16,20 +16,13 @@ add_executable(vitastor-disk
 	disk_tool_udev.cpp
 	disk_tool_upgrade.cpp
 	disk_tool_utils.cpp
-	../../json11/json11.cpp
-	../util/allocator.cpp
-	../util/crc32c.c
-	../util/disk_util.cpp
-	../util/json_util.cpp
-	../util/ringloop.cpp
-	../util/rw_blocking.cpp
-	../util/str_util.cpp
-	../util/xxh_x86dispatch.c
 	../blockstore/blockstore_disk.cpp
 	../blockstore/blockstore_heap.cpp
 	../blockstore/multilist.cpp
 )
 target_link_libraries(vitastor-disk
 	${LIBURING_LIBRARIES}
+	# for crc32_iscsi
 	${ISAL_LIBRARIES}
+	util
 )

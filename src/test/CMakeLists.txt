@@ -5,8 +5,10 @@ project(vitastor)
 ### Test stubs
 
 # stub_osd, stub_bench
-add_executable(stub_osd stub_osd.cpp ../util/rw_blocking.cpp ../util/addr_util.cpp)
-add_executable(stub_bench stub_bench.cpp ../util/rw_blocking.cpp ../util/addr_util.cpp)
+add_executable(stub_osd stub_osd.cpp)
+target_link_libraries(stub_osd util)
+add_executable(stub_bench stub_bench.cpp)
+target_link_libraries(stub_bench util)
 
 # bindiff
 add_executable(bindiff
@@ -26,7 +28,8 @@ target_link_libraries(stub_uring_osd
 )
 
 # test_allocator
-add_executable(test_allocator EXCLUDE_FROM_ALL test_allocator.cpp ../util/allocator.cpp)
+add_executable(test_allocator EXCLUDE_FROM_ALL test_allocator.cpp)
+target_link_libraries(test_allocator util)
 add_dependencies(build_tests test_allocator)
 add_test(NAME test_allocator COMMAND test_allocator)
 
@@ -36,14 +39,11 @@ add_executable(test_heap
 	test_heap.cpp
 	../blockstore/multilist.cpp
 	../blockstore/blockstore_heap.cpp
-	../util/crc32c.c
-	../util/xxh_x86dispatch.c
-	../util/allocator.cpp
 	../blockstore/blockstore_disk.cpp
-	../util/str_util.cpp
 )
 target_link_libraries(test_heap
 	${ISAL_LIBRARIES}
+	util
 )
 add_dependencies(build_tests test_heap)
 add_test(NAME test_heap COMMAND test_heap)
@@ -80,5 +80,5 @@ add_test(NAME test_blockstore_v1 COMMAND test_blockstore_v1)
 #target_link_libraries(test_shit ${LIBURING_LIBRARIES} m)
 
 # test_atomic
-add_executable(test_atomic test_atomic.cpp ../util/ringloop.cpp)
-target_link_libraries(test_atomic ${LIBURING_LIBRARIES})
+add_executable(test_atomic test_atomic.cpp)
+target_link_libraries(test_atomic util)

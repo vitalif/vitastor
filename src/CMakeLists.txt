@@ -117,6 +117,7 @@ add_subdirectory(kv)
 add_subdirectory(nfs)
 add_subdirectory(osd)
 add_subdirectory(test)
+add_subdirectory(util)
 
 ### Install
 

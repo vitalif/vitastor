@@ -4,7 +4,6 @@ project(vitastor)
 
 # libvitastor_blk.a
 add_library(vitastor_blk STATIC
-	../util/allocator.cpp ../util/crc32c.c ../util/ringloop.cpp ../util/disk_util.cpp
 	multilist.cpp blockstore_heap.cpp blockstore_disk.cpp
 	blockstore.cpp blockstore_impl.cpp blockstore_init.cpp blockstore_open.cpp
 	blockstore_flush.cpp blockstore_read.cpp blockstore_stable.cpp blockstore_sync.cpp blockstore_write.cpp
@@ -12,10 +11,7 @@ add_library(vitastor_blk STATIC
 )
 target_compile_options(vitastor_blk PUBLIC -fPIC)
 target_link_libraries(vitastor_blk
-	${LIBURING_LIBRARIES}
-	${ISAL_LIBRARIES}
-	# for timerfd_manager
-	vitastor_common
+	util
 )
 set_target_properties(vitastor_blk PROPERTIES VERSION ${VITASTOR_VERSION} SOVERSION 0)
 
@@ -23,9 +19,9 @@ if (${WITH_FIO})
 	# libfio_vitastor_blk.so
 	add_library(fio_vitastor_blk SHARED
 		fio_engine.cpp
-		../../json11/json11.cpp
 	)
 	target_link_libraries(fio_vitastor_blk
 		vitastor_blk
+		util
 	)
 endif (${WITH_FIO})

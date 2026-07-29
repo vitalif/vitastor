@@ -7,21 +7,13 @@ add_library(vitastor_common STATIC
 	etcd_state_client.cpp
 	msgr_stop.cpp
 	msgr_op.cpp
-	../../json11/json11.cpp
 	osd_ops.cpp
 	pg_states.cpp
 	msgr_encrypt.cpp
 	msgr_handshake.cpp
-	../util/allocator.cpp
-	../util/addr_util.cpp
-	../util/timerfd_manager.cpp
-	../util/str_util.cpp
-	../util/json_util.cpp
-	../util/xxh_x86dispatch.c
-	 ../util/openssl_util.cpp
 )
 target_compile_options(vitastor_common PUBLIC -fPIC)
-target_link_libraries(vitastor_common ${OPENSSL_LIBRARIES} ${ISAL_CRYPTO_LIBRARIES})
+target_link_libraries(vitastor_common ${OPENSSL_LIBRARIES} ${ISAL_CRYPTO_LIBRARIES} util)
 
 # libvitastor_net.a
 set(MSGR_RDMA "")
@@ -33,14 +25,12 @@ if (RDMACM_LIBRARIES)
 	set(MSGR_RDMACM "msgr_rdmacm.cpp")
 endif (RDMACM_LIBRARIES)
 add_library(vitastor_net STATIC
-	../util/epoll_manager.cpp
 	etcd_state_client_http.cpp
 	messenger.cpp
 	msgr_iothread.cpp
 	msgr_send.cpp
 	msgr_receive.cpp
 	msgr_encrypt.cpp
-	../util/ringloop.cpp
 	http_client.cpp
 	${MSGR_RDMA}
 	${MSGR_RDMACM}
@@ -90,8 +80,9 @@ if (${WITH_FIO})
 	# libfio_vitastor_sec.so
 	add_library(fio_vitastor_sec SHARED
 		fio_sec_osd.cpp
-		../util/rw_blocking.cpp
-		../util/addr_util.cpp
+	)
+	target_link_libraries(fio_vitastor_sec
+		util
 	)
 endif (${WITH_FIO})
 
