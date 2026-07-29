@@ -774,7 +774,7 @@ bool osd_messenger_t::allocate_op_buffers(osd_client_t *cl)
                 }
                 return false;
             }
-            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_stab.len);
+            cur_op->buf = malloc_or_die(cur_op->req.sec_stab.len);
         }
         cl->read_op_size = cur_op->req.sec_stab.len;
     }
@@ -791,7 +791,7 @@ bool osd_messenger_t::allocate_op_buffers(osd_client_t *cl)
                 }
                 return false;
             }
-            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_read_bmp.len);
+            cur_op->buf = malloc_or_die(cur_op->req.sec_read_bmp.len);
         }
         cl->read_op_size = cur_op->req.sec_read_bmp.len;
     }
@@ -874,7 +874,7 @@ bool osd_messenger_t::allocate_reply_buffers(osd_client_t *cl, osd_op_t *op)
                 cl->client_id, op->reply.hdr.retval);
             return false;
         }
-        op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_op_size);
+        op->buf = malloc_or_die(cl->read_op_size);
     }
     else if (op->reply.hdr.opcode == OSD_OP_SEC_READ_BMP && op->reply.hdr.retval > 0)
     {
@@ -888,7 +888,7 @@ bool osd_messenger_t::allocate_reply_buffers(osd_client_t *cl, osd_op_t *op)
         }
         cl->read_op_size = op->reply.hdr.retval;
         free(op->buf);
-        op->buf = memalign_or_die(MEM_ALIGNMENT, cl->read_op_size);
+        op->buf = malloc_or_die(cl->read_op_size);
     }
     else if (op->reply.hdr.opcode == OSD_OP_SHOW_CONFIG && op->reply.hdr.retval > 0)
     {
