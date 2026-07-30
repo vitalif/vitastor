@@ -110,7 +110,7 @@ async function run()
         .filter(s => s)
         .map(s => ({
             scheme: s[1],
-            addr: s[2].indexOf(':') && s[2][0] != '[' ? '['+s[2]+']' : s[2],
+            addr: s[2].indexOf(':') >= 0 && s[2][0] != '[' ? '['+s[2]+']' : s[2],
             ip: s[2][0] == '[' ? s[2].substr(1, s[2].length-2) : s[2],
             port: s[3],
         }));
@@ -350,7 +350,7 @@ async function configure_etcd(etcds, num, tls, use_perms)
     if (!in_docker && fs.existsSync("/etc/systemd/system/vitastor-etcd.service") &&
         fs.existsSync("/etc/vitastor/etcd.conf"))
     {
-        console.log("/etc/systemd/system/vitastor-etcd.service already exists");
+        console.log("/etc/systemd/system/vitastor-etcd.service and /etc/vitastor/etcd.conf already exists. Remove them to reinitialize the cluster");
         process.exit(1);
     }
     if (!in_docker && fs.existsSync("/etc/systemd/system/etcd.service"))
