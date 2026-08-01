@@ -199,9 +199,6 @@ class blockstore_impl_t: public blockstore_i
     friend class journal_flusher_co;
 
     void calc_lengths();
-    void open_data();
-    void open_meta();
-    void open_journal();
     uint8_t* get_clean_entry_bitmap(uint64_t block_loc, int offset);
 
     blockstore_clean_db_t& clean_db_shard(object_id oid);
