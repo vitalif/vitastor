@@ -154,9 +154,6 @@ void _test_init(blockstore_disk_t & dsk, bool csum, std::function<void(std::map<
     dsk.data_device_size = 1*1024*1024*1024;
     dsk.meta_device_size = 4*1024*1024;
     dsk.journal_device_size = 4*1024*1024;
-    dsk.data_fd = 0;
-    dsk.meta_fd = 1;
-    dsk.journal_fd = 2;
     dsk.disable_journal_fsync = dsk.disable_meta_fsync = true;
     dsk.calc_lengths(true);
 }
@@ -608,7 +605,7 @@ void test_iterate_compaction()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -672,7 +669,7 @@ void test_iterate_compaction()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -745,7 +742,7 @@ void test_iterate_compaction()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -821,7 +818,7 @@ void test_iterate_compaction()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -898,7 +895,7 @@ void test_iterate_compaction()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -965,7 +962,7 @@ void test_iterate_compaction()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -1038,7 +1035,7 @@ void test_iterate_compaction()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -1186,11 +1183,12 @@ void test_recheck(bool async, bool csum)
         heap.finish_load();
 
         int calls = 0;
-        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
+        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t *buf)> cb)
         {
             calls++;
             if (len)
             {
+                uint8_t *buf = (uint8_t*)malloc_or_die(len);
                 assert(len == 8*1024);
                 if (is_data)
                 {
@@ -1217,7 +1215,8 @@ void test_recheck(bool async, bool csum)
                     memcpy(buf, buffer_area.data()+offset, len);
                 }
                 assert(cb);
-                cb();
+                cb(buf);
+                free(buf);
             }
         }, 1);
         assert(done);
@@ -2129,16 +2128,18 @@ void test_big_intent_csums()
         heap.finish_load();
 
         int calls = 0;
-        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
+        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t *buf)> cb)
         {
             calls++;
             if (len)
             {
+                uint8_t *buf = (uint8_t*)malloc_or_die(len);
                 assert(is_data);
                 assert(offset == 0x20000+32768 && len == 4096);
                 memcpy(buf, buffer_area.data()+4096, len);
                 assert(cb);
-                cb();
+                cb(buf);
+                free(buf);
             }
         }, 1);
         assert(done);
@@ -2252,16 +2253,18 @@ void test_redirect_intent_csums()
         heap.finish_load();
 
         int calls = 0;
-        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
+        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t*)> cb)
         {
             calls++;
             if (len)
             {
+                uint8_t *buf = (uint8_t*)malloc_or_die(len);
                 assert(is_data);
                 assert(offset == 0x40000+32768 && len == 4096);
                 memcpy(buf, buffer_area.data()+4096, len);
                 assert(cb);
-                cb();
+                cb(buf);
+                free(buf);
             }
         }, 1);
         assert(done);
@@ -2307,14 +2310,16 @@ void test_redirect_intent_csums()
         heap.finish_load();
 
         int calls = 0;
-        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
+        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t*)> cb)
         {
             calls++;
             if (len)
             {
+                uint8_t *buf = (uint8_t*)malloc_or_die(len);
                 memset(buf, 0xaa, len);
                 assert(cb);
-                cb();
+                cb(buf);
+                free(buf);
             }
         }, 1);
         assert(done);
@@ -2465,7 +2470,7 @@ void test_skip_double_claim()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -2506,7 +2511,7 @@ void test_skip_double_claim()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -2549,7 +2554,7 @@ void test_skip_double_claim()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -2580,7 +2585,7 @@ void test_skip_double_claim()
         uint64_t entries_loaded;
         heap.load_blocks(0, dsk.meta_block_size, out.data() + dsk.meta_block_size*i, false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -2708,7 +2713,7 @@ void test_postpone_load()
             }
         }
 
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();
@@ -2822,7 +2827,7 @@ void test_start_double_claim_reuse()
         uint64_t entries_loaded;
         heap.load_blocks(0, 2*dsk.meta_block_size, tmp.data(), false, entries_loaded);
         heap.finish_load();
-        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, uint8_t*, std::function<void()> cb) {}, 1);
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
         assert(done);
         heap.finish_recheck();
         auto mod = heap.get_recheck_modified_blocks();

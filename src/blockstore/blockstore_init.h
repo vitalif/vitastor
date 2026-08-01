@@ -11,6 +11,8 @@ struct blockstore_init_meta_buf
     int state = 0;
 };
 
+struct blockstore_recheck_io_t;
+
 class blockstore_init_meta
 {
     blockstore_impl_t *bs;
@@ -28,6 +30,7 @@ class blockstore_init_meta
     uint64_t last_read_offset = 0;
     uint64_t entries_loaded = 0;
     std::vector<uint32_t> recheck_mod;
+    std::vector<blockstore_recheck_io_t*> recheck_ios;
     int i = 0, j = 0;
     bool handle_meta_block(uint8_t *buf, uint64_t count, uint64_t done_cnt);
     void handle_event(ring_data_t *data, int buf_num, const char *op);

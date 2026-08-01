@@ -227,7 +227,7 @@ class blockstore_heap_t
     size_t recheck_pending_reads = 0;
     int recheck_in_progress = 0;
     bool in_recheck = false;
-    std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> recheck_cb;
+    std::function<void(bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t*)>)> recheck_cb;
     int recheck_queue_depth = 0;
 
     uint64_t get_pg_id(inode_t inode, uint64_t stripe);
@@ -274,7 +274,7 @@ public:
     // before finishing initialization if not R/O
     std::vector<uint32_t> get_recheck_modified_blocks();
     // recheck small write data after reading the database from disk
-    bool recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> read_buffer, int queue_depth);
+    bool recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t* buf)>)> read_buffer, int queue_depth);
     int finish_recheck();
     // reshard database according to the pool's PG count
     void* reshard_start(pool_id_t pool, uint32_t pg_count, uint32_t pg_stripe_size, uint64_t chunk_limit);

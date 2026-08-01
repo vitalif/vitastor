@@ -947,12 +947,11 @@ void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
             len = wr->small().len;
             from_data = true;
         }
-        uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, len);
         st->sent_reads++;
         recheck_in_progress++;
         recheck_pending_reads--;
         bool is_last = st->sent_reads >= st->total_reads;
-        recheck_cb(from_data, loc, len, buf, [this, st, wr, buf]()
+        recheck_cb(from_data, loc, len, [this, st, wr](uint8_t *buf)
         {
             st->checked_reads++;
             if (!calc_checksums(wr, buf, false))
@@ -963,7 +962,6 @@ void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
                     recheck_drop_entries(st->obj, st->bad_wr);
                 recheck_states.erase(st->obj);
             }
-            free(buf);
             recheck_in_progress--;
             recheck_small_writes(NULL, 0);
         });
@@ -972,7 +970,7 @@ void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
     }
 }
 
-bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, uint8_t* buf, std::function<void()>)> read_buffer, int queue_depth)
+bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t* buf)>)> read_buffer, int queue_depth)
 {
     if (in_recheck)
     {
@@ -1036,7 +1034,7 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
         recheck_queue_depth = 0;
         if (cb)
         {
-            cb(false, 0, 0, NULL, NULL);
+            cb(false, 0, 0, NULL);
         }
         return true;
     }

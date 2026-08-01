@@ -17,6 +17,20 @@
         throw std::runtime_error("io_uring is full during initialization");\
     data = ((ring_data_t*)sqe->user_data)
 
+struct blockstore_recheck_io_t
+{
+    bool is_data;
+    uint64_t offset;
+    uint64_t len;
+    uint8_t *buf;
+    std::function<void(uint8_t *buf)> cb;
+
+    blockstore_recheck_io_t(bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t *buf)>&& cb):
+        is_data(is_data), offset(offset), len(len), buf(NULL), cb(std::move(cb))
+    {
+    }
+};
+
 blockstore_init_meta::blockstore_init_meta(blockstore_impl_t *bs)
 {
     this->bs = bs;
@@ -239,29 +253,41 @@ resume_4:
     // asynchronous recheck
 resume_6:
     wait_state = 6;
-    bs->heap->recheck_small_writes([this](bool is_data, uint64_t offset, uint64_t len, uint8_t *buf, std::function<void()> cb)
+    bs->heap->recheck_small_writes([this](bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t*)> cb)
     {
-        if (!buf)
+        if (!len)
         {
             wait_state = 7;
             bs->ringloop->wakeup();
             return;
         }
-        GET_SQE();
-        data->iov = (iovec){ buf, len };
-        data->callback = [offset, cb](ring_data_t *data)
+        recheck_ios.push_back(new blockstore_recheck_io_t(is_data, offset, len, std::move(cb)));
+    }, bs->meta_write_recheck_parallelism);
+    while (recheck_ios.size())
+    {
+        blockstore_recheck_io_t* rc = recheck_ios.back();
+        sqe = bs->get_sqe();
+        if (!sqe)
+            break;
+        if (!rc->buf)
+            rc->buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rc->len);
+        data = ((ring_data_t*)sqe->user_data);
+        data->iov = (iovec){ rc->buf, rc->len };
+        data->callback = [this, rc](ring_data_t *data)
         {
             if (data->res < 0)
             {
-                fprintf(stderr, "Buffer area read failed at offset %ju: %d\n", offset, data->res);
+                fprintf(stderr, "Buffer area read failed at offset %ju: %d\n", rc->offset, data->res);
                 exit(1);
             }
-            cb();
+            rc->cb(rc->buf);
+            free(rc->buf);
+            delete rc;
         };
-        io_uring_prep_readv(sqe, (is_data ? bs->dsk.data_fd : bs->dsk.journal_fd), &data->iov, 1,
-            (is_data ? bs->dsk.data_offset : bs->dsk.journal_offset) + offset);
-        bs->ringloop->submit();
-    }, bs->meta_write_recheck_parallelism);
+        io_uring_prep_readv(sqe, (rc->is_data ? bs->dsk.data_fd : bs->dsk.journal_fd), &data->iov, 1,
+            (rc->is_data ? bs->dsk.data_offset : bs->dsk.journal_offset) + rc->offset);
+        recheck_ios.pop_back();
+    }
     return 1;
 resume_7:
     if (bs->heap->finish_recheck() != 0)
