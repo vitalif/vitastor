@@ -1053,6 +1053,7 @@ static void block_nfs3_readdir_common(void *opaque, rpc_op_t *rop, bool is_plus)
         fill_dir_entry(self, rop, dir_id_it, &entries[subname], is_plus);
     }
     // Add . and ..
+    // FIXME: . and .. must come first, but here .- may be inserted between them
     {
         auto dir_id_it = self->parent->blockfs->dir_info.find(dir);
         fill_dir_entry(self, rop, dir_id_it, &entries["."], is_plus);
