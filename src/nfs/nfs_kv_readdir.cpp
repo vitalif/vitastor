@@ -34,7 +34,7 @@ struct nfs_kv_readdir_state
     std::string cur_key, cur_value;
     int reply_size = 0;
     int to_skip = 0;
-    uint64_t offset = 0;
+    uint64_t cur_cookie = 0;
     int getattr_running = 0, getattr_cur = 0;
     // Result:
     bool eof = false;
@@ -133,6 +133,7 @@ resume_1:
             entryplus3 dot = {};
             dot.name = xdr_copy_string(st->rop->xdrs, ".");
             dot.fileid = st->dir_ino;
+            dot.cookie = 1;
             dot.name_attributes = (post_op_attr){
                 .attributes_follow = 1,
                 .attributes = get_kv_attributes(st->self->parent, st->dir_ino, st->ientry),
@@ -175,7 +176,7 @@ resume_2:
         entryplus3 dotdot = {};
         dotdot.name = xdr_copy_string(st->rop->xdrs, "..");
         dotdot.fileid = st->dir_ino;
-        dotdot.cookie = 1;
+        dotdot.cookie = 2;
         dotdot.name_attributes = (post_op_attr){
             // FIXME: maybe do not read parent attributes and leave them to a GETATTR?
             .attributes_follow = 1,
@@ -200,19 +201,18 @@ resume_2:
         {
             st->start = st->prefix+lc_it->second.key;
             st->to_skip = 1;
-            st->offset = st->cookie+1;
         }
         else
         {
             st->to_skip = st->cookie-2;
-            st->offset = st->cookie;
             st->cookieverf = ((uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62));
         }
+        st->cur_cookie = st->cookie+1;
     }
     else
     {
         st->to_skip = 0;
-        st->offset = 2;
+        st->cur_cookie = 3;
         st->cookieverf = ((uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62));
     }
     {
@@ -269,7 +269,7 @@ resume_3:
         if (st->self->parent->trace)
         {
             fprintf(stderr, "[%d] READDIR %ju %ju %s\n",
-                st->self->nfs_fd, st->dir_ino, st->offset, name.c_str());
+                st->self->nfs_fd, st->dir_ino, st->cur_cookie, name.c_str());
         }
         auto fh = kv_fh(ino);
         // 1 entry3 is (8+4+(filename_len+3)/4*4+8) bytes
@@ -290,7 +290,7 @@ resume_3:
         auto entry = &st->entries[idx];
         entry->name = xdr_copy_string(st->rop->xdrs, name);
         entry->fileid = ino;
-        entry->cookie = st->offset++;
+        entry->cookie = st->cur_cookie++;
         st->self->parent->kvfs->list_cookies[(list_cookie_t){ st->dir_ino, st->cookieverf, entry->cookie }] = { .key = name };
         if (st->is_plus)
         {
