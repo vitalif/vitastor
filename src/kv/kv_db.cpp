@@ -191,12 +191,16 @@ struct kv_op_t
     int opcode;
     std::string key, value;
     int res;
+    bool in_next = false;
+    bool next_retry_pending = false;
+    bool next_close_pending = false;
     bool done = false;
     std::function<void(kv_op_t *)> callback;
     std::function<bool(int res, const std::string & value)> cas_cb;
 
     void exec();
     void next(); // for list
+    void close(); // for list_close
     ~kv_op_t();
 protected:
     int recheck_policy = KV_RECHECK_LEAF;
@@ -1951,10 +1955,31 @@ void kv_op_t::next()
     {
         return;
     }
-    get_block(db, cur_block, cur_level, recheck_policy, [=](int res, int refresh)
+    if (in_next)
     {
-        next_handle_block(res, refresh);
-    });
+        // list_next() has a reenterable callback - it usually calls list_next() again.
+        // to prevent long recursion when blocks are already in cache, we prevent reentry
+        // and just retry our get_block() multiple times. :-)
+        // also it's logically incorrect to do two next() calls in parallel, before the
+        // callback of the first one fires. so we prevent it too.
+        if (!next_close_pending)
+            next_retry_pending = true;
+        return;
+    }
+    in_next = true;
+    do
+    {
+        next_retry_pending = false;
+        get_block(db, cur_block, cur_level, recheck_policy, [=](int res, int refresh)
+        {
+            next_handle_block(res, refresh);
+        });
+    } while (next_retry_pending);
+    in_next = false;
+    if (next_close_pending)
+    {
+        delete this;
+    }
 }
 
 void kv_op_t::next_handle_block(int res, int refresh)
@@ -2066,6 +2091,17 @@ void kv_op_t::next_go_up()
             return;
         }
     }
+}
+
+void kv_op_t::close()
+{
+    if (in_next)
+    {
+        next_close_pending = true;
+        next_retry_pending = false;
+    }
+    else
+        delete this;
 }
 
 vitastorkv_dbw_t::vitastorkv_dbw_t(cluster_client_t *cli)
@@ -2186,5 +2222,5 @@ void vitastorkv_dbw_t::list_next(void *handle, std::function<void(int res, const
 void vitastorkv_dbw_t::list_close(void *handle)
 {
     kv_op_t *op = (kv_op_t*)handle;
-    delete op;
+    op->close();
 }
