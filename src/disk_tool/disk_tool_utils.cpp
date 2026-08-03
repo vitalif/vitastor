@@ -42,65 +42,65 @@ uint64_t get_atomic_write_size(const std::string & dev)
     return stoull_full(trim(read_file("/sys/block/"+parent_dev.substr(5)+"/queue/atomic_write_max_bytes")));
 }
 
+std::pair<std::vector<std::string>, int> readdir_list(const std::string & dirname)
+{
+    std::vector<std::string> files;
+    DIR *dir = opendir(dirname.c_str());
+    if (!dir)
+    {
+        return std::make_pair(files, errno);
+    }
+    dirent *de = readdir(dir);
+    while (de)
+    {
+        if (strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0)
+        {
+            files.push_back(de->d_name);
+        }
+        de = readdir(dir);
+    }
+    closedir(dir);
+    return std::make_pair(files, 0);
+}
+
 // returns 1 = warning, -1 = error, 0 = success
 int disable_cache(const std::string & dev)
 {
     auto parent_dev = get_parent_device(dev);
     if (parent_dev == "")
+    {
         return 1;
-    auto scsi_disk = "/sys/block/"+parent_dev.substr(5)+"/device/scsi_disk";
-    DIR *dir = opendir(scsi_disk.c_str());
-    if (!dir)
-    {
-        if (errno == ENOENT)
-        {
-            // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
-            return check_queue_cache(dev.substr(5), parent_dev.substr(5));
-        }
-        else
-        {
-            fprintf(stderr, "Can't read directory %s: %s\n", scsi_disk.c_str(), strerror(errno));
-            return 1;
-        }
     }
-    else
+    auto scsi_disk = "/sys/block/"+parent_dev.substr(5)+"/device/scsi_disk";
+    auto [ files, retval ] = readdir_list(scsi_disk);
+    if (retval != 0 && retval != ENOENT)
     {
-        dirent *de = readdir(dir);
-        while (de && de->d_name[0] == '.' && (de->d_name[1] == 0 || de->d_name[1] == '.' && de->d_name[2] == 0))
-            de = readdir(dir);
-        if (!de)
-        {
-            // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
-            closedir(dir);
-            return check_queue_cache(dev.substr(5), parent_dev.substr(5));
-        }
-        scsi_disk += "/";
-        scsi_disk += de->d_name;
-        if (readdir(dir) != NULL)
-        {
-            // Error, multiple scsi_disk/* entries
-            closedir(dir);
-            fprintf(stderr, "Multiple entries in %s found\n", scsi_disk.c_str());
-            return 1;
-        }
-        closedir(dir);
-        // Check cache_type
-        scsi_disk += "/cache_type";
-        std::string cache_type = trim(read_file(scsi_disk));
-        if (cache_type == "")
-            return 1;
-        if (cache_type != "write through")
-        {
-            int fd = open(scsi_disk.c_str(), O_WRONLY);
-            if (fd < 0 || write_blocking(fd, (void*)"write through", strlen("write through")) != strlen("write through"))
-            {
-                if (fd >= 0)
-                    close(fd);
-                fprintf(stderr, "Can't write to %s: %s\n", scsi_disk.c_str(), strerror(errno));
-                return -1;
-            }
-            close(fd);
-        }
+        fprintf(stderr, "Can't read directory %s: %s\n", scsi_disk.c_str(), strerror(retval));
+        return 1;
+    }
+    if (retval == ENOENT || !files.size())
+    {
+        // Not a SCSI/SATA device, just check /sys/block/.../queue/write_cache
+        return check_queue_cache(dev.substr(5), parent_dev.substr(5));
+    }
+    if (files.size() > 1)
+    {
+        // Error, multiple scsi_disk/* entries
+        fprintf(stderr, "Multiple entries in %s found\n", scsi_disk.c_str());
+        return 1;
+    }
+    // Check cache_type
+    scsi_disk += "/";
+    scsi_disk += files[0];
+    scsi_disk += "/cache_type";
+    std::string cache_type = trim(read_file(scsi_disk));
+    if (cache_type == "")
+    {
+        return 1;
+    }
+    if (cache_type != "write through" && write_file(scsi_disk, "write through") != 0)
+    {
+        return -1;
     }
     return 0;
 }

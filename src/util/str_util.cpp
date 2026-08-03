@@ -335,6 +335,34 @@ std::string read_file(std::string file, bool allow_enoent)
     return res;
 }
 
+int write_file(const std::string & file, const std::string & data)
+{
+    int fd = open(file.c_str(), O_WRONLY|O_CREAT|O_TRUNC, 0666);
+    if (fd < 0)
+    {
+        fprintf(stderr, "Failed to write %s: %s (code %d)\n", file.c_str(), strerror(errno), errno);
+        return errno;
+    }
+    size_t done = 0;
+    while (done < data.size())
+    {
+        ssize_t r = write(fd, data.data()+done, data.size()-done);
+        if (r < 0)
+        {
+            if (errno != EINTR && errno != EAGAIN)
+            {
+                fprintf(stderr, "Failed to write %s: %s (code %d)\n", file.c_str(), strerror(errno), errno);
+                close(fd);
+                return errno;
+            }
+            continue;
+        }
+        done += (size_t)r;
+    }
+    close(fd);
+    return 0;
+}
+
 std::string str_repeat(const std::string & str, int times)
 {
     std::string r;
