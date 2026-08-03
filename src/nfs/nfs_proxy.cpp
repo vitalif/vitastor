@@ -150,6 +150,26 @@ static const char* help_text =
     "  vitastor-nfs mount --block --pool testpool /mnt/\n"
 ;
 
+static const char* mount_helper_help =
+    "VitastorFS mount helper " VITASTOR_VERSION "\n"
+    "(c) Vitaliy Filippov, 2021+ (VNPL-1.1)\n"
+    "\n"
+    "mount -t vitastorfs <FSNAME> <MOUNTPOINT> -o <OPTS>\n"
+    "mount -t vitastorblk none <MOUNTPOINT> -o <OPTS>\n"
+    "  Start local filesystem server and mount VitastorFS <FSNAME> or pseudo-FS to <MOUNTPOINT>.\n"
+    "  Use regular `umount <MOUNTPOINT>` to unmount the FS.\n"
+    "  The server will be automatically stopped when the FS is unmounted.\n"
+    "  -o <OPTS>\n"
+    "    Additional comma-separated Vitastor and NFS mount options (mixed).\n"
+    "    Options are treated as NFS options if they do not start with --, pool=, readahead=,\n"
+    "    or if they do not contain = or _. Other options are treated as Vitastor options.\n"
+    "    Example: -o async,hard,pool=fspool,readahead=2M,--config_path=/etc/vitastor.conf\n"
+    "\n"
+    "Example /etc/fstab entries:\n"
+    "  myfs /S vitastorfs pool=fspool,readahead=2M,--etcd_address=10.0.2.15:2379,soft,sync 0 0\n"
+    "  none /mnt/blk vitastorblk pool=ecpool 0 0\n"
+;
+
 json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
 {
     json11::Json::object cfg;
@@ -170,6 +190,7 @@ json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
             }
             const std::string & old = cfg["options"].string_value();
             cfg["options"] = old != "" ? old+","+args[i+1] : args[i+1];
+            i++;
         }
         else if (args[i][0] == '-' && args[i][1] == '-')
         {
@@ -182,6 +203,36 @@ json11::Json::object nfs_proxy_t::parse_args(int narg, const char *args[])
         {
             cmd.push_back(args[i]);
         }
+    }
+    if (!strcmp(exe_name, "mount.vitastorfs") || !strcmp(exe_name, "mount.vitastorblk"))
+    {
+        if (cmd.size() < 2)
+        {
+            fprintf(stderr, "%s", mount_helper_help);
+            exit(1);
+        }
+        if (!strcmp(exe_name, "mount.vitastorfs"))
+            cfg["fs"] = cmd[0];
+        else
+            cfg["block"] = "1";
+        cfg["mount"] = cmd[1];
+        for (auto & opt: explode(",", cfg["options"].string_value(), true))
+        {
+            auto eq = opt.find("=");
+            if (eq == std::string::npos)
+                continue;
+            auto optname = opt.substr(0, eq);
+            auto optval = opt.substr(eq+1);
+            if (optname.substr(0, 2) == "--")
+                cfg[str_replace(optname.substr(2), "-", "_")] = optval;
+            else if (optname == "pool")
+                cfg["pool"] = optval;
+            else if (optname == "readahead")
+                cfg["readahead"] = optval;
+            else if (optname.find("_") != std::string::npos)
+                cfg[optname] = optval;
+        }
+        return cfg;
     }
     if (cfg.find("block") == cfg.end() && cfg.find("fs") == cfg.end())
     {
@@ -1369,9 +1420,21 @@ void nfs_proxy_t::mount_fs()
                 async = true;
             else if (opt.substr(0, 4) != "port" && opt.substr(0, 9) != "mountport" &&
                 opt.substr(0, 7) != "nfsvers" && opt.substr(0, 5) != "proto" &&
-                opt != "udp" && opt != "tcp" && opt != "rdma")
+                opt != "udp" && opt != "tcp" && opt != "rdma" &&
+                // -- is an explicit vitastor config marker
+                opt.substr(0, 2) != "--")
             {
-                opts += ","+opt;
+                auto eq = opt.find("=");
+                bool nonmnt = false;
+                if (eq != std::string::npos)
+                {
+                    auto optname = opt.substr(0, eq);
+                    // pool= is our reserved option; real NFS options don't contain _
+                    if (optname == "pool" || optname == "readahead" || optname.find("_") != std::string::npos)
+                        nonmnt = true;
+                }
+                if (!nonmnt)
+                    opts += ","+opt;
             }
         }
         if (!hard)
@@ -1487,7 +1550,8 @@ int main(int narg, const char *args[])
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
-    exe_name = args[0];
+    exe_name = strrchr(args[0], '/');
+    exe_name = exe_name ? exe_name+1 : args[0];
     nfs_proxy_t *p = new nfs_proxy_t();
     p->run(nfs_proxy_t::parse_args(narg, args));
     delete p;

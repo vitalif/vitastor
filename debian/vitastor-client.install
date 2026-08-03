@@ -4,6 +4,8 @@ usr/bin/vitastor-rm
 usr/bin/vitastor-nbd
 usr/bin/vitastor-ublk
 usr/bin/vitastor-nfs
+usr/sbin/mount.vitastorfs
+usr/sbin/mount.vitastorblk
 usr/bin/vitastor-kv
 usr/bin/vitastor-kv-stress
 usr/lib/*/libvitastor*.so*

@@ -50,9 +50,13 @@ string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_F
 string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL}")
 string(REGEX REPLACE "([\\/\\-]D) *NDEBUG" "" CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO}")
 
-macro(install_symlink filepath sympath)
-	install(CODE "execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink ${filepath} \$ENV{DESTDIR}${sympath})")
-	install(CODE "message(\"-- Created symlink: ${sympath} -> ${filepath}\")")
+macro(install_symlink _filepath _sympath)
+	get_filename_component(_symname ${_sympath} NAME)
+	get_filename_component(_installdir ${_sympath} PATH)
+	install(CODE "execute_process(COMMAND \"${CMAKE_COMMAND}\" -E create_symlink
+		${_filepath} ${CMAKE_CURRENT_BINARY_DIR}/${_symname}.link)")
+	install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${_symname}.link DESTINATION ${_installdir} RENAME ${_symname})
+	install(CODE "file(REMOVE ${CMAKE_CURRENT_BINARY_DIR}/${_symname}.link)")
 endmacro(install_symlink)
 
 check_include_file("linux/nbd-netlink.h" HAVE_NBD_NETLINK_H)
@@ -125,6 +129,8 @@ install(TARGETS vitastor-osd vitastor-disk vitastor-nbd vitastor-ublk vitastor-n
 install_symlink(vitastor-disk ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vitastor-dump-journal)
 install_symlink(vitastor-cli ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vitastor-rm)
 install_symlink(vitastor-cli ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/vita)
+install_symlink(../${CMAKE_INSTALL_BINDIR}/vitastor-nfs ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_SBINDIR}/mount.vitastorfs)
+install_symlink(../${CMAKE_INSTALL_BINDIR}/vitastor-nfs ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_SBINDIR}/mount.vitastorblk)
 install(
 	TARGETS vitastor_client vitastor_kv
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}

@@ -26,6 +26,7 @@ for optimal Vitastor NFS performance if you use EC and HDD and mount your NFS fr
   - [start](#start)
   - [upgrade](#upgrade)
   - [defrag](#defrag)
+- [Mounting from /etc/fstab](#mounting-from-etc-fstab)
 - [Common options](#common-options)
 
 ## Pseudo-FS
@@ -307,6 +308,31 @@ Options:
 | `--recalc-stats`           | Recalculate all volume statistics                                       |
 | `--include-empty`          | Include old and empty volumes; make sure to restart NFS servers before using it |
 | `--no-rm`                  | Move, but do not delete data                                            |
+
+## Mounting from /etc/fstab
+
+Vitastor packages include mount helpers for `/etc/fstab`: **/usr/sbin/mount.vitastorfs** and **/usr/sbin/mount.vitastorblk**.
+
+Both are simple symbolic links to `vitastor-nfs` and allow to handle `mount` calls correctly.
+
+Example `/etc/fstab` entries:
+
+```
+myfs /S vitastorfs pool=fspool,readahead=2M,--etcd_address=10.0.2.15:2379,soft,sync 0 0
+none /mnt/vitastor-block vitastorblk pool=ecpool 0 0
+```
+
+When you run `mount /S`, the helper is called internally and starts VitastorFS.
+Helper call syntax is:
+
+```
+mount.vitastorfs <FSNAME> <MOUNTPOINT> -o <OPTS>
+```
+
+`<OPTS>` is comma-separated and includes all mount options from fstab. You can include
+both Vitastor and NFS mount options in it. An option is treated as an NFS option if it
+does not start with `--`, `pool=`, `readahead=` or if it doesn't contain `=` or `_`.
+Other options are treated as Vitastor options.
 
 ## Common options
 
