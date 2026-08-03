@@ -22,7 +22,7 @@ KV_BLOCK_SIZE=131072
 $VITASTOR_CLI create -s 10G fsmeta
 $VITASTOR_CLI modify-pool --used-for-app fs:fsmeta testpool
 ( ulimit -s 1024; exec build/src/nfs/vitastor-nfs --config_path $VITASTOR_CFG start --fs fsmeta \
-    --portmap 0 --port 2050 --foreground 1 --max_list_cookies 0 --kv_block_size $KV_BLOCK_SIZE >>./testdata/nfs.log 2>&1 ) &
+    --portmap 0 --port 2050 --foreground 1 --max_open_readdir 0 --kv_block_size $KV_BLOCK_SIZE >>./testdata/nfs.log 2>&1 ) &
 NFS_PID=$!
 
 mkdir -p testdata/nfs

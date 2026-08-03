@@ -35,6 +35,7 @@ struct nfs_kv_readdir_state
     int reply_size = 0;
     int to_skip = 0;
     uint64_t cur_cookie = 0;
+    bool list_active = false;
     int getattr_running = 0, getattr_cur = 0;
     // Result:
     bool eof = false;
@@ -68,6 +69,29 @@ static void kv_getattr_next(nfs_kv_readdir_state *st)
             }
         });
     }
+}
+
+static void erase_list_cookies(kv_fs_state_t *kvfs, uint64_t dir_ino, uint64_t cookieverf, uint64_t cookie, bool all)
+{
+    auto start_it = kvfs->list_cookies.lower_bound((list_cookie_t){ dir_ino, cookieverf, 0 });
+    auto end_it = kvfs->list_cookies.lower_bound((list_cookie_t){ dir_ino, all ? cookieverf+1 : cookieverf, all ? 0 : cookie });
+    kvfs->list_cookies.erase(start_it, end_it);
+}
+
+static void gc_active_lists(kv_fs_state_t *kvfs)
+{
+    while (kvfs->active_lists.size() > kvfs->max_open_readdir)
+    {
+        auto lc = kvfs->active_lists.front();
+        kvfs->active_lists.pop_front();
+        erase_list_cookies(kvfs, lc.dir_ino, lc.cookieverf, lc.cookie, false);
+    }
+}
+
+static bool is_list_active(kv_fs_state_t *kvfs, uint64_t dir_ino, uint64_t cookieverf)
+{
+    auto lc_it = kvfs->list_cookies.lower_bound((list_cookie_t){ dir_ino, cookieverf, 0 });
+    return lc_it != kvfs->list_cookies.end() && lc_it->first.dir_ino == dir_ino && lc_it->first.cookieverf == cookieverf;
 }
 
 static void nfs_kv_continue_readdir(nfs_kv_readdir_state *st, int state)
@@ -194,6 +218,7 @@ resume_2:
     st->prefix = kv_direntry_key(st->dir_ino, "");
     st->eof = true;
     st->start = st->prefix;
+    st->list_active = is_list_active(st->self->parent->kvfs, st->dir_ino, st->cookieverf);
     if (st->cookie > 1)
     {
         auto lc_it = st->self->parent->kvfs->list_cookies.find((list_cookie_t){ st->dir_ino, st->cookieverf, st->cookie });
@@ -214,21 +239,6 @@ resume_2:
         st->to_skip = 0;
         st->cur_cookie = 3;
         st->cookieverf = ((uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62));
-    }
-    {
-        auto lc_it = st->self->parent->kvfs->list_cookies.lower_bound((list_cookie_t){ st->dir_ino, st->cookieverf, 0 });
-        if (lc_it != st->self->parent->kvfs->list_cookies.end() &&
-            lc_it->first.dir_ino == st->dir_ino &&
-            lc_it->first.cookieverf == st->cookieverf &&
-            lc_it->first.cookie < st->cookie)
-        {
-            auto lc_start = lc_it;
-            while (lc_it != st->self->parent->kvfs->list_cookies.end() && lc_it->first.cookieverf == st->cookieverf)
-            {
-                lc_it++;
-            }
-            st->self->parent->kvfs->list_cookies.erase(lc_start, lc_it);
-        }
     }
     st->getattr_cur = st->entries.size();
     st->list_handle = st->self->parent->db->list_start(st->start);
@@ -319,6 +329,13 @@ resume_4:
         }
         prev = entry;
     }
+    // Erase previous page or the whole list
+    erase_list_cookies(st->self->parent->kvfs, st->dir_ino, st->cookieverf, st->cookie, st->eof);
+    if (!st->eof)
+    {
+        st->self->parent->kvfs->active_lists.push_back((list_cookie_t){ st->dir_ino, st->cookieverf, st->cur_cookie });
+    }
+    gc_active_lists(st->self->parent->kvfs);
     // Send reply
     auto cb = std::move(st->cb);
     cb(0);

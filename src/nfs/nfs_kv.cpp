@@ -267,6 +267,13 @@ void kv_fs_state_t::init(nfs_proxy_t *proxy, json11::Json cfg)
     readdir_getattr_parallel = cfg["readdir_getattr_parallel"].uint64_value();
     if (!readdir_getattr_parallel)
         readdir_getattr_parallel = 8;
+    if (!cfg["max_open_readdir"].is_null())
+    {
+        // allow 0 for tests
+        max_open_readdir = cfg["max_open_readdir"].uint64_value();
+    }
+    else
+        max_open_readdir = 1000;
     id_alloc_batch_size = cfg["id_alloc_batch_size"].uint64_value();
     if (!id_alloc_batch_size)
         id_alloc_batch_size = 200;

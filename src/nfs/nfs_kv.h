@@ -12,6 +12,11 @@
 
 struct nfs_kv_write_state;
 
+struct list_verf_t
+{
+    uint64_t dir_ino, cookieverf;
+};
+
 struct list_cookie_t
 {
     uint64_t dir_ino, cookieverf, cookie;
@@ -56,6 +61,7 @@ struct kv_fs_state_t
     uint64_t fs_kv_inode = 0;
     uint64_t fs_inode_count = 0;
     int readdir_getattr_parallel = 8, id_alloc_batch_size = 200;
+    uint64_t max_open_readdir = 1000;
     uint64_t pool_block_size = 0;
     uint64_t pool_alignment = 0;
     uint64_t shared_inode_threshold = 0;
@@ -69,6 +75,7 @@ struct kv_fs_state_t
     bool dry_run = false;
 
     std::map<list_cookie_t, list_cookie_val_t> list_cookies;
+    std::deque<list_cookie_t> active_lists;
     std::map<pool_id_t, kv_idgen_t> idgen;
     std::vector<shared_alloc_queue_t> allocating_shared;
     uint64_t cur_shared_inode = 0, cur_shared_offset = 0;
