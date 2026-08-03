@@ -21,8 +21,8 @@ add_executable(vitastor-disk
 	../blockstore/multilist.cpp
 )
 target_link_libraries(vitastor-disk
+	util
 	${LIBURING_LIBRARIES}
 	# for crc32_iscsi
 	${ISAL_LIBRARIES}
-	util
 )
