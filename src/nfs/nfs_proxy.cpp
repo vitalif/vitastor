@@ -9,7 +9,10 @@
 #include <netinet/tcp.h>
 #include <sys/epoll.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <unistd.h>
+#include <libgen.h>
 #include <fcntl.h>
 #include <signal.h>
 
@@ -63,7 +66,11 @@ static const char* help_text =
     "  Start local filesystem server and mount file system to <MOUNTPOINT>.\n"
     "  Use regular `umount <MOUNTPOINT>` to unmount the FS.\n"
     "  The server will be automatically stopped when the FS is unmounted.\n"
-    "  -o|--options <OPT>  Pass additional NFS mount options (ex.: -o async).\n"
+    "  -o|--options <OPT>\n"
+    "    Pass additional NFS mount options (ex.: -o async).\n"
+    "  --readahead <SIZE>\n"
+    "    Set Linux FS readahead to <SIZE>. Default is 128 KB, larger values\n"
+    "    increase sequential read speed (try --readahead 2M).\n"
     "\n"
     "vitastor-nfs (--fs <NAME> | --block) start\n"
     "  Start network NFS server. Options:\n"
@@ -208,6 +215,8 @@ void nfs_proxy_t::run(json11::Json cfg)
     server_id = (uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62);
     // Parse options
     mountpoint = cfg["mount"].string_value();
+    if (!cfg["readahead"].is_null())
+        readahead = parse_size(cfg["readahead"].string_value());
     if (cfg["logfile"].string_value() != "")
         logfile = cfg["logfile"].string_value();
     pidfile = cfg["pidfile"].string_value();
@@ -1341,6 +1350,8 @@ void nfs_proxy_t::mount_fs()
             fprintf(stderr, "Successfully mounted VitastorFS %s at %s\n", fsname.c_str(), mountpoint.c_str());
         else
             fprintf(stderr, "Successfully mounted Vitastor pseudo-FS at %s\n", mountpoint.c_str());
+        if (readahead != UINT64_MAX)
+            set_readahead();
         finished = false;
         exit_on_umount = true;
     }
@@ -1397,6 +1408,36 @@ void nfs_proxy_t::check_already_mounted()
             exit(1);
         }
     }
+}
+
+void nfs_proxy_t::set_readahead()
+{
+    std::string realpoint = realpath_str(mountpoint, false);
+    if (realpoint == "")
+    {
+        return;
+    }
+    struct stat mp_st;
+    if (stat(realpoint.c_str(), &mp_st) < 0)
+    {
+        fprintf(stderr, "Failed to set readahead: stat %s failed: %s (code %d)\n", realpoint.c_str(), strerror(errno), errno);
+        return;
+    }
+    char *parent = dirname((char*)realpoint.c_str());
+    struct stat parent_st;
+    if (stat(parent, &parent_st) < 0)
+    {
+        fprintf(stderr, "Failed to set readahead: stat %s failed: %s (code %d)\n", parent, strerror(errno), errno);
+        return;
+    }
+    if (mp_st.st_dev == parent_st.st_dev)
+    {
+        fprintf(stderr, "Failed to set readahead: %s is not a mountpoint\n", realpoint.c_str());
+        return;
+    }
+    std::string ra_cfg = "/sys/class/bdi/"+std::to_string(major(mp_st.st_dev))+
+        ":"+std::to_string(minor(mp_st.st_dev))+"/read_ahead_kb";
+    write_file(ra_cfg, std::to_string(readahead/1024));
 }
 
 void nfs_proxy_t::check_exit()

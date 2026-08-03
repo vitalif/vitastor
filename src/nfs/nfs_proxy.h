@@ -48,6 +48,7 @@ public:
     std::string pidfile;
     bool exit_on_umount = false;
     std::string mountpoint;
+    uint64_t readahead = UINT64_MAX;
     std::string mountopts;
     std::string fsname;
 
@@ -89,6 +90,7 @@ public:
     void write_pid();
     void mount_fs();
     void check_already_mounted();
+    void set_readahead();
     void check_exit();
 
     nfs_rdma_context_t* create_rdma(const std::string & bind_address, int rdmacm_port,

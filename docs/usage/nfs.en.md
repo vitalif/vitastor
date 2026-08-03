@@ -8,14 +8,25 @@
 
 Vitastor has two file system implementations. Both can be used via `vitastor-nfs`.
 
-Commands:
-- [mount](#mount)
-- [start](#start)
-- [upgrade](#upgrade)
-- [defrag](#defrag)
-
 ⚠️ Important: follow the instructions from [Linux NFS write size](#linux-nfs-write-size)
 for optimal Vitastor NFS performance if you use EC and HDD and mount your NFS from Linux.
+
+- [Pseudo-FS](#pseudo-fs)
+- [VitastorFS](#vitastorfs)
+  - [Supported POSIX features](#supported-posix-features)
+  - [Limitations](#limitations)
+- [Linux NFS](#linux-nfs)
+  - [Sync vs async safety](#sync-vs-async-safety)
+  - [Linux NFS readahead](#linux-nfs-readahead)
+  - [Linux NFS write size](#linux-nfs-write-size)
+  - [Horizontal scaling](#horizontal-scaling)
+- [RDMA](#rdma)
+- [Commands](#commands)
+  - [mount](#mount)
+  - [start](#start)
+  - [upgrade](#upgrade)
+  - [defrag](#defrag)
+- [Common options](#common-options)
 
 ## Pseudo-FS
 
@@ -105,7 +116,54 @@ Other notable missing features which should be addressed in the future:
   in the DB. The FS is implemented is such way that this garbage doesn't affect its
   function, but having a tool to clean it up still seems a right thing to do.
 
-## Linux NFS write size
+## Linux NFS
+
+Linux NFS client has some specific features of behaviour important for Vitastor:
+
+### Sync vs async safety
+
+Linux NFS has 2 options which affect the mount mode: **soft/hard** and **sync/async**.
+
+**⚠️ Warning: soft,async mode is dangerous and may lead to data loss!**
+
+How these options work:
+
+- In the **hard** mode all requests to the server are retried infinitely. If the NFS server becomes
+  unavailable, it becomes impossible to unmount the FS until you reboot the client host.
+- In the **soft** each request is only tried 2 times (default **retrans** option value for TCP connections).
+  In this case, unmounting a dead FS is possible.
+- In the **sync** mode all modification requests are sent to the server immediately. This is slower,
+  but allows the client to see all errors if they happen.
+- In the **async** mode, modification requests are accumulated and sent to the server in the background
+  mode in parallel. It is faster, but it can hide write errors from the client. Instead of receiving an
+  error from a write operation, the client will only get an error when he closes the file (unsuccessful
+  close() call). Another problem is that there's no convenient way to set write parallelism for NFS, so
+  the client can overload the server.
+
+That's exactly why **soft,async** is dangerous. When a large file is copied, the server is easily overwhelmed
+with write requests and starts to respond slowly. Write requests time out, soft mode retries them only 1 time
+and discards them, which results in parts of the file being lost.
+
+So to recap: always use either **soft,sync** mode, or **hard,async**. By default, `vitastor-nfs mount` uses
+**soft,sync** if mode options are not specified.
+
+### Linux NFS readahead
+
+By default, Linux uses rather small readahead value of 128 KB for NFS mounts.
+
+For simple reading/copuing of files it's way too low because it stops VitastorFS from
+using parallel reads.
+
+However, you can increase readahead - either with `vitastor-nfs mount --readahead <SIZE>`
+option (for example, `--readahead 2M`), or with the following command (here, `2048` is the
+desired readahead in KB, and `/mnt/nfs` is your FS mountpoint):
+
+`echo 2048 > /sys/class/bdi/$(findmnt -no MAJ:MIN /mnt/nfs 2>/dev/null | tr -d ' ')/read_ahead_kb`
+
+You can easily see 2x-3x linear read improvement after you increase the parameter, so we
+really urge you to try increasing it!
+
+### Linux NFS write size
 
 Linux NFS client (nfs/nfsv3/nfsv4 kernel modules) has a hard-coded maximum I/O size,
 currently set to 1 MB - see `rsize` and `wsize` in [man 5 nfs](https://linux.die.net/man/5/nfs).
@@ -161,7 +219,7 @@ modprobe nfsv3
 After these (not much complicated 🙂) manipulations NFS begins to be mounted
 with new wsize and rsize by default and it fixes Vitastor-NFS linear write performance.
 
-## Horizontal scaling
+### Horizontal scaling
 
 Linux NFS 3.0 client doesn't support built-in scaling or failover, i.e. you can't
 specify multiple server addresses when mounting the FS.
@@ -200,6 +258,7 @@ Use regular `umount <MOUNTPOINT>` to unmount the FS.
 The server will be automatically stopped when the FS is unmounted.
 
 - `-o|--options <OPT>` - Pass additional NFS mount options (ex.: -o async).
+- `--readahead <SIZE>` - Set Linux FS readahead to `<SIZE>`. Default is 128 KB, larger values increase sequential read speed (for example, try `--readahead 2M`).
 
 ### start
 
