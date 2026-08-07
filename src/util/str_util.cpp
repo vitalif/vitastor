@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <fcntl.h>
+#include <dirent.h>
 #include "str_util.h"
 
 std::string base64_encode(const std::string &in)
@@ -340,8 +341,7 @@ int write_file(const std::string & file, const std::string & data)
     int fd = open(file.c_str(), O_WRONLY|O_CREAT|O_TRUNC, 0666);
     if (fd < 0)
     {
-        fprintf(stderr, "Failed to write %s: %s (code %d)\n", file.c_str(), strerror(errno), errno);
-        return errno;
+        return -errno;
     }
     size_t done = 0;
     while (done < data.size())
@@ -351,9 +351,9 @@ int write_file(const std::string & file, const std::string & data)
         {
             if (errno != EINTR && errno != EAGAIN)
             {
-                fprintf(stderr, "Failed to write %s: %s (code %d)\n", file.c_str(), strerror(errno), errno);
+                int e = errno;
                 close(fd);
-                return errno;
+                return -e;
             }
             continue;
         }
@@ -361,6 +361,27 @@ int write_file(const std::string & file, const std::string & data)
     }
     close(fd);
     return 0;
+}
+
+std::pair<std::vector<std::string>, int> readdir_list(const std::string & dirname)
+{
+    std::vector<std::string> files;
+    DIR *dir = opendir(dirname.c_str());
+    if (!dir)
+    {
+        return std::make_pair(files, errno);
+    }
+    dirent *de = readdir(dir);
+    while (de)
+    {
+        if (strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0)
+        {
+            files.push_back(de->d_name);
+        }
+        de = readdir(dir);
+    }
+    closedir(dir);
+    return std::make_pair(files, 0);
 }
 
 std::string str_repeat(const std::string & str, int times)

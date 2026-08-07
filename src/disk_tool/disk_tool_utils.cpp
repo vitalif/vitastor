@@ -42,27 +42,6 @@ uint64_t get_atomic_write_size(const std::string & dev)
     return stoull_full(trim(read_file("/sys/block/"+parent_dev.substr(5)+"/queue/atomic_write_max_bytes")));
 }
 
-std::pair<std::vector<std::string>, int> readdir_list(const std::string & dirname)
-{
-    std::vector<std::string> files;
-    DIR *dir = opendir(dirname.c_str());
-    if (!dir)
-    {
-        return std::make_pair(files, errno);
-    }
-    dirent *de = readdir(dir);
-    while (de)
-    {
-        if (strcmp(de->d_name, ".") != 0 && strcmp(de->d_name, "..") != 0)
-        {
-            files.push_back(de->d_name);
-        }
-        de = readdir(dir);
-    }
-    closedir(dir);
-    return std::make_pair(files, 0);
-}
-
 // returns 1 = warning, -1 = error, 0 = success
 int disable_cache(const std::string & dev)
 {
@@ -98,8 +77,10 @@ int disable_cache(const std::string & dev)
     {
         return 1;
     }
-    if (cache_type != "write through" && write_file(scsi_disk, "write through") != 0)
+    int r;
+    if (cache_type != "write through" && (r = write_file(scsi_disk, "write through")) != 0)
     {
+        fprintf(stderr, "Failed to write to %s: %s (code %u)\n", scsi_disk.c_str(), strerror(-r), -r);
         return -1;
     }
     return 0;

@@ -1500,7 +1500,11 @@ void nfs_proxy_t::set_readahead()
     }
     std::string ra_cfg = "/sys/class/bdi/"+std::to_string(major(mp_st.st_dev))+
         ":"+std::to_string(minor(mp_st.st_dev))+"/read_ahead_kb";
-    write_file(ra_cfg, std::to_string(readahead/1024));
+    int r = write_file(ra_cfg, std::to_string(readahead/1024));
+    if (r != 0)
+    {
+        fprintf(stderr, "Failed to set readahead: %s (code %d)\n", strerror(-r), -r);
+    }
 }
 
 void nfs_proxy_t::check_exit()

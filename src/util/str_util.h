@@ -24,6 +24,7 @@ uint64_t parse_time(std::string time_str, bool *ok = NULL);
 std::string read_all_fd(int fd);
 std::string read_file(std::string file, bool allow_enoent = false);
 int write_file(const std::string & file, const std::string & data);
+std::pair<std::vector<std::string>, int> readdir_list(const std::string & dirname);
 std::string str_repeat(const std::string & str, int times);
 size_t utf8_length(const std::string & s);
 size_t utf8_length(const char *s);
