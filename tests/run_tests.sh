@@ -12,6 +12,8 @@ SCHEME=ec ./test_change_pg_count.sh
 
 ./test_change_pg_count_online.sh
 
+./test_change_pg_minsize.sh
+
 ./test_change_pg_size.sh
 
 ./test_create_nomaxid.sh

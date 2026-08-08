@@ -114,11 +114,11 @@ wait_condition()
     i=0
     while [[ $i -lt $sec ]]; do
         eval "$check" && break
+        i=$((i+1))
         if [ $i -eq $sec ]; then
             format_error "$proc couldn't finish in $sec seconds"
         fi
         sleep 1
-        i=$((i+1))
     done
 }
 

@@ -465,6 +465,14 @@ void osd_t::apply_pg_locks_localize_only()
             printf("[PG %u/%u] Repeer to enable PG locks\n", pg.pool_id, pg.pg_num);
             repeer_pg(pg);
         }
+        else if (pg.pg_minsize != pool_cfg.pg_minsize &&
+            (pg.state == PG_INCOMPLETE) != (pg.pg_cursize < pool_cfg.pg_minsize))
+        {
+            // Repeer PG with the new pg_minsize
+            printf("[PG %u/%u] Repeer to apply pg_minsize\n", pg.pool_id, pg.pg_num);
+            pg.pg_minsize = pool_cfg.pg_minsize;
+            repeer_pg(pg);
+        }
     }
 }
 
