@@ -2,9 +2,12 @@
 // License: VNPL-1.1 (see README.md for details)
 // Similar to qemu-nbd, but sets timeout and uses io_uring
 
-#include <cerrno>
-#include <cstdint>
-#include <cstdio>
+#include <thread>
+#include <mutex>
+
+#include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <linux/genetlink.h>
 #include <linux/nbd.h>
 #include <linux/netlink.h>
@@ -328,6 +331,9 @@ protected:
     int nbd_max_devices = 64;
     int nbd_max_part = 3;
     inode_watch_t *watch = NULL;
+    std::mutex new_size_mu;
+    bool changing_size = false;
+    std::unique_ptr<std::thread> change_thread;
 
     ring_loop_t *ringloop = NULL;
     epoll_manager_t *epmgr = NULL;
@@ -336,6 +342,7 @@ protected:
 
     std::vector<iovec> send_list, next_send_list;
     std::vector<void*> to_free;
+    int dev_num = -1;
     int nbd_fd = -1;
     void *recv_buf = NULL;
     int receive_buffer_size = 9000;
@@ -448,7 +455,7 @@ help:
     {
         char path[64] = { 0 };
         // Check if mapped
-        sprintf(path, "/sys/block/nbd%d/pid", dev_num);
+        snprintf(path, sizeof(path), "/sys/block/nbd%d/pid", dev_num);
         if (access(path, F_OK) != 0)
         {
             fprintf(stderr, "/dev/nbd%d is not mapped: /sys/block/nbd%d/pid does not exist\n", dev_num, dev_num);
@@ -456,7 +463,7 @@ help:
                 exit(1);
         }
         // Run unmap
-        sprintf(path, "/dev/nbd%d", dev_num);
+        snprintf(path, sizeof(path), "/dev/nbd%d", dev_num);
         int r, nbd = open(path, O_RDWR);
         if (nbd < 0)
         {
@@ -533,6 +540,7 @@ help:
                 fprintf(stderr, "Image %s does not exist\n", image_name.c_str());
                 exit(1);
             }
+            watch->callback = [this](inode_watch_t*) { on_change_watch(); };
         }
 
         // cli->config contains merged config
@@ -574,10 +582,9 @@ help:
         if (netlink)
         {
 #ifdef HAVE_NBD_NETLINK_H
-            int devnum = -1;
             if (!cfg["dev_num"].is_null())
             {
-                devnum = (int)cfg["dev_num"].uint64_value();
+                dev_num = (int)cfg["dev_num"].uint64_value();
             }
             uint64_t flags = NBD_FLAG_SEND_FLUSH;
             uint64_t cflags = 0;
@@ -595,15 +602,16 @@ help:
             {
                 daemonize_fork();
             }
-            int err = netlink_configure(sockfd + 1, 1, devnum, device_size, 4096, flags, cflags, nbd_timeout, nbd_conn_timeout, NULL, revive);
+            int err = netlink_configure(sockfd + 1, 1, dev_num, device_size, 4096, flags, cflags, nbd_timeout, nbd_conn_timeout, NULL, revive);
             if (err < 0)
             {
                 errno = (err == -NLE_BUSY ? EBUSY : EIO);
                 fprintf(stderr, "netlink_configure failed: %s (code %d)\n", nl_geterror(err), err);
                 exit(1);
             }
+            dev_num = err;
             close(sockfd[1]);
-            printf("/dev/nbd%d\n", err);
+            printf("/dev/nbd%d\n", dev_num);
             if (bg)
             {
                 daemonize_reopen_stdio();
@@ -621,6 +629,7 @@ help:
                 uint64_t flags = NBD_FLAG_SEND_FLUSH;
                 if (!cfg["readonly"].is_null())
                     flags |= NBD_FLAG_READ_ONLY;
+                dev_num = cfg["dev_num"].int64_value();
                 if ((r = run_nbd(sockfd, cfg["dev_num"].int64_value(), device_size, flags, nbd_timeout, bg)) != 0)
                 {
                     fprintf(stderr, "run_nbd: %s\n", strerror(-r));
@@ -643,6 +652,7 @@ help:
                     if (r == 0)
                     {
                         printf("/dev/nbd%d\n", i);
+                        dev_num = i;
                         break;
                     }
                     else if (r == -ENOENT)
@@ -698,12 +708,73 @@ help:
             ringloop->wait();
         }
         cli->flush();
+        if (change_thread)
+        {
+            change_thread->join();
+            change_thread.reset();
+        }
         delete cli;
         delete epmgr;
         delete ringloop;
         cli = NULL;
         epmgr = NULL;
         ringloop = NULL;
+    }
+
+    void on_change_watch()
+    {
+        new_size_mu.lock();
+        if (device_size != watch->cfg.size)
+        {
+            bool chg = changing_size;
+            device_size = watch->cfg.size;
+            changing_size = true;
+            new_size_mu.unlock();
+            if (!chg)
+            {
+                // NBD quiesces the device queue before changing device size, so we have
+                // to do ioctl in a separate thread to avoid blocking the main I/O handler
+                if (change_thread)
+                    change_thread->join();
+                change_thread = std::make_unique<std::thread>(&nbd_proxy::change_size, this);
+            }
+        }
+        else
+            new_size_mu.unlock();
+    }
+
+    void change_size()
+    {
+        uint64_t new_size = 0;
+        char path[64] = { 0 };
+        snprintf(path, sizeof(path), "/dev/nbd%d", dev_num);
+        int r, nbd = open(path, O_RDWR);
+        if (nbd < 0)
+        {
+            fprintf(stderr, "Failed to update device size: %s (code %u)\n", strerror(errno), errno);
+            return;
+        }
+        new_size_mu.lock();
+        new_size = device_size;
+        new_size_mu.unlock();
+        bool done = false;
+        while (!done)
+        {
+            r = ioctl(nbd, NBD_SET_SIZE, new_size);
+            if (r < 0)
+            {
+                fprintf(stderr, "Failed to update device size: %s (code %u)\n", strerror(errno), errno);
+            }
+            new_size_mu.lock();
+            if (new_size == device_size)
+            {
+                done = true;
+                changing_size = false;
+            }
+            new_size = device_size;
+            new_size_mu.unlock();
+        }
+        close(nbd);
     }
 
     void load_module()
@@ -769,10 +840,10 @@ help:
         while (true)
         {
             dev_num++;
-            sprintf(path, "/sys/block/nbd%d", dev_num);
+            snprintf(path, sizeof(path), "/sys/block/nbd%d", dev_num);
             if (access(path, F_OK) != 0)
                 break;
-            sprintf(path, "/sys/block/nbd%d/pid", dev_num);
+            snprintf(path, sizeof(path), "/sys/block/nbd%d/pid", dev_num);
             std::string pid_str = read_file(path);
             if (pid_str == "")
                 continue;
@@ -781,7 +852,7 @@ help:
                 printf("Failed to read pid from /sys/block/nbd%d/pid\n", dev_num);
                 continue;
             }
-            sprintf(path, "/proc/%d/cmdline", pid);
+            snprintf(path, sizeof(path), "/proc/%d/cmdline", pid);
             std::string cmdline = read_file(path);
             std::vector<const char*> argv;
             int last = 0;
@@ -896,7 +967,7 @@ protected:
                 daemonize_fork();
             }
             close(notifyfd[0]);
-            sprintf(path, "/dev/nbd%d", dev_num);
+            snprintf(path, sizeof(path), "/dev/nbd%d", dev_num);
             int r, nbd = open(path, O_RDWR), qd_fd;
             if (nbd < 0)
             {
@@ -928,7 +999,7 @@ protected:
                 }
             }
             // Configure request size
-            sprintf(path, "/sys/block/nbd%d/queue/max_sectors_kb", dev_num);
+            snprintf(path, sizeof(path), "/sys/block/nbd%d/queue/max_sectors_kb", dev_num);
             qd_fd = open(path, O_WRONLY);
             if (qd_fd < 0)
             {
