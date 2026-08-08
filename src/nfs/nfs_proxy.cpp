@@ -1498,9 +1498,10 @@ void nfs_proxy_t::set_readahead()
         fprintf(stderr, "Failed to set readahead: %s is not a mountpoint\n", realpoint.c_str());
         return;
     }
-    std::string ra_cfg = "/sys/class/bdi/"+std::to_string(major(mp_st.st_dev))+
-        ":"+std::to_string(minor(mp_st.st_dev))+"/read_ahead_kb";
-    int r = write_file(ra_cfg, std::to_string(readahead/1024));
+    std::string bdi = "/sys/class/bdi/"+std::to_string(major(mp_st.st_dev))+
+        ":"+std::to_string(minor(mp_st.st_dev));
+    system(("udevadm trigger --settle "+bdi).c_str());
+    int r = write_file(bdi+"/read_ahead_kb", std::to_string(readahead/1024));
     if (r != 0)
     {
         fprintf(stderr, "Failed to set readahead: %s (code %d)\n", strerror(-r), -r);
