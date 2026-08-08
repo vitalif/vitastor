@@ -405,6 +405,23 @@ void vitastor_c_watch_inode(vitastor_c *client, char *image, VitastorIOHandler c
     }
 }
 
+void vitastor_c_watch_image(vitastor_c *client, char *image, VitastorIOHandler cb, void *opaque)
+{
+    client->cli->on_ready([=]()
+    {
+        inode_watch_t *watch = client->cli->st_cli->watch_inode(std::string(image));
+        cb(opaque, (long)watch);
+        watch->callback = [cb, opaque](inode_watch_t *watch)
+        {
+            cb(opaque, (long)watch);
+        };
+    });
+    if (client->ringloop)
+    {
+        client->ringloop->loop();
+    }
+}
+
 void vitastor_c_close_watch(vitastor_c *client, void *handle)
 {
     client->cli->st_cli->close_watch((inode_watch_t*)handle);

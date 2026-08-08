@@ -67,6 +67,11 @@ void __attribute__((visibility("default"))) DSO_STAMP_FUN(void)
 #endif
 
 typedef struct VitastorFdData VitastorFdData;
+typedef struct VitastorRPC VitastorRPC;
+
+#if QEMU_VERSION_MAJOR >= 4 && defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 5
+#define VITASTOR_ONLINE_RESIZE
+#endif
 
 typedef struct VitastorClient
 {
@@ -75,6 +80,9 @@ typedef struct VitastorClient
     int auto_loop;
 
     void *watch;
+    VitastorRPC *open_task;
+    int bh_resize_scheduled;
+    int closing;
     char *config_path;
     char *etcd_host;
     char *etcd_prefix;
@@ -305,6 +313,88 @@ static void vitastor_schedule_uring_handler(VitastorClient *client)
 }
 #endif
 
+#ifdef VITASTOR_ONLINE_RESIZE
+// Notify the parents (i.e. the guest OS or, in case of qemu-storage-daemon with VDUSE,
+// the Linux kernel) that the size of the image has changed.
+// Runs in a coroutine because bdrv_co_parent_cb_resize() requires the graph read lock.
+static void coroutine_fn vitastor_co_resize(void *opaque)
+{
+    BlockDriverState *bs = (BlockDriverState*)opaque;
+    VitastorClient *client = bs->opaque;
+    bs->total_sectors = client->size / BDRV_SECTOR_SIZE;
+#if QEMU_VERSION_MAJOR > 10 || QEMU_VERSION_MAJOR == 10 && QEMU_VERSION_MINOR >= 2
+    {
+        GRAPH_RDLOCK_GUARD();
+        bdrv_co_parent_cb_resize(bs);
+    }
+#else
+    BdrvChild *c;
+#if QEMU_VERSION_MAJOR >= 9
+    assert_bdrv_graph_readable();
+#endif
+    QLIST_FOREACH(c, &bs->parents, next_parent) {
+#if QEMU_VERSION_MAJOR >= 6
+        if (c->klass->resize) {
+            c->klass->resize(c);
+        }
+#else
+        if (c->role->resize) {
+            c->role->resize(c);
+        }
+#endif
+    }
+#endif
+    bdrv_dec_in_flight(bs);
+}
+
+// B/H handler - runs in the AioContext of the BlockDriverState, without client->mutex held
+static void vitastor_size_changed_bh(void *opaque)
+{
+    BlockDriverState *bs = (BlockDriverState*)opaque;
+    VitastorClient *client = bs->opaque;
+    uint64_t new_size = 0;
+    qemu_mutex_lock(&client->mutex);
+    client->bh_resize_scheduled = 0;
+    if (client->watch)
+        new_size = vitastor_c_inode_get_size(client->watch);
+    qemu_mutex_unlock(&client->mutex);
+    if (!new_size || new_size == client->size)
+        return;
+    client->size = new_size;
+    bdrv_inc_in_flight(bs);
+    aio_co_enter(bdrv_get_aio_context(bs), qemu_coroutine_create(vitastor_co_resize, bs));
+}
+
+// Called by the Vitastor client with client->mutex held - both as the reply to
+// vitastor_c_watch_image() itself and every time the image is changed in etcd
+static void vitastor_watch_cb(void *opaque, long retval)
+{
+    BlockDriverState *bs = (BlockDriverState*)opaque;
+    VitastorClient *client = bs->opaque;
+    if (client->closing)
+        return;
+    client->watch = (void*)retval;
+    if (client->open_task)
+    {
+        // The first call is the reply to vitastor_c_watch_image() itself
+        VitastorRPC *task = client->open_task;
+        client->open_task = NULL;
+        vitastor_co_generic_cb(task, retval);
+    }
+    else if (!client->bh_resize_scheduled && client->size != vitastor_c_inode_get_size(client->watch))
+    {
+        // The image is resized - notify the guest, but do it in a B/H because
+        // we can't call into the block layer with client->mutex held
+        client->bh_resize_scheduled = 1;
+#if QEMU_VERSION_MAJOR > 4 || QEMU_VERSION_MAJOR == 4 && QEMU_VERSION_MINOR >= 2
+        replay_bh_schedule_oneshot_event(client->ctx, vitastor_size_changed_bh, bs);
+#else
+        aio_bh_schedule_oneshot(client->ctx, vitastor_size_changed_bh, bs);
+#endif
+    }
+}
+#endif
+
 static void coroutine_fn vitastor_co_get_metadata(VitastorRPC *task)
 {
     BlockDriverState *bs = task->bs;
@@ -312,7 +402,18 @@ static void coroutine_fn vitastor_co_get_metadata(VitastorRPC *task)
     task->co = qemu_coroutine_self();
 
     qemu_mutex_lock(&client->mutex);
-    vitastor_c_watch_inode(client->proxy, client->image, vitastor_co_generic_cb, task);
+    if (client->image)
+    {
+        // Watch the image to be able to follow online size changes
+        client->open_task = task;
+#ifdef VITASTOR_ONLINE_RESIZE
+        vitastor_c_watch_image(client->proxy, client->image, vitastor_watch_cb, bs);
+#else
+        vitastor_c_watch_inode(client->proxy, client->image, vitastor_co_generic_cb, task);
+#endif
+    }
+    else
+        vitastor_c_on_ready(client->proxy, vitastor_co_generic_cb, task);
     if (!client->auto_loop)
         vitastor_schedule_uring_handler(client);
     qemu_mutex_unlock(&client->mutex);
@@ -590,8 +691,6 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     image = client->image = g_strdup(qdict_get_try_str(options, "image"));
     client->readonly = (flags & BDRV_O_RDWR) ? 1 : 0;
     // Get image metadata (size and readonly flag) or just wait until the client is ready
-    if (!image)
-        client->image = (char*)"x";
     task.complete = 0;
     task.bs = bs;
     if (qemu_in_coroutine())
@@ -669,6 +768,17 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
 static void vitastor_close(BlockDriverState *bs)
 {
     VitastorClient *client = bs->opaque;
+#ifdef VITASTOR_ONLINE_RESIZE
+    // Prevent scheduling of new size change B/H and wait for the scheduled one
+    qemu_mutex_lock(&client->mutex);
+    client->closing = 1;
+    qemu_mutex_unlock(&client->mutex);
+    if (client->bh_resize_scheduled)
+    {
+        BDRV_POLL_WHILE(bs, client->bh_resize_scheduled);
+    }
+    client->watch = NULL;
+#endif
     if (client->uring_eventfd >= 0)
     {
         // clear the eventfd handler

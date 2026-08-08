@@ -7,7 +7,7 @@
 #define VITASTOR_QEMU_PROXY_H
 
 // C API wrapper version
-#define VITASTOR_C_API_VERSION 4
+#define VITASTOR_C_API_VERSION 5
 
 #ifndef POOL_ID_BITS
 #define POOL_ID_BITS 16
@@ -71,6 +71,7 @@ void vitastor_c_read_bitmap(vitastor_c *client, uint64_t inode, uint64_t offset,
     int with_parents, VitastorReadBitmapHandler cb, void *opaque);
 void vitastor_c_sync(vitastor_c *client, VitastorIOHandler cb, void *opaque);
 void vitastor_c_watch_inode(vitastor_c *client, char *image, VitastorIOHandler cb, void *opaque);
+void vitastor_c_watch_image(vitastor_c *client, char *image, VitastorIOHandler cb, void *opaque);
 void vitastor_c_close_watch(vitastor_c *client, void *handle);
 uint64_t vitastor_c_inode_get_size(void *handle);
 uint64_t vitastor_c_inode_get_num(void *handle);
