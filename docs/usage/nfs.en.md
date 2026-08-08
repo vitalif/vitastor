@@ -155,11 +155,14 @@ By default, Linux uses rather small readahead value of 128 KB for NFS mounts.
 For simple reading/copuing of files it's way too low because it stops VitastorFS from
 using parallel reads.
 
-However, you can increase readahead - either with `vitastor-nfs mount --readahead <SIZE>`
-option (for example, `--readahead 2M`), or with the following command (here, `2048` is the
-desired readahead in KB, and `/mnt/nfs` is your FS mountpoint):
+However, you can increase readahead. You have 3 options:
 
-`echo 2048 > /sys/class/bdi/$(findmnt -no MAJ:MIN /mnt/nfs 2>/dev/null | tr -d ' ')/read_ahead_kb`
+1. Use the built-in `vitastor-nfs mount --readahead <SIZE>` option (for example, `--readahead 2M`).
+2. Edit `[nfsrahead]` section in `/etc/nfs.conf` - add `nfs=2048` in it (global setting for all NFS 3.0 mounts).
+3. Manually with the following command: \
+   `echo 2048 > /sys/class/bdi/$(findmnt -no MAJ:MIN /mnt/nfs 2>/dev/null | tr -d ' ')/read_ahead_kb`
+
+Here, `2048` is the desired readahead in KB, and `/mnt/nfs` is your FS mountpoint.
 
 You can easily see 2x-3x linear read improvement after you increase the parameter, so we
 really urge you to try increasing it!
