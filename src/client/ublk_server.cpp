@@ -86,6 +86,7 @@ protected:
     epoll_manager_t *epmgr = NULL;
     cluster_client_t *cli = NULL;
     inode_watch_t *watch = NULL;
+    bool size_changed = false;
 
     std::string logfile = "/dev/null";
     std::string pidfile;
@@ -288,6 +289,7 @@ help:
                 fprintf(stderr, "Image %s does not exist\n", image_name.c_str());
                 exit(1);
             }
+            watch->callback = [this](inode_watch_t* watch) { on_change_watch(); };
         }
         const bool writeback = !cli->get_immediate_commit(inode ? inode : watch->cfg.num);
         auto pool_it = cli->st_cli->pool_config.find(INODE_POOL(inode ? inode : watch->cfg.num));
@@ -340,6 +342,8 @@ help:
         }
         consumer.loop = [this]()
         {
+            if (size_changed)
+                try_resize();
             submit_postponed();
         };
         ringloop->register_consumer(&consumer);
@@ -664,6 +668,34 @@ protected:
         }
     }
 
+    void on_change_watch()
+    {
+        if (device_size != watch->cfg.size)
+        {
+            device_size = watch->cfg.size;
+            size_changed = true;
+            ringloop->wakeup();
+        }
+    }
+
+    void try_resize()
+    {
+        io_uring_sqe *sqe = ublk_cmd(UBLK_U_CMD_UPDATE_SIZE, NULL, 0, 0, device_size / 512);
+        if (!sqe)
+        {
+            return;
+        }
+        size_changed = true;
+        ring_data_t* data = ((ring_data_t*)sqe->user_data);
+        data->callback = [this, size = device_size](ring_data_t *data)
+        {
+            if (data->res != 0)
+            {
+                fprintf(stderr, "Failed to update size of /dev/ublkb%d to %lu bytes: %s (code %d)\n", ublk_dev.dev_id, size, strerror(-data->res), data->res);
+            }
+        };
+    }
+
     void map_ublk_queue()
     {
         const unsigned page_sz = getpagesize();
@@ -745,8 +777,6 @@ protected:
             fprintf(stderr, "Failed to start ublk device: %s (code %d)\n", strerror(-res), res);
             exit(1);
         }
-        close(ctrl_fd);
-        ctrl_fd = -1;
     }
 
     bool submit_request(uint64_t ublk_cmd, int i, int res)
@@ -904,23 +934,12 @@ protected:
 
     int sync_ublk_cmd(uint32_t cmd_op, void *addr, uint32_t len, uint16_t dev_path_len = 0, uint64_t data0 = 0)
     {
-        io_uring_sqe *sqe = ringloop->get_sqe();
+        io_uring_sqe *sqe = ublk_cmd(cmd_op, addr, len, dev_path_len, data0);
         if (!sqe)
         {
             fprintf(stderr, "Error: io_uring is full when trying to execute a control command\n");
             exit(1);
         }
-        sqe->fd = ctrl_fd;
-        sqe->opcode = IORING_OP_URING_CMD;
-        sqe->ioprio = 0;
-        sqe->off = cmd_op;
-        ublksrv_ctrl_cmd *cmd = (ublksrv_ctrl_cmd *)&sqe->addr3; // sqe128 command buffer address
-        cmd->dev_id = ublk_dev.dev_id;
-        cmd->queue_id = -1;
-        cmd->addr = (uint64_t)addr;
-        cmd->len = len;
-        cmd->data[0] = data0;
-        cmd->dev_path_len = dev_path_len;
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
         bool done = false;
         int res = 0;
@@ -937,6 +956,27 @@ protected:
                 ringloop->wait();
         }
         return res;
+    }
+
+    io_uring_sqe *ublk_cmd(uint32_t cmd_op, void *addr, uint32_t len, uint16_t dev_path_len = 0, uint64_t data0 = 0)
+    {
+        io_uring_sqe *sqe = ringloop->get_sqe();
+        if (!sqe)
+        {
+            return NULL;
+        }
+        sqe->fd = ctrl_fd;
+        sqe->opcode = IORING_OP_URING_CMD;
+        sqe->ioprio = 0;
+        sqe->off = cmd_op;
+        ublksrv_ctrl_cmd *cmd = (ublksrv_ctrl_cmd *)&sqe->addr3; // sqe128 command buffer address
+        cmd->dev_id = ublk_dev.dev_id;
+        cmd->queue_id = -1;
+        cmd->addr = (uint64_t)addr;
+        cmd->len = len;
+        cmd->data[0] = data0;
+        cmd->dev_path_len = dev_path_len;
+        return sqe;
     }
 };
 

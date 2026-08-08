@@ -959,6 +959,8 @@ void etcd_state_client_t::insert_inode_config(const inode_config_t & cfg)
             if (w->name == cfg.name)
             {
                 w->cfg = cfg;
+                if (w->callback)
+                    w->callback(w);
             }
         }
     }

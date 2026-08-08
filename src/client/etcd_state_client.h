@@ -101,6 +101,7 @@ struct inode_watch_t
 {
     std::string name;
     inode_config_t cfg = {};
+    std::function<void(inode_watch_t*)> callback;
 };
 
 struct http_url_t
