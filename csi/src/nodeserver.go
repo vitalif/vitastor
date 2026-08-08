@@ -754,7 +754,7 @@ func (ns *NodeServer) mountNFS(ctxVars map[string]string) (string, error)
     // Mount NFS
     _, _, err = system(
         "mount", "-t", "nfs", "127.0.0.1:/", state.Path,
-        "-o", fmt.Sprintf("port=%d,mountport=%d,nfsvers=3,soft,nolock,tcp", port, port),
+        "-o", fmt.Sprintf("port=%d,mountport=%d,nfsvers=3,soft,sync,nolock,tcp", port, port),
     )
     if (err != nil)
     {

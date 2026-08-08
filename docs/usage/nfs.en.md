@@ -54,7 +54,7 @@ vitastor-nfs start --block --etcd_address 192.168.5.10:2379 --portmap 0 --port 2
 To mount the FS exported by this server, run:
 
 ```
-mount server:/ /mnt/ -o port=2050,mountport=2050,nfsvers=3,soft,nolock,tcp
+mount server:/ /mnt/ -o port=2050,mountport=2050,nfsvers=3,soft,sync,nolock,tcp
 ```
 
 ## VitastorFS
