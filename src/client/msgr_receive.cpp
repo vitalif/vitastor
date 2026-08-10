@@ -522,6 +522,8 @@ out_wakeup:
             }
             if (i < cl->recv_list.size())
             {
+                if (result > 0 && cl->read_csum_state && !(cl->recv_flags[i] & RDR_NO_CSUM))
+                    XXH3_64bits_update(cl->read_csum_state, cl->recv_list[i].iov_base, result);
                 cl->recv_list[i].iov_base += result;
                 cl->recv_list[i].iov_len -= result;
             }
@@ -531,7 +533,7 @@ out_wakeup:
             }
             cl->recv_list.erase(cl->recv_list.begin(), cl->recv_list.begin()+i);
             cl->recv_flags.erase(cl->recv_flags.begin(), cl->recv_flags.begin()+i);
-            if (!handle_finished_op(cl))
+            if (!cl->recv_list.size() && !handle_finished_op(cl))
             {
                 goto out_wakeup;
             }
