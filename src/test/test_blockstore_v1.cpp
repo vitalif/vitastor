@@ -391,6 +391,121 @@ static void test_validate_padded_journal()
     free(read_op.buf);
 }
 
+// Check that the flusher can pad a small write which covers only a part of a checksum
+// block when the rest of that checksum block is a hole in the clean object.
+// The flusher asks for the list of required reads without a buffer (read_buf = NULL),
+// so fill_partial_checksum_blocks() must not rebase NULL into a bogus pointer.
+static void test_flush_partial_csum_block_over_hole()
+{
+    printf("\n-- test_flush_partial_csum_block_over_hole\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["data_csum_type"] = "crc32c";
+    test.config["csum_block_size"] = "8192";
+    test.init();
+    printf("blockstore initialized\n");
+
+    // Clean version covering 0..8k only, so 8k..16k stays a hole in the clean bitmap
+    // while the checksum block 8k..16k gets partially overwritten below
+    printf("write v1 0+8k\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 8*1024;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xAA, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    test.force_compaction();
+
+    // Small write aligned at the beginning of checksum block 8k..16k, but not at its end,
+    // so the flusher has to pad it with old data - and the padding is a hole
+    printf("small_write v2 8+4k\n");
+    op.version = 2;
+    op.offset = 8*1024;
+    op.len = 4*1024;
+    memset(op.buf, 0xAB, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+    assert(test.flusher()->get_queue_size());
+
+    // Used to segfault in journal_flusher_co::scan_dirty()
+    test.force_compaction();
+
+    printf("read v2 0+128k\n");
+    blockstore_op_t read_op;
+    read_op.opcode = BS_OP_READ;
+    read_op.oid = { .inode = 1, .stripe = 0 };
+    read_op.version = UINT64_MAX;
+    read_op.offset = 0;
+    read_op.len = 128*1024;
+    read_op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, read_op.len);
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
+    assert(memcheck(read_op.buf, 0xAA, 8*1024));
+    assert(memcheck(read_op.buf + 8*1024, 0xAB, 4*1024));
+    assert(memcheck(read_op.buf + 12*1024, 0, (128-12)*1024));
+
+    free(op.buf);
+    free(read_op.buf);
+}
+
+// Check that a read which starts before the object's data zero-fills the correct
+// part of the read buffer. read_buf is already rebased by read_offset when the
+// zero-filling callback runs, so it must not be subtracted a second time.
+static void test_read_padded_big_write_at_offset()
+{
+    printf("\n-- test_read_padded_big_write_at_offset\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["data_csum_type"] = "crc32c";
+    test.config["csum_block_size"] = "8192";
+    test.init();
+    printf("blockstore initialized\n");
+
+    // The first write to a non-existent object is a big_write, so the object's data
+    // starts at 16k and 0..16k is a hole
+    printf("write v1 16+16k\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 16*1024;
+    op.len = 16*1024;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xAA, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Read 8k..24k. 8k..16k has to be zero-filled, 16k..24k has to be read from the disk.
+    // Keep 16k of slack in front of the buffer so that a misplaced zero-fill lands in the
+    // slack and fails the assertions below instead of corrupting the heap.
+    printf("read v1 8+16k\n");
+    uint8_t *read_base = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 32*1024);
+    blockstore_op_t read_op;
+    read_op.opcode = BS_OP_READ;
+    read_op.oid = { .inode = 1, .stripe = 0 };
+    read_op.version = UINT64_MAX;
+    read_op.offset = 8*1024;
+    read_op.len = 16*1024;
+    read_op.buf = read_base + 16*1024;
+    memset(read_base, 0xCC, 32*1024);
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
+    assert(memcheck((uint8_t*)read_op.buf, 0, 8*1024));
+    assert(memcheck((uint8_t*)read_op.buf + 8*1024, 0xAA, 8*1024));
+    // The slack in front of the buffer must be untouched
+    assert(memcheck(read_base, 0xCC, 16*1024));
+
+    free(op.buf);
+    free(read_base);
+}
+
 // Check that read is retried and temporary read buffers are freed correctly (LSAN)
 // TODO: Check retries in other configuration
 static void test_read_retry_on_ring_full_1M_csum4k_clean()
@@ -599,6 +714,8 @@ int main(int narg, char *args[])
 {
     test_preserve_corruption();
     test_validate_padded_journal();
+    test_flush_partial_csum_block_over_hole();
+    test_read_padded_big_write_at_offset();
     test_read_retry_on_ring_full_1M_csum4k_clean();
     test_read_free_clean_loc_used();
     test_meta_tail_reload();

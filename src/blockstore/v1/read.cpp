@@ -173,7 +173,8 @@ int blockstore_impl_t::fill_partial_checksum_blocks(std::vector<copy_buffer_t> &
     if (read_end == read_offset)
         return 0;
     int required = 0;
-    read_buf -= read_offset;
+    if (read_buf)
+        read_buf -= read_offset;
     uint32_t last_block = (read_end-1)/dsk.csum_block_size;
     uint32_t start_block = read_offset/dsk.csum_block_size;
     uint32_t item_start_block = item_start/dsk.csum_block_size;
@@ -189,7 +190,7 @@ int blockstore_impl_t::fill_partial_checksum_blocks(std::vector<copy_buffer_t> &
         };
         rv.insert(rv.begin() + pos, el);
         if (read_buf)
-            memset(read_buf + el.offset - read_offset, 0, el.len);
+            memset(read_buf + el.offset, 0, el.len);
         fulfilled += el.len;
         return 1;
     };
