@@ -279,7 +279,7 @@ bool blockstore_impl_t::read_range_fulfilled(std::vector<copy_buffer_t> & rv, ui
                     .offset = bmp_start*dsk.bitmap_granularity,
                     .len = (bmp_pos-bmp_start)*dsk.bitmap_granularity,
                 };
-                rv.insert(rv.begin() + pos, el);
+                rv.insert(rv.begin() + pos + diff, el);
                 if (read_buf)
                     memset(read_buf + el.offset, 0, el.len);
                 fulfilled += el.len;

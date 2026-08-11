@@ -506,6 +506,81 @@ static void test_read_padded_big_write_at_offset()
     free(read_base);
 }
 
+// Check that a clean object with several holes inside one checksum block is read correctly.
+// Such a read used to abort with assert(fulfilled == read_op->len) in dequeue_read():
+// read_range_fulfilled() inserted all zero-fill ranges of a single hole at the same position,
+// so read_vec ended up unsorted and the next find_holes() reported an already zero-filled
+// range as a hole again, adding its length to `fulfilled` for the second time
+static void test_read_sparse_clean_bitmap_multi_zero_runs()
+{
+    printf("\n-- test_read_sparse_clean_bitmap_multi_zero_runs\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["block_size"] = "131072";
+    test.config["data_csum_type"] = "crc32c";
+    // 8 bitmap granules per checksum block
+    test.config["csum_block_size"] = "32768";
+    test.init();
+    printf("blockstore initialized\n");
+
+    // The first write to a non-existent object is a big_write, so the bitmap built for the
+    // clean entry during compaction has granule 0 and granules 6..7 of checksum block 0
+    // clear and granules 1..5 set - that is, two separate zero runs inside one checksum block
+    printf("write v1 4+20k\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 4*1024;
+    op.len = 20*1024;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xAA, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // read_range_fulfilled() is only reached for clean objects - the journal path passes
+    // clean_entry_bitmap = NULL because journal writes don't have holes - so compact first
+    test.force_compaction();
+
+    // Read the whole checksum block: 0..4k and 24..32k are zero-filled from the bitmap,
+    // 4..24k is read from the disk.
+    // Keep 32k of slack in front of the buffer so that a misplaced zero-fill lands in the
+    // slack and fails the assertions below instead of corrupting the heap.
+    printf("read v1 0+32k\n");
+    uint8_t *read_base = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 64*1024);
+    memset(read_base, 0xCC, 64*1024);
+    blockstore_op_t read_op;
+    read_op.opcode = BS_OP_READ;
+    read_op.oid = { .inode = 1, .stripe = 0 };
+    read_op.version = UINT64_MAX;
+    read_op.offset = 0;
+    read_op.len = 32*1024;
+    read_op.buf = read_base + 32*1024;
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
+    assert(memcheck(read_op.buf, 0, 4*1024));
+    assert(memcheck(read_op.buf + 4*1024, 0xAA, 20*1024));
+    assert(memcheck(read_op.buf + 24*1024, 0, 8*1024));
+    // The slack in front of the buffer must be untouched
+    assert(memcheck(read_base, 0xCC, 32*1024));
+
+    // The same over the whole object - checksum blocks 1..3 are completely unallocated
+    printf("read v1 0+128k\n");
+    read_op.offset = 0;
+    read_op.len = 128*1024;
+    read_op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, read_op.len);
+    test.exec_op(&read_op);
+    assert(read_op.retval == read_op.len);
+    assert(memcheck(read_op.buf, 0, 4*1024));
+    assert(memcheck(read_op.buf + 4*1024, 0xAA, 20*1024));
+    assert(memcheck(read_op.buf + 24*1024, 0, (128-24)*1024));
+
+    free(read_op.buf);
+    free(read_base);
+    free(op.buf);
+}
+
 // Check that read is retried and temporary read buffers are freed correctly (LSAN)
 // TODO: Check retries in other configuration
 static void test_read_retry_on_ring_full_1M_csum4k_clean()
@@ -716,6 +791,7 @@ int main(int narg, char *args[])
     test_validate_padded_journal();
     test_flush_partial_csum_block_over_hole();
     test_read_padded_big_write_at_offset();
+    test_read_sparse_clean_bitmap_multi_zero_runs();
     test_read_retry_on_ring_full_1M_csum4k_clean();
     test_read_free_clean_loc_used();
     test_meta_tail_reload();
