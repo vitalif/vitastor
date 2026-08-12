@@ -55,8 +55,11 @@ static osd_op_t *make_write_op(inode_t inode, uint64_t offset, uint64_t len, uin
     op->req.rw.offset = offset;
     op->req.rw.len = len;
     op->req.rw.version = 0;
-    op->buf = malloc(len);
-    memset(op->buf, fill, len);
+    if (len > 0)
+    {
+        op->buf = malloc(len);
+        memset(op->buf, fill, len);
+    }
     return op;
 }
 

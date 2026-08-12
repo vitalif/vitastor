@@ -886,11 +886,14 @@ static void calc_rmw_parity_copy_mod(osd_rmw_stripe_t *stripes, int pg_size, int
                 (stripes[role].req_start != 0 || stripes[role].req_end != chunk_size))
             {
                 // Copy modified chunk into the read buffer to write it back
-                memcpy(
-                    (uint8_t*)stripes[role].read_buf + stripes[role].req_start,
-                    stripes[role].write_buf,
-                    stripes[role].req_end - stripes[role].req_start
-                );
+                if (stripes[role].req_end > stripes[role].req_start)
+                {
+                    memcpy(
+                        (uint8_t*)stripes[role].read_buf + stripes[role].req_start,
+                        stripes[role].write_buf,
+                        stripes[role].req_end - stripes[role].req_start
+                    );
+                }
                 stripes[role].write_buf = stripes[role].read_buf;
                 stripes[role].write_start = 0;
                 stripes[role].write_end = chunk_size;

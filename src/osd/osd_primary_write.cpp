@@ -166,11 +166,14 @@ resume_3:
         if (pg.cur_set.data() != op_data->prev_set && (op_data->stripes[0].write_start != 0 ||
             op_data->stripes[0].write_end != bs_block_size))
         {
-            memcpy(
-                (uint8_t*)op_data->stripes[0].read_buf + op_data->stripes[0].req_start,
-                op_data->stripes[0].write_buf,
-                op_data->stripes[0].req_end - op_data->stripes[0].req_start
-            );
+            if (op_data->stripes[0].req_end > op_data->stripes[0].req_start)
+            {
+                memcpy(
+                    (uint8_t*)op_data->stripes[0].read_buf + op_data->stripes[0].req_start,
+                    op_data->stripes[0].write_buf,
+                    op_data->stripes[0].req_end - op_data->stripes[0].req_start
+                );
+            }
             op_data->stripes[0].write_buf = op_data->stripes[0].read_buf;
             op_data->stripes[0].write_start = 0;
             op_data->stripes[0].write_end = bs_block_size;
