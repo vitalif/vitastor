@@ -63,14 +63,15 @@ void cluster_client_t::list_inode(inode_t inode, uint64_t min_offset, uint64_t m
 {
     init_msgr();
     pool_id_t pool_id = INODE_POOL(inode);
-    if (!pool_id || st_cli->pool_config.find(pool_id) == st_cli->pool_config.end())
+    auto pool_it = st_cli->pool_config.find(pool_id);
+    if (!pool_id || pool_it == st_cli->pool_config.end())
     {
         if (log_level > 0)
             fprintf(stderr, "Pool %u does not exist\n", pool_id);
         pg_callback(-EINVAL, 0, 0, std::set<object_id>());
         return;
     }
-    auto pg_stripe_size = st_cli->pool_config.at(pool_id).pg_stripe_size;
+    auto pg_stripe_size = pool_it->second.pg_stripe_size;
     if (min_offset)
         min_offset = (min_offset/pg_stripe_size) * pg_stripe_size;
     inode_list_t *lst = new inode_list_t();
@@ -248,7 +249,12 @@ void cluster_client_t::set_list_retry_timeout(int ms, timespec new_time)
 
 int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
 {
-    auto & pool_cfg = st_cli->pool_config.at(pg->lst->pool_id);
+    auto pool_it = st_cli->pool_config.find(pg->lst->pool_id);
+    if (pool_it == st_cli->pool_config.end())
+    {
+        return LIST_PG_WAIT_ACTIVE;
+    }
+    auto & pool_cfg = pool_it->second;
     auto pg_it = pool_cfg.pg_config.find(pg->pg_num);
     assert(pg->lst->real_pg_count == pool_cfg.real_pg_count);
     if (pg_it == pool_cfg.pg_config.end() ||

@@ -87,6 +87,34 @@ int *test_write(cluster_client_t *cli, uint64_t offset, uint64_t len, uint8_t c,
     return r;
 }
 
+int *test_read(cluster_client_t *cli, uint64_t offset, uint64_t len, std::function<void()> cb = NULL)
+{
+    printf("Post read %jx+%jx\n", offset, len);
+    int *r = new int;
+    *r = -1000;
+    cluster_op_t *op = new cluster_op_t();
+    op->opcode = OSD_OP_READ;
+    op->inode = 0x1000000000001;
+    op->offset = offset;
+    op->len = len;
+    op->iov.push_back(malloc_or_die(len), len);
+    op->callback = [r, cb](cluster_op_t *op)
+    {
+        if (*r == -1000)
+            printf("Error: Not allowed to complete yet\n");
+        assert(*r != -1000);
+        assert(op->retval == op->len || op->retval < 0);
+        *r = op->retval == op->len ? 1 : op->retval;
+        free(op->iov.buf[0].iov_base);
+        printf("Done read %jx+%jx r=%d\n", op->offset, op->len, op->retval);
+        delete op;
+        if (cb != NULL)
+            cb();
+    };
+    cli->execute(op);
+    return r;
+}
+
 int *test_sync(cluster_client_t *cli)
 {
     printf("Post sync\n");
@@ -1039,6 +1067,59 @@ void cluster_client_test_t::test_vault()
     printf("[ok] basic vault key fetch test\n");
 }
 
+void test_pg_config_disappears()
+{
+    json11::Json config;
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
+
+    configure_single_pg_pool(mock);
+    mock->resume();
+    int *r1 = test_write(cli, 0, 4096, 0x55);
+
+    // A bad guy removes /pg/config. Client shouldn't crash but should return EINVAL.
+    can_complete(r1);
+    mock->set("/vitastor/pg/config", json11::Json::object {
+        { "items", json11::Json::object { } }
+    });
+    assert(*r1 == -EINVAL);
+    delete r1;
+
+    delete cli;
+    delete tfd;
+    printf("[ok] test_pg_config_disappears\n");
+}
+
+void test_snapshot_over_nonexistent_pool()
+{
+    json11::Json config;
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
+
+    configure_single_pg_pool(mock);
+    mock->set("/vitastor/config/inode/1/1", json11::Json::object {
+        { "name", "parent" },
+        { "parent_id", 1 },
+        { "parent_pool", 2 },
+    });
+    mock->resume();
+    pretend_connected(cli, 1);
+    int *r1 = test_read(cli, 0, 4096);
+    check_op_count(cli, 1, 1);
+    can_complete(r1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_READ, 0, 4096), 0);
+    assert(*r1 == -EINVAL);
+    delete r1;
+
+    delete cli;
+    delete tfd;
+    printf("[ok] test_snapshot_over_nonexistent_pool\n");
+}
+
 int main(int narg, char *args[])
 {
     test1();
@@ -1050,5 +1131,7 @@ int main(int narg, char *args[])
     test_msgr_encrypt();
     test_msgr_decrypt_chain();
     cluster_client_test_t::test_vault();
+    test_pg_config_disappears();
+    test_snapshot_over_nonexistent_pool();
     return 0;
 }

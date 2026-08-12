@@ -883,7 +883,13 @@ void cluster_client_t::execute_cas(cluster_op_t *op, bool nosync)
         execute_internal(sync_op);
         return;
     }
-    slice_rw(op);
+    if (!slice_rw(op))
+    {
+        op->retval = -EINVAL;
+        auto cb = std::move(op->callback);
+        cb(op);
+        return;
+    }
     op->needs_reslice = false;
     int res = try_send(op, 0, [this, op](osd_op_t *part)
     {
@@ -1086,7 +1092,12 @@ int cluster_client_t::continue_rw(cluster_op_t *op)
         goto resume_2;
 resume_0:
     // Slice the operation into parts
-    slice_rw(op);
+    if (!slice_rw(op))
+    {
+        op->retval = -EINVAL;
+        erase_op(op);
+        return 1;
+    }
     op->needs_reslice = false;
 resume_1:
     // Send unsent parts, if they're not subject to change
@@ -1220,8 +1231,16 @@ resume_2:
         op->retval = op->len;
         if (op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP)
         {
-            auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(op->inode));
-            op->retval = op->len / pool_cfg.bitmap_granularity;
+            auto pool_it = st_cli->pool_config.find(INODE_POOL(op->inode));
+            if (pool_it == st_cli->pool_config.end())
+            {
+                op->retval = -EINVAL;
+            }
+            else
+            {
+                auto & pool_cfg = pool_it->second;
+                op->retval = op->len / pool_cfg.bitmap_granularity;
+            }
         }
         if (op->flush_id)
         {
@@ -1296,11 +1315,17 @@ static void add_iov(int size, int skip, cluster_op_t *op, int &iov_idx, size_t &
     }
 }
 
-void cluster_client_t::slice_rw(cluster_op_t *op)
+bool cluster_client_t::slice_rw(cluster_op_t *op)
 {
     // Slice the request into individual object stripe requests
     // Primary OSDs still operate individual stripes, but their size is multiplied by PG minsize in case of EC
-    auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(op->cur_inode));
+    auto pool_it = st_cli->pool_config.find(INODE_POOL(op->cur_inode));
+    if (pool_it == st_cli->pool_config.end() ||
+        !pool_it->second.real_pg_count)
+    {
+        return false;
+    }
+    auto & pool_cfg = pool_it->second;
     uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
     uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
     uint64_t first_stripe = (op->offset / pg_block_size) * pg_block_size;
@@ -1395,6 +1420,7 @@ void cluster_client_t::slice_rw(cluster_op_t *op)
         op->parts[i].osd_num = 0;
         i++;
     }
+    return true;
 }
 
 bool cluster_client_t::affects_pg(uint64_t inode, uint64_t offset, uint64_t len, pool_id_t pool_id, pg_num_t pg_num)
@@ -1403,7 +1429,12 @@ bool cluster_client_t::affects_pg(uint64_t inode, uint64_t offset, uint64_t len,
     {
         return false;
     }
-    auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(inode));
+    auto pool_it = st_cli->pool_config.find(INODE_POOL(inode));
+    if (pool_it == st_cli->pool_config.end())
+    {
+        return false;
+    }
+    auto & pool_cfg = pool_it->second;
     uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
     uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
     uint64_t first_stripe = (offset / pg_block_size) * pg_block_size;
@@ -1422,7 +1453,12 @@ bool cluster_client_t::affects_pg(uint64_t inode, uint64_t offset, uint64_t len,
 
 bool cluster_client_t::affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd)
 {
-    auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(inode));
+    auto pool_it = st_cli->pool_config.find(INODE_POOL(inode));
+    if (pool_it == st_cli->pool_config.end())
+    {
+        return false;
+    }
+    auto & pool_cfg = pool_it->second;
     uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
     uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
     uint64_t first_stripe = (offset / pg_block_size) * pg_block_size;
@@ -1446,7 +1482,12 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
         init_msgr();
     }
     auto part = &op->parts[i];
-    auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(op->cur_inode));
+    auto pool_it = st_cli->pool_config.find(INODE_POOL(op->cur_inode));
+    if (pool_it == st_cli->pool_config.end())
+    {
+        return TRY_SEND_OFFLINE;
+    }
+    auto & pool_cfg = pool_it->second;
     auto pg_it = pool_cfg.pg_config.find(part->pg_num);
     if (pg_it != pool_cfg.pg_config.end() &&
         !pg_it->second.pause && pg_it->second.cur_primary &&
@@ -1708,7 +1749,12 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
 void cluster_client_t::copy_part_bitmap(cluster_op_t *op, cluster_op_part_t *part)
 {
     // Copy (OR) bitmap
-    auto & pool_cfg = st_cli->pool_config.at(INODE_POOL(op->cur_inode));
+    auto pool_it = st_cli->pool_config.find(INODE_POOL(op->cur_inode));
+    if (pool_it == st_cli->pool_config.end())
+    {
+        return;
+    }
+    auto & pool_cfg = pool_it->second;
     uint32_t pg_block_size = pool_cfg.data_block_size * (
         pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks
     );

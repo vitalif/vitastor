@@ -226,7 +226,7 @@ protected:
     void unshift_op(cluster_op_t *op);
     int continue_rw(cluster_op_t *op);
     bool check_rw(cluster_op_t *op);
-    void slice_rw(cluster_op_t *op);
+    bool slice_rw(cluster_op_t *op);
     void reset_retry_timer(int new_duration);
     int try_send(cluster_op_t *op, int i, std::function<void(osd_op_t *op_part)> cb = nullptr);
     int continue_sync(cluster_op_t *op);
