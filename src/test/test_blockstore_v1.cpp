@@ -727,7 +727,7 @@ static void test_read_free_clean_loc_used()
     test.force_compaction();
 
     // Check that the old location is still not freed
-    printf("checking that data location 0x%lx is still used\n", read_loc);
+    printf("checking that data location 0x%jx is still used\n", read_loc);
     assert(test.is_data_loc_used(read_loc));
     printf("completing read\n");
     test.ringloop->mark_completed(data_read);
@@ -735,7 +735,7 @@ static void test_read_free_clean_loc_used()
     while (!done_read)
         test.ringloop->loop();
     read_op.callback = NULL;
-    printf("checking that data location 0x%lx is freed\n", read_loc);
+    printf("checking that data location 0x%jx is freed\n", read_loc);
     assert(!test.is_data_loc_used(read_loc));
 
     assert(read_op.retval == read_op.len);

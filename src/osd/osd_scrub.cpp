@@ -36,7 +36,7 @@ void osd_t::scrub_list(pool_pg_num_t pg_id, osd_num_t role_osd, object_id min_oi
             scrub_list_op = NULL;
             if (op->bs_op->retval < 0)
             {
-                printf("Local OP_LIST failed: retval=%d\n", op->bs_op->retval);
+                printf("Local OP_LIST failed: retval=%jd\n", op->bs_op->retval);
                 force_stop(1);
                 return;
             }

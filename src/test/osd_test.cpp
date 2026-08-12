@@ -1970,7 +1970,6 @@ void test_ec42_inconsistent_read()
     use_ec(6, 4, false);
     memcpy(chunks.data() + 4*chunk_size, (uint8_t*)rmw_buf + 0*chunk_size, chunk_size);
     memcpy(chunks.data() + 5*chunk_size, (uint8_t*)rmw_buf + 1*chunk_size, chunk_size);
-    printf("XXXXX %02x %02x\n", chunks[4*chunk_size], chunks[5*chunk_size]);
     free(rmw_buf);
 
     // Scrub sees one missing data role and one bad survivor. The other four

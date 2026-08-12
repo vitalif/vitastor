@@ -54,7 +54,7 @@ int main(int narg, char *args[])
                 {
                     if (data->res != write_size)
                     {
-                        fprintf(stderr, "Error writing at offset %lu: %s (code %d)\n", offset, strerror(-data->res), -data->res);
+                        fprintf(stderr, "Error writing at offset %ju: %s (code %d)\n", offset, strerror(-data->res), -data->res);
                         exit(1);
                     }
                     inflight--;

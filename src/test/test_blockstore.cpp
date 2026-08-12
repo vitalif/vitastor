@@ -142,7 +142,7 @@ struct bs_test_t
         bool done = false;
         op->callback = [&](blockstore_op_t *op)
         {
-            printf("op opcode=%lu completed retval=%d\n", op->opcode, op->retval);
+            printf("op opcode=%ju completed retval=%jd\n", op->opcode, op->retval);
             done = true;
         };
         bs->enqueue_op(op);

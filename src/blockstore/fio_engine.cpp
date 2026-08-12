@@ -262,7 +262,7 @@ static enum fio_q_status _bs_queue(struct thread_data *td, struct io_u *io, bool
             bsd->inflight--;
             bsd->completed.push_back(io);
             if (bsd->trace)
-                printf("--- OP_READ %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
+                printf("--- OP_READ %zx n=%d retval=%jd\n", (size_t)op, n, op->retval);
             delete op;
         };
         break;
@@ -283,7 +283,7 @@ static enum fio_q_status _bs_queue(struct thread_data *td, struct io_u *io, bool
             {
                 bs_data *bsd = ((bs_data*)((thread_data*)io->engine_data)->io_ops_data);
                 if (bsd->trace)
-                    printf("--- OP_WRITE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
+                    printf("--- OP_WRITE %zx n=%d retval=%jd\n", (size_t)op, n, op->retval);
                 if (op->retval < 0)
                 {
                     io->error = op->retval < 0 ? -op->retval : 0;
@@ -305,7 +305,7 @@ static enum fio_q_status _bs_queue(struct thread_data *td, struct io_u *io, bool
                     {
                         bs_data *bsd = ((bs_data*)((thread_data*)io->engine_data)->io_ops_data);
                         if (bsd->trace)
-                            printf("--- OP_STABLE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
+                            printf("--- OP_STABLE %zx n=%d retval=%jd\n", (size_t)op, n, op->retval);
                         io->error = op->retval < 0 ? -op->retval : 0;
                         bsd->inflight--;
                         bsd->completed.push_back(io);
@@ -323,7 +323,7 @@ static enum fio_q_status _bs_queue(struct thread_data *td, struct io_u *io, bool
             {
                 bs_data *bsd = ((bs_data*)((thread_data*)io->engine_data)->io_ops_data);
                 if (bsd->trace)
-                    printf("--- OP_WRITE_STABLE %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
+                    printf("--- OP_WRITE_STABLE %zx n=%d retval=%jd\n", (size_t)op, n, op->retval);
                 io->error = op->retval < 0 ? -op->retval : 0;
                 bsd->inflight--;
                 bsd->completed.push_back(io);
@@ -342,7 +342,7 @@ static enum fio_q_status _bs_queue(struct thread_data *td, struct io_u *io, bool
             bsd->completed.push_back(io);
             bsd->inflight--;
             if (bsd->trace)
-                printf("--- OP_SYNC %zx n=%d retval=%d\n", (size_t)op, n, op->retval);
+                printf("--- OP_SYNC %zx n=%d retval=%jd\n", (size_t)op, n, op->retval);
             delete op;
         };
         bsd->last_sync = true;

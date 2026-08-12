@@ -166,7 +166,7 @@ struct __attribute__ ((visibility("default"))) blockstore_op_t
     };
     uint8_t *buf = NULL;
     uint8_t *bitmap = NULL;
-    int retval = 0;
+    int64_t retval = 0;
 
     uint8_t private_data[BS_OP_PRIVATE_DATA_SIZE];
 };
