@@ -633,8 +633,9 @@ int blockstore_heap_t::mark_used_blocks()
                     li = NULL;
                 }
                 bool overwritten = false;
-                for (; li; li = li->prev, wr = &li->entry)
+                for (; li; li = li->prev)
                 {
+                    auto wr = &li->entry;
                     if (overwritten)
                     {
                         wr->set_garbage();
