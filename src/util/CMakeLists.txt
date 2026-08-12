@@ -32,6 +32,16 @@ endif (RDMACM_LIBRARIES)
 target_compile_options(util PUBLIC -fPIC)
 target_link_libraries(util
 	${LIBURING_LIBRARIES}
+	${OPENSSL_LIBRARIES}
+)
+
+# libcrc32c.a to isolate the isa-l dependency
+add_library(crc32c STATIC
+	crc32c.c
+)
+target_compile_options(crc32c PUBLIC -fPIC)
+target_link_libraries(crc32c
+	${ISAL_LIBRARIES}
 )
 
 # test_rdma_alloc

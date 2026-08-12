@@ -22,7 +22,5 @@ add_executable(vitastor-disk
 )
 target_link_libraries(vitastor-disk
 	util
-	${LIBURING_LIBRARIES}
-	# for crc32_iscsi
-	${ISAL_LIBRARIES}
+	crc32c
 )

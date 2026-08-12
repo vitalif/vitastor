@@ -12,6 +12,7 @@ add_library(vitastor_blk STATIC
 target_compile_options(vitastor_blk PUBLIC -fPIC)
 target_link_libraries(vitastor_blk
 	util
+	crc32c
 )
 set_target_properties(vitastor_blk PROPERTIES VERSION ${VITASTOR_VERSION} SOVERSION 0)
 
