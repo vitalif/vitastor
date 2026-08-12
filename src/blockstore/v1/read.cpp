@@ -197,13 +197,13 @@ int blockstore_impl_t::fill_partial_checksum_blocks(std::vector<copy_buffer_t> &
     if (read_offset < item_start)
     {
         // Zero-fill the beginning
-        find_holes(rv, read_offset, item_start, zero_range);
+        find_holes(rv, read_offset, item_start < read_end ? item_start : read_end, zero_range);
         read_offset = item_start;
     }
     if (read_end > item_end)
     {
         // Zero-fill the end
-        find_holes(rv, item_end, read_end, zero_range);
+        find_holes(rv, read_offset < item_end ? item_end : read_offset, read_end, zero_range);
         read_end = item_end;
     }
     while (start_block <= last_block)
