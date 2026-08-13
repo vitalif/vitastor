@@ -49,7 +49,6 @@ struct dd_in_info_t
 
     void open_input(cli_tool_t *parent)
     {
-        in_seekable = true;
         if (iimg != "")
         {
             iwatch = parent->cli->st_cli->watch_inode(iimg);
@@ -73,8 +72,10 @@ struct dd_in_info_t
             {
                 in_size = iwatch->cfg.size;
             }
+            in_seekable = true;
+            return;
         }
-        else if (ifile != "")
+        if (ifile != "")
         {
             ifd = open(ifile.c_str(), (in_direct ? O_DIRECT : 0) | O_RDONLY);
             if (ifd < 0)
@@ -82,48 +83,45 @@ struct dd_in_info_t
                 result = (cli_result_t){ .err = errno, .text = "Failed to open "+ifile+": "+std::string(strerror(errno)) };
                 return;
             }
-            if (detect_size)
-            {
-                struct stat st;
-                if (fstat(ifd, &st) < 0)
-                {
-                    result = (cli_result_t){ .err = errno, .text = "Failed to stat "+ifile+": "+std::string(strerror(errno)) };
-                    close(ifd);
-                    ifd = -1;
-                    return;
-                }
-                if (S_ISREG(st.st_mode))
-                {
-                    in_size = st.st_size;
-                }
-                else if (S_ISBLK(st.st_mode))
-                {
-                    if (ioctl(ifd, BLKGETSIZE64, &in_size) < 0)
-                    {
-                        result = (cli_result_t){ .err = errno, .text = "Failed to get "+ifile+" size: "+std::string(strerror(errno)) };
-                        close(ifd);
-                        ifd = -1;
-                        return;
-                    }
-                }
-            }
             if (in_direct)
             {
                 in_granularity = 512;
-            }
-            if (lseek(ifd, 1, SEEK_SET) != (off_t)1)
-            {
-                in_seekable = false;
-            }
-            else
-            {
-                lseek(ifd, 0, SEEK_SET);
             }
         }
         else
         {
             ifd = 0;
-            in_seekable = false;
+        }
+        if (detect_size)
+        {
+            struct stat st;
+            if (fstat(ifd, &st) < 0)
+            {
+                result = (cli_result_t){ .err = errno, .text = "Failed to stat "+ifile+": "+std::string(strerror(errno)) };
+                close(ifd);
+                ifd = -1;
+                return;
+            }
+            if (S_ISREG(st.st_mode))
+            {
+                in_size = st.st_size;
+            }
+            else if (S_ISBLK(st.st_mode))
+            {
+                if (ioctl(ifd, BLKGETSIZE64, &in_size) < 0)
+                {
+                    result = (cli_result_t){ .err = errno, .text = "Failed to get "+ifile+" size: "+std::string(strerror(errno)) };
+                    close(ifd);
+                    ifd = -1;
+                    return;
+                }
+            }
+        }
+        in_seekable = false;
+        if (lseek(ifd, 1, SEEK_SET) == (off_t)1)
+        {
+            in_seekable = true;
+            lseek(ifd, 0, SEEK_SET);
         }
     }
 
@@ -286,8 +284,9 @@ resume_2:
                 state = base_state+1;
                 return false;
             }
+            return true;
         }
-        else if (ofile != "")
+        if (ofile != "")
         {
             ofd = open(ofile.c_str(), (out_direct ? O_DIRECT : 0) | (out_append ? O_APPEND : O_RDWR) | (out_create ? O_CREAT : 0), 0666);
             if (ofd < 0)
@@ -304,12 +303,16 @@ resume_2:
             {
                 out_granularity = 512;
             }
-            out_seekable = !out_append;
         }
         else
         {
             ofd = 1;
-            out_seekable = false;
+        }
+        out_seekable = false;
+        if (!out_append && lseek(ofd, 1, SEEK_SET) == (off_t)1)
+        {
+            out_seekable = true;
+            lseek(ofd, 0, SEEK_SET);
         }
         return true;
     }

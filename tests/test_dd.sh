@@ -16,5 +16,12 @@ $VITASTOR_CLI snap-create testimg@snap1
 $VITASTOR_CLI dd iodepth=4 if=./testdata/over oimg=testimg bs=1M seek=17
 $VITASTOR_CLI dd iodepth=4 iimg=testimg of=./testdata/testfile1
 diff ./testdata/testfile ./testdata/testfile1
+rm ./testdata/testfile1
+
+# copy image using dd
+$VITASTOR_CLI dd iimg=testimg iodepth=4 bs=1M count=128 | $VITASTOR_CLI dd oimg=testimg2 iodepth=4 bs=1M count=128
+$VITASTOR_CLI dd iimg=testimg2 iodepth=4 bs=1M count=128 > ./testdata/testfile1
+diff ./testdata/testfile ./testdata/testfile1
+rm ./testdata/testfile1
 
 format_green OK
