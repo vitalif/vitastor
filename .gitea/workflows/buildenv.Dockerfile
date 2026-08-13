@@ -23,7 +23,7 @@ RUN apt-get update
 RUN apt-get -y install etcd qemu-system-x86 qemu-block-extra qemu-utils fio libasan8 \
     libgoogle-perftools-dev devscripts libjerasure-dev cmake libibverbs-dev libisal-dev
 RUN apt-get -y build-dep fio qemu=`dpkg -s qemu-system-x86|grep ^Version:|awk '{print $2}'`
-RUN apt-get update && apt-get -y install jq lp-solve sudo nfs-common fdisk parted libc-ares-dev udev
+RUN apt-get update && apt-get -y install jq lp-solve sudo nfs-common fdisk parted libc-ares-dev udev iproute2
 RUN apt-get --download-only source fio qemu=`dpkg -s qemu-system-x86|grep ^Version:|awk '{print $2}'`
 
 RUN set -ex; \
