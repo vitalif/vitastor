@@ -1396,6 +1396,78 @@ static void test_compact_big_intent_survives_crash()
     free(buf);
 }
 
+static void test_read_merge_exact_partial_blocks()
+{
+    printf("\n-- test_read_merge_exact_partial_blocks\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["csum_block_size"] = "32768";
+    test.config["perfect_csum_update"] = "0";
+    test.config["inmemory_journal"] = "0";
+    test.init();
+
+    // 1. Initial big write to make the object exist
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    memset(op.buf, 0x11, 128*1024);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    // Flush to make it stable
+    test.bs->flusher->request_trim();
+    while (test.bs->heap->get_compact_queue_size() || test.bs->flusher->is_active())
+        test.ringloop->loop();
+    test.bs->flusher->release_trim();
+
+    // 2. Intent write: 16KB ~ 64KB
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_WRITE_STABLE;
+    op2.oid = { .inode = 1, .stripe = 0 };
+    op2.version = 2;
+    op2.offset = 16384;
+    op2.len = 49152;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 49152);
+    memset(op2.buf, 0x22, 49152);
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+
+    // 3. Read 28KB ~ 36KB
+    int read_count = 0;
+    test.sqe_handler = [&](io_uring_sqe *sqe) {
+        if (sqe->fd == MOCK_DATA_FD) {
+            // Only count reads that fall within our expected disk range (or just any read)
+            if (sqe->opcode == IORING_OP_READV || sqe->opcode == IORING_OP_READ) {
+                read_count++;
+            }
+        }
+        return false;
+    };
+
+    blockstore_op_t op3;
+    op3.opcode = BS_OP_READ;
+    op3.oid = { .inode = 1, .stripe = 0 };
+    op3.version = UINT64_MAX;
+    op3.offset = 28672;
+    op3.len = 8192;
+    op3.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 8192);
+    test.exec_op(&op3);
+    assert(op3.retval == op3.len);
+
+    // Verify exactly 1 read IO was issued
+    assert(read_count == 1);
+
+    test.sqe_handler = nullptr;
+    free(op.buf);
+    free(op2.buf);
+    free(op3.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_simple();
@@ -1418,5 +1490,6 @@ int main(int narg, char *args[])
     test_write_no_space_eagain();
     test_write_stays_in_same_meta_block();
     test_compact_big_intent_survives_crash();
+    test_read_merge_exact_partial_blocks();
     return 0;
 }

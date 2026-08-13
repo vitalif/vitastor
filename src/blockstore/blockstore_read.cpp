@@ -258,7 +258,7 @@ uint32_t blockstore_impl_t::prepare_read_simple(std::vector<copy_buffer_t> & rea
                 blk_end = blk_end > wr->small().offset+wr->small().len ? wr->small().offset+wr->small().len : blk_end;
             }
             if ((blk_end-1)/dsk.csum_block_size == blk_start/dsk.csum_block_size ||
-                blk_end/dsk.csum_block_size == blk_start/dsk.csum_block_size+1 && blk_end != end && blk_start != start ||
+                (blk_end-1)/dsk.csum_block_size == blk_start/dsk.csum_block_size+1 && blk_end != end && blk_start != start ||
                 blk_end == end && blk_start == start)
             {
                 // single block, exactly two partial blocks, or any number of full blocks
