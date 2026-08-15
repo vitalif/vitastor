@@ -737,10 +737,7 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
                 assert(rc->send_done_pos < rc->send_out_size);
                 while (osd_op_t *op = cl->send_free_ops.front())
                 {
-                    if (!((size_t)op & 7))
-                        delete op;
-                    else
-                        free((void*)((size_t)op & ~(size_t)7));
+                    post_send_free(op);
                     cl->send_free_ops.pop_front();
                 }
                 cl->send_free_ops.pop_front();

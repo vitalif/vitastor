@@ -43,6 +43,16 @@ void osd_op_t::cancel()
     }
 }
 
+void osd_messenger_t::post_send_free(osd_op_t *op)
+{
+    if (!op)
+        return;
+    else if (!((size_t)op & 7))
+        delete op;
+    else
+        free((void*)((size_t)op & ~(size_t)7));
+}
+
 // force_delete means stop the client anyway, even if there are refs to it in the event loop.
 // the flag should be used in the destructor.
 // why? - because yes, we could close the FD first and let it fail all requests in the event loop,
@@ -200,23 +210,11 @@ osd_client_t::~osd_client_t()
     cancel_ops();
     for (osd_op_t *op: send_free_ops)
     {
-        if (op)
-        {
-            if (!((size_t)op & 7))
-                delete op;
-            else
-                free((void*)((size_t)op & ~(size_t)7));
-        }
+        osd_messenger_t::post_send_free(op);
     }
     for (osd_op_t *op: zc_free_list)
     {
-        if (op)
-        {
-            if (!((size_t)op & 7))
-                delete op;
-            else
-                free((void*)((size_t)op & ~(size_t)7));
-        }
+        osd_messenger_t::post_send_free(op);
     }
     if (read_csum_state)
     {

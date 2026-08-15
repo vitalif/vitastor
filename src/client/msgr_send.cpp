@@ -704,12 +704,7 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
             // Second notification - only free a batch of postponed ops
             int i = 0;
             for (; i < cl->zc_free_list.size() && cl->zc_free_list[i]; i++)
-            {
-                if (!((size_t)cl->zc_free_list[i] & 7))
-                    delete cl->zc_free_list[i];
-                else
-                    free((void*)((size_t)cl->zc_free_list[i] & ~(size_t)7));
-            }
+                post_send_free(cl->zc_free_list[i]);
             if (i > 0)
                 cl->zc_free_list.erase(cl->zc_free_list.begin(), cl->zc_free_list.begin()+i+1);
             return;
@@ -725,10 +720,8 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
         {
             if (more)
                 cl->zc_free_list.push_back(op);
-            else if (!((size_t)op & 7))
-                delete op;
             else
-                free((void*)((size_t)op & ~(size_t)7));
+                post_send_free(op);
         }
         if (more)
             cl->zc_free_list.push_back(NULL); // end marker

@@ -206,6 +206,7 @@ protected:
     friend class copy_op_writer_t;
     friend class gcm_op_writer_t;
     friend class get_op_writer_t;
+    friend class osd_client_t;
 
     int keepalive_timer_id = -1;
 
@@ -343,6 +344,7 @@ protected:
 
     bool try_send(osd_client_t *cl);
     void handle_send(int result, bool prev, bool more, osd_client_t *cl);
+    static void post_send_free(osd_op_t *op);
     bool op_write_to(osd_client_t *cl, msgr_op_writer_t & wr);
     void next_write_op(osd_client_t *cl);
     bool op_write_buf(osd_client_t *cl, uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_len, bool skip_csum, size_t & from, size_t & done);
