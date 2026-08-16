@@ -70,6 +70,7 @@ struct blockstore_journal_check_t
     uint64_t next_pos, next_sector, next_in_pos;
     int sectors_to_write, first_sector;
     bool right_dir; // writing to the end or the beginning of the ring buffer
+    bool give_up;
 
     blockstore_journal_check_t(blockstore_impl_t *bs);
     int check_available(blockstore_op_t *op, int required, int size, int data_after);

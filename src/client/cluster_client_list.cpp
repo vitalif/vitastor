@@ -370,8 +370,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
             fprintf(stderr, "Failed to get PG %u/%u object list from OSD %ju (retval=%jd), skipping\n",
                 cur_list->pg->lst->pool_id, cur_list->pg->pg_num, cur_list->osd_num, op->reply.hdr.retval);
             if (!cur_list->pg->errcode ||
-                cur_list->pg->errcode == -EPIPE ||
-                op->reply.hdr.retval != -EPIPE)
+                ERR_PRIO(op->reply.hdr.retval) > ERR_PRIO(cur_list->pg->errcode))
             {
                 cur_list->pg->errcode = op->reply.hdr.retval;
             }
@@ -434,7 +433,7 @@ void cluster_client_t::finish_list_pg(inode_list_pg_t *pg, bool retry_epipe)
     auto lst = pg->lst;
     if (pg->inflight_ops == 0)
     {
-        if (pg->errcode == -EPIPE && retry_epipe)
+        if ((pg->errcode == -EPIPE || pg->errcode == -EAGAIN) && retry_epipe)
         {
             // Retry listing after <client_retry_interval> ms on EPIPE
             pg->state = LIST_PG_WAIT_RETRY;

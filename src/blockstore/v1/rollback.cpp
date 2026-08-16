@@ -63,6 +63,12 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
     blockstore_journal_check_t space_check(this);
     if (!space_check.check_available(op, op->len, sizeof(journal_entry_rollback), 0))
     {
+        if (space_check.give_up)
+        {
+            op->retval = -EAGAIN;
+            FINISH_OP(op);
+            return 2;
+        }
         return 0;
     }
     // There is sufficient space. Check SQEs
@@ -162,7 +168,10 @@ void blockstore_impl_t::mark_rolled_back(const obj_ver_id & ov)
             if (unstab_it != unstable_writes.end())
             {
                 if (max_unstable == 0)
+                {
                     unstable_writes.erase(unstab_it);
+                    wakeup_wait_journal();
+                }
                 else
                     unstab_it->second = max_unstable;
             }

@@ -258,9 +258,21 @@ resume_4:
         return;
     }
 resume_5:
+    if (!(pg.state & PG_ACTIVE))
+    {
+        if (op_data->subops)
+        {
+            delete[] op_data->subops;
+            op_data->subops = NULL;
+        }
+        pg.ver_override.erase(op_data->oid);
+        deref_object_state(pg, &op_data->object_state, true);
+        pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
+        return;
+    }
     if (op_data->errors > 0)
     {
-        // Handle ENOSPC/EDOM/ERANGE/EIO. If some subops fail, but others succeed,
+        // Handle ENOSPC/EAGAIN/EDOM/ERANGE/EIO. If some subops fail, but others succeed,
         // next writes to the same object will also fail because they'll try
         // to overwrite the same version number which will result in EEXIST.
         // To fix it, we should mark the object as degraded for replicas,
@@ -269,6 +281,11 @@ resume_5:
         {
             if (pg.scheme != POOL_SCHEME_REPLICATED)
             {
+                if (op_data->subops)
+                {
+                    delete[] op_data->subops;
+                    op_data->subops = NULL;
+                }
                 submit_primary_rollback_subops(cur_op, pg.cur_set.data());
 resume_11:
                 if (op_data->n_subops > 0)
@@ -277,21 +294,17 @@ resume_11:
                     return;
                 }
 resume_12:
+                if (op_data->unstable_writes)
+                {
+                    delete[] op_data->unstable_writes;
+                    op_data->unstable_writes = NULL;
+                }
                 // Ignore ROLLBACK errors - submit_primary_subops will drop the connection if it fails
-                delete[] op_data->unstable_writes;
-                op_data->unstable_writes = NULL;
             }
             else
             {
                 pg.ver_override.erase(op_data->oid);
                 mark_partial_write(pg, cur_op);
-                if (op_data->subops)
-                {
-                    delete[] op_data->subops;
-                    op_data->subops = NULL;
-                }
-                pg_cancel_write_queue(pg, cur_op, op_data->oid, op_data->errcode);
-                return;
             }
         }
         if (op_data->subops)
@@ -303,13 +316,6 @@ resume_12:
         deref_object_state(pg, &op_data->object_state, true);
         cur_op->reply.hdr.retval = op_data->errcode;
         goto continue_others;
-    }
-    if (!(pg.state & PG_ACTIVE))
-    {
-        pg.ver_override.erase(op_data->oid);
-        deref_object_state(pg, &op_data->object_state, true);
-        pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
-        return;
     }
     if (pg.scheme != POOL_SCHEME_REPLICATED)
     {

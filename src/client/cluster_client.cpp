@@ -1250,9 +1250,11 @@ resume_2:
         return 1;
     }
     else if (op->retval != 0 && op->opcode != OSD_OP_SYNC && !(op->flags & OP_FLUSH_BUFFER) &&
-        op->retval != -EPIPE && (op->retval != -EIO || !client_eio_retry_interval) && (op->retval != -ENOSPC || !client_retry_enospc))
+        op->retval != -EPIPE && op->retval != -EAGAIN &&
+        (op->retval != -EIO || !client_eio_retry_interval) &&
+        (op->retval != -ENOSPC || !client_retry_enospc))
     {
-        // Fatal error (neither -EPIPE, -EIO nor -ENOSPC)
+        // Fatal error (neither -EPIPE, -EAGAIN, -EIO nor -ENOSPC)
         erase_op(op);
         return 1;
     }
@@ -1611,7 +1613,7 @@ resume_1:
     if (op->retval != 0)
     {
         wb->fsync_error();
-        if (op->retval == -EPIPE || op->retval == -EIO || op->retval == -ENOSPC)
+        if (op->retval == -EPIPE || op->retval == -EAGAIN || op->retval == -EIO || op->retval == -ENOSPC)
         {
             // Retry later
             op->parts.clear();
@@ -1662,9 +1664,6 @@ static inline void mem_or(void *res, const void *r2, unsigned int len)
     }
 }
 
-// Error priority: others > EPERM > EIO > ENOSPC > ETIMEDOUT > EPIPE
-#define ERR_PRIO(e) (((e) == -EPERM ? 5 : ((e) == -EIO ? 4 : ((e) == -ENOSPC ? 3 : ((e) == -ETIMEDOUT ? 2 : ((e) == -EPIPE ? 1 : (!(e) ? 0 : 10)))))))
-
 void cluster_client_t::handle_op_part(cluster_op_part_t *part)
 {
     cluster_op_t *op = part->parent;
@@ -1676,7 +1675,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         if (ERR_PRIO(part->op.reply.hdr.retval) > ERR_PRIO(op->retval))
             op->retval = part->op.reply.hdr.retval;
         uint64_t stop_client_id = 0;
-        if (op->retval != -EINTR && op->retval != -EIO && op->retval != -ENOSPC && op->retval != -EPERM)
+        if (op->retval != -EINTR && op->retval != -EIO && op->retval != -ENOSPC && op->retval != -EPERM && op->retval != -EAGAIN)
         {
             stop_client_id = part->op.client_id;
             if (op->retval != -EPIPE || log_level > 0)
@@ -1698,11 +1697,11 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         // So do all these things after modifying operation state, otherwise we may hit reenterability bugs
         // FIXME postpone such things to set_immediate here to avoid bugs
         // Set op->retry_after to retry operation after a short pause (not immediately)
-        if (!op->retry_after && (op->retval == -EPIPE ||
+        if (!op->retry_after && (op->retval == -EPIPE || op->retval == -EAGAIN ||
             op->retval == -EIO && client_eio_retry_interval ||
             op->retval == -ENOSPC && client_retry_enospc))
         {
-            op->retry_after = op->retval != -EPIPE ? client_eio_retry_interval : client_retry_interval;
+            op->retry_after = op->retval != -EPIPE && op->retval != -EAGAIN ? client_eio_retry_interval : client_retry_interval;
         }
         reset_retry_timer(op->retry_after);
         if (stop_client_id)

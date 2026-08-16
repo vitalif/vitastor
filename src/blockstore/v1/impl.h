@@ -93,7 +93,7 @@ struct blockstore_op_private_t
 {
     // Wait status
     int wait_for;
-    uint64_t wait_detail, wait_detail2;
+    uint64_t wait_detail;
     int pending_ops;
     int op_state;
 
@@ -215,6 +215,8 @@ class blockstore_impl_t: public blockstore_i
     blockstore_init_meta* metadata_init_reader;
     blockstore_init_journal* journal_init_reader;
 
+    uint64_t wait_journal_counter = 0;
+    void wakeup_wait_journal();
     void check_wait(blockstore_op_t *op);
     void init_op(blockstore_op_t *op);
 

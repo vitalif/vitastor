@@ -209,10 +209,6 @@ void blockstore_impl_t::loop()
                     // ring is full, stop submission
                     break;
                 }
-                else if (PRIV(op)->wait_for == WAIT_JOURNAL)
-                {
-                    PRIV(op)->wait_detail2 = (unstable_writes.size()+unstable_unsynced);
-                }
             }
         }
         if (op_idx != new_idx)
@@ -277,6 +273,12 @@ bool blockstore_impl_t::is_safe_to_stop()
     return true;
 }
 
+void blockstore_impl_t::wakeup_wait_journal()
+{
+    wait_journal_counter++;
+    ringloop->wakeup();
+}
+
 void blockstore_impl_t::check_wait(blockstore_op_t *op)
 {
     if (PRIV(op)->wait_for == WAIT_SQE)
@@ -293,12 +295,11 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
     else if (PRIV(op)->wait_for == WAIT_JOURNAL)
     {
-        if (journal.used_start == PRIV(op)->wait_detail &&
-            (unstable_writes.size()+unstable_unsynced) == PRIV(op)->wait_detail2)
+        if (wait_journal_counter == PRIV(op)->wait_detail)
         {
             // do not submit
 #ifdef BLOCKSTORE_DEBUG
-            printf("Still waiting to flush journal offset %08jx\n", PRIV(op)->wait_detail);
+            printf("Still waiting for flush journal counter %ju\n", PRIV(op)->wait_detail);
 #endif
             return;
         }

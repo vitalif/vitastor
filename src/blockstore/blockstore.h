@@ -77,8 +77,11 @@ Output:
 - retval = number of bytes actually read/written or negative error number
   -EINVAL = invalid input parameters
   -ENOENT = requested object/version does not exist for reads
+  -EEXIST = requested version to write already exists
   -ENOSPC = no space left in the store for writes
-  -EDOM = checksum error.
+  -EAGAIN = temporary failure, operation should be retried (notably, writes may be retried
+    after stabilizing some journaled entries and freeing up journal space)
+  -EDOM = checksum error
 - version = the version actually read or written
 
 ## BS_OP_DELETE
@@ -90,7 +93,7 @@ Input:
 - version = requested version. Treated the same as with BS_OP_WRITE
 
 Output:
-- retval = 0 or negative error number (-EINVAL)
+- retval = 0 or negative error number (-EINVAL, -EAGAIN)
 - version = the version actually written (delete is initially written as an object version)
 
 ## BS_OP_SYNC
@@ -99,7 +102,7 @@ Make sure all previously issued modifications reach physical media.
 
 Input: Nothing except opcode
 Output:
-- retval = 0 or negative error number (-EINVAL)
+- retval = 0 or negative error number (-EINVAL, -EAGAIN)
 
 ## BS_OP_STABLE / BS_OP_ROLLBACK
 
@@ -129,7 +132,9 @@ Input:
 - max_oid = max inode/stripe or 0 to list all objects
 
 Output:
-- retval = total obj_ver_id count
+- retval = total obj_ver_id count or negative error number
+  -ENOMEM = could not allocate memory for the listing
+  -EAGAIN = pool sharding settings are incorrect, please reshard and retry
 - version = stable obj_ver_id count
 - buf = obj_ver_id array allocated by the blockstore. Stable versions come first.
   You must free it yourself after usage with free().

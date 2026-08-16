@@ -94,6 +94,7 @@ public:
 class journal_flusher_t
 {
     int trim_wanted = 0;
+    bool trim_possible = false;
     bool dequeuing = false;
     int min_flusher_count = 0, max_flusher_count = 0, cur_flusher_count = 0, target_flusher_count = 0;
     int flusher_start_threshold = 0;
@@ -117,12 +118,14 @@ class journal_flusher_t
 
     bool try_find_older(std::map<obj_ver_id, dirty_entry>::iterator & dirty_end, obj_ver_id & cur);
     bool try_find_other(std::map<obj_ver_id, dirty_entry>::iterator & dirty_end, obj_ver_id & cur);
+    bool may_advance_except_one();
 
 public:
     journal_flusher_t(blockstore_impl_t *bs);
     ~journal_flusher_t();
     void loop();
     bool is_trim_wanted() { return trim_wanted; }
+    bool may_advance();
     bool is_active();
     size_t get_queue_size();
     void mark_trim_possible();

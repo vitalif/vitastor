@@ -15,6 +15,7 @@ blockstore_journal_check_t::blockstore_journal_check_t(blockstore_impl_t *bs)
     first_sector = -1;
     next_in_pos = bs->journal.in_sector_pos;
     right_dir = next_pos >= bs->journal.used_start;
+    give_up = false;
 }
 
 // Check if we can write <required> entries of <size> bytes and <data_after> data bytes after them to the journal
@@ -119,13 +120,20 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
         if (bs->log_level > 5)
         {
             printf(
-                "Ran out of journal space (used_start=%08jx, next_free=%08jx, dirty_start=%08jx)\n",
-                bs->journal.used_start, bs->journal.next_free, bs->journal.dirty_start
+                "Ran out of journal space (used_start=%08jx, next_free=%08jx, dirty_start=%08jx, queued %zu)\n",
+                bs->journal.used_start, bs->journal.next_free, bs->journal.dirty_start, bs->flusher->get_queue_size()
             );
         }
-        PRIV(op)->wait_for = WAIT_JOURNAL;
-        bs->flusher->request_trim();
-        PRIV(op)->wait_detail = bs->journal.used_start;
+        if (!bs->flusher->may_advance())
+        {
+            give_up = true;
+        }
+        else
+        {
+            PRIV(op)->wait_for = WAIT_JOURNAL;
+            PRIV(op)->wait_detail = bs->wait_journal_counter;
+            bs->flusher->request_trim();
+        }
         return 0;
     }
     return 1;

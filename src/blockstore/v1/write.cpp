@@ -317,6 +317,11 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             sizeof(journal_entry_big_write) + dsk.clean_dyn_size,
             (unstable_writes.size()+unstable_unsynced+((dirty_it->second.state & BS_ST_INSTANT) ? 0 : 1))*journal.block_size))
         {
+            if (space_check.give_up)
+            {
+                cancel_all_writes(op, dirty_it, -EAGAIN);
+                return 2;
+            }
             return 0;
         }
         // Big (redirect) write
@@ -409,6 +414,11 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 sizeof(journal_entry_small_write) + dyn_size,
                 op->len + (unstable_writes.size()+unstable_unsynced+((dirty_it->second.state & BS_ST_INSTANT) ? 0 : 1))*journal.block_size))
         {
+            if (space_check.give_up)
+            {
+                cancel_all_writes(op, dirty_it, -EAGAIN);
+                return 2;
+            }
             return 0;
         }
         // There is sufficient space. Check SQE(s)
@@ -564,6 +574,25 @@ resume_2:
         if (!space_check.check_available(op, 1, sizeof(journal_entry_big_write) + dyn_size,
             (unstable_writes.size()+unstable_unsynced+((dirty_it->second.state & BS_ST_INSTANT) ? 0 : 1))*journal.block_size))
         {
+            if (space_check.give_up)
+            {
+                auto uo_it = used_clean_objects.find(dirty_it->second.location);
+                if (uo_it != used_clean_objects.end())
+                    uo_it->second.was_freed = true;
+                else
+                    data_alloc->set(dirty_it->second.location / dsk.data_block_size, false);
+                if (!(dirty_it->second.state & BS_ST_INSTANT))
+                {
+                    unstable_unsynced--;
+                    assert(unstable_unsynced >= 0);
+                    wakeup_wait_journal();
+                }
+                if (immediate_commit != IMMEDIATE_ALL)
+                    unsynced_big_write_count--;
+                write_iodepth--;
+                cancel_all_writes(op, dirty_it, -EAGAIN);
+                return 2;
+            }
             return 0;
         }
         BS_SUBMIT_CHECK_SQES(1);
@@ -627,6 +656,7 @@ resume_4:
             {
                 unstable_unsynced--;
                 assert(unstable_unsynced >= 0);
+                wakeup_wait_journal();
             }
         }
         dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK)
@@ -779,6 +809,11 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     blockstore_journal_check_t space_check(this);
     if (!space_check.check_available(op, 1, sizeof(journal_entry_del), (unstable_writes.size()+unstable_unsynced)*journal.block_size))
     {
+        if (space_check.give_up)
+        {
+            cancel_all_writes(op, dirty_it, -EAGAIN);
+            return 2;
+        }
         return 0;
     }
     // Write current journal sector only if it's dirty and full, or in the immediate_commit mode

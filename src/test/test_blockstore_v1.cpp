@@ -883,6 +883,75 @@ static void test_meta_tail_reload()
     printf("blockstore re-initialized with an overflowing entry\n");
 }
 
+static void test_write_no_space_eagain()
+{
+    printf("\n-- test_write_no_space_eagain\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // 1 MB journal (data_offset 32 MB - journal_offset), so it fills in a few hundred writes
+    test.config["journal_offset"] = std::to_string(31*1024*1024);
+    test.init();
+    printf("blockstore initialized\n");
+
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    memset(buf, 0xAA, 4096);
+
+    // fill the journal with unstable writes
+    int i = 0, blocked_retval = 0;
+    auto do_write = [&]()
+    {
+        blockstore_op_t op;
+        op.opcode = BS_OP_WRITE;
+        op.oid = { .inode = 1, .stripe = (uint64_t)(i % 4) * 0x20000 };
+        op.version = 1 + i / 4;
+        op.offset = 0;
+        op.len = 4096;
+        op.buf = buf;
+        test.exec_op(&op);
+        if (op.retval != (int)op.len)
+            blocked_retval = op.retval;
+    };
+    for (i = 0; i < 100000 && !blocked_retval; i++)
+        do_write();
+    printf("write #%d refused with retval=%d\n", i, blocked_retval);
+    assert(blocked_retval == -EAGAIN);
+
+    // check that a stabilize operation and one more write can proceed
+    // journal space_check is simplified so it requires slightly more space than actually needed
+    {
+        blockstore_op_t op;
+        op.opcode = BS_OP_STABLE;
+        op.len = 4;
+        op.buf = (uint8_t*)malloc_or_die(4 * sizeof(obj_ver_id));
+        ((obj_ver_id*)op.buf)[0] = {
+            .oid = { .inode = 1, .stripe = 0 },
+            .version = 2,
+        };
+        ((obj_ver_id*)op.buf)[1] = {
+            .oid = { .inode = 1, .stripe = 0x20000 },
+            .version = 2,
+        };
+        ((obj_ver_id*)op.buf)[2] = {
+            .oid = { .inode = 1, .stripe = 0x40000 },
+            .version = 1,
+        };
+        ((obj_ver_id*)op.buf)[3] = {
+            .oid = { .inode = 1, .stripe = 0x60000 },
+            .version = 1,
+        };
+        test.exec_op(&op);
+        assert(op.retval == 0);
+        free(op.buf);
+    }
+
+    blocked_retval = 0;
+    do_write();
+    assert(!blocked_retval);
+
+    free(buf);
+}
+
 // Check null dereference in read_bitmap over DELETE
 static void test_read_bitmap_of_deleted_object()
 {
@@ -1290,6 +1359,7 @@ int main(int narg, char *args[])
     test_read_retry_on_ring_full_1M_csum4k_clean();
     test_read_free_clean_loc_used();
     test_meta_tail_reload();
+    test_write_no_space_eagain();
     test_read_bitmap_of_deleted_object();
     test_used_blocks_replay_stable_over_small_write();
     test_used_blocks_replay_delete_over_unstable_big_write();

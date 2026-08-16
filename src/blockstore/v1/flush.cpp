@@ -75,6 +75,16 @@ size_t journal_flusher_t::get_queue_size()
     return flush_queue.size();
 }
 
+bool journal_flusher_t::may_advance()
+{
+    return flush_queue.size() || active_flushers > 0 || trim_possible;
+}
+
+bool journal_flusher_t::may_advance_except_one()
+{
+    return flush_queue.size() || active_flushers > 1 || trim_possible;
+}
+
 void journal_flusher_t::loop()
 {
     target_flusher_count = bs->write_iodepth*2;
@@ -189,6 +199,7 @@ void journal_flusher_t::request_trim()
 
 void journal_flusher_t::mark_trim_possible()
 {
+    trim_possible = true;
     if (trim_wanted > 0)
     {
         dequeuing = true;
@@ -651,9 +662,10 @@ resume_2:
         flusher->sync_to_repeat.erase(repeat_it);
     trim_journal:
         // Clear unused part of the journal every <journal_trim_interval> flushes
-        if (bs->journal_trim_interval && !((++flusher->journal_trim_counter) % bs->journal_trim_interval) ||
-            flusher->trim_wanted > 0)
+        if ((bs->journal_trim_interval && !((++flusher->journal_trim_counter) % bs->journal_trim_interval) ||
+            flusher->trim_wanted > 0) && flusher->trim_possible)
         {
+            flusher->trim_possible = false;
     resume_30:
     resume_31:
     resume_32:
@@ -1495,9 +1507,18 @@ bool journal_flusher_co::trim_journal(int wait_base)
                 printf("Journal flushed\n");
                 exit(0);
             }
+            bs->wakeup_wait_journal();
+        }
+        else if (!flusher->may_advance_except_one())
+        {
+            bs->wakeup_wait_journal();
         }
         flusher->journal_trim_counter = 0;
         flusher->trimming = false;
+    }
+    else if (!flusher->may_advance_except_one())
+    {
+        bs->wakeup_wait_journal();
     }
     return true;
 }

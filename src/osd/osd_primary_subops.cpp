@@ -311,11 +311,10 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
     blockstore_op_t *bs_op = subop->bs_op;
     int64_t expected = bs_op->opcode == BS_OP_READ || bs_op->opcode == BS_OP_WRITE
         || bs_op->opcode == BS_OP_WRITE_STABLE ? bs_op->len : 0;
-    if (bs_op->retval != expected && bs_op->opcode != BS_OP_READ &&
-        (bs_op->opcode != BS_OP_WRITE && bs_op->opcode != BS_OP_WRITE_STABLE ||
-        bs_op->retval != -ENOSPC))
+    if (bs_op->retval != expected && bs_op->opcode != BS_OP_READ && bs_op->retval != -EAGAIN &&
+        (bs_op->opcode != BS_OP_WRITE && bs_op->opcode != BS_OP_WRITE_STABLE || bs_op->retval != -ENOSPC))
     {
-        // die on any error except ENOSPC during write
+        // die on any error except ENOSPC or EAGAIN during write
         if (bs_op->opcode == BS_OP_WRITE || bs_op->opcode == BS_OP_WRITE_STABLE)
         {
             printf(
@@ -428,7 +427,7 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
 #endif
         if (!(op_data->flags & OP_DATA_SKIP_VER_CHECK))
         {
-            if (op_data->fact_ver != version && (op_data->errors > 0 || op_data->done > 0) &&
+            if (op_data->fact_ver != version && op_data->done > 0 &&
                 (version != 0 && op_data->fact_ver != 0 || !(op_data->flags & OP_DATA_ENOENT_OK)))
             {
                 fprintf(
@@ -473,16 +472,12 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
             );
         }
         subop->rmw_buf = NULL;
-        // Error priority: ENOSPC > others > EIO > EDOM > EPIPE
-        if (op_data->errcode == 0 ||
-            retval == -ENOSPC && op_data->errcode != -ENOSPC ||
-            retval == -EIO && (op_data->errcode == -EDOM || op_data->errcode == -EPIPE) ||
-            retval == -EDOM && (op_data->errcode == -EPIPE) ||
-            retval != -EIO && retval != -EDOM && retval != -EPIPE)
+        // Error priority: ENOSPC > others > EIO > EDOM > EPIPE > EAGAIN
+        if (op_data->errcode == 0 || ERR_PRIO(retval) > ERR_PRIO(op_data->errcode))
         {
             op_data->errcode = retval;
         }
-        if (subop->client_id && retval != -EDOM && retval != -ERANGE &&
+        if (subop->client_id && retval != -EDOM && retval != -ERANGE && retval != -EAGAIN &&
             (retval != -ENOSPC || opcode != OSD_OP_SEC_WRITE && opcode != OSD_OP_SEC_WRITE_STABLE) &&
             (retval != -EIO || opcode != OSD_OP_SEC_READ))
         {

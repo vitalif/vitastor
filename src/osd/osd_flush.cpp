@@ -81,18 +81,9 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
     if (retval != 0)
     {
         fb->flush_errors++;
-        if (peer_osd == this->osd_num)
+        printf("Error while doing flush on OSD %ju: %d (%s)\n", peer_osd, retval, strerror(-retval));
+        if (peer_osd != this->osd_num && retval != -EAGAIN)
         {
-            throw std::runtime_error(
-                std::string(rollback
-                    ? "Error while doing local rollback operation: "
-                    : "Error while doing local stabilize operation: "
-                ) + strerror(-retval)
-            );
-        }
-        else
-        {
-            printf("Error while doing flush on OSD %ju: %d (%s)\n", osd_num, retval, strerror(-retval));
             auto peer_it = msgr.osd_peers.find(peer_osd);
             if (peer_it != msgr.osd_peers.end())
             {

@@ -79,6 +79,7 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         // 2nd step: Data device is synced, prepare & write journal entries
         // Check space in the journal and journal memory buffers
         blockstore_journal_check_t space_check(this);
+        bool space_ok = true;
         if (dsk.csum_block_size)
         {
             // More complex check because all journal entries have different lengths
@@ -90,13 +91,34 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
                 uint64_t dyn_size = dsk.dirty_dyn_size(dirty_entry.offset, dirty_entry.len);
                 if (!space_check.check_available(op, 1, sizeof(journal_entry_big_write) + dyn_size, 0))
                 {
-                    return 0;
+                    space_ok = false;
+                    break;
                 }
             }
         }
         else if (!space_check.check_available(op, PRIV(op)->sync_big_writes.size(),
             sizeof(journal_entry_big_write) + dsk.clean_entry_bitmap_size, 0))
         {
+            space_ok = false;
+        }
+        if (!space_ok)
+        {
+            if (space_check.give_up)
+            {
+                // Return everything back
+                unsynced_big_write_count += PRIV(op)->sync_big_writes.size();
+                PRIV(op)->sync_big_writes.insert(PRIV(op)->sync_big_writes.end(),
+                    unsynced_big_writes.begin(), unsynced_big_writes.end());
+                PRIV(op)->sync_big_writes.swap(unsynced_big_writes);
+                PRIV(op)->sync_big_writes.clear();
+                PRIV(op)->sync_small_writes.insert(PRIV(op)->sync_small_writes.end(),
+                    unsynced_small_writes.begin(), unsynced_small_writes.end());
+                PRIV(op)->sync_small_writes.swap(unsynced_small_writes);
+                PRIV(op)->sync_small_writes.clear();
+                op->retval = -EAGAIN;
+                FINISH_OP(op);
+                return 2;
+            }
             return 0;
         }
         // Check SQEs. Don't bother about merging, submit each journal sector as a separate request
@@ -190,6 +212,7 @@ void blockstore_impl_t::ack_sync(blockstore_op_t *op)
         {
             unstable_unsynced--;
             assert(unstable_unsynced >= 0);
+            wakeup_wait_journal();
         }
         dirty_it++;
         while (dirty_it != dirty_db.end() && dirty_it->first.oid == ov.oid)

@@ -362,6 +362,12 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     blockstore_journal_check_t space_check(this);
     if (!space_check.check_available(op, op->len, sizeof(journal_entry_stable), 0))
     {
+        if (space_check.give_up)
+        {
+            op->retval = -EAGAIN;
+            FINISH_OP(op);
+            return 2;
+        }
         return 0;
     }
     // There is sufficient space. Check SQEs
@@ -557,6 +563,7 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
         unstab_it->second <= v.version)
     {
         unstable_writes.erase(unstab_it);
+        wakeup_wait_journal();
     }
 }
 

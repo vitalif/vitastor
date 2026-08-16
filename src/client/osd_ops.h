@@ -57,6 +57,9 @@
 #define OSD_SEC_LOCK_PG 1
 #define OSD_SEC_UNLOCK_PG 2
 
+// Error priority: others > EPERM > EIO > EDOM > ENOSPC > EPIPE > EAGAIN
+#define ERR_PRIO(e) (((e) == -EPERM ? 6 : ((e) == -EIO ? 5 : ((e) == -EDOM ? 4 : ((e) == -ENOSPC ? 3 : ((e) == -EPIPE ? 2 : ((e) == -EAGAIN ? 1 : (!(e) ? 0 : 10))))))))
+
 // common request and reply headers
 struct __attribute__((__packed__)) osd_op_header_t
 {
