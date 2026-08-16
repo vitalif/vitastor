@@ -315,6 +315,25 @@ static void test_validate_padded_journal()
     test.init();
     printf("blockstore initialized\n");
 
+    // initialize the beginning of data area with non-zero data to check
+    // explicit padding instead of the on-disk data verification
+    {
+        std::vector<uint8_t> nonzero_data(1048576, 0xF8);
+        ring_data_t data;
+        io_uring_sqe sqe;
+        iovec iov;
+        sqe.opcode = IORING_OP_WRITEV;
+        sqe.off = test.dsk().data_offset;
+        sqe.addr = (uint64_t)&iov;
+        sqe.len = 1;
+        sqe.rw_flags = 0;
+        iov.iov_base = nonzero_data.data();
+        iov.iov_len = nonzero_data.size();
+        sqe.user_data = (uint64_t)&data;
+        bool ok = test.data_disk->submit(&sqe);
+        assert(ok);
+    }
+
     printf("write v1 4+32k\n");
     blockstore_op_t op;
     op.opcode = BS_OP_WRITE_STABLE;
