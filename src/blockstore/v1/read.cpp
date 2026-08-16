@@ -110,7 +110,7 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *read_op,
                     (*dyn_data)++;
                 }
                 // Submit the journal checksum block read
-                if (!read_checksum_block(read_op, 1, fulfilled, item_location - item_start))
+                if (!read_checksum_block(read_op, 1, fulfilled, item_location - item_start, false))
                 {
                     r = 0;
                 }
@@ -228,10 +228,12 @@ int blockstore_impl_t::fill_partial_checksum_blocks(std::vector<copy_buffer_t> &
             }
             end_block++;
             // OK, mark this range as required
+            uint32_t rv_start = start_block*dsk.csum_block_size < item_start ? item_start : start_block*dsk.csum_block_size;
+            uint32_t rv_end = end_block*dsk.csum_block_size > item_end ? item_end : end_block*dsk.csum_block_size;
             rv.push_back((copy_buffer_t){
                 .copy_flags = COPY_BUF_CSUM_FILL | (from_journal ? COPY_BUF_JOURNALED_BIG : 0),
-                .offset = start_block*dsk.csum_block_size,
-                .len = (end_block-start_block)*dsk.csum_block_size,
+                .offset = rv_start,
+                .len = rv_end - rv_start,
                 // save checksum reference if we're reading clean data from the journal
                 .csum_buf = from_journal
                     ? clean_entry_bitmap + dsk.clean_entry_bitmap_size + (start_block-item_start_block)*(dsk.data_csum_type & 0xFF)
@@ -300,7 +302,7 @@ bool blockstore_impl_t::read_range_fulfilled(std::vector<copy_buffer_t> & rv, ui
     return all_done;
 }
 
-bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uint64_t &fulfilled, uint64_t clean_loc)
+bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uint64_t &fulfilled, uint64_t clean_loc, bool padded)
 {
     auto & rv = PRIV(op)->read_vec;
     auto *vi = &rv[rv.size()-rv_pos];
@@ -335,10 +337,22 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
         }
         return 0;
     });
+    if (padded && (item_start % dsk.csum_block_size))
+    {
+        n_iov++;
+    }
+    if (padded && (item_end % dsk.csum_block_size))
+    {
+        n_iov++;
+    }
     void *buf = memalign_or_die(MEM_ALIGNMENT, fill_size + n_iov*sizeof(struct iovec));
     iovec *iov = (struct iovec*)((uint8_t*)buf+fill_size);
     n_iov = 0;
     fill_size = 0;
+    if (padded && (item_start % dsk.csum_block_size))
+    {
+        iov[n_iov++] = (struct iovec){ zero_object, item_start % dsk.csum_block_size };
+    }
     find_holes(rv, item_start, item_end, [&](int pos, bool alloc, uint32_t cur_start, uint32_t cur_end)
     {
         int res = 0;
@@ -376,18 +390,31 @@ bool blockstore_impl_t::read_checksum_block(blockstore_op_t *op, int rv_pos, uin
         }
         return res;
     });
+    if (padded && (item_end % dsk.csum_block_size))
+    {
+        iov[n_iov++] = (struct iovec){ zero_object, dsk.csum_block_size - (item_end % dsk.csum_block_size) };
+    }
     vi = &rv[rv.size()-rv_pos];
     // Save buf into read_vec too but in a creepy way
     // FIXME: Shit, something else should be invented %)
     *vi = (copy_buffer_t){
         .copy_flags = vi->copy_flags,
-        .offset = vi->offset,
+        .offset = (padded ? vi->offset - vi->offset % dsk.csum_block_size : vi->offset),
         .len = ((uint64_t)n_iov << 32) | fill_size,
-        .disk_offset = clean_loc + item_start,
+        .disk_offset = clean_loc + (padded ? vi->offset - vi->offset % dsk.csum_block_size : vi->offset),
         .buf = (uint8_t*)buf,
         .csum_buf = vi->csum_buf,
         .dyn_data = vi->dyn_data,
     };
+    if (padded && (item_start % dsk.csum_block_size))
+    {
+        iov++;
+        n_iov--;
+    }
+    if (padded && (item_end % dsk.csum_block_size))
+    {
+        n_iov--;
+    }
     int submit_fd = (vi->copy_flags & COPY_BUF_JOURNAL ? dsk.journal_fd : dsk.data_fd);
     uint64_t submit_offset = (vi->copy_flags & COPY_BUF_JOURNAL ? journal.offset : dsk.data_offset);
     uint32_t d_pos = 0;
@@ -675,7 +702,7 @@ bool blockstore_impl_t::fulfill_clean_read(blockstore_op_t *read_op, uint64_t & 
         }
         for (int i = req; i > 0; i--)
         {
-            if (!read_checksum_block(read_op, i, fulfilled, clean_loc))
+            if (!read_checksum_block(read_op, i, fulfilled, clean_loc, true))
             {
                 return false;
             }

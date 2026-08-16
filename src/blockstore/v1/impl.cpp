@@ -24,6 +24,7 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
         calc_lengths();
         alloc_dyn_data = dsk.clean_dyn_size > sizeof(void*) || dsk.csum_block_size > 0;
         zero_object = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, dsk.data_block_size);
+        memset(zero_object, 0, dsk.data_block_size);
         data_alloc = new allocator_t(dsk.block_count);
     }
     catch (std::exception & e)
