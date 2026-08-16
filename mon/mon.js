@@ -87,7 +87,7 @@ class Mon
             this.http = await create_http_server(this.config, (req, res) =>
             {
                 const u = new URL(req.url, 'http://'+(req.headers.host || 'localhost'));
-                if (u.pathname.replace(/\/+$/, '') == (this.config.prometheus_path||'/metrics'))
+                if (u.pathname.replace(/\/+$/, '') == (this.config.mon_metrics_path||'/metrics'))
                 {
                     if (!this.watcher_active)
                     {
@@ -98,6 +98,19 @@ class Mon
                     {
                         res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
                         res.write(export_prometheus_metrics(this.state));
+                    }
+                }
+                else if (u.pathname.replace(/\/+$/, '') == (this.config.mon_healthcheck_path||'/healthcheck'))
+                {
+                    if (!this.watcher_active)
+                    {
+                        res.writeHead(503);
+                        res.write('Monitor is in standby mode. Please retrieve metrics from master monitor instance\n');
+                    }
+                    else
+                    {
+                        res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+                        res.write('Monitor is active');
                     }
                 }
                 else
