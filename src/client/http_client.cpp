@@ -746,6 +746,10 @@ void http_co_t::handle_events()
             {
                 handle_connect_result();
             }
+            else
+            {
+                break;
+            }
         }
         else
         {
