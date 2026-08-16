@@ -634,8 +634,16 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         op->iov.push_back(op->buf, payload_str.size());
         memcpy(op->buf, payload_str.c_str(), payload_str.size());
     }
-    op->callback = [this, cl](osd_op_t *op)
+    op->callback = [this, client_id = cl->client_id, peer_osd = cl->osd_num](osd_op_t *op)
     {
+        auto cl_it = clients.find(client_id);
+        if (cl_it == clients.end())
+        {
+            on_connect_peer(peer_osd, -EPIPE, 0);
+            delete op;
+            return;
+        }
+        auto cl = cl_it->second;
         std::string json_err;
         json11::Json config;
         bool err = false;
@@ -693,7 +701,6 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
         }
         if (err)
         {
-            osd_num_t peer_osd = cl->osd_num;
             stop_client(op->client_id);
             on_connect_peer(peer_osd, -EINVAL, 0);
             delete op;
