@@ -27,7 +27,6 @@ const (
     MB int64 = 1024 * KB
     GB int64 = 1024 * MB
     TB int64 = 1024 * GB
-    ETCD_TIMEOUT time.Duration = 15*time.Second
 )
 
 type InodeIndex struct
@@ -687,7 +686,7 @@ func (cs *ControllerServer) ControllerExpandVolume(ctx context.Context, req *csi
 
     return &csi.ControllerExpandVolumeResponse{
         CapacityBytes: int64(inodeCfg[0].Size),
-        NodeExpansionRequired: false,
+        NodeExpansionRequired: true,
     }, nil
 }
 

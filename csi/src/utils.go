@@ -20,6 +20,7 @@ import (
 
     "google.golang.org/grpc/codes"
     "google.golang.org/grpc/status"
+    "golang.org/x/sys/unix"
 )
 
 type MountMethod int
@@ -518,4 +519,23 @@ func GetDeviceNameFromMount(mountPath string) (string, error)
     }
 
     return device, nil
+}
+
+func GetBlockDeviceSize(devicePath string) (uint64, error)
+{
+    file, err := os.Open(devicePath)
+    if (err != nil)
+    {
+        return 0, err
+    }
+    defer file.Close()
+
+    // BLKGETSIZE64 returns the size in bytes as a uint64/int64
+    size, err := unix.IoctlGetInt(int(file.Fd()), unix.BLKGETSIZE64)
+    if (err != nil)
+    {
+        return 0, fmt.Errorf("ioctl BLKGETSIZE64 failed: %w", err)
+    }
+
+    return uint64(size), nil
 }

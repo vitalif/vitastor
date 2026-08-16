@@ -1030,10 +1030,131 @@ func (ns *NodeServer) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVo
     return nil, status.Error(codes.Unimplemented, "")
 }
 
-// NodeExpandVolume expanding the file system on the node
+// NodeExpandVolume expands the block device and, for filesystem volumes, the filesystem on the node
 func (ns *NodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandVolumeRequest) (*csi.NodeExpandVolumeResponse, error)
 {
-    return nil, status.Error(codes.Unimplemented, "")
+    klog.Infof("received node expand volume request %+v", protosanitizer.StripSecrets(req))
+    if (req == nil)
+    {
+        return nil, status.Error(codes.InvalidArgument, "request cannot be empty")
+    }
+    if (req.VolumeId == "")
+    {
+        return nil, status.Error(codes.InvalidArgument, "VolumeId is required")
+    }
+
+    ctxVars := make(map[string]string)
+    err := json.Unmarshal([]byte(req.VolumeId), &ctxVars)
+    if (err != nil)
+    {
+        return nil, status.Error(codes.Internal, "volume ID not in JSON format")
+    }
+    volName := ctxVars["name"]
+
+    if (ctxVars["vitastorfs"] != "")
+    {
+        // VitastorFS CSI volumes are NFS-backed and currently don't have per-volume quotas to resize here.
+        return &csi.NodeExpandVolumeResponse{CapacityBytes: req.GetCapacityRange().GetRequiredBytes()}, nil
+    }
+
+    ns.lockVolume(ctxVars["configPath"]+":block:"+volName)
+    defer ns.unlockVolume(ctxVars["configPath"]+":block:"+volName)
+
+    targetPath := req.GetStagingTargetPath()
+    if (targetPath == "")
+    {
+        targetPath = req.GetVolumePath()
+    }
+    if (targetPath == "")
+    {
+        return nil, status.Error(codes.InvalidArgument, "VolumePath or StagingTargetPath is required")
+    }
+
+    devicePath, err := GetDeviceNameFromMount(targetPath)
+    if (err != nil)
+    {
+        if (os.IsNotExist(err))
+        {
+            return nil, status.Error(codes.NotFound, "Target path not found")
+        }
+        return nil, err
+    }
+    if (devicePath == "")
+    {
+        return nil, status.Errorf(codes.NotFound, "%s is not a mountpoint", targetPath)
+    }
+    if (devicePath[0] != '/')
+    {
+        return nil, status.Errorf(codes.Internal, "failed to resolve device for %s: %s", targetPath, devicePath)
+    }
+    if (len(devicePath) < 5 || devicePath[0:5] != "/dev/")
+    {
+        // NodeExpandVolume may be called with the published target path. For block volumes it is
+        // usually a bind mount of the staging target, so resolve one more mount layer if needed.
+        var realDevicePath string
+        realDevicePath, err = GetDeviceNameFromMount(devicePath)
+        if (err == nil && realDevicePath != "")
+        {
+            devicePath = realDevicePath
+        }
+    }
+
+    // All newest Vitastor driver versions (nbd, ublk and vduse) support online resize.
+    // So all we need to do is just wait a bit until the device is resized by the driver.
+    requiredBytes := req.GetCapacityRange().GetRequiredBytes()
+    if (requiredBytes > 0)
+    {
+        timeout := 30
+        var actualSize uint64
+        var err error
+        for i := 0; i < timeout && actualSize < requiredBytes; i++
+        {
+            actualSize, err = GetBlockDeviceSize(devicePath)
+            if (err != nil)
+            {
+                return nil, err
+            }
+            time.Sleep(1 * time.Second)
+        }
+        if (actualSize < requiredBytes)
+        {
+            return nil, status.Error(codes.NotFound, "Failed to wait for online resize of %s to %v bytes: actual size is still %v after %v seconds",
+                devicePath, requiredBytes, actualSize, timeout)
+        }
+    }
+
+    isBlock := req.GetVolumeCapability().GetBlock() != nil
+    if (isBlock)
+    {
+        return &csi.NodeExpandVolumeResponse{CapacityBytes: requiredBytes}, nil
+    }
+
+    diskMounter := &mount.SafeFormatAndMount{Interface: ns.mounter, Exec: utilexec.New()}
+    fsType := req.GetVolumeCapability().GetMount().GetFsType()
+    if (fsType == "")
+    {
+        fsType, err = diskMounter.GetDiskFormat(devicePath)
+        if (err != nil)
+        {
+            return nil, err
+        }
+    }
+
+    switch (fsType)
+    {
+        case "ext4":
+            _, err = systemCombined("resize2fs", devicePath)
+        case "xfs":
+            _, err = systemCombined("xfs_growfs", targetPath)
+        default:
+            return nil, status.Errorf(codes.InvalidArgument, "unsupported filesystem for resize: %s", fsType)
+    }
+    if (err != nil)
+    {
+        return nil, err
+    }
+
+    return &csi.NodeExpandVolumeResponse{CapacityBytes: requiredBytes}, nil
 }
 
 // NodeGetCapabilities returns the supported capabilities of the node server
@@ -1045,6 +1166,13 @@ func (ns *NodeServer) NodeGetCapabilities(ctx context.Context, req *csi.NodeGetC
                 Type: &csi.NodeServiceCapability_Rpc{
                     Rpc: &csi.NodeServiceCapability_RPC{
                         Type: csi.NodeServiceCapability_RPC_STAGE_UNSTAGE_VOLUME,
+                    },
+                },
+            },
+            &csi.NodeServiceCapability{
+                Type: &csi.NodeServiceCapability_Rpc{
+                    Rpc: &csi.NodeServiceCapability_RPC{
+                        Type: csi.NodeServiceCapability_RPC_EXPAND_VOLUME,
                     },
                 },
             },
