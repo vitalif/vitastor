@@ -134,7 +134,8 @@ int blockstore_impl_t::fulfill_read(blockstore_op_t *op)
         }
         else if ((vec.copy_flags & COPY_BUF_JOURNAL) && dsk.inmemory_journal)
         {
-            memcpy(op->buf + vec.offset - op->offset, buffer_area + vec.disk_loc + vec.disk_offset, vec.len);
+            // disk_loc may be negative - make ubsan happy
+            memcpy(op->buf + vec.offset - op->offset, buffer_area + (vec.disk_loc + vec.disk_offset), vec.len);
         }
         else
         {
