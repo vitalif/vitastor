@@ -39,23 +39,43 @@ nfs_proxy_t::~nfs_proxy_t()
 #ifdef WITH_RDMACM
     destroy_rdma();
 #endif
+    // Destroy the client
     if (kvfs)
+    {
         delete kvfs;
+        kvfs = NULL;
+    }
     if (blockfs)
+    {
         delete blockfs;
+        blockfs = NULL;
+    }
     if (db)
+    {
         delete db;
+        db = NULL;
+    }
     if (cmd)
+    {
         delete cmd;
+        cmd = NULL;
+    }
     if (cli)
     {
         cli->flush();
         delete cli;
+        cli = NULL;
     }
     if (epmgr)
+    {
         delete epmgr;
+        epmgr = NULL;
+    }
     if (ringloop)
+    {
         delete ringloop;
+        ringloop = NULL;
+    }
 }
 
 static const char* help_text =
@@ -340,12 +360,16 @@ void nfs_proxy_t::run(json11::Json cfg)
         blockfs->init(this, cfg);
     }
     // Load image metadata
-    while (!cli->is_ready())
+    while (!cli->is_ready() && !finished)
     {
         ringloop->loop();
-        if (cli->is_ready())
+        if (cli->is_ready() || finished)
             break;
         ringloop->wait();
+    }
+    if (finished)
+    {
+        return;
     }
     // Check default pool
     check_default_pool();
@@ -392,29 +416,11 @@ void nfs_proxy_t::run(json11::Json cfg)
         ringloop->loop();
         ringloop->wait();
     }
-    // Destroy the client
-    cli->flush();
-    if (kvfs)
-    {
-        delete kvfs;
-        kvfs = NULL;
-    }
-    if (blockfs)
-    {
-        delete blockfs;
-        blockfs = NULL;
-    }
-    if (db)
-    {
-        delete db;
-        db = NULL;
-    }
-    delete cli;
-    delete epmgr;
-    delete ringloop;
-    cli = NULL;
-    epmgr = NULL;
-    ringloop = NULL;
+}
+
+void nfs_proxy_t::request_stop()
+{
+    finished = true;
 }
 
 void nfs_proxy_t::run_server(json11::Json cfg)
@@ -1551,14 +1557,26 @@ void nfs_proxy_t::check_exit()
     finished = true;
 }
 
+nfs_proxy_t *srv = NULL;
+
+static void handle_sigint(int sig)
+{
+    if (srv)
+    {
+        srv->request_stop();
+    }
+}
+
 int main(int narg, const char *args[])
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     exe_name = strrchr(args[0], '/');
     exe_name = exe_name ? exe_name+1 : args[0];
-    nfs_proxy_t *p = new nfs_proxy_t();
-    p->run(nfs_proxy_t::parse_args(narg, args));
-    delete p;
+    srv = new nfs_proxy_t();
+    signal(SIGINT, handle_sigint);
+    signal(SIGTERM, handle_sigint);
+    srv->run(nfs_proxy_t::parse_args(narg, args));
+    delete srv;
     return 0;
 }

@@ -99,6 +99,21 @@ public:
 
     ~ublk_server()
     {
+        if (cli)
+        {
+            delete cli;
+            cli = NULL;
+        }
+        if (epmgr)
+        {
+            delete epmgr;
+            epmgr = NULL;
+        }
+        if (ringloop)
+        {
+            delete ringloop;
+            ringloop = NULL;
+        }
         if (ctrl_fd >= 0)
         {
             close(ctrl_fd);
@@ -114,11 +129,6 @@ public:
             free(buf);
         }
         buffers.clear();
-        if (ringloop)
-        {
-            delete ringloop;
-            ringloop = NULL;
-        }
     }
 
     static json11::Json::object parse_args(int narg, const char *args[])
@@ -157,6 +167,11 @@ public:
             }
         }
         return cfg;
+    }
+
+    void request_stop()
+    {
+        stop = true;
     }
 
     void exec(json11::Json cfg)
@@ -272,12 +287,16 @@ help:
         }
 
         // Load image metadata
-        while (!cli->is_ready())
+        while (!cli->is_ready() && !stop)
         {
             ringloop->loop();
-            if (cli->is_ready())
+            if (cli->is_ready() || stop)
                 break;
             ringloop->wait();
+        }
+        if (stop)
+        {
+            return;
         }
         if (!inode)
         {
@@ -367,10 +386,6 @@ help:
         }
         cli->flush();
         ringloop->unregister_consumer(&consumer);
-        delete cli;
-        delete epmgr;
-        cli = NULL;
-        epmgr = NULL;
     }
 
     void load_module()
@@ -980,13 +995,25 @@ protected:
     }
 };
 
+ublk_server *srv = NULL;
+
+static void handle_sigint(int sig)
+{
+    if (srv)
+    {
+        srv->request_stop();
+    }
+}
+
 int main(int narg, const char *args[])
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     exe_name = args[0];
-    ublk_server *p = new ublk_server();
-    p->exec(ublk_server::parse_args(narg, args));
-    delete p;
+    srv = new ublk_server();
+    signal(SIGINT, handle_sigint);
+    signal(SIGTERM, handle_sigint);
+    srv->exec(ublk_server::parse_args(narg, args));
+    delete srv;
     return 0;
 }

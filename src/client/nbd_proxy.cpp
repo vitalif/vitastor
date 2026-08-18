@@ -361,6 +361,26 @@ protected:
 public:
     ~nbd_proxy()
     {
+        if (change_thread)
+        {
+            change_thread->join();
+            change_thread.reset();
+        }
+        if (cli)
+        {
+            delete cli;
+            cli = NULL;
+        }
+        if (epmgr)
+        {
+            delete epmgr;
+            epmgr = NULL;
+        }
+        if (ringloop)
+        {
+            delete ringloop;
+            ringloop = NULL;
+        }
         if (recv_buf)
         {
             free(recv_buf);
@@ -401,6 +421,11 @@ public:
             }
         }
         return cfg;
+    }
+
+    void request_stop()
+    {
+        stop = true;
     }
 
     void exec(json11::Json cfg)
@@ -525,10 +550,10 @@ help:
         if (!inode)
         {
             // Load image metadata
-            while (!cli->is_ready())
+            while (!cli->is_ready() && !stop)
             {
                 ringloop->loop();
-                if (cli->is_ready())
+                if (cli->is_ready() || stop)
                     break;
                 ringloop->wait();
             }
@@ -541,6 +566,10 @@ help:
                 exit(1);
             }
             watch->callback = [this](inode_watch_t*) { on_change_watch(); };
+        }
+        if (stop)
+        {
+            return;
         }
 
         // cli->config contains merged config
@@ -708,17 +737,6 @@ help:
             ringloop->wait();
         }
         cli->flush();
-        if (change_thread)
-        {
-            change_thread->join();
-            change_thread.reset();
-        }
-        delete cli;
-        delete epmgr;
-        delete ringloop;
-        cli = NULL;
-        epmgr = NULL;
-        ringloop = NULL;
     }
 
     void on_change_watch()
@@ -1271,13 +1289,25 @@ protected:
     }
 };
 
+nbd_proxy *srv = NULL;
+
+static void handle_sigint(int sig)
+{
+    if (srv)
+    {
+        srv->request_stop();
+    }
+}
+
 int main(int narg, const char *args[])
 {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     exe_name = args[0];
-    nbd_proxy *p = new nbd_proxy();
-    p->exec(nbd_proxy::parse_args(narg, args));
-    delete p;
+    srv = new nbd_proxy();
+    signal(SIGINT, handle_sigint);
+    signal(SIGTERM, handle_sigint);
+    srv->exec(nbd_proxy::parse_args(narg, args));
+    delete srv;
     return 0;
 }
