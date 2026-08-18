@@ -7,24 +7,27 @@
 bool osd_t::check_write_queue(osd_op_t *cur_op, pg_t & pg)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
+    op_data->st = 1;
     // First check if PG is not active anymore
     if (!(pg.state & PG_ACTIVE))
     {
         pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
         return false;
     }
-    // Check if actions are pending for this object
-    auto act_it = pg.flush_actions.lower_bound((obj_piece_id_t){
-        .oid = op_data->oid,
-        .osd_num = 0,
-    });
-    op_data->st = 1;
-    if (act_it != pg.flush_actions.end() &&
-        act_it->first.oid.inode == op_data->oid.inode &&
-        (act_it->first.oid.stripe & ~STRIPE_MASK) == op_data->oid.stripe)
+    if (pg.state & PG_HAS_UNCLEAN)
     {
-        pg.write_queue.emplace(op_data->oid, cur_op);
-        return false;
+        // Check if actions are pending for this object
+        auto act_it = pg.flush_actions.lower_bound((obj_piece_id_t){
+            .oid = op_data->oid,
+            .osd_num = 0,
+        });
+        if (act_it != pg.flush_actions.end() &&
+            act_it->first.oid.inode == op_data->oid.inode &&
+            (act_it->first.oid.stripe & ~STRIPE_MASK) == op_data->oid.stripe)
+        {
+            pg.write_queue.emplace(op_data->oid, cur_op);
+            return false;
+        }
     }
     // Check if there are other write requests to the same object
     auto vo_it = pg.write_queue.find(op_data->oid);
