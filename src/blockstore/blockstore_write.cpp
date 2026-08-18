@@ -243,6 +243,12 @@ enospc:
         uint64_t loc = !op->len ? 0 : heap->find_free_buffer_area(op->len);
         if (loc == UINT64_MAX)
         {
+            if (!heap->get_to_compact_count())
+            {
+                op->retval = -EAGAIN;
+                FINISH_OP(op);
+                return 2;
+            }
             PRIV(op)->wait_for = WAIT_COMPACTION;
             PRIV(op)->wait_detail = heap->get_compacted_count();
             flusher->request_trim();

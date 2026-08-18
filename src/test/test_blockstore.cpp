@@ -137,12 +137,13 @@ struct bs_test_t
         }
     }
 
-    void exec_op(blockstore_op_t *op)
+    void exec_op(blockstore_op_t *op, bool print = true)
     {
         bool done = false;
         op->callback = [&](blockstore_op_t *op)
         {
-            printf("op opcode=%ju completed retval=%jd\n", op->opcode, op->retval);
+            if (print)
+                printf("op opcode=%ju completed retval=%jd\n", op->opcode, op->retval);
             done = true;
         };
         bs->enqueue_op(op);
@@ -1091,6 +1092,62 @@ static void test_list_limit()
     free(op.buf);
 }
 
+static void test_write_no_space_eagain()
+{
+    printf("\n-- test_write_no_space_eagain\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // 1 MB journal (data_offset 32 MB - journal_offset)
+    test.config["journal_offset"] = std::to_string(31*1024*1024);
+    test.init();
+    printf("blockstore initialized\n");
+
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    memset(buf, 0xAA, 4096);
+
+    // fill the journal with unstable writes
+    int i = 0, blocked_retval = 0;
+    auto do_write = [&]()
+    {
+        blockstore_op_t op;
+        op.opcode = BS_OP_WRITE;
+        op.oid = { .inode = 1, .stripe = (uint64_t)(i % 4) * 0x20000 };
+        op.version = 1 + i / 4;
+        op.offset = 0;
+        op.len = 4096;
+        op.buf = buf;
+        test.exec_op(&op, false);
+        if (op.retval != (int)op.len)
+            blocked_retval = op.retval;
+    };
+    for (i = 0; i < 100000 && !blocked_retval; i++)
+        do_write();
+    printf("write #%d refused with retval=%d\n", i, blocked_retval);
+    assert(blocked_retval == -EAGAIN);
+
+    // check that a stabilize operation and one more write can proceed
+    {
+        blockstore_op_t op;
+        op.opcode = BS_OP_STABLE;
+        op.len = 1;
+        op.buf = (uint8_t*)malloc_or_die(1 * sizeof(obj_ver_id));
+        ((obj_ver_id*)op.buf)[0] = {
+            .oid = { .inode = 1, .stripe = 0 },
+            .version = 2,
+        };
+        test.exec_op(&op);
+        assert(op.retval == 0);
+        free(op.buf);
+    }
+
+    blocked_retval = 0;
+    do_write();
+    assert(!blocked_retval);
+
+    free(buf);
+}
+
 // FIXME Add a simple intent_write / big_intent test
 
 int main(int narg, char *args[])
@@ -1112,5 +1169,6 @@ int main(int narg, char *args[])
     test_fsync_almost_batch_big();
     test_fsync_batch_big();
     test_list_limit();
+    test_write_no_space_eagain();
     return 0;
 }
