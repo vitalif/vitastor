@@ -5,6 +5,7 @@
 #include "str_util.h"
 #include "ringloop_mock.h"
 #include "blockstore/v1/impl.h"
+#include "blockstore/v1/internal.h"
 
 struct bs_test_t
 {
@@ -48,6 +49,12 @@ struct bs_test_t
     bool is_data_loc_used(uint64_t loc)
     {
         return bs->data_alloc->get(loc / bs->dsk.data_block_size);
+    }
+
+    v1::dirty_entry* find_dirty_entry(object_id oid, uint64_t version)
+    {
+        auto it = bs->dirty_db.find((obj_ver_id){ .oid = oid, .version = version });
+        return it == bs->dirty_db.end() ? NULL : &it->second;
     }
 
     void force_compaction()
@@ -871,6 +878,119 @@ static void test_meta_tail_reload()
     printf("blockstore re-initialized with an overflowing entry\n");
 }
 
+// Check null dereference in read_bitmap over DELETE
+static void test_read_bitmap_of_deleted_object()
+{
+    printf("\n-- test_read_bitmap_of_deleted_object\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // 128k/16k*4 = 32 bytes of checksums --> dyn_data allocated dynamically
+    test.config["data_csum_type"] = "crc32c";
+    test.config["csum_block_size"] = "16384";
+    test.init();
+    printf("blockstore initialized\n");
+
+    uint8_t bmp[16];
+    memset(bmp, 0xCC, sizeof(bmp));
+
+    printf("write v1 0+128k\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    op.bitmap = bmp;
+    memset(op.buf, 0xAA, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    {
+        // Check that big_write is here and with dyn_data
+        v1::dirty_entry *de = test.find_dirty_entry(op.oid, 1);
+        assert(de != NULL);
+        assert(de->dyn_data != NULL);
+    }
+
+    {
+        uint64_t version = 0;
+        assert(test.dsk().clean_entry_bitmap_size <= sizeof(bmp));
+        memset(bmp, 0, sizeof(bmp));
+        assert(test.bs->read_bitmap(op.oid, UINT64_MAX, bmp, &version) == 0);
+        assert(version == 1);
+        assert(memcheck(bmp, 0xCC, test.dsk().clean_entry_bitmap_size));
+    }
+
+    {
+        printf("delete v2\n");
+        blockstore_op_t del_op;
+        del_op.opcode = BS_OP_DELETE;
+        del_op.oid = { .inode = 1, .stripe = 0 };
+        del_op.version = 2;
+        test.exec_op(&del_op);
+        assert(del_op.retval == 0);
+    }
+
+    {
+        // Check that the delete is still in dirty_db
+        v1::dirty_entry *de = test.find_dirty_entry(op.oid, 2);
+        assert(de != NULL);
+        assert((de->state & BS_ST_TYPE_MASK) == BS_ST_DELETE);
+        assert(de->dyn_data == NULL);
+    }
+
+    auto check_deleted_bmp = [&]()
+    {
+        uint64_t version = UINT64_MAX;
+        memset(bmp, 0xCC, sizeof(bmp));
+        assert(test.bs->read_bitmap(op.oid, UINT64_MAX, bmp, &version) == -ENOENT);
+        assert(version == 0);
+        assert(memcheck(bmp, 0, test.dsk().clean_entry_bitmap_size));
+    };
+    printf("read_bitmap of the deleted object - should be -ENOENT\n");
+    check_deleted_bmp();
+
+    {
+        // Reading the data must agree with that
+        printf("read of the deleted object - should be -ENOENT\n");
+        blockstore_op_t read_op;
+        read_op.opcode = BS_OP_READ;
+        read_op.oid = { .inode = 1, .stripe = 0 };
+        read_op.version = UINT64_MAX;
+        read_op.offset = 0;
+        read_op.len = 128*1024;
+        read_op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, read_op.len);
+        test.exec_op(&read_op);
+        assert(read_op.retval == -ENOENT);
+        free(read_op.buf);
+    }
+
+    // And once the delete is flushed too, via the clean_db path
+    test.force_compaction();
+    printf("read_bitmap after the delete is flushed - should be -ENOENT\n");
+    check_deleted_bmp();
+
+    // Write over delete to also check that it doesn't read NULL dyn_data
+    printf("write v3 0+128k over the delete\n");
+    op.version = 3;
+    memset(op.buf, 0xAB, op.len);
+    memset(bmp, 0xDE, sizeof(bmp));
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    {
+        uint64_t version = 0;
+        memset(bmp, 0, sizeof(bmp));
+        assert(test.bs->read_bitmap(op.oid, UINT64_MAX, bmp, &version) == 0);
+        assert(memcheck(bmp, 0xDE, test.dsk().clean_entry_bitmap_size));
+        assert(version == 3);
+    }
+
+    free(op.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -882,5 +1002,6 @@ int main(int narg, char *args[])
     test_read_retry_on_ring_full_1M_csum4k_clean();
     test_read_free_clean_loc_used();
     test_meta_tail_reload();
+    test_read_bitmap_of_deleted_object();
     return 0;
 }

@@ -1117,6 +1117,14 @@ int blockstore_impl_t::read_bitmap(object_id oid, uint64_t target_version, void 
             // Condition has to be the same as in dequeue_read()
             if (!IS_IN_FLIGHT(dirty_it->second.state) && target_version >= dirty_it->first.version)
             {
+                if (IS_DELETE(dirty_it->second.state))
+                {
+                    if (result_version)
+                        *result_version = 0;
+                    if (bitmap)
+                        memset(bitmap, 0, dsk.clean_entry_bitmap_size);
+                    return -ENOENT;
+                }
                 if (result_version)
                     *result_version = dirty_it->first.version;
                 if (bitmap)
