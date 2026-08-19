@@ -12,19 +12,23 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
     bool found = false, deleted = false, unsynced = false, is_del = (op->opcode == BS_OP_DELETE);
     bool wait_big = false, wait_del = false;
     void *dyn = NULL;
+    uint8_t *dyn_ptr = NULL;
     if (is_del)
     {
         op->len = 0;
     }
-    size_t dyn_size = dsk.dirty_dyn_size(op->offset, op->len);
-    if (!is_del && alloc_dyn_data)
+    else
     {
-        // FIXME: Working with `dyn_data` has to be refactored somehow but I first have to decide how :)
-        // +sizeof(int) = refcount
-        dyn = calloc_or_die(1, dyn_size+sizeof(int));
-        *((int*)dyn) = 1;
+        if (alloc_dyn_data)
+        {
+            // FIXME: Working with `dyn_data` has to be refactored somehow but I first have to decide how :)
+            // +sizeof(int) = refcount
+            size_t dyn_size = dsk.dirty_dyn_size(op->offset, op->len);
+            dyn = calloc_or_die(1, dyn_size+sizeof(int));
+            *((int*)dyn) = 1;
+        }
+        dyn_ptr = (alloc_dyn_data ? (uint8_t*)dyn+sizeof(int) : (uint8_t*)&dyn);
     }
-    uint8_t *dyn_ptr = (alloc_dyn_data ? (uint8_t*)dyn+sizeof(int) : (uint8_t*)&dyn);
     uint64_t version = 1;
     if (dirty_db.size() > 0)
     {
