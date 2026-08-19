@@ -623,7 +623,7 @@ void osd_t::create_osd_state()
             {
                 printf("  listening at: %s:%jd\n", addr.string_value().c_str(), port);
             }
-            force_stop(0);
+            force_stop(1);
             return;
         }
         if (run_primary)
