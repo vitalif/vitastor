@@ -1171,6 +1171,12 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     clean_it->second.version < je->del.version);
                 if (!clean_exists && dirty_exists)
                 {
+                    // Stabilize previous entries to fix inode_space_stats and used_blocks (FIXME - remove it)
+                    obj_ver_id ov = {
+                        .oid = je->del.oid,
+                        .version = dirty_it->first.version,
+                    };
+                    bs->mark_stable(ov, true);
                     // Clean entry doesn't exist. This means that the delete is already flushed.
                     // So we must not flush this object anymore.
                     erase_dirty_object(dirty_it);

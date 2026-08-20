@@ -46,6 +46,11 @@ struct bs_test_t
         return bs->used_blocks;
     }
 
+    uint64_t free_block_count()
+    {
+        return bs->get_free_block_count();
+    }
+
     bool is_data_loc_used(uint64_t loc)
     {
         return bs->data_alloc->get(loc / bs->dsk.data_block_size);
@@ -991,6 +996,137 @@ static void test_read_bitmap_of_deleted_object()
     free(op.buf);
 }
 
+// used_blocks and inode_space_stats count one data block per object and only when a big_write
+// or a delete is marked stable. counters should persist correctly over a restart.
+static void test_used_blocks_replay_stable_over_small_write()
+{
+    printf("\n-- test_used_blocks_replay_stable_over_small_write\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+    printf("blockstore initialized\n");
+
+    uint64_t block_count = test.dsk().block_count;
+    assert(!test.used_blocks());
+
+    blockstore_op_t op;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    memset(op.buf, 0xAA, 128*1024);
+
+    // Unstable big write. BS_OP_WRITE (not WRITE_STABLE) so that it needs an explicit
+    // BS_OP_STABLE and stays in dirty_db until then.
+    printf("write v1 0+128k (big)\n");
+    op.opcode = BS_OP_WRITE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    // Small write - the entry that used to be misread as "the block is already counted"
+    printf("write v2 0+4k (small)\n");
+    op.version = 2;
+    op.len = 4096;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("write v3 0+128k (big)\n");
+    op.version = 3;
+    op.len = 128*1024;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("stabilize v3\n");
+    op.opcode = BS_OP_STABLE;
+    op.len = 1;
+    *((obj_ver_id*)op.buf) = (obj_ver_id){ .oid = { .inode = 1, .stripe = 0 }, .version = 3 };
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    // The live path walks the whole range, so it has always got this one right
+    printf("used_blocks after stabilize = %ju (expected 1)\n", test.used_blocks());
+    assert(test.used_blocks() == 1);
+    // Nothing must have been flushed - the journal alone has to reproduce the counters below
+    assert(test.flusher()->get_queue_size());
+
+    printf("restarting the blockstore (journal replay)\n");
+    test.destroy_bs();
+    test.init();
+    uint64_t after_replay = test.used_blocks();
+    printf("used_blocks after replay = %ju (expected 1)\n", after_replay);
+
+    // Deleting the object must bring the counter back to zero, not below it
+    printf("delete v4\n");
+    op.opcode = BS_OP_DELETE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 4;
+    op.offset = 0;
+    op.len = 0;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    uint64_t after_delete = test.used_blocks();
+    uint64_t free_after_delete = test.free_block_count();
+    printf("used_blocks after delete = %ju (expected 0), free_block_count = %ju (expected %ju)\n",
+        after_delete, free_after_delete, block_count);
+
+    assert(after_replay == 1);
+    assert(after_delete == 0);
+    assert(free_after_delete == block_count);
+
+    free(op.buf);
+}
+
+// The same accounting rule for deletes. used_space counter must not underflow after a restart.
+static void test_used_blocks_replay_delete_over_unstable_big_write()
+{
+    printf("\n-- test_used_blocks_replay_delete_over_unstable_big_write\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+    printf("blockstore initialized\n");
+
+    uint64_t block_count = test.dsk().block_count;
+    assert(!test.used_blocks());
+
+    blockstore_op_t op;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    memset(op.buf, 0xAA, 128*1024);
+
+    printf("write v1 0+128k (big, left unstable)\n");
+    op.opcode = BS_OP_WRITE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    // An unstable big write owns a block but is not counted yet - that is what mark_stable() is for
+    assert(!test.used_blocks());
+
+    printf("delete v2\n");
+    op.opcode = BS_OP_DELETE;
+    op.version = 2;
+    op.offset = 0;
+    op.len = 0;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    assert(!test.used_blocks());
+
+    printf("restarting the blockstore (journal replay)\n");
+    test.destroy_bs();
+    test.init();
+    uint64_t after_replay = test.used_blocks();
+    uint64_t free_after_replay = test.free_block_count();
+    printf("used_blocks after replay = %ju (expected 0), free_block_count = %ju (expected %ju)\n",
+        after_replay, free_after_replay, block_count);
+    assert(after_replay == 0);
+    assert(free_after_replay == block_count);
+
+    free(op.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -1003,5 +1139,7 @@ int main(int narg, char *args[])
     test_read_free_clean_loc_used();
     test_meta_tail_reload();
     test_read_bitmap_of_deleted_object();
+    test_used_blocks_replay_stable_over_small_write();
+    test_used_blocks_replay_delete_over_unstable_big_write();
     return 0;
 }

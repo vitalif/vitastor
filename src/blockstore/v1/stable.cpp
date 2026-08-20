@@ -463,6 +463,7 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
                 v.version = dirty_it->first.version;
             }
         }
+        auto erase_end = dirty_db.end();
         while (1)
         {
             bool was_stable = IS_STABLE(dirty_it->second.state);
@@ -470,6 +471,7 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
             {
                 dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_STABLE;
                 // Allocations and deletions are counted when they're stabilized
+                // FIXME: Count-on-stabilize logic is actually really strange, reconsider it
                 if (IS_BIG_WRITE(dirty_it->second.state))
                 {
                     int exists = -1;
@@ -523,25 +525,10 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
                 exit(1);
             }
             if (forget_dirty && (IS_BIG_WRITE(dirty_it->second.state) ||
-                IS_DELETE(dirty_it->second.state)))
+                IS_DELETE(dirty_it->second.state)) && erase_end == dirty_db.end())
             {
                 // Big write overrides all previous dirty entries
-                auto erase_end = dirty_it;
-                while (dirty_it != dirty_db.begin())
-                {
-                    dirty_it--;
-                    if (dirty_it->first.oid != v.oid)
-                    {
-                        dirty_it++;
-                        break;
-                    }
-                }
-                auto & clean_db = clean_db_shard(v.oid);
-                auto clean_it = clean_db.find(v.oid);
-                uint64_t clean_loc = clean_it != clean_db.end()
-                    ? clean_it->second.location : UINT64_MAX;
-                erase_dirty(dirty_it, erase_end, clean_loc);
-                break;
+                erase_end = dirty_it;
             }
             if (was_stable || dirty_it == dirty_db.begin())
             {
@@ -550,10 +537,20 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
             dirty_it--;
             if (dirty_it->first.oid != v.oid)
             {
+                dirty_it++;
                 break;
             }
         }
         flusher->enqueue_flush(v);
+        if (erase_end != dirty_db.end())
+        {
+            // Erase only after marking previous entries stable to not skip used_blocks++
+            auto & clean_db = clean_db_shard(v.oid);
+            auto clean_it = clean_db.find(v.oid);
+            uint64_t clean_loc = clean_it != clean_db.end()
+                ? clean_it->second.location : UINT64_MAX;
+            erase_dirty(dirty_it, erase_end, clean_loc);
+        }
     }
     auto unstab_it = unstable_writes.find(v.oid);
     if (unstab_it != unstable_writes.end() &&
