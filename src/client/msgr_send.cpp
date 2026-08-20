@@ -432,7 +432,7 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
     auto cl_it = clients.find(cur_op->client_id);
     if (cl_it == clients.end() || cl_it->second->peer_state == PEER_STOPPED)
     {
-        delete cur_op;
+        cur_op->cancel();
         return;
     }
     osd_client_t *cl = cl_it->second;

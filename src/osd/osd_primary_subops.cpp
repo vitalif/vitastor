@@ -101,15 +101,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     else
     {
         // FIXME add separate magic number for primary ops
-        auto cl_it = msgr.clients.find(cur_op->client_id);
-        if (cl_it != msgr.clients.end())
-        {
-            msgr.outbox_push(cur_op);
-        }
-        else
-        {
-            delete cur_op;
-        }
+        msgr.outbox_push(cur_op);
     }
 }
 
