@@ -1305,8 +1305,8 @@ static bool ws_parse_frame(std::string & buf, uint8_t & type, std::string & res)
     {
         return false;
     }
-    type = buf[0] & ~0x80;
-    bool mask = !!(buf[1] & 0x80);
+    type = (uint8_t)buf[0] & ~0x80;
+    bool mask = !!((uint8_t)buf[1] & 0x80);
     hdr += mask ? 4 : 0;
     uint64_t len = ((uint8_t)buf[1] & ~0x80);
     if (len == 126)

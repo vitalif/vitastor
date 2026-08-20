@@ -39,7 +39,7 @@ struct http_message_t
     std::map<std::string, std::string> headers;
     std::string tls_cn;
     int tls_ca_idx = -1;
-    uint8_t ws_msg_type = -1;
+    uint8_t ws_msg_type = 0;
     std::string body;
 
     void parse_json_response(std::string & error, json11::Json & r) const;
