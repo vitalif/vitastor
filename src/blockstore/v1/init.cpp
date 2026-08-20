@@ -1000,7 +1000,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         memcpy((uint8_t*)dyn+sizeof(int), dyn_from, dyn_size);
                     }
                     bs->dirty_db.emplace(ov, (dirty_entry){
-                        .state = (BS_ST_SMALL_WRITE | BS_ST_SYNCED),
+                        .state = (BS_ST_SMALL_WRITE | BS_ST_SYNCED | (je->type == JE_SMALL_WRITE_INSTANT ? BS_ST_INSTANT : 0)),
                         .flags = 0,
                         .location = location,
                         .offset = je->small_write.offset,
@@ -1084,7 +1084,7 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                         memcpy((uint8_t*)dyn+sizeof(int), dyn_from, dyn_size);
                     }
                     auto dirty_it = bs->dirty_db.emplace(ov, (dirty_entry){
-                        .state = (BS_ST_BIG_WRITE | BS_ST_SYNCED),
+                        .state = (BS_ST_BIG_WRITE | BS_ST_SYNCED | (je->type == JE_BIG_WRITE_INSTANT ? BS_ST_INSTANT : 0)),
                         .flags = 0,
                         .location = je->big_write.location,
                         .offset = je->big_write.offset,

@@ -39,6 +39,11 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         dirty_it--; // segfaults when dirty_db is empty
         if (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
         {
+            if (op->opcode == BS_OP_WRITE_STABLE && !IS_INSTANT(dirty_it->second.state))
+            {
+                op->retval = -EINVAL;
+                return false;
+            }
             found = true;
             version = dirty_it->first.version + 1;
             deleted = IS_DELETE(dirty_it->second.state);
