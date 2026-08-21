@@ -210,6 +210,32 @@ void blockstore_disk_t::parse_config(std::map<std::string, std::string> & config
     }
 }
 
+// A metadata entry must fit into one metadata block; a large block_size with a small
+// csum_block_size otherwise inflates the entry past it and makes the callers divide by zero.
+static uint64_t entries_per_meta_block(uint64_t entry_size, uint64_t meta_block_size,
+    uint64_t data_block_size, uint32_t bitmap_granularity, uint32_t csum_block_size)
+{
+    if (entry_size && entry_size <= meta_block_size)
+    {
+        return meta_block_size / entry_size;
+    }
+    std::string msg = "Metadata entry size ("+std::to_string(entry_size)+" bytes) exceeds meta_block_size ("+
+        std::to_string(meta_block_size)+" bytes) with block_size="+std::to_string(data_block_size)+
+        ", bitmap_granularity="+std::to_string(bitmap_granularity);
+    if (csum_block_size)
+    {
+        msg += ", csum_block_size="+std::to_string(csum_block_size)+" ("+
+            std::to_string(data_block_size/csum_block_size)+" checksums per block)";
+    }
+    msg += ". Decrease block_size";
+    if (csum_block_size)
+    {
+        msg += ", increase csum_block_size";
+    }
+    msg += " or increase meta_block_size";
+    throw std::runtime_error(msg);
+}
+
 void blockstore_disk_t::calc_lengths(bool skip_meta_check)
 {
     // data
@@ -259,17 +285,20 @@ void blockstore_disk_t::calc_lengths(bool skip_meta_check)
     clean_entry_bitmap_size = (data_block_size / bitmap_granularity + 7) / 8;
     clean_dyn_size = clean_entry_bitmap_size*2 + (csum_block_size
         ? data_block_size/csum_block_size*(data_csum_type & 0xFF) : 0);
+    uint64_t entries_per_block = 0;
 recalc:
     if (meta_format == BLOCKSTORE_META_FORMAT_HEAP)
     {
-        uint32_t entries_per_block = meta_block_size / (sizeof(heap_big_write_t) + clean_dyn_size);
+        entries_per_block = entries_per_meta_block(sizeof(heap_big_write_t) + clean_dyn_size,
+            meta_block_size, data_block_size, bitmap_granularity, csum_block_size);
         min_meta_len = (block_count+entries_per_block-1) / entries_per_block * meta_block_size;
     }
     else if (meta_format == BLOCKSTORE_META_FORMAT_V1)
     {
         clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + 2*clean_entry_bitmap_size;
-        min_meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size)
-            / (meta_block_size / clean_entry_size)) * meta_block_size;
+        entries_per_block = entries_per_meta_block(clean_entry_size, meta_block_size,
+            data_block_size, bitmap_granularity, 0);
+        min_meta_len = (1 + (block_count - 1 + entries_per_block) / entries_per_block) * meta_block_size;
         if (!skip_meta_check && meta_area_size < min_meta_len)
         {
 too_small:
@@ -281,7 +310,9 @@ too_small:
     {
         meta_format = BLOCKSTORE_META_FORMAT_V2;
         clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + clean_dyn_size + 4 /*entry_csum*/;
-        min_meta_len = (1 + (block_count - 1 + meta_block_size / clean_entry_size) / (meta_block_size / clean_entry_size)) * meta_block_size;
+        entries_per_block = entries_per_meta_block(clean_entry_size, meta_block_size,
+            data_block_size, bitmap_granularity, csum_block_size);
+        min_meta_len = (1 + (block_count - 1 + entries_per_block) / entries_per_block) * meta_block_size;
         if (!skip_meta_check && meta_area_size < min_meta_len)
         {
             if (!data_csum_type)

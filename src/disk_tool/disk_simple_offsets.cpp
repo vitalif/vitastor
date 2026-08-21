@@ -130,6 +130,19 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
     uint64_t clean_entry_bitmap_size = data_block_size/bitmap_granularity/8;
     uint64_t object_count = ((device_size-meta_offset)/data_block_size);
     uint64_t meta_size;
+    // A metadata entry must fit into a single metadata block, otherwise entries_per_block below is 0
+    auto check_entry_size = [&](uint64_t entry_size)
+    {
+        if (entry_size && entry_size <= device_block_size)
+            return;
+        fprintf(
+            stderr, "Metadata entry size (%ju bytes) exceeds meta_block_size (%ju bytes) with block_size=%ju,"
+            " bitmap_granularity=%ju, csum_block_size=%u. Decrease block_size, increase csum_block_size"
+            " or increase device_block_size\n",
+            entry_size, device_block_size, data_block_size, bitmap_granularity, csum_block_size
+        );
+        exit(1);
+    };
     if (meta_format == BLOCKSTORE_META_FORMAT_HEAP)
     {
         uint32_t min_object_size = sizeof(heap_big_intent_t) + (data_csum_size ? data_csum_size : 4) + 2*clean_entry_bitmap_size;
@@ -138,18 +151,21 @@ void disk_tool_simple_offsets(json11::Json cfg, bool json_output)
             meta_reserve = 1.5;
         else if (meta_reserve < 1)
             meta_reserve = 1;
+        check_entry_size(min_object_size);
         uint32_t entries_per_block = device_block_size / min_object_size;
         meta_size = device_block_size * (uint64_t)((object_count+entries_per_block-1) / entries_per_block * meta_reserve);
     }
     else if (meta_format == BLOCKSTORE_META_FORMAT_V2)
     {
         uint64_t clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + 2*clean_entry_bitmap_size + data_csum_size + 4 /*entry_csum*/;
+        check_entry_size(clean_entry_size);
         uint64_t entries_per_block = device_block_size / clean_entry_size;
         meta_size = (1 + (object_count+entries_per_block-1)/entries_per_block) * device_block_size;
     }
     else if (meta_format == BLOCKSTORE_META_FORMAT_V1)
     {
         uint64_t clean_entry_size = 24 /*sizeof(clean_disk_entry)*/ + 2*clean_entry_bitmap_size;
+        check_entry_size(clean_entry_size);
         uint64_t entries_per_block = device_block_size / clean_entry_size;
         meta_size = (1 + (object_count+entries_per_block-1)/entries_per_block) * device_block_size;
     }
