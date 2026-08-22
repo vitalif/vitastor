@@ -27,6 +27,8 @@ ETCD_SCHEME=https ./test_snapshot.sh
 
 ./test_img_online_resize.sh
 
+./test_no_uring.sh
+
 ./test_interrupted_rebalance.sh
 IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
 SCHEME=ec ./test_interrupted_rebalance.sh

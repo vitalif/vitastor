@@ -467,36 +467,51 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
         return;
     }
 #endif
-    if (!ringloop)
+    try_send(cl);
+}
+
+bool osd_messenger_t::wakeup_send(osd_client_t *cl)
+{
+    if (cl->peer_state == PEER_RDMA)
     {
-        // FIXME: It's worse because it doesn't allow batching
-        while (cl->write_op || cl->write_ops.size())
-        {
-            try_send(cl);
-        }
+        return try_send_rdma(cl);
     }
-    else
+    if (use_sync_send_recv)
     {
-        if (!try_send(cl) && cl->write_state == 0)
+        // FIXME: Batch send/recv without io_uring too.
+        return try_send(cl);
+    }
+    if (cl->write_state == 0)
+    {
+        cl->write_state = CL_WRITE_READY;
+        write_ready_clients.push_back(cl->client_id);
+    }
+    ringloop->wakeup();
+    return true;
+}
+
+bool osd_messenger_t::try_send(osd_client_t *cl)
+{
+    assert(cl->peer_state != PEER_RDMA);
+restart:
+    if (cl->peer_state == PEER_STOPPED || cl->peer_fd < 0)
+    {
+        return true;
+    }
+    if (cl->write_msg.msg_iovlen > 0)
+    {
+        return true;
+    }
+    if (!use_sync_send_recv && !ringloop->space_left())
+    {
+        if (cl->write_state == 0)
         {
             cl->write_state = CL_WRITE_READY;
             write_ready_clients.push_back(cl->client_id);
         }
         ringloop->wakeup();
-    }
-}
-
-bool osd_messenger_t::try_send(osd_client_t *cl)
-{
-    if (cl->peer_state == PEER_STOPPED || cl->peer_fd < 0)
-    {
         return true;
     }
-    if (cl->write_msg.msg_iovlen > 0 || !ringloop->space_left() && !use_sync_send_recv)
-    {
-        return false;
-    }
-    assert(cl->peer_state != PEER_RDMA);
     if (cl->hs)
     {
         // Send handshake message
@@ -523,11 +538,10 @@ copy_ops:
     if (cl->io_error)
     {
         stop_client(cl->client_id);
-        return true;
+        return false;
     }
     if (!cl->send_list.size())
     {
-        cl->write_state = 0;
         return true;
     }
     // get_op_writer_t already guarantees that it's under IOV_MAX
@@ -575,16 +589,23 @@ copy_ops:
     }
     else
     {
-        cl->write_msg.msg_iov = cl->send_list.data();
-        cl->write_msg.msg_iovlen = cl->send_list.size();
-        cl->refs++;
-        int result = sendmsg(cl->peer_fd, &cl->write_msg, MSG_NOSIGNAL);
-        if (result < 0)
+        // Send everything using a simple busy loop
+        while (cl->send_list.size())
         {
-            result = -errno;
+            cl->write_msg.msg_iov = cl->send_list.data();
+            cl->write_msg.msg_iovlen = cl->send_list.size();
+            cl->refs++;
+            int result = sendmsg(cl->peer_fd, &cl->write_msg, MSG_NOSIGNAL);
+            if (result < 0)
+            {
+                result = -errno;
+            }
+            if (!handle_send(result, false, false, cl))
+            {
+                return false;
+            }
         }
-        // like set_immediate
-        tfd->set_timer_us(0, false, [this, result, cl](int){ handle_send(result, false, false, cl); });
+        goto restart;
     }
     return true;
 }
@@ -664,21 +685,42 @@ void osd_messenger_t::send_replies()
     {
         uint64_t client_id = write_ready_clients[i];
         auto cl_it = clients.find(client_id);
-        if (cl_it != clients.end() && cl_it->second->peer_state != PEER_RDMA && !try_send(cl_it->second))
+        if (cl_it != clients.end() && cl_it->second->peer_state != PEER_RDMA)
         {
-            write_ready_clients.erase(write_ready_clients.begin(), write_ready_clients.begin() + i);
-            return;
+            if (!ringloop->space_left())
+            {
+                write_ready_clients.erase(write_ready_clients.begin(), write_ready_clients.begin() + i);
+                return;
+            }
+            cl_it->second->write_state = 0;
+            try_send(cl_it->second);
         }
     }
     write_ready_clients.clear();
 }
 
-void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t *cl)
+static void eat_send_list(osd_client_t *cl, size_t n)
+{
+    int i = 0;
+    while (i < cl->send_list.size() && n >= cl->send_list[i].iov_len)
+    {
+        n -= cl->send_list[i].iov_len;
+        i++;
+    }
+    if (i > 0)
+        cl->send_list.erase(cl->send_list.begin(), cl->send_list.begin()+i);
+    if (cl->send_list.size())
+    {
+        cl->send_list[0].iov_base = (uint8_t*)cl->send_list[0].iov_base + n;
+        cl->send_list[0].iov_len -= n;
+    }
+}
+
+bool osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t *cl)
 {
     if (!prev)
     {
         cl->write_msg.msg_iovlen = 0;
-        cl->send_list.clear();
     }
     if (!more)
     {
@@ -690,14 +732,15 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
         {
             destroy_client(cl);
         }
-        return;
+        // FIXME: Return error codes instead of true/false (?)
+        return false;
     }
     if (result < 0 && result != -EAGAIN && result != -EINTR)
     {
         // this is a client socket, so don't panic. just disconnect it
         fprintf(stderr, "Client %ju socket write error: %d (%s). Disconnecting client\n", cl->client_id, -result, strerror(-result));
         stop_client(cl->client_id);
-        return;
+        return false;
     }
     if (result >= 0)
     {
@@ -709,14 +752,26 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
                 post_send_free(cl->zc_free_list[i]);
             if (i > 0)
                 cl->zc_free_list.erase(cl->zc_free_list.begin(), cl->zc_free_list.begin()+i+1);
-            return;
+            return true;
         }
-        if (cl->send_list_size > result)
+        if (cl->send_list_size <= result)
+        {
+            cl->send_list.clear();
+            cl->send_list_size = 0;
+        }
+        else if (!use_sync_send_recv)
         {
             fprintf(stderr, "Client %ju socket write error: expected to send "
                 "%zu bytes with MSG_WAITALL but sent %u. Disconnecting client\n", cl->client_id, cl->send_list_size, result);
             stop_client(cl->client_id);
-            return;
+            return false;
+        }
+        else
+        {
+            // Partially sent
+            eat_send_list(cl, result);
+            cl->send_list_size -= result;
+            return true;
         }
         for (auto op: cl->send_free_ops)
         {
@@ -728,9 +783,6 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
         if (more)
             cl->zc_free_list.push_back(NULL); // end marker
         cl->send_free_ops.clear();
-        cl->write_state = 0;
-        if (cl->write_op || cl->write_ops.size())
-            cl->write_state = CL_WRITE_READY;
         if ((cl->proto_csum_status & MSGR_CSUM_NEG) && !cl->write_op && !cl->write_ops.size())
         {
             // Checksums negotiated, enable
@@ -750,10 +802,16 @@ void osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
         }
 #endif
     }
-    if (cl->write_state != 0)
+    if ((cl->write_op || cl->write_ops.size() || cl->hs && cl->hs->out_size()) && !use_sync_send_recv)
     {
-        write_ready_clients.push_back(cl->client_id);
+        if (cl->write_state == 0)
+        {
+            cl->write_state = CL_WRITE_READY;
+            write_ready_clients.push_back(cl->client_id);
+        }
+        ringloop->wakeup();
     }
+    return true;
 }
 
 static inline bool op_has_data_for_ssl(osd_op_t *op)

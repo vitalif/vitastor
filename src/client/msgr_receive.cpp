@@ -458,8 +458,7 @@ void osd_messenger_t::read_requests()
             {
                 result = -errno;
             }
-            // like set_immediate
-            tfd->set_timer_us(0, false, [this, result, cl](int){ handle_read(result, cl); });
+            handle_read(result, cl);
         }
     }
     read_ready_clients.clear();
@@ -490,8 +489,10 @@ void osd_messenger_t::handle_read(int result, osd_client_t *cl)
         }
         stop_client(cl->client_id);
 out_wakeup:
-        if (set_immediate_ops.size())
+        if (ringloop && set_immediate_ops.size())
+        {
             ringloop->wakeup();
+        }
         return;
     }
     bool full_read = false;
@@ -501,7 +502,9 @@ out_wakeup:
         {
             full_read = result >= cl->read_iov.iov_len;
             if (!handle_read_buffer(cl, cl->in_buf, result))
+            {
                 goto out_wakeup;
+            }
         }
         else
         {
@@ -597,13 +600,16 @@ bool osd_messenger_t::handle_read_buffer(osd_client_t *cl, uint8_t *curbuf, size
             bufsize -= done;
             if (cl->hs->out_size())
             {
-                if (cl->write_state == 0)
+                if (!wakeup_send(cl))
                 {
-                    cl->write_state = CL_WRITE_READY;
-                    write_ready_clients.push_back(cl->client_id);
+                    return false;
                 }
             }
-            if (cl->hs->done() && !cl->hs->out_size())
+            if (!cl->hs)
+            {
+                // Deleted by wakeup_send with use_sync_send_recv
+            }
+            else if (cl->hs->done() && !cl->hs->out_size())
             {
                 // Delete hs when done and nothing to send
                 delete cl->hs;

@@ -248,7 +248,7 @@ protected:
 
     void init_tls();
     void destroy_tls();
-    void init_tls_client(osd_client_t *cl);
+    bool init_tls_client(osd_client_t *cl);
     bool do_tls_handshake(osd_client_t *cl, bool from_recv = false);
     bool derive_aes_keys(osd_client_t *cl, bool update_my, bool update_peer);
 
@@ -343,7 +343,8 @@ protected:
     void cancel_op(osd_op_t *op);
 
     bool try_send(osd_client_t *cl);
-    void handle_send(int result, bool prev, bool more, osd_client_t *cl);
+    bool wakeup_send(osd_client_t *cl);
+    bool handle_send(int result, bool prev, bool more, osd_client_t *cl);
     static void post_send_free(osd_op_t *op);
     bool op_write_to(osd_client_t *cl, msgr_op_writer_t & wr);
     void next_write_op(osd_client_t *cl);
@@ -370,7 +371,7 @@ protected:
     void op_decrypt_free(osd_client_t* cl);
 
 #ifdef WITH_RDMA
-    void try_send_rdma(osd_client_t *cl);
+    bool try_send_rdma(osd_client_t *cl);
     bool init_recv_rdma(osd_client_t *cl);
     void handle_rdma_events(msgr_rdma_context_t *rdma_context);
     msgr_rdma_context_t* choose_rdma_context(osd_client_t *cl);

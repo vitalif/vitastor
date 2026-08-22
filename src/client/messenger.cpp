@@ -509,7 +509,10 @@ void osd_messenger_t::handle_connect_epoll(int peer_fd)
         handle_peer_epoll(peer_fd, epoll_events);
     });
     // Check OSD number
-    init_tls_client(cl);
+    if (!init_tls_client(cl))
+    {
+        return;
+    }
     check_peer_config(cl);
 }
 
@@ -770,7 +773,10 @@ void osd_messenger_t::accept_connections(int listen_fd)
         cl->peer_fd = peer_fd;
         cl->peer_state = PEER_CONNECTED;
         cl->in_buf = (uint8_t*)malloc_or_die(receive_buffer_size);
-        init_tls_client(cl);
+        if (!init_tls_client(cl))
+        {
+            continue;
+        }
         // Add FD to epoll
         tfd->set_fd_handler(peer_fd, false, [this](int peer_fd, int epoll_events)
         {

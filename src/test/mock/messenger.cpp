@@ -73,6 +73,11 @@ void osd_messenger_t::accept_connections(int listen_fd)
 {
 }
 
+bool osd_messenger_t::wakeup_send(osd_client_t *cl)
+{
+    return true;
+}
+
 #ifdef WITH_RDMA
 json11::Json osd_messenger_t::connect_rdma(uint64_t client_id, std::string rdma_address, uint64_t client_max_msg)
 {

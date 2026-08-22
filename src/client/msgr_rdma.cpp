@@ -571,7 +571,7 @@ static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
     cl->rdma_conn->cur_send++;
 }
 
-void osd_messenger_t::try_send_rdma(osd_client_t *cl)
+bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
 {
     auto rc = cl->rdma_conn;
     if (!rc->send_out_size)
@@ -602,7 +602,7 @@ void osd_messenger_t::try_send_rdma(osd_client_t *cl)
         if (cl->io_error)
         {
             stop_client(cl->client_id);
-            return;
+            return false;
         }
         if (copied > 0)
         {
@@ -622,6 +622,7 @@ void osd_messenger_t::try_send_rdma(osd_client_t *cl)
             cl->send_free_ops.push_back(NULL); // end marker
         }
     }
+    return true;
 }
 
 static void try_recv_rdma_wr(osd_client_t *cl, void *buf)
@@ -750,6 +751,7 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
             }
         }
     } while (event_count > 0);
+    handle_immediate_ops();
 }
 
 void osd_messenger_t::destroy_rdma_conn(msgr_rdma_connection_t *rdma_conn)

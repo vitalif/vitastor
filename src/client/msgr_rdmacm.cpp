@@ -503,7 +503,6 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
     cl->osd_num = peer_osd;
     cl->in_buf = (uint8_t*)malloc_or_die(receive_buffer_size);
     cl->rdma_conn = rc;
-    init_tls_client(cl);
     clients[conn->client_id] = cl;
     if (conn->timeout_id >= 0)
     {
@@ -517,6 +516,10 @@ void osd_messenger_t::rdmacm_established(rdma_cm_event *ev)
         fprintf(stderr, "Successfully connected with OSD %ju using RDMA-CM\n", peer_osd);
     }
     // Add initial receive request(s)
+    if (!init_tls_client(cl))
+    {
+        return;
+    }
     init_recv_rdma(cl);
     if (peer_osd)
     {

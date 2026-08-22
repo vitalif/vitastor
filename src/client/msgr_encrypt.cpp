@@ -616,7 +616,7 @@ void osd_messenger_t::init_tls()
     }
 }
 
-void osd_messenger_t::init_tls_client(osd_client_t *cl)
+bool osd_messenger_t::init_tls_client(osd_client_t *cl)
 {
     if (gcm_enabled)
     {
@@ -625,13 +625,13 @@ void osd_messenger_t::init_tls_client(osd_client_t *cl)
         cl->hs->init(cl->is_incoming);
         if (cl->hs->out_size())
         {
-            if (cl->write_state == 0)
+            if (!wakeup_send(cl))
             {
-                cl->write_state = CL_WRITE_READY;
-                write_ready_clients.push_back(cl->client_id);
+                return false;
             }
         }
     }
+    return true;
 }
 
 void osd_messenger_t::destroy_tls()
