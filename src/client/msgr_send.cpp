@@ -17,6 +17,10 @@
 
 #define GCM_TMP_BUF_SIZE 4096
 
+// How many times to retry sendmsg() in place before falling back to EPOLLOUT.
+// Only used with use_sync_send_recv - io_uring waits for the socket by itself
+#define MSGR_SEND_RETRIES 4
+
 class msgr_op_writer_t
 {
 public:
@@ -502,14 +506,23 @@ restart:
     {
         return true;
     }
-    if (!use_sync_send_recv && !ringloop->space_left())
+    if (!use_sync_send_recv)
     {
-        if (cl->write_state == 0)
+        if (!ringloop->space_left())
         {
-            cl->write_state = CL_WRITE_READY;
-            write_ready_clients.push_back(cl->client_id);
+            if (cl->write_state == 0)
+            {
+                cl->write_state = CL_WRITE_READY;
+                write_ready_clients.push_back(cl->client_id);
+            }
+            ringloop->wakeup();
+            return true;
         }
-        ringloop->wakeup();
+    }
+    else if (!cl->write_ready)
+    {
+        // Socket buffer is full, the unsent tail is still in send_list.
+        // Do not copy more data into it, just wait for EPOLLOUT
         return true;
     }
     if (cl->hs)
@@ -589,7 +602,8 @@ copy_ops:
     }
     else
     {
-        // Send everything using a simple busy loop
+        // Try to first send with a busy loop, then postpone to the EPOLLOUT handler
+        int send_retries = MSGR_SEND_RETRIES;
         while (cl->send_list.size())
         {
             cl->write_msg.msg_iov = cl->send_list.data();
@@ -603,6 +617,11 @@ copy_ops:
             if (!handle_send(result, false, false, cl))
             {
                 return false;
+            }
+            if (cl->send_list.size() && --send_retries <= 0)
+            {
+                cl->write_ready = false;
+                return true;
             }
         }
         goto restart;

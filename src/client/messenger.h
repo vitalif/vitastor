@@ -147,6 +147,8 @@ struct osd_client_t
     size_t write_op_pos = 0;
     msghdr write_msg = { 0 };
     int write_state = 0;
+    // Socket is writable. Only tracked with use_sync_send_recv, io_uring doesn't need it
+    bool write_ready = true;
     std::vector<iovec> send_list;
     size_t send_list_size = 0;
     std::deque<osd_op_t*> send_free_ops;
