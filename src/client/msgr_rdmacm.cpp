@@ -60,7 +60,10 @@ rdma_cm_id *osd_messenger_t::rdmacm_listen(const std::string & bind_address, int
     }
     return listener;
 fail:
-    rdma_destroy_id(listener);
+    if (listener)
+    {
+        rdma_destroy_id(listener);
+    }
     return NULL;
 }
 
