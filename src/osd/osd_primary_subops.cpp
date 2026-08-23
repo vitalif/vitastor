@@ -485,6 +485,32 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
             msgr.stop_client(subop->client_id);
             op_data->drops++;
         }
+        else if (opcode == OSD_OP_SEC_STABILIZE || opcode == OSD_OP_SEC_ROLLBACK)
+        {
+            // STABILIZE/ROLLBACK should never fail, but if they do, we repeer the PGs
+            assert(subop->iov.count == 1);
+            obj_ver_id *vers = (obj_ver_id*)subop->iov.buf[0].iov_base;
+            size_t n = subop->iov.buf[0].iov_len/sizeof(obj_ver_id);
+            robin_hood::unordered_flat_set<pool_pg_num_t> to_repeer;
+            for (size_t i = 0; i < n; i++)
+            {
+                to_repeer.insert((pool_pg_num_t){
+                    .pool_id = INODE_POOL(vers[i].oid.inode),
+                    .pg_num = map_to_pg(vers[i].oid),
+                });
+            }
+            ringloop->set_immediate([this, to_repeer = std::move(to_repeer)]()
+            {
+                for (auto & ppg: to_repeer)
+                {
+                    auto pg_it = pgs.find(ppg);
+                    if (pg_it != pgs.end() && (pg_it->second.state & PG_ACTIVE))
+                    {
+                        repeer_pg(pg_it->second);
+                    }
+                }
+            });
+        }
         // Increase op_data->errors after stop_client to prevent >= n_subops running twice
         op_data->errors++;
     }
@@ -698,6 +724,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
         {
             clock_gettime(CLOCK_REALTIME, &subops[i].tv_begin);
             subops[i].op_type = (uint64_t)cur_op;
+            subops[i].iov.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
             subops[i].bs_op = new blockstore_op_t((blockstore_op_t){
                 .opcode = BS_OP_STABLE,
                 .callback = [subop = &subops[i], this](blockstore_op_t *bs_subop)
@@ -719,7 +746,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
                     .magic = SECONDARY_OSD_OP_MAGIC,
                     .opcode = OSD_OP_SEC_STABILIZE,
                 },
-                .len = (uint64_t)(stab_osd.len * sizeof(obj_ver_id)),
+                .len = (uint64_t)stab_osd.len * sizeof(obj_ver_id),
                 .flags = cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
             } };
             subops[i].iov.push_back(op_data->unstable_writes + stab_osd.start, stab_osd.len * sizeof(obj_ver_id));
@@ -773,6 +800,7 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd
             {
                 clock_gettime(CLOCK_REALTIME, &subop->tv_begin);
                 subop->op_type = (uint64_t)cur_op;
+                subop->iov.push_back(op_data->unstable_writes + i, sizeof(obj_ver_id));
                 subop->bs_op = new blockstore_op_t((blockstore_op_t){
                     .opcode = BS_OP_ROLLBACK,
                     .callback = [subop, this](blockstore_op_t *bs_subop)

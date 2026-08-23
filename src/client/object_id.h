@@ -111,4 +111,15 @@ namespace std
             return seed;
         }
     };
+
+    template<> struct hash<pool_pg_num_t>
+    {
+        inline size_t operator()(const pool_pg_num_t &s) const
+        {
+            size_t seed = 0;
+            seed ^= ((size_t)s.pool_id + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+            seed ^= ((size_t)s.pg_num + 0xc6a4a7935bd1e995 + (seed << 6) + (seed >> 2));
+            return seed;
+        }
+    };
 }

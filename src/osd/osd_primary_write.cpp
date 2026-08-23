@@ -299,7 +299,7 @@ resume_12:
                     delete[] op_data->unstable_writes;
                     op_data->unstable_writes = NULL;
                 }
-                // Ignore ROLLBACK errors - submit_primary_subops will drop the connection if it fails
+                // Ignore ROLLBACK errors - submit_primary_subops will repeer the PG if it fails
             }
             else
             {
@@ -561,6 +561,7 @@ resume_6:
                 return false;
             }
 resume_7:
+            // Ignore STABILIZE errors - submit_primary_subops will repeer the PG if it fails
             // FIXME: Free those in the destructor?
             delete op_data->unstable_write_osds;
             delete[] op_data->unstable_writes;
