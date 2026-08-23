@@ -158,22 +158,6 @@ void osd_messenger_t::destroy_client(osd_client_t *cl)
     if (cl->peer_fd >= 0)
     {
         tfd->set_fd_handler(cl->peer_fd, false, NULL);
-        for (auto rit = read_ready_clients.begin(); rit != read_ready_clients.end(); rit++)
-        {
-            if (*rit == cl->client_id)
-            {
-                read_ready_clients.erase(rit);
-                break;
-            }
-        }
-        for (auto wit = write_ready_clients.begin(); wit != write_ready_clients.end(); wit++)
-        {
-            if (*wit == cl->client_id)
-            {
-                write_ready_clients.erase(wit);
-                break;
-            }
-        }
         clients_by_fd.erase(cl->peer_fd);
     }
 #ifdef WITH_RDMA
