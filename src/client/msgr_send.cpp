@@ -530,6 +530,13 @@ copy_ops:
         cl->write_state = 0;
         return true;
     }
+    // get_op_writer_t already guarantees that it's under IOV_MAX
+    assert(cl->send_list.size() <= IOV_MAX);
+    cl->send_list_size = 0;
+    for (auto & iov: cl->send_list)
+    {
+        cl->send_list_size += iov.iov_len;
+    }
     if (!use_sync_send_recv)
     {
         auto iothread = iothreads.size() ? iothreads[cl->peer_fd % iothreads.size()] : NULL;
@@ -542,13 +549,8 @@ copy_ops:
             data_local = {};
         }
         assert(sqe);
-        cl->send_list_size = 0;
-        for (auto & iov: cl->send_list)
-        {
-            cl->send_list_size += iov.iov_len;
-        }
         cl->write_msg.msg_iov = cl->send_list.data();
-        cl->write_msg.msg_iovlen = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
+        cl->write_msg.msg_iovlen = cl->send_list.size();
         cl->refs++;
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
         data->callback = [this, cl](ring_data_t *data) { handle_send(data->res, data->prev, data->more, cl); };
@@ -574,7 +576,7 @@ copy_ops:
     else
     {
         cl->write_msg.msg_iov = cl->send_list.data();
-        cl->write_msg.msg_iovlen = cl->send_list.size() < IOV_MAX ? cl->send_list.size() : IOV_MAX;
+        cl->write_msg.msg_iovlen = cl->send_list.size();
         cl->refs++;
         int result = sendmsg(cl->peer_fd, &cl->write_msg, MSG_NOSIGNAL);
         if (result < 0)
