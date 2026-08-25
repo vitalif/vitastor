@@ -35,7 +35,6 @@ journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
 
 journal_flusher_co::journal_flusher_co()
 {
-    wait_state = 0;
     simple_callback_r = [this](ring_data_t* data)
     {
         bs->live = true;

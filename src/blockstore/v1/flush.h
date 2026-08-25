@@ -3,34 +3,34 @@
 
 struct copy_buffer_t
 {
-    int copy_flags;
-    uint64_t offset, len, disk_offset;
-    uint64_t journal_sector; // only for reads: sector+1 if used and !journal.inmemory, otherwise 0
-    void *buf;
-    uint8_t *csum_buf;
-    int *dyn_data;
+    int copy_flags = 0;
+    uint64_t offset = 0, len = 0, disk_offset = 0;
+    uint64_t journal_sector = 0; // only for reads: sector+1 if used and !journal.inmemory, otherwise 0
+    void *buf = NULL;
+    uint8_t *csum_buf = NULL;
+    int *dyn_data = NULL;
 };
 
 struct meta_sector_t
 {
-    uint64_t offset, len;
-    int state;
-    void *buf;
-    int usage_count;
+    uint64_t offset = 0, len = 0;
+    int state = 0;
+    void *buf = NULL;
+    int usage_count = 0;
 };
 
 struct flusher_sync_t
 {
-    bool fsync_meta;
-    int ready_count;
-    int state;
+    bool fsync_meta = false;
+    int ready_count = 0;
+    int state = 0;
 };
 
 struct flusher_meta_write_t
 {
-    uint64_t sector, pos;
-    bool submitted;
-    void *buf;
+    uint64_t sector = 0, pos = 0;
+    bool submitted = 0;
+    void *buf = NULL;
     std::map<uint64_t, meta_sector_t>::iterator it;
 };
 
@@ -39,36 +39,36 @@ class journal_flusher_t;
 // Journal flusher coroutine
 class journal_flusher_co
 {
-    blockstore_impl_t *bs;
-    journal_flusher_t *flusher;
-    int wait_state, wait_count, wait_journal_count;
-    struct io_uring_sqe *sqe;
-    struct ring_data_t *data;
+    blockstore_impl_t *bs = NULL;
+    journal_flusher_t *flusher = NULL;
+    int wait_state = 0, wait_count = 0, wait_journal_count = 0;
+    struct io_uring_sqe *sqe = NULL;
+    struct ring_data_t *data = NULL;
 
     std::list<flusher_sync_t>::iterator cur_sync;
 
-    obj_ver_id cur;
+    obj_ver_id cur = {};
     std::map<obj_ver_id, dirty_entry>::iterator dirty_it, dirty_start, dirty_end;
     std::map<object_id, uint64_t>::iterator repeat_it;
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_rj, simple_callback_w;
 
     bool try_trim = false;
-    bool skip_copy, has_delete, has_writes;
+    bool skip_copy = false, has_delete = false, has_writes = false;
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;
-    int i;
-    bool fill_incomplete, cleared_incomplete;
-    int read_to_fill_incomplete;
-    int copy_count;
-    uint64_t clean_loc, clean_ver, old_clean_loc, old_clean_ver;
+    int i = 0;
+    bool fill_incomplete = false, cleared_incomplete = false;
+    int read_to_fill_incomplete = 0;
+    int copy_count = 0;
+    uint64_t clean_loc = 0, clean_ver = 0, old_clean_loc = 0, old_clean_ver = 0;
     flusher_meta_write_t meta_old, meta_new;
-    bool clean_init_bitmap;
-    uint64_t clean_bitmap_offset, clean_bitmap_len;
-    uint8_t *clean_init_dyn_ptr;
-    uint8_t *new_clean_bitmap;
+    bool clean_init_bitmap = false;
+    uint64_t clean_bitmap_offset = 0, clean_bitmap_len = 0;
+    uint8_t *clean_init_dyn_ptr = NULL;
+    uint8_t *new_clean_bitmap = NULL;
     std::unordered_set<uint32_t> mangle_csum_blocks;
 
-    uint64_t new_trim_pos;
+    uint64_t new_trim_pos = 0;
 
     friend class journal_flusher_t;
     void scan_dirty();
@@ -94,19 +94,19 @@ public:
 class journal_flusher_t
 {
     int trim_wanted = 0;
-    bool dequeuing;
-    int min_flusher_count, max_flusher_count, cur_flusher_count, target_flusher_count;
-    int flusher_start_threshold;
-    journal_flusher_co *co;
-    blockstore_impl_t *bs;
+    bool dequeuing = false;
+    int min_flusher_count = 0, max_flusher_count = 0, cur_flusher_count = 0, target_flusher_count = 0;
+    int flusher_start_threshold = 0;
+    journal_flusher_co *co = NULL;
+    blockstore_impl_t *bs = NULL;
     friend class journal_flusher_co;
 
-    int journal_trim_counter;
-    bool trimming;
-    void* journal_superblock;
+    int journal_trim_counter = 0;
+    bool trimming = false;
+    void* journal_superblock = NULL;
 
-    int active_flushers;
-    int syncing_flushers;
+    int active_flushers = 0;
+    int syncing_flushers = 0;
     std::list<flusher_sync_t> syncs;
     std::map<object_id, uint64_t> sync_to_repeat;
 
