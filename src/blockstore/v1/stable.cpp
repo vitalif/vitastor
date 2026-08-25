@@ -445,9 +445,9 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
                 {
                     break;
                 }
-                if (!IS_STABLE(back_it->second.state))
+                if (!IS_SYNCED(back_it->second.state))
                 {
-                    // There are preceding unstable versions, can't flush <v>
+                    // There are preceding unsynced versions, can't flush <v>
                     return;
                 }
             }

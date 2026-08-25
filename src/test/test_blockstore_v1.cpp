@@ -1127,6 +1127,158 @@ static void test_used_blocks_replay_delete_over_unstable_big_write()
     free(op.buf);
 }
 
+static void test_delete_over_ec_write()
+{
+    printf("\n-- test_delete_over_ec_write\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+    printf("blockstore initialized\n");
+
+    blockstore_op_t op;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    memset(op.buf, 0xAA, 128*1024);
+
+    printf("write v1 0+128k (big, stable)\n");
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    assert(test.used_blocks() > 0);
+
+    printf("write v2 0+4k (big, unstable)\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 2;
+    op.len = 4*1024;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("delete v3 - should mark all previous versions stable\n");
+    op.opcode = BS_OP_DELETE;
+    op.version = 3;
+    op.offset = 0;
+    op.len = 0;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    {
+        auto dirty = test.find_dirty_entry(op.oid, 2);
+        assert(dirty);
+        assert(IS_STABLE(dirty->state));
+    }
+
+    printf("restarting the blockstore (journal replay)\n");
+    test.destroy_bs();
+    test.init();
+
+    {
+        auto dirty = test.find_dirty_entry(op.oid, 2);
+        if (!dirty)
+        {
+            dirty = test.find_dirty_entry(op.oid, 3);
+            assert(!dirty);
+        }
+        else
+        {
+            assert(IS_STABLE(dirty->state));
+            dirty = test.find_dirty_entry(op.oid, 3);
+            assert(IS_DELETE(dirty->state));
+        }
+    }
+
+    free(op.buf);
+}
+
+static void test_delete_over_ec_write_unstable()
+{
+    printf("\n-- test_delete_over_ec_write_unstable\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    blockstore_op_t op;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    memset(op.buf, 0xAA, 128*1024);
+
+    printf("write v1 0+128k (big, stable)\n");
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("write v2 0+4k (big, unstable)\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 2;
+    op.len = 4*1024;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("delete v3 - should mark all previous versions stable, but only after sync\n");
+    bool del_done = false;
+    op.opcode = BS_OP_DELETE;
+    op.version = 3;
+    op.offset = 0;
+    op.len = 0;
+    op.callback = [&](blockstore_op_t *op)
+    {
+        del_done = true;
+    };
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    {
+        auto dirty = test.find_dirty_entry(op.oid, 3);
+        assert(dirty);
+        assert(!IS_SYNCED(dirty->state));
+        assert(!IS_STABLE(dirty->state));
+    }
+
+    blockstore_op_t sync_op;
+    sync_op.opcode = BS_OP_SYNC;
+    test.exec_op(&sync_op);
+
+    {
+        auto dirty = test.find_dirty_entry(op.oid, 2);
+        assert(dirty);
+        assert(IS_STABLE(dirty->state));
+        dirty = test.find_dirty_entry(op.oid, 3);
+        assert(dirty);
+        assert(IS_STABLE(dirty->state));
+    }
+
+    printf("restarting the blockstore (journal replay)\n");
+    test.destroy_bs();
+    test.init();
+
+    {
+        auto dirty = test.find_dirty_entry(op.oid, 2);
+        if (!dirty)
+        {
+            dirty = test.find_dirty_entry(op.oid, 3);
+            assert(!dirty);
+        }
+        else
+        {
+            assert(IS_STABLE(dirty->state));
+            dirty = test.find_dirty_entry(op.oid, 3);
+            assert(IS_DELETE(dirty->state));
+        }
+    }
+
+    free(op.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -1141,5 +1293,7 @@ int main(int narg, char *args[])
     test_read_bitmap_of_deleted_object();
     test_used_blocks_replay_stable_over_small_write();
     test_used_blocks_replay_delete_over_unstable_big_write();
+    test_delete_over_ec_write();
+    test_delete_over_ec_write_unstable();
     return 0;
 }

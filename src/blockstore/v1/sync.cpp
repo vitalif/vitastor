@@ -176,18 +176,15 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
 void blockstore_impl_t::ack_sync(blockstore_op_t *op)
 {
     // Handle states
-    for (auto it = PRIV(op)->sync_big_writes.begin(); it != PRIV(op)->sync_big_writes.end(); it++)
+    auto mark_sync = [&](obj_ver_id & ov)
     {
-#ifdef BLOCKSTORE_DEBUG
-        printf("Ack sync big %jx:%jx v%ju\n", it->oid.inode, it->oid.stripe, it->version);
-#endif
-        auto & unstab = unstable_writes[it->oid];
-        unstab = unstab < it->version ? it->version : unstab;
-        auto dirty_it = dirty_db.find(*it);
+        auto dirty_it = dirty_db.find(ov);
+        bool is_big = ((dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE);
         dirty_it->second.state = ((dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SYNCED);
-        if (dirty_it->second.state & BS_ST_INSTANT)
+        uint64_t stable_ver = 0;
+        if (IS_INSTANT(dirty_it->second.state))
         {
-            mark_stable(dirty_it->first);
+            stable_ver = ov.version;
         }
         else
         {
@@ -195,41 +192,37 @@ void blockstore_impl_t::ack_sync(blockstore_op_t *op)
             assert(unstable_unsynced >= 0);
         }
         dirty_it++;
-        while (dirty_it != dirty_db.end() && dirty_it->first.oid == it->oid)
+        while (dirty_it != dirty_db.end() && dirty_it->first.oid == ov.oid)
         {
-            if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG)
+            if (is_big && (dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG)
             {
                 dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | BS_ST_IN_FLIGHT;
             }
+            else if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_SYNCED &&
+                IS_INSTANT(dirty_it->second.state))
+            {
+                stable_ver = dirty_it->first.version;
+            }
             dirty_it++;
         }
-    }
-    for (auto it = PRIV(op)->sync_small_writes.begin(); it != PRIV(op)->sync_small_writes.end(); it++)
+        if (stable_ver != 0)
+        {
+            mark_stable((obj_ver_id){ .oid = ov.oid, .version = stable_ver });
+        }
+    };
+    for (auto & ov: PRIV(op)->sync_big_writes)
     {
 #ifdef BLOCKSTORE_DEBUG
-        printf("Ack sync small %jx:%jx v%ju\n", it->oid.inode, it->oid.stripe, it->version);
+        printf("Ack sync big %jx:%jx v%ju\n", ov.oid.inode, ov.oid.stripe, ov.version);
 #endif
-        auto & unstab = unstable_writes[it->oid];
-        unstab = unstab < it->version ? it->version : unstab;
-        if (dirty_db[*it].state == (BS_ST_DELETE | BS_ST_WRITTEN))
-        {
-            dirty_db[*it].state = (BS_ST_DELETE | BS_ST_SYNCED);
-            // Deletions are treated as immediately stable
-            mark_stable(*it);
-        }
-        else /* (BS_ST_INSTANT?) | BS_ST_SMALL_WRITE | BS_ST_WRITTEN */
-        {
-            dirty_db[*it].state = (dirty_db[*it].state & ~BS_ST_WORKFLOW_MASK) | BS_ST_SYNCED;
-            if (dirty_db[*it].state & BS_ST_INSTANT)
-            {
-                mark_stable(*it);
-            }
-            else
-            {
-                unstable_unsynced--;
-                assert(unstable_unsynced >= 0);
-            }
-        }
+        mark_sync(ov);
+    }
+    for (auto & ov: PRIV(op)->sync_small_writes)
+    {
+#ifdef BLOCKSTORE_DEBUG
+        printf("Ack sync small %jx:%jx v%ju\n", ov.oid.inode, ov.oid.stripe, ov.version);
+#endif
+        mark_sync(ov);
     }
     op->retval = 0;
     FINISH_OP(op);
