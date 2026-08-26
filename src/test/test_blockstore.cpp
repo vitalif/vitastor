@@ -362,6 +362,121 @@ static void test_fsync(bool separate_meta)
     free(op2.buf);
 }
 
+static void test_fsync_meta_before_complete()
+{
+    printf("\n-- test_fsync_meta_before_complete\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.config["meta_device"] = "./test_meta.bin";
+    test.config["disable_meta_fsync"] = "0";
+    test.config["meta_device_size"] = "33554432";
+    test.config["meta_device_sect"] = "4096";
+    test.config["data_offset"] = "0";
+    test.init();
+    test.meta_disk->trace = 1;
+
+    // Write
+    printf("writing 16K+4K v1\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 16384;
+    op.len = 4096;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    memset(op.buf, 0xaa, 4096);
+
+    // Block metadata write execution
+    uint64_t mod_off = 0;
+    void *mod_buf = NULL;
+    ring_data_t *mod_data = NULL;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_META_FD && sqe->opcode == IORING_OP_WRITEV)
+        {
+            assert(sqe->len == 1);
+            mod_off = sqe->off;
+            mod_buf = ((iovec*)sqe->addr)[0].iov_base;
+            mod_data = (ring_data_t*)sqe->user_data;
+            assert(((iovec*)sqe->addr)[0].iov_len == test.bs->dsk.meta_block_size);
+            return true;
+        }
+        return false;
+    };
+
+    bool wr_done = false;
+    op.callback = [&](blockstore_op_t *op)
+    {
+        printf("op opcode=%ju completed retval=%jd\n", op->opcode, op->retval);
+        wr_done = true;
+    };
+    test.bs->enqueue_op(&op);
+
+    while (!mod_buf)
+        test.ringloop->loop();
+
+    // Sync
+    printf("syncing\n");
+    blockstore_op_t sync_op;
+    sync_op.opcode = BS_OP_SYNC;
+    test.exec_op(&sync_op);
+    assert(sync_op.retval == 0);
+
+    // Now send the metadata write
+    {
+        ring_data_t data;
+        io_uring_sqe sqe;
+        iovec iov;
+        sqe.opcode = IORING_OP_WRITEV;
+        sqe.off = test.bs->dsk.meta_offset + mod_off;
+        sqe.addr = (uint64_t)&iov;
+        sqe.len = 1;
+        sqe.rw_flags = 0;
+        iov.iov_base = mod_buf;
+        iov.iov_len = test.bs->dsk.meta_block_size;
+        sqe.user_data = (uint64_t)mod_data;
+        bool ok = test.meta_disk->submit(&sqe);
+        assert(ok);
+        test.ringloop->mark_completed(mod_data);
+    }
+
+    while (!wr_done)
+        test.ringloop->loop();
+    assert(op.retval == op.len);
+
+    // Sync again
+    printf("syncing again\n");
+    test.exec_op(&sync_op);
+    assert(sync_op.retval == 0);
+
+    // Discard and restart
+    printf("destroying again\n");
+    test.destroy_bs();
+    test.meta_disk->discard_buffers(true, 0);
+    test.init();
+
+    // Check that the write isn't lost
+    printf("checking for OK\n");
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_READ;
+    op2.oid = { .inode = 1, .stripe = 0 };
+    op2.version = UINT64_MAX;
+    op2.offset = 0;
+    op2.len = 128*1024;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    test.exec_op(&op2);
+    assert(op2.retval == op2.len);
+    assert(is_zero(op2.buf, 16*1024));
+    assert(memcmp(op2.buf+16*1024, op.buf, 4*1024) == 0);
+    assert(is_zero(op2.buf+20*1024, 108*1024));
+
+    free(op.buf);
+    free(op2.buf);
+}
+
 static void test_intent_over_unstable()
 {
     printf("\n-- test_intent_over_unstable\n");
@@ -983,6 +1098,7 @@ int main(int narg, char *args[])
     test_simple();
     test_fsync(false);
     test_fsync(true);
+    test_fsync_meta_before_complete();
     test_intent_over_unstable();
     test_padded_csum_intent(false);
     test_padded_csum_intent(true);
