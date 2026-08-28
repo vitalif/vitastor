@@ -23,12 +23,12 @@ struct pending_journaling_t
 
 struct journal_t
 {
-    int fd;
+    int fd = -1;
     bool inmemory = false;
     bool flush_journal = false;
     void *buffer = NULL;
 
-    uint64_t block_size;
+    uint64_t block_size = 0;
     uint64_t offset, len;
     // Next free block offset
     uint64_t next_free = 0;
@@ -41,7 +41,7 @@ struct journal_t
     // Current sector(s) used for writing
     void *sector_buf = NULL;
     journal_sector_info_t *sector_info = NULL;
-    uint64_t sector_count;
+    uint64_t sector_count = 0;
     bool no_same_sector_overwrites = false;
     int cur_sector = 0;
     int in_sector_pos = 0;

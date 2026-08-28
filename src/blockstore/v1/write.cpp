@@ -436,7 +436,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         write_iodepth++;
         // Got SQEs. Prepare previous journal sector write if required
         if (immediate_commit == IMMEDIATE_NONE &&
-            !journal.entry_fits(sizeof(journal_entry_small_write) + dyn_size))
+            !journal.entry_fits(sizeof(journal_entry_small_write) + dyn_size) &&
+            journal.sector_info[journal.cur_sector].dirty)
         {
             prepare_journal_sector_write(journal.cur_sector, op);
         }
@@ -519,6 +520,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
                 .op = op,
             });
             data2->callback = [this, flush_id = journal.submit_id](ring_data_t *data) { handle_journal_write(data, flush_id); };
+            assert(journal.next_free > 0);
             assert(journal.next_free+op->len <= dsk.journal_len);
             io_uring_prep_writev(sqe2, dsk.journal_fd, &data2->iov, 1, journal.offset + journal.next_free);
             PRIV(op)->pending_ops++;

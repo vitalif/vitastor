@@ -1428,6 +1428,117 @@ static void test_journal_write_order()
     free(buf);
 }
 
+// open() marks the current journal sector as full so that the first entry starts a new
+// one, and its offset is still zero at that point - it is a placeholder, not a real sector.
+// The small write path used to flush that placeholder before moving on, which wrote a
+// block of stale memory over the journal superblock at offset 0. That doesn't reset the
+// journal - the store just refuses to start next time: "First entry of the journal is
+// corrupt or unsupported", exit(1).
+static void test_first_write_keeps_journal_superblock()
+{
+    printf("\n-- test_first_write_keeps_journal_superblock\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // The placeholder sector is only flushed on the small write path
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    // With the journal kept in memory the stray write happens to copy the superblock over
+    // itself, because the placeholder points at the very first journal block. Without it
+    // the source is an untouched sector buffer, and the superblock is really destroyed.
+    test.config["inmemory_journal"] = "false";
+    test.init();
+    printf("blockstore initialized\n");
+
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    memset(buf, 0xAA, 128*1024);
+    object_id oid = { .inode = 1, .stripe = 0 };
+
+    // The object has to exist first: a write to a missing object becomes a big write
+    // regardless of its length, and big writes don't go through the path in question
+    printf("creating the object\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE;
+    op.oid = oid;
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    op.buf = buf;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    op.opcode = BS_OP_STABLE;
+    op.len = 1;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, sizeof(obj_ver_id));
+    *((obj_ver_id*)op.buf) = (obj_ver_id){ .oid = oid, .version = 1 };
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    free(op.buf);
+
+    printf("restarting the blockstore\n");
+    test.destroy_bs();
+    test.init();
+
+    // Watch for writes landing on the journal superblock. Only the flusher may write it,
+    // when it trims the journal - which can't happen during a single write.
+    uint64_t superblock = test.dsk().journal_offset;
+    bool superblock_written = false;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_WRITEV && sqe->off == superblock)
+            superblock_written = true;
+        // Let it be executed as usual
+        return false;
+    };
+
+    printf("first small write after the restart\n");
+    memset(buf, 0xBB, 4096);
+    op.opcode = BS_OP_WRITE;
+    op.oid = oid;
+    op.version = 2;
+    op.offset = 0;
+    op.len = 4096;
+    op.buf = buf;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    assert(!superblock_written);
+
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    op.opcode = BS_OP_STABLE;
+    op.len = 1;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, sizeof(obj_ver_id));
+    *((obj_ver_id*)op.buf) = (obj_ver_id){ .oid = oid, .version = 2 };
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    free(op.buf);
+
+    printf("restarting again - a corrupt superblock would refuse to start\n");
+    test.sqe_handler = NULL;
+    test.destroy_bs();
+    test.init();
+
+    assert(!superblock_written);
+
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = 8192;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 8192);
+    memset(rd.buf, 0, 8192);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(memcheck(rd.buf, 0xBB, 4096));
+    assert(memcheck(rd.buf + 4096, 0xAA, 4096));
+    free(rd.buf);
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -1446,5 +1557,6 @@ int main(int narg, char *args[])
     test_delete_over_ec_write();
     test_delete_over_ec_write_unstable();
     test_journal_write_order();
+    test_first_write_keeps_journal_superblock();
     return 0;
 }

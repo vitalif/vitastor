@@ -675,6 +675,7 @@ resume_1:
                     // zero out corrupted entry, if required
                     if (init_write_buf && !bs->readonly)
                     {
+                        assert(init_write_sector > 0);
                         GET_SQE();
                         data->iov = { init_write_buf, (size_t)bs->journal.block_size };
                         data->callback = simple_callback;
