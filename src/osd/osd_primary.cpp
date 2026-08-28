@@ -96,10 +96,13 @@ bool osd_t::prepare_primary_rw(osd_op_t *cur_op)
         // Chained read
         // FIXME: Introduce an explicit opcode for chained reads
         auto inode_it = st_cli->inode_config.find(cur_op->req.rw.inode);
-        if (inode_it->second.mod_revision != cur_op->req.rw.meta_revision)
+        if (inode_it == st_cli->inode_config.end() ||
+            inode_it->second.mod_revision != cur_op->req.rw.meta_revision)
         {
             // Client view of the metadata differs from OSD's view
             // Operation can't be completed correctly, client should retry later
+            // An inode the OSD has never heard of is the same situation, and the read
+            // arrives from the network, so it cannot be assumed to name a known one
             finish_op(cur_op, -EPIPE);
             return false;
         }
