@@ -89,6 +89,7 @@ struct obj_model_t
 
 struct pending_t
 {
+    uint64_t seq_id = 0;
     blockstore_op_t op = {};
     bool done = false;
     int obj = -1;
@@ -112,6 +113,8 @@ struct chaos_t
     obj_model_t objs[OBJ_COUNT];
     uint64_t crashes = 0, writes = 0, deletes = 0, refused_writes = 0, checked_reads = 0, round = 0;
     bool use_fsync = false, instant_writes = false;
+    uint64_t seq_id = 0;
+    bool trace = false;
 
     void configure(const chaos_cfg_t & cfg, int meta_format)
     {
@@ -152,7 +155,9 @@ struct chaos_t
         sim = new io_sim_t(ringloop, seed);
         data_disk = new disk_mock_t("data disk", parse_size(config["data_device_size"]), config["disable_data_fsync"] != "1");
         data_disk->clear(0, parse_size(config["data_offset"]));
+        config["log_level"] = trace ? "11" : "0";
         data_disk->faults.forbid_overlapping_writes = true;
+        data_disk->trace = trace;
         sim->add_disk(data_disk);
         start_bs();
     }
@@ -241,7 +246,15 @@ struct chaos_t
 
     pending_t *submit(pending_t *p)
     {
-        p->op.callback = [p](blockstore_op_t *op) { p->done = true; };
+        p->seq_id = ++seq_id;
+        if (trace)
+            printf(" seq %ju\n", p->seq_id);
+        p->op.callback = [this, p](blockstore_op_t *op)
+        {
+            if (trace)
+                printf("done %ju\n", p->seq_id);
+            p->done = true;
+        };
         bs->enqueue_op(&p->op);
         return p;
     }
@@ -266,6 +279,8 @@ struct chaos_t
         p->op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, len);
         memcpy(p->op.buf, p->content.data() + offset, len);
         writes++;
+        if (trace)
+            printf("%s %jx:%jx v%ju %ju +%ju", instant_writes ? "write_stable" : "write", p->op.oid.inode, p->op.oid.stripe, p->bs_version, offset, len);
         return submit(p);
     }
 
@@ -285,6 +300,8 @@ struct chaos_t
         p->op.len = 0;
         p->op.buf = NULL;
         deletes++;
+        if (trace)
+            printf("delete %jx:%jx v%ju", p->op.oid.inode, p->op.oid.stripe, p->bs_version);
         return submit(p);
     }
 
@@ -292,6 +309,8 @@ struct chaos_t
     {
         auto *p = new pending_t();
         p->op.opcode = BS_OP_SYNC;
+        if (trace)
+            printf("sync");
         return submit(p);
     }
 
@@ -304,11 +323,18 @@ struct chaos_t
         p->op.opcode = BS_OP_STABLE;
         p->op.len = entries.size();
         p->op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, entries.size()*sizeof(obj_ver_id));
+        if (trace)
+            printf("stable ");
         for (size_t i = 0; i < entries.size(); i++)
-            ((obj_ver_id*)p->op.buf)[i] = (obj_ver_id){
+        {
+            auto & ov = ((obj_ver_id*)p->op.buf)[i];
+            ov = (obj_ver_id){
                 .oid = oid(entries[i].first),
                 .version = objs[entries[i].first].ver.at(entries[i].second),
             };
+            if (trace)
+                printf("%s%jx:%jx v%ju", i > 0 ? ", " : "", ov.oid.inode, ov.oid.stripe, ov.version);
+        }
         return submit(p);
     }
 
@@ -471,6 +497,8 @@ struct chaos_t
         p->op.len = OBJ_SIZE;
         p->op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, OBJ_SIZE);
         memset(p->op.buf, 0, OBJ_SIZE);
+        if (trace)
+            printf("read %jx:%jx %u +%u", p->op.oid.inode, p->op.oid.stripe, p->op.offset, p->op.len);
         batch.push_back(submit(p));
         wait_all(batch);
         *retval = p->op.retval;
@@ -695,7 +723,15 @@ struct chaos_t
         for (auto & v: m.content)
             fprintf(stderr, " v%ju=%s", v.first, v.second.empty() ? "deleted" : "content");
         fprintf(stderr, "\n");
-        report_mismatch(obj, got, m.content.count(min_version) ? m.content.at(min_version) : got);
+        // Show how far off every candidate is - the one that almost matches usually
+        // tells which write was lost or applied out of order
+        for (auto & v: m.content)
+        {
+            if (v.second.empty() || v.second.size() != got.size())
+                continue;
+            fprintf(stderr, "  vs v%ju (store v%ju):\n", v.first, m.ver.count(v.first) ? m.ver.at(v.first) : 0);
+            report_mismatch(obj, got, v.second);
+        }
         abort();
     }
 
@@ -721,13 +757,14 @@ struct chaos_t
 };
 
 template<class BS>
-static void run_impl(const chaos_cfg_t & cfg, int meta_format, uint32_t seed, uint64_t rounds)
+static void run_impl(const chaos_cfg_t & cfg, int meta_format, uint32_t seed, uint64_t rounds, bool trace)
 {
     printf("\n-- chaos %s seed=%u rounds=%ju fsync=%d csum_block=%u writes=%s\n",
         cfg.impl, seed, rounds, cfg.use_fsync ? 1 : 0, cfg.csum_block,
         cfg.instant_writes ? "instant" : "two-phase");
     chaos_t<BS> t;
     t.configure(cfg, meta_format);
+    t.trace = trace;
     t.create(seed);
     t.run(rounds);
     printf("OK: %ju writes (%ju refused with EAGAIN), %ju deletes, %ju crashes, "
@@ -756,34 +793,42 @@ static const chaos_cfg_t configs[] = {
     { .impl = "v1", .use_fsync = true,  .csum_block = 16384, .instant_writes = true },
 };
 
-static void run_one(const chaos_cfg_t & cfg, uint32_t seed, uint64_t rounds)
+static void run_one(const chaos_cfg_t & cfg, uint32_t seed, uint64_t rounds, bool trace)
 {
     if (!strcmp(cfg.impl, "v1"))
-        run_impl<v1::blockstore_impl_t>(cfg, 2, seed, rounds);
+        run_impl<v1::blockstore_impl_t>(cfg, 2, seed, rounds, trace);
     else
-        run_impl<blockstore_impl_t>(cfg, 3, seed, rounds);
+        run_impl<blockstore_impl_t>(cfg, 3, seed, rounds, trace);
 }
 
 int main(int narg, char *args[])
 {
     // Failures are reported on stderr while progress goes to stdout - keep them in order
     setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
     const int cfg_count = sizeof(configs)/sizeof(configs[0]);
     if (narg > 1)
     {
         // The seed picks the configuration as well, so reproducing a failure is a single
         // short run. Pass a third argument to force a specific configuration instead.
-        uint32_t seed = (uint32_t)strtoul(args[1], NULL, 10);
-        uint64_t rounds = narg > 2 ? strtoull(args[2], NULL, 10) : 300;
-        int cfg = narg > 3 ? (int)strtoul(args[3], NULL, 10) % cfg_count : (int)(seed % cfg_count);
-        run_one(configs[cfg], seed, rounds);
+        bool trace = false;
+        int argpos = 1;
+        if (!strcmp(args[argpos], "-v"))
+        {
+            trace = true;
+            argpos++;
+        }
+        uint32_t seed = narg > argpos ? (uint32_t)strtoul(args[argpos++], NULL, 10) : 0;
+        uint64_t rounds = narg > argpos ? strtoull(args[argpos++], NULL, 10) : 300;
+        int cfg = narg > argpos ? (int)strtoul(args[argpos++], NULL, 10) % cfg_count : (int)(seed % cfg_count);
+        run_one(configs[cfg], seed, rounds, trace);
     }
     else
     {
         // One run takes about a second. Sweep whole multiples of the configuration
         // count so that every configuration gets the same number of seeds.
         for (uint32_t seed = 1; seed <= 2*cfg_count; seed++)
-            run_one(configs[seed % cfg_count], seed, 300);
+            run_one(configs[seed % cfg_count], seed, 300, false);
     }
     printf("\nall ok\n");
     return 0;

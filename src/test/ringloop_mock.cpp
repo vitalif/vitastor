@@ -294,6 +294,9 @@ void disk_mock_t::discard_buffers(bool all, uint32_t seed)
         {
             if (rnd() < 0x80000000)
             {
+                if (trace)
+                    // the map is keyed by the end offset, print the usual offset+length instead
+                    printf("%s:   dropping cached write %ju+%zu\n", name.c_str(), it->first - it->second.iov_len, it->second.iov_len);
                 free(it->second.iov_base);
                 buffers.erase(it++);
             }
