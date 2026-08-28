@@ -183,6 +183,11 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         if (op->bitmap)
             memcpy(dyn_ptr, op->bitmap, dsk.clean_entry_bitmap_size);
     }
+    if (wait_del)
+    {
+        // Entering WAIT_DEL -> request_trim, exiting -> release_trim
+        flusher->request_trim();
+    }
     // Calculate checksums
     // FIXME: Allow to receive checksums from outside?
     if (!is_del && dsk.data_csum_type && op->len > 0)

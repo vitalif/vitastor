@@ -201,6 +201,8 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
             if ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_DEL)
             {
                 dirty_it->second.state = (dirty_it->second.state & ~BS_ST_WORKFLOW_MASK) | next_state;
+                // Entering WAIT_DEL -> request_trim, exiting -> release_trim
+                flusher->release_trim();
                 if (IS_BIG_WRITE(dirty_it->second.state))
                 {
                     next_state = BS_ST_WAIT_BIG;
