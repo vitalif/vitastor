@@ -563,7 +563,7 @@ void journal_flusher_co::fill_partial_checksum_blocks()
         }
         auto & vec = read_vec[read_vec.size()-1];
         read_vec.insert(read_vec.begin()+vec_pos, (copy_buffer_t){
-            .copy_flags = COPY_BUF_JOURNAL|COPY_BUF_COALESCED,
+            .copy_flags = COPY_BUF_DATA|COPY_BUF_COALESCED,
             .offset = hole_start,
             .len = hole_end - hole_start,
             .disk_offset = hole_start,
