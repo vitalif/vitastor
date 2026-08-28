@@ -229,22 +229,28 @@ void blockstore_impl_t::erase_dirty(blockstore_dirty_db_t::iterator dirty_start,
 #endif
             data_alloc->set(dirty_it->second.location / dsk.data_block_size, false);
         }
-        auto used = --journal.used_sectors.at(dirty_it->second.journal_sector);
-#ifdef BLOCKSTORE_DEBUG
-        printf(
-            "remove usage of journal offset %08jx by %jx:%jx v%ju (%ju refs)\n", dirty_it->second.journal_sector,
-            dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, used
-        );
-#endif
-        if (used == 0)
+        // A big write is only journaled when it gets synced, so an entry erased before that
+        // holds no journal sector reference at all
+        if (dirty_it->second.journal_sector != 0)
         {
-            journal.used_sectors.erase(dirty_it->second.journal_sector);
-            if (dirty_it->second.journal_sector == journal.sector_info[journal.cur_sector].offset)
+            auto used_it = journal.used_sectors.find(dirty_it->second.journal_sector);
+            uint64_t used = used_it == journal.used_sectors.end() ? UINT64_MAX : --used_it->second;
+#ifdef BLOCKSTORE_DEBUG
+            printf(
+                "remove usage of journal offset %08jx by %jx:%jx v%ju (%ju refs)\n", dirty_it->second.journal_sector,
+                dirty_it->first.oid.inode, dirty_it->first.oid.stripe, dirty_it->first.version, used
+            );
+#endif
+            if (used == 0)
             {
-                // Mark current sector as "full" to select the new one
-                journal.in_sector_pos = dsk.journal_block_size;
+                journal.used_sectors.erase(dirty_it->second.journal_sector);
+                if (dirty_it->second.journal_sector == journal.sector_info[journal.cur_sector].offset)
+                {
+                    // Mark current sector as "full" to select the new one
+                    journal.in_sector_pos = dsk.journal_block_size;
+                }
+                flusher->mark_trim_possible();
             }
-            flusher->mark_trim_possible();
         }
         free_dirty_dyn_data(dirty_it->second);
         if (dirty_it == dirty_start)

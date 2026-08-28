@@ -257,6 +257,7 @@ class blockstore_impl_t: public blockstore_i
     void handle_read_event(ring_data_t *data, blockstore_op_t *op);
 
     // Write
+    bool forget_unstable_before_delete(blockstore_op_t *op, blockstore_dirty_db_t::iterator dirty_it);
     bool enqueue_write(blockstore_op_t *op);
     void unshift_stable_flush(obj_ver_id ov);
     void cancel_all_writes(blockstore_op_t *op, blockstore_dirty_db_t::iterator dirty_it, int retval);

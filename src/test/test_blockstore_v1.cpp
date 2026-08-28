@@ -1319,8 +1319,7 @@ static void test_delete_over_ec_write_unstable()
 
     {
         auto dirty = test.find_dirty_entry(op.oid, 2);
-        assert(dirty);
-        assert(IS_STABLE(dirty->state));
+        assert(!dirty);
         dirty = test.find_dirty_entry(op.oid, 3);
         assert(dirty);
         assert(IS_STABLE(dirty->state));
@@ -1836,6 +1835,117 @@ static void test_write_over_delete_with_concurrent_sync()
     free(buf);
 }
 
+// continue_sync() swaps the unsynced lists over to itself, but the entries it took only reach
+// the SYNCED state later, in ack_sync(). A deletion arriving in between used to treat them as
+// its own to forget: it erased them from dirty_db and decremented unstable_unsynced, and then
+// the sync completed and looked those very entries up again - reading a dirty_db entry which
+// wasn't there any more and decrementing the counter past zero
+static void test_delete_while_sync_in_flight()
+{
+    printf("\n-- test_delete_while_sync_in_flight\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint32_t block_size = test.dsk().data_block_size;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+    memset(buf, 0xAA, block_size);
+
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+
+    printf("creating the object\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = block_size;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    printf("small write v2, left unsynced\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 2;
+    op.offset = 4096;
+    op.len = 4096;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    // Hold journal sector writes so that the sync below can't finish
+    uint64_t journal_start = test.dsk().journal_offset;
+    uint64_t journal_end = journal_start + test.dsk().journal_len;
+    std::vector<ring_data_t*> held;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_WRITEV &&
+            sqe->off >= journal_start && sqe->off < journal_end)
+        {
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            held.push_back((ring_data_t*)sqe->user_data);
+            return true;
+        }
+        return false;
+    };
+
+    printf("starting a sync and holding it in flight - it now owns v2\n");
+    blockstore_op_t sync_op;
+    bool sync_done = false;
+    sync_op.opcode = BS_OP_SYNC;
+    sync_op.buf = NULL;
+    sync_op.callback = [&](blockstore_op_t *op) { sync_done = true; };
+    test.bs->enqueue_op(&sync_op);
+    for (int i = 0; i < 20 && !held.size(); i++)
+        test.ringloop->loop();
+    assert(held.size() > 0);
+    assert(!sync_done);
+
+    printf("deleting the object while that sync is still in flight\n");
+    blockstore_op_t del;
+    bool del_done = false;
+    del.opcode = BS_OP_DELETE;
+    del.oid = oid;
+    del.version = 3;
+    del.offset = 0;
+    del.len = 0;
+    del.buf = NULL;
+    del.callback = [&](blockstore_op_t *op) { del_done = true; };
+    test.bs->enqueue_op(&del);
+    for (int i = 0; i < 20 && !del_done; i++)
+        test.ringloop->loop();
+
+    printf("releasing the held journal writes\n");
+    test.sqe_handler = nullptr;
+    for (auto *d: held)
+        test.ringloop->mark_completed(d);
+    while (!del_done || !sync_done)
+        test.ringloop->loop();
+    assert(sync_op.retval == 0);
+    assert(del.retval == 0);
+
+    printf("the object is gone\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = block_size;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == -ENOENT);
+    free(rd.buf);
+
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -1856,6 +1966,7 @@ int main(int narg, char *args[])
     test_journal_write_order();
     test_first_write_keeps_journal_superblock();
     test_read_journal_small_write_without_csums();
+    test_delete_while_sync_in_flight();
     test_replay_reused_block_of_deleted_object();
     test_write_over_delete_with_concurrent_sync();
     return 0;

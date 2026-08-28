@@ -6,6 +6,86 @@
 
 namespace v1 {
 
+// A deletion supersedes everything written before it and is stable as soon as it's written,
+// so versions preceding it that aren't in the journal yet are free to forget. And they have to
+// be forgotten: a big write is only journaled when it gets synced, so leaving one behind would
+// put its journal entry after the deletion and recovery would replay them in the wrong
+// order, resurrecting the object. Returns false if a preceding write is still running -
+// its completion refers to the entry, so we have to let it finish first.
+//
+// Entries which are already synced must NOT be forgotten. Their journal entries are on the disk
+// and can't be taken back, while the deletion itself only reaches the journal on the next sync.
+// Forgetting them drops their journal references, and the journal may then be trimmed past the
+// object's big write while its small writes still sit in later sectors kept alive by other
+// objects - recovery would then replay those small writes with no base under them.
+// An entry which isn't in the unsynced lists any more has been taken over by a sync which is
+// still in flight: continue_sync() swaps those lists over to itself, but the entries only get
+// the SYNCED state later, in ack_sync()
+static bool is_still_unsynced(const std::vector<obj_ver_id> & unsynced, obj_ver_id ov)
+{
+    for (auto & u: unsynced)
+        if (u == ov)
+            return true;
+    return false;
+}
+
+bool blockstore_impl_t::forget_unstable_before_delete(blockstore_op_t *op, blockstore_dirty_db_t::iterator dirty_it)
+{
+    if (immediate_commit == IMMEDIATE_ALL)
+    {
+        // Everything is journaled as soon as it's written here, so nothing can end up
+        // behind the deletion in the journal and there is nothing to forget
+        return true;
+    }
+    auto first_it = dirty_it;
+    while (first_it != dirty_db.begin())
+    {
+        auto prev_it = first_it;
+        prev_it--;
+        if (prev_it->first.oid != op->oid || IS_SYNCED(prev_it->second.state))
+            break;
+        if (IS_IN_FLIGHT(prev_it->second.state))
+            return false;
+        if (!is_still_unsynced(IS_BIG_WRITE(prev_it->second.state) ? unsynced_big_writes : unsynced_small_writes, prev_it->first))
+        {
+            // A sync in flight already owns it: it journals the entry before our deletion
+            // anyway, and erasing it here would leave that sync with a dangling dirty_db entry
+            // in ack_sync() and would decrement unstable_unsynced a second time
+            break;
+        }
+        first_it = prev_it;
+    }
+    if (first_it == dirty_it)
+        return true;
+    for (auto it = first_it; it != dirty_it; it++)
+    {
+        // Drop it from the unsynced lists so that a later sync doesn't journal it
+        bool is_big = IS_BIG_WRITE(it->second.state);
+        auto & unsynced = is_big ? unsynced_big_writes : unsynced_small_writes;
+        for (size_t i = 0; i < unsynced.size(); i++)
+        {
+            if (unsynced[i].oid == it->first.oid && unsynced[i].version == it->first.version)
+            {
+                unsynced.erase(unsynced.begin()+i, unsynced.begin()+i+1);
+                if (is_big && immediate_commit != IMMEDIATE_ALL)
+                    unsynced_big_write_count--;
+                break;
+            }
+        }
+        if (!(it->second.state & BS_ST_INSTANT) && !IS_SYNCED(it->second.state))
+        {
+            unstable_unsynced--;
+            assert(unstable_unsynced >= 0);
+        }
+    }
+    auto & clean_db = clean_db_shard(op->oid);
+    auto clean_it = clean_db.find(op->oid);
+    uint64_t clean_loc = clean_it != clean_db.end() ? clean_it->second.location : UINT64_MAX;
+    erase_dirty(first_it, dirty_it, clean_loc);
+    wakeup_wait_journal();
+    return true;
+}
+
 bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
     // Check or assign version number
@@ -827,6 +907,11 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
         .version = op->version,
     });
     assert(dirty_it != dirty_db.end());
+    if (!forget_unstable_before_delete(op, dirty_it))
+    {
+        // A preceding write is still running, retry when it finishes
+        return 0;
+    }
     blockstore_journal_check_t space_check(this);
     if (!space_check.check_available(op, 1, sizeof(journal_entry_del), (unstable_writes.size()+unstable_unsynced)*journal.block_size))
     {
