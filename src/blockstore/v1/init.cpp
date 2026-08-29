@@ -948,10 +948,10 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                             if (block_crc32 != *block_csums)
                             {
                                 printf(
-                                    "Journal entry data is corrupt for small_write%s oid=%jx:%jx ver=%ju offset=%u len=%u - block %u crc32 %x != %x\n",
+                                    "Journal entry data is corrupt for small_write%s oid=%jx:%jx ver=%ju offset=%u len=%u data_offset=%jx - block %u crc32 %x != %x\n",
                                     je->type == JE_SMALL_WRITE_INSTANT ? "_instant" : "",
                                     je->small_write.oid.inode, je->small_write.oid.stripe, je->small_write.version,
-                                    je->small_write.offset, je->small_write.len,
+                                    je->small_write.offset, je->small_write.len, (uint64_t)je->small_write.data_offset,
                                     pos, block_crc32, *block_csums
                                 );
                                 data_csum_valid = false;
@@ -966,7 +966,12 @@ int blockstore_init_journal::handle_journal_part(void *buf, uint64_t done_pos, u
                     // interesting thing is that we must clear the corrupt entry if we're not readonly,
                     // because we don't write next entries in the same journal block
                     memset((uint8_t*)buf + proc_pos - done_pos + pos, 0, bs->journal.block_size - pos);
-                    bs->journal.next_free = prev_free;
+                    // If the corrupt entry was the first one in its block then clearing it
+                    // empties the whole block, and an empty block is exactly what marks the
+                    // end of the journal. Resuming after such a block would turn it into a
+                    // permanent barrier: every later replay would stop at it again and
+                    // discard everything written after it. So reuse the block instead.
+                    bs->journal.next_free = pos == 0 ? proc_pos : prev_free;
                     init_write_buf = (uint8_t*)buf + proc_pos - done_pos;
                     init_write_sector = proc_pos;
                     return 0;
