@@ -1539,6 +1539,70 @@ static void test_first_write_keeps_journal_superblock()
     free(buf);
 }
 
+// Reading a small write straight from the journal used to divide by zero when checksums
+// are disabled. The dirty read path handed fulfill_read() a checksum pointer whenever the
+// journal is not kept in memory, without checking that there are any checksums at all -
+// and csum_block_size is zero in that case, so fulfill_read_push() divided by it.
+static void test_read_journal_small_write_without_csums()
+{
+    printf("\n-- test_read_journal_small_write_without_csums\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // default_cfg leaves data_csum_type unset, so checksums are off and csum_block_size is 0
+    assert(test.config.find("data_csum_type") == test.config.end());
+    // With the journal in memory the read is served from there and no checksum pointer is
+    // passed at all, so it has to be read from disk to hit the path
+    test.config["inmemory_journal"] = "false";
+    test.init();
+    printf("blockstore initialized\n");
+    assert(!test.dsk().csum_block_size);
+
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    memset(buf, 0xAA, 128*1024);
+    object_id oid = { .inode = 1, .stripe = 0 };
+
+    // The object has to exist first: a write to a missing object becomes a big write
+    // regardless of its length, and a big write goes to the data area, not the journal
+    printf("creating the object\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE;
+    op.oid = oid;
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    op.buf = buf;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("small write, stays in the journal\n");
+    memset(buf, 0xBB, 4096);
+    op.opcode = BS_OP_WRITE;
+    op.oid = oid;
+    op.version = 2;
+    op.offset = 0;
+    op.len = 4096;
+    op.buf = buf;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("reading it back from the journal\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = 8192;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 8192);
+    memset(rd.buf, 0, 8192);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(memcheck(rd.buf, 0xBB, 4096));
+    assert(memcheck(rd.buf + 4096, 0xAA, 4096));
+    free(rd.buf);
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -1558,5 +1622,6 @@ int main(int narg, char *args[])
     test_delete_over_ec_write_unstable();
     test_journal_write_order();
     test_first_write_keeps_journal_superblock();
+    test_read_journal_small_write_without_csums();
     return 0;
 }

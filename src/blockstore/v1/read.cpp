@@ -511,7 +511,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
                     // Copy from memory or read from journal, possibly checking checksums
                     if (!fulfill_read(read_op, fulfilled, dirty.offset, dirty.offset + dirty.len,
                         dirty.state, dirty_it->first.version, dirty.location, dirty.journal_sector+1,
-                        journal.inmemory ? NULL : bmp_ptr+dsk.clean_entry_bitmap_size, dyn_data))
+                        journal.inmemory || !dsk.csum_block_size ? NULL : bmp_ptr+dsk.clean_entry_bitmap_size, dyn_data))
                     {
                         goto undo_read;
                     }
