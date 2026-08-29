@@ -162,6 +162,8 @@ struct chaos_t
         config["log_level"] = trace ? "11" : "0";
         data_disk->faults.forbid_overlapping_writes = true;
         data_disk->trace = trace;
+        data_disk->atomic_write_size = config.find("atomic_write_size") != config.end()
+            ? parse_size(config["atomic_write_size"]) : 4096;
         sim->add_disk(data_disk);
         start_bs();
     }

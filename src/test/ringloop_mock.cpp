@@ -548,7 +548,8 @@ void disk_mock_t::power_loss(std::mt19937 & rnd)
         // A write in flight during a power outage may have reached the device fully,
         // partially (torn at a sector boundary), or not at all
         uint64_t limit = 0;
-        switch (rnd() % (faults.tear_inflight_writes ? 3 : 2))
+        bool can_tear = faults.tear_inflight_writes && len > atomic_write_size;
+        switch (rnd() % (can_tear ? 3 : 2))
         {
         case 0:
             limit = 0;

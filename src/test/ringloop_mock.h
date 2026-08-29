@@ -105,6 +105,10 @@ public:
     bool trace = false;
     // Granularity of torn writes during a simulated power loss
     uint32_t sector_size = 4096;
+    // Writes of at most this size are atomic: at a power outage they land whole or not at
+    // all, never half. This is what NVMe reports as AWUPF, and the store relies on it for
+    // in-place intent writes - see atomic_write_size in blockstore_disk
+    uint32_t atomic_write_size = 4096;
     disk_fault_opts_t faults;
     uint64_t injected_errors = 0, completed_ops = 0, overlapping_writes = 0;
 
