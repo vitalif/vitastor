@@ -226,6 +226,7 @@ class blockstore_impl_t: public blockstore_i
     // Read
     int dequeue_read(blockstore_op_t *read_op);
     void release_clean(blockstore_op_t *op);
+    void release_read_vec(blockstore_op_t *read_op);
     void find_holes(std::vector<copy_buffer_t> & read_vec, uint32_t item_start, uint32_t item_end,
         std::function<int(int, bool, uint32_t, uint32_t)> callback);
     int fulfill_read(blockstore_op_t *read_op,
@@ -283,6 +284,7 @@ class blockstore_impl_t: public blockstore_i
     void mark_rolled_back(const obj_ver_id & ov);
     void erase_dirty(blockstore_dirty_db_t::iterator dirty_start, blockstore_dirty_db_t::iterator dirty_end, uint64_t clean_loc);
     void free_dirty_dyn_data(dirty_entry & e);
+    void free_dirty_dyn_data(copy_buffer_t & e);
 
     // List
     void process_list(blockstore_op_t *op);

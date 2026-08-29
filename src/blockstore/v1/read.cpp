@@ -549,6 +549,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         // May happen if there are entries in dirty_db but all of them are !version_ok
         read_op->version = 0;
         read_op->retval = -ENOENT;
+        release_read_vec(read_op);
         FINISH_OP(read_op);
         return 2;
     }
@@ -562,6 +563,9 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
             // region is not allocated - return zeroes
             memset(read_op->buf, 0, read_op->len);
         }
+        // Nothing was submitted, so no completion handler will run - release the
+        // references the read vector holds on entry bitmaps and checksums
+        release_read_vec(read_op);
         read_op->retval = read_op->len;
         FINISH_OP(read_op);
         return 2;
@@ -580,21 +584,24 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
 undo_read:
     // need to wait. undo added requests, don't dequeue op
     release_clean(read_op);
-    for (auto & vec: rv)
+    release_read_vec(read_op);
+    rv.clear();
+    return 0;
+}
+
+// Free the buffers and drop the references that a read vector holds on the bitmaps and
+// checksums of dirty entries. Safe to call more than once.
+void blockstore_impl_t::release_read_vec(blockstore_op_t *read_op)
+{
+    for (auto & vec: PRIV(read_op)->read_vec)
     {
         if ((vec.copy_flags & COPY_BUF_CSUM_FILL) && vec.buf)
         {
             free(vec.buf);
             vec.buf = NULL;
         }
-        if (vec.dyn_data && --(*vec.dyn_data) == 0) // refcount
-        {
-            free(vec.dyn_data);
-            vec.dyn_data = NULL;
-        }
+        free_dirty_dyn_data(vec);
     }
-    rv.clear();
-    return 0;
 }
 
 void blockstore_impl_t::release_clean(blockstore_op_t *op)
@@ -939,27 +946,35 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
             {
                 for (int i = 0; i < rv.size(); i++)
                 {
+                    // Every entry holds a reference to the bitmap/checksums of its dirty
+                    // entry, so it has to be released even when the entry itself is skipped
+                    bool skip = false;
                     if (rv[i].copy_flags & COPY_BUF_META_BLOCK)
                     {
                         // Metadata read. Skip
                         assert(!meta_block);
                         meta_block = rv[i].buf;
                         rv[i].buf = NULL;
-                        continue;
+                        skip = true;
                     }
-                    if (rv[i].copy_flags & COPY_BUF_ZERO)
+                    else if (rv[i].copy_flags & COPY_BUF_ZERO)
                     {
                         // Zero read
-                        continue;
+                        skip = true;
                     }
-                    if (rv[i].copy_flags & COPY_BUF_COALESCED)
+                    else if (rv[i].copy_flags & COPY_BUF_COALESCED)
                     {
                         // Sub-block shared with another read. Skip
-                        continue;
+                        skip = true;
                     }
-                    if ((rv[i].copy_flags & COPY_BUF_JOURNAL) && journal.inmemory)
+                    else if ((rv[i].copy_flags & COPY_BUF_JOURNAL) && journal.inmemory)
                     {
                         // Do not check journal checksums in-memory
+                        skip = true;
+                    }
+                    if (skip)
+                    {
+                        free_dirty_dyn_data(rv[i]);
                         continue;
                     }
                     iovec single_iov = {};
@@ -1027,11 +1042,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                     }
                     free(rv[i].buf);
                     rv[i].buf = NULL;
-                    if (rv[i].dyn_data && --(*rv[i].dyn_data) == 0) // refcount
-                    {
-                        free(rv[i].dyn_data);
-                        rv[i].dyn_data = NULL;
-                    }
+                    free_dirty_dyn_data(rv[i]);
                 }
             }
             else
@@ -1040,10 +1051,11 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                 {
                     if (vec.copy_flags & COPY_BUF_META_BLOCK)
                     {
-                        // Metadata read. Skip
+                        // Metadata read. Skip, but still release the entry reference
                         assert(!meta_block);
                         meta_block = vec.buf;
                         vec.buf = NULL;
+                        free_dirty_dyn_data(vec);
                         continue;
                     }
                     if (vec.csum_buf)
@@ -1065,11 +1077,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
                             }
                         }
                     }
-                    if (vec.dyn_data && --(*vec.dyn_data) == 0) // refcount
-                    {
-                        free(vec.dyn_data);
-                        vec.dyn_data = NULL;
-                    }
+                    free_dirty_dyn_data(vec);
                 }
             }
             if (meta_block)

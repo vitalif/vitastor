@@ -71,10 +71,7 @@ journal_flusher_co::~journal_flusher_co()
         {
             free(vi.buf);
         }
-        if (vi.dyn_data && --(*vi.dyn_data) == 0) // refcount
-        {
-            free(vi.dyn_data);
-        }
+        bs->free_dirty_dyn_data(vi);
     }
     v.clear();
 }
@@ -803,6 +800,8 @@ void journal_flusher_co::free_buffers()
         {
             free(it->buf);
         }
+        // prepare_read() takes a reference to the entry's bitmap/checksums, drop it
+        bs->free_dirty_dyn_data(*it);
     }
     v.clear();
 }

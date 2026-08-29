@@ -271,4 +271,17 @@ void blockstore_impl_t::free_dirty_dyn_data(dirty_entry & e)
     }
 }
 
+void blockstore_impl_t::free_dirty_dyn_data(copy_buffer_t & e)
+{
+    if (e.dyn_data)
+    {
+        assert(alloc_dyn_data);
+        if (--*e.dyn_data == 0) // refcount
+        {
+            free(e.dyn_data);
+        }
+        e.dyn_data = NULL;
+    }
+}
+
 } // namespace v1
