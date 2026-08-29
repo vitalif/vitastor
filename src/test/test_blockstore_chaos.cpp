@@ -68,14 +68,23 @@ static void dump_extra(v1::blockstore_impl_t *bs)
 // acknowledged, because a write may have been in flight when the power went away.
 // `durable` is the highest version we know must survive a crash: its write, a sync
 // after it and its stabilization all completed successfully.
+// Versions restart from 1 after a deletion - the store explicitly allows writing low
+// version numbers over a delete, because the object is gone. So the model can't use the
+// version as its own key: `submitted`/`acked`/`synced`/`durable` below are a sequence
+// number that only ever grows, and `ver` maps it to the version the store actually sees.
 struct obj_model_t
 {
     uint64_t submitted = 0;
     uint64_t acked = 0;
     uint64_t synced = 0;
     uint64_t durable = 0;
-    // Full object content as of every version we still care about
+    // Next version number to hand to the store
+    uint64_t next_version = 1;
+    // Full object content as of every sequence number we still care about.
+    // An empty vector means the object was deleted at that point.
     std::map<uint64_t, std::vector<uint8_t>> content;
+    // Sequence number -> version number as seen by the store
+    std::map<uint64_t, uint64_t> ver;
 };
 
 struct pending_t
@@ -83,7 +92,9 @@ struct pending_t
     blockstore_op_t op = {};
     bool done = false;
     int obj = -1;
+    // Sequence number in the model, and the version number handed to the store
     uint64_t version = 0;
+    uint64_t bs_version = 0;
     std::vector<uint8_t> content;
     // For a stabilize op: every (object, version) pair it carries
     std::vector<std::pair<int, uint64_t>> stabilized;
@@ -99,7 +110,7 @@ struct chaos_t
     disk_mock_t *data_disk = NULL, *meta_disk = NULL;
     BS *bs = NULL;
     obj_model_t objs[OBJ_COUNT];
-    uint64_t crashes = 0, writes = 0, refused_writes = 0, checked_reads = 0, round = 0;
+    uint64_t crashes = 0, writes = 0, deletes = 0, refused_writes = 0, checked_reads = 0, round = 0;
     bool use_fsync = false, instant_writes = false;
 
     void configure(const chaos_cfg_t & cfg, int meta_format)
@@ -219,8 +230,9 @@ struct chaos_t
     {
         static std::vector<uint8_t> zero;
         auto & m = objs[obj];
-        if (!m.acked)
+        if (!m.acked || m.content.at(m.acked).empty())
         {
+            // Never written, or deleted - a write recreates it from scratch
             zero.assign(OBJ_SIZE, 0);
             return zero;
         }
@@ -243,16 +255,36 @@ struct chaos_t
         auto *p = new pending_t();
         p->obj = obj;
         p->version = version;
+        p->bs_version = m.next_version++;
         p->content = base_content(obj);
         fill_range(p->content, obj, version, offset, len);
         p->op.opcode = instant_writes ? BS_OP_WRITE_STABLE : BS_OP_WRITE;
         p->op.oid = oid(obj);
-        p->op.version = version;
+        p->op.version = p->bs_version;
         p->op.offset = offset;
         p->op.len = len;
         p->op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, len);
         memcpy(p->op.buf, p->content.data() + offset, len);
         writes++;
+        return submit(p);
+    }
+
+    // Deletions carry no data and are stable as soon as they are written, in both
+    // implementations. The model records them as an empty content vector.
+    pending_t *submit_delete(int obj)
+    {
+        auto & m = objs[obj];
+        auto *p = new pending_t();
+        p->obj = obj;
+        p->version = ++m.submitted;
+        p->bs_version = m.next_version++;
+        p->op.opcode = BS_OP_DELETE;
+        p->op.oid = oid(obj);
+        p->op.version = p->bs_version;
+        p->op.offset = 0;
+        p->op.len = 0;
+        p->op.buf = NULL;
+        deletes++;
         return submit(p);
     }
 
@@ -273,7 +305,10 @@ struct chaos_t
         p->op.len = entries.size();
         p->op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, entries.size()*sizeof(obj_ver_id));
         for (size_t i = 0; i < entries.size(); i++)
-            ((obj_ver_id*)p->op.buf)[i] = (obj_ver_id){ .oid = oid(entries[i].first), .version = entries[i].second };
+            ((obj_ver_id*)p->op.buf)[i] = (obj_ver_id){
+                .oid = oid(entries[i].first),
+                .version = objs[entries[i].first].ver.at(entries[i].second),
+            };
         return submit(p);
     }
 
@@ -327,16 +362,30 @@ struct chaos_t
             if (touched.find(obj) != touched.end())
                 continue;
             touched.insert(obj);
-            batch.push_back(submit_write(obj));
+            auto & m = objs[obj];
+            bool exists = m.acked && !m.content.at(m.acked).empty();
+            // Deleting a non-existent object is a no-op that the store answers right away
+            // without creating an entry, so only delete what is actually there
+            if (exists && rnd(0, 7) == 0)
+                batch.push_back(submit_delete(obj));
+            else
+                batch.push_back(submit_write(obj));
         }
         wait_all(batch);
         for (auto *p: batch)
         {
             auto & m = objs[p->obj];
-            if (p->op.retval == (int)p->op.len)
+            if (p->op.opcode == BS_OP_DELETE ? p->op.retval == 0 : p->op.retval == (int)p->op.len)
             {
                 m.acked = p->version;
+                // p->content stays empty for a deletion, which is how the model spells "gone"
                 m.content[p->version] = p->content;
+                m.ver[p->version] = p->bs_version;
+                if (p->op.opcode == BS_OP_DELETE)
+                {
+                    // The object is gone, so the next write starts numbering over again
+                    m.next_version = 1;
+                }
             }
             else if (p->op.retval == -EAGAIN)
             {
@@ -364,8 +413,10 @@ struct chaos_t
             auto & m = objs[obj];
             m.synced = m.acked;
             // A version written with BS_OP_WRITE_STABLE is stable as soon as it's written,
-            // so the sync we just did already made it durable - no stabilize step needed
-            if (instant_writes && m.synced > m.durable)
+            // and so is a deletion. For those the sync we just did already made it durable,
+            // and stabilizing them would be wrong - there is nothing to commit.
+            bool already_stable = instant_writes || m.synced && m.content.at(m.synced).empty();
+            if (already_stable && m.synced > m.durable)
             {
                 m.durable = m.synced;
                 prune(obj);
@@ -401,7 +452,10 @@ struct chaos_t
     {
         auto & m = objs[obj];
         while (m.content.size() && m.content.begin()->first < m.durable)
+        {
+            m.ver.erase(m.content.begin()->first);
             m.content.erase(m.content.begin());
+        }
     }
 
     // Read the whole object and return its content, or empty if it doesn't exist
@@ -435,11 +489,12 @@ struct chaos_t
         auto & m = objs[obj];
         int retval = 0;
         auto got = read_object(obj, &retval);
-        if (!m.acked)
+        if (!m.acked || m.content.at(m.acked).empty())
         {
             if (retval != -ENOENT)
             {
-                fprintf(stderr, "read of never-written object %d returned retval=%d\n", obj, retval);
+                fprintf(stderr, "read of %s object %d returned retval=%d\n",
+                    m.acked ? "deleted" : "never-written", obj, retval);
                 abort();
             }
             return;
@@ -526,11 +581,6 @@ struct chaos_t
     // its last acknowledged write put there
     void do_restart_round()
     {
-        if (!sim->run_until([this]() { return !sim->has_inflight(); }, MAX_STEPS))
-        {
-            fprintf(stderr, "round %ju: disk did not go idle before a clean restart\n", round);
-            abort();
-        }
         std::vector<std::vector<uint8_t>> before(OBJ_COUNT);
         std::vector<uint64_t> before_ver(OBJ_COUNT, 0);
         std::vector<int> before_rv(OBJ_COUNT, 0);
@@ -538,6 +588,13 @@ struct chaos_t
         {
             before[obj] = read_object(obj, &before_rv[obj]);
             before_ver[obj] = last_read_version;
+        }
+        // Let everything in flight finish right before pulling the blockstore out from
+        // under it, or an unfinished write would later execute against freed buffers
+        if (!sim->run_until([this]() { return !sim->has_inflight(); }, MAX_STEPS))
+        {
+            fprintf(stderr, "round %ju: disk did not go idle before a clean restart\n", round);
+            abort();
         }
         destroy();
         start_bs();
@@ -580,20 +637,8 @@ struct chaos_t
         auto & m = objs[obj];
         int retval = 0;
         auto got = read_object(obj, &retval);
-        if (retval == -ENOENT)
-        {
-            if (min_version)
-            {
-                fprintf(stderr, "object %d lost after %s: version %ju was guaranteed, "
-                    "but the object is gone\n", obj, what, min_version);
-                abort();
-            }
-            // Nothing was guaranteed, so losing the object entirely is a legal outcome
-            m.acked = m.synced = 0;
-            m.content.clear();
-            return;
-        }
-        if (retval != OBJ_SIZE)
+        bool exists = retval == OBJ_SIZE;
+        if (!exists && retval != -ENOENT)
         {
             fprintf(stderr, "read of object %d after %s failed with retval=%d "
                 "(torn data committed?)\n", obj, what, retval);
@@ -601,7 +646,8 @@ struct chaos_t
         }
         for (auto & v: m.content)
         {
-            if (v.first >= min_version && v.second == got)
+            // An empty candidate is a deletion, and it matches an object that is gone
+            if (v.first >= min_version && v.second.empty() != exists && (!exists || v.second == got))
             {
                 // Whatever came back is the current state and the base for the writes that
                 // follow, but it is NOT necessarily durable itself: if it came from a version
@@ -610,20 +656,45 @@ struct chaos_t
                 // and only move the "current" pointer. Version numbers stay monotonic
                 // because the blockstore may still hold unstable versions above the match.
                 std::vector<uint8_t> durable_content;
-                if (m.durable && m.content.count(m.durable))
+                bool has_durable = m.durable && m.content.count(m.durable);
+                uint64_t durable_ver = has_durable ? m.ver.at(m.durable) : 0;
+                if (has_durable)
                     durable_content = m.content.at(m.durable);
                 m.content.clear();
-                if (durable_content.size())
+                m.ver.clear();
+                if (has_durable)
+                {
                     m.content[m.durable] = durable_content;
+                    m.ver[m.durable] = durable_ver;
+                }
                 m.content[m.submitted] = got;
+                m.ver[m.submitted] = exists ? last_read_version : 0;
                 m.acked = m.synced = m.submitted;
+                // Continue numbering above whatever the store came back with, or start
+                // over from 1 if the object is gone
+                m.next_version = exists ? last_read_version+1 : 1;
                 return;
             }
         }
-        fprintf(stderr, "object %d came back from %s holding content that was never written, "
-            "or an older version than the guaranteed one (guaranteed=v%ju, durable=v%ju, "
-            "acked=v%ju, submitted=v%ju, blockstore reports v%ju)\n", obj, what, min_version,
+        if (!exists && !min_version)
+        {
+            // Nothing was guaranteed, so losing the object entirely is a legal outcome
+            m.acked = m.synced = 0;
+            m.content.clear();
+            m.ver.clear();
+            m.next_version = 1;
+            return;
+        }
+        fprintf(stderr, "object %d came back from %s %s, which is neither a version at or above "
+            "the guaranteed one nor anything that was ever written (guaranteed=v%ju, durable=v%ju, "
+            "acked=v%ju, submitted=v%ju, blockstore reports v%ju)\n", obj, what,
+            exists ? "holding unexpected content" : "gone", min_version,
             m.durable, m.acked, m.submitted, last_read_version);
+        fprintf(stderr, "  guaranteed version %ju is %s; candidates:", min_version,
+            m.content.count(min_version) ? (m.content.at(min_version).empty() ? "a deletion" : "content") : "not tracked");
+        for (auto & v: m.content)
+            fprintf(stderr, " v%ju=%s", v.first, v.second.empty() ? "deleted" : "content");
+        fprintf(stderr, "\n");
         report_mismatch(obj, got, m.content.count(min_version) ? m.content.at(min_version) : got);
         abort();
     }
@@ -659,9 +730,9 @@ static void run_impl(const chaos_cfg_t & cfg, int meta_format, uint32_t seed, ui
     t.configure(cfg, meta_format);
     t.create(seed);
     t.run(rounds);
-    printf("OK: %ju writes (%ju refused with EAGAIN), %ju crashes, %ju verified reads, "
-        "%ju disk ops\n", t.writes, t.refused_writes, t.crashes, t.checked_reads,
-        t.data_disk->completed_ops);
+    printf("OK: %ju writes (%ju refused with EAGAIN), %ju deletes, %ju crashes, "
+        "%ju verified reads, %ju disk ops\n", t.writes, t.refused_writes, t.deletes,
+        t.crashes, t.checked_reads, t.data_disk->completed_ops);
 }
 
 // Both implementations, both commit modes, and checksum blocks equal to and larger than
