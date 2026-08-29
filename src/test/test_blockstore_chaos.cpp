@@ -227,12 +227,27 @@ struct chaos_t
         return (object_id){ .inode = 1, .stripe = (uint64_t)i * OBJ_SIZE };
     }
 
-    // Self-describing payload: every 8 bytes tell which object, version and offset
-    // they were written by, so a mismatch says exactly where the stale data came from
-    static void fill_range(std::vector<uint8_t> & c, int obj, uint64_t version, uint64_t offset, uint64_t len)
+    // Self-describing payload: every record says which object, which version and which
+    // offset wrote it, so a mismatch tells exactly where the stale data came from. Its
+    // size divides the write granularity, so records never straddle a write or a read.
+    struct payload_t
     {
-        for (uint64_t i = 0; i < len; i += 8)
-            *(uint64_t*)(c.data() + offset + i) = (version << 40) | ((uint64_t)(obj & 0xff) << 32) | (offset + i);
+        uint64_t seq;      // the model's own sequence number
+        uint64_t version;  // version number as the store sees it
+        uint64_t obj;
+        uint64_t offset;   // byte offset of this record within the object
+    };
+
+    static void fill_range(std::vector<uint8_t> & c, int obj, uint64_t seq, uint64_t version,
+        uint64_t offset, uint64_t len)
+    {
+        for (uint64_t i = 0; i < len; i += sizeof(payload_t))
+            *(payload_t*)(c.data() + offset + i) = (payload_t){
+                .seq = seq,
+                .version = version,
+                .obj = (uint64_t)obj,
+                .offset = offset + i,
+            };
     }
 
     const std::vector<uint8_t> & base_content(int obj)
@@ -274,7 +289,7 @@ struct chaos_t
         p->version = version;
         p->bs_version = m.next_version++;
         p->content = base_content(obj);
-        fill_range(p->content, obj, version, offset, len);
+        fill_range(p->content, obj, version, p->bs_version, offset, len);
         p->op.opcode = instant_writes ? BS_OP_WRITE_STABLE : BS_OP_WRITE;
         p->op.oid = oid(obj);
         p->op.version = p->bs_version;
@@ -617,14 +632,15 @@ struct chaos_t
     {
         if (got.size() != want.size())
             return;
-        for (uint64_t i = 0; i < got.size(); i += 8)
+        for (uint64_t i = 0; i < got.size(); i += sizeof(payload_t))
         {
-            uint64_t g = *(uint64_t*)(got.data()+i), w = *(uint64_t*)(want.data()+i);
-            if (g != w)
+            auto & g = *(payload_t*)(got.data()+i);
+            auto & w = *(payload_t*)(want.data()+i);
+            if (memcmp(&g, &w, sizeof(payload_t)) != 0)
             {
-                fprintf(stderr, "  object %d offset %ju: got obj=%ju v%ju off=%ju, expected obj=%ju v%ju off=%ju\n",
-                    obj, base+i, (g >> 32) & 0xff, g >> 40, g & 0xffffffff,
-                    (w >> 32) & 0xff, w >> 40, w & 0xffffffff);
+                fprintf(stderr, "  object %d offset %ju: got obj=%ju seq=%ju v%ju off=%ju,"
+                    " expected obj=%ju seq=%ju v%ju off=%ju\n", obj, base+i,
+                    g.obj, g.seq, g.version, g.offset, w.obj, w.seq, w.version, w.offset);
                 return;
             }
         }
