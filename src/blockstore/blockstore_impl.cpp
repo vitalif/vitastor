@@ -43,6 +43,11 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
 
 blockstore_impl_t::~blockstore_impl_t()
 {
+    // Metadata block buffers are normally freed by the write completion callback,
+    // so anything still here was queued or in flight when we were destroyed
+    for (auto & mb: modified_blocks)
+        free(mb.second.buf);
+    modified_blocks.clear();
     if (flusher)
         delete flusher;
     if (heap)

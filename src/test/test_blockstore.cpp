@@ -641,7 +641,6 @@ static void test_perfect_csum_interrupted()
         {
             bool ok = test.meta_disk->submit(sqe);
             assert(ok);
-            free(((ring_data_t*)sqe->user_data)->iov.iov_base);
             modified = true;
             return true;
         }
