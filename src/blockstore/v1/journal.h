@@ -59,8 +59,10 @@ struct journal_t
     void dump_diagnostics();
     inline bool entry_fits(int size)
     {
+        // Never append to a sector which is still being written: re-submitting it is probably UB
         return !(block_size - in_sector_pos < size ||
-            no_same_sector_overwrites && sector_info[cur_sector].written);
+            sector_info[cur_sector].written &&
+                (no_same_sector_overwrites || sector_info[cur_sector].flush_count > 0));
     }
 };
 

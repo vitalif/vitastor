@@ -25,7 +25,9 @@ int blockstore_journal_check_t::check_available(blockstore_op_t *op, int entries
     int required = entries_required;
     while (1)
     {
-        int fits = bs->journal.no_same_sector_overwrites && next_pos == bs->journal.next_free && bs->journal.sector_info[next_sector].written
+        // Must match journal_t::entry_fits()
+        int fits = next_pos == bs->journal.next_free && bs->journal.sector_info[next_sector].written &&
+            (bs->journal.no_same_sector_overwrites || bs->journal.sector_info[next_sector].flush_count > 0)
             ? 0
             : (bs->journal.block_size - next_in_pos) / size;
         if (fits > 0)
