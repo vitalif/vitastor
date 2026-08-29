@@ -580,6 +580,36 @@ void blockstore_heap_t::finish_load()
     }
 }
 
+// Count the newest entries of the object which have to be rechecked after a restart, i.e.
+// the ones whose data may be absent from the disk even though the entry itself is there.
+// Those are buffered small writes - their data is written in parallel with the entry - and
+// the newest intent write if it wasn't fsynced yet.
+// A big-redirect intent may also be hidden under a series of small writes: it is acked as
+// soon as its entry is written, without an explicit data fsync, so a power outage may drop
+// its data from the disk cache while keeping the entry. Its data block belongs to it alone,
+// so rechecking it is always safe. In-place intent writes are only rechecked when they're
+// the newest entry - the block under them may have been rewritten by a later compaction,
+// which would make the recheck fail on perfectly good data.
+// <need_data> is set if any of them requires reading the data device, i.e. if the recheck
+// can't be done synchronously in memory.
+int blockstore_heap_t::count_recheck_entries(heap_entry_t *obj, bool & need_data)
+{
+    int count = 0;
+    need_data = false;
+    auto wr = obj;
+    for (; wr && wr->type() == BS_HEAP_SMALL_WRITE; wr = prev(wr))
+    {
+        count++;
+    }
+    if (wr && wr->lsn > completed_lsn &&
+        (wr->type() == BS_HEAP_BIG_INTENT || wr == obj && wr->type() == BS_HEAP_INTENT_WRITE))
+    {
+        count++;
+        need_data = true;
+    }
+    return count;
+}
+
 void blockstore_heap_t::fill_recheck_queue()
 {
     for (auto & pgp: block_index)
@@ -589,9 +619,8 @@ void blockstore_heap_t::fill_recheck_queue()
             inode_map_iterate(ip.second, [&](heap_list_item_t *li)
             {
                 auto obj = &li->entry;
-                // Recheck only the latest intent_write (if after completed_lsn) or a series of small_writes
-                if ((obj->type() == BS_HEAP_INTENT_WRITE || obj->type() == BS_HEAP_BIG_INTENT)
-                    && obj->lsn > completed_lsn || obj->type() == BS_HEAP_SMALL_WRITE)
+                bool need_data = false;
+                if (count_recheck_entries(obj, need_data) > 0)
                 {
                     recheck_queue.push_back(obj);
                 }
@@ -899,7 +928,9 @@ void blockstore_heap_t::recheck_drop_entries(heap_entry_t *obj, heap_entry_t *ba
     while (li && prev_wr != &li->entry)
     {
         auto prev = li->prev;
-        assert(li->entry.type() == bad_wr->type());
+        // Small writes may be stacked on top of an intent write, so the types may differ
+        assert(li->entry.type() == BS_HEAP_SMALL_WRITE || li->entry.type() == BS_HEAP_INTENT_WRITE ||
+            li->entry.type() == BS_HEAP_BIG_INTENT);
         init_erase_bad_entry(li);
         unlink_list_item(li);
         li = prev;
@@ -999,11 +1030,14 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
     {
         heap_entry_t *obj = recheck_queue.front();
         recheck_queue.pop_front();
-        if (obj->type() == BS_HEAP_SMALL_WRITE && buffer_area)
+        bool need_data = false;
+        int recheck_count = count_recheck_entries(obj, need_data);
+        if (!need_data && buffer_area)
         {
             // Check this object synchronously
             heap_entry_t *bad_wr = NULL;
-            for (auto wr = obj; wr && wr->type() == BS_HEAP_SMALL_WRITE; wr = prev(wr))
+            auto wr = obj;
+            for (int i = 0; i < recheck_count; i++, wr = prev(wr))
             {
                 fprintf(stderr, "Notice: rechecking %jx:%jx l%ju - %u bytes at %ju in buffer area\n",
                     wr->inode, wr->stripe, wr->lsn, wr->small().len, wr->small().location);
@@ -1019,10 +1053,7 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
             auto & st = recheck_states[obj];
             st.obj = obj;
             st.next_wr = obj;
-            st.total_reads = 1;
-            if (obj->type() == BS_HEAP_SMALL_WRITE)
-                for (auto wr = prev(obj); wr && wr->type() == BS_HEAP_SMALL_WRITE; wr = prev(wr))
-                    st.total_reads++;
+            st.total_reads = recheck_count;
             recheck_pending_reads += st.total_reads;
             recheck_start_reads(&st);
         }

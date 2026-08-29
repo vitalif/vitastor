@@ -1312,6 +1312,90 @@ void test_recheck(bool async, bool csum)
     printf("...OK\n");
 }
 
+// A big-redirect intent is acked as soon as its entry is written, without an explicit data
+// fsync, so a power outage may drop its data while keeping the entry. It has to be rechecked
+// after a restart even when it's buried under a series of small writes - otherwise the object
+// silently comes back holding data which never reached the disk.
+void test_recheck_intent_under_small_writes(bool async, bool csum)
+{
+    printf("test_recheck_intent_under_small_writes %s %s\n", async ? "async" : "sync", csum ? "csum" : "no_csum");
+
+    blockstore_disk_t dsk;
+    _test_init(dsk, csum);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    std::vector<uint8_t> tmp;
+
+    memset(buffer_area.data(), 0xab, 32*1024);
+
+    // write
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_recheck();
+
+        // object 1 - big_intent write under two small writes, everything is valid
+        _test_redirect_intent(heap, dsk, 1, 0, 1, 0, true, 16384, 8192, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 4*1024, 8*1024, 0, true, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 3, 8*1024, 8*1024, 8*1024, true, buffer_area.data());
+
+        // object 2 - the same, but the big_intent data was lost
+        _test_redirect_intent(heap, dsk, 2, 0, 1, 0x20000, true, 16384, 8192, buffer_area.data());
+        _test_small_write(heap, dsk, 2, 0, 2, 4*1024, 8*1024, 16*1024, true, buffer_area.data());
+        _test_small_write(heap, dsk, 2, 0, 3, 8*1024, 8*1024, 24*1024, true, buffer_area.data());
+
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+
+    // reload heap
+    {
+        blockstore_heap_t heap(&dsk, async ? NULL : buffer_area.data(), 10);
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+
+        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t *buf)> cb)
+        {
+            if (!len)
+            {
+                return;
+            }
+            uint8_t *buf = (uint8_t*)malloc_or_die(len);
+            if (is_data && offset == 0x20000+16*1024)
+            {
+                // the only lost write
+                memset(buf, 0xcc, len);
+            }
+            else
+            {
+                memset(buf, 0xab, len);
+            }
+            assert(cb);
+            cb(buf);
+            free(buf);
+        }, 1);
+        assert(done);
+
+        heap.finish_recheck();
+
+        // object 1 survives whole
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 3);
+        assert(obj->entry_type == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
+        assert(obj->version == 3);
+
+        // object 2 is rolled back completely, including the small writes over the bad intent
+        oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(!obj);
+
+        assert(check_used_space(heap, dsk, 0));
+    }
+
+    printf("...OK\n");
+}
+
 void test_corruption()
 {
     blockstore_disk_t dsk;
@@ -2865,6 +2949,10 @@ int main(int narg, char *args[])
     test_recheck(false, false);
     test_recheck(true, true);
     test_recheck(true, false);
+    test_recheck_intent_under_small_writes(false, true);
+    test_recheck_intent_under_small_writes(false, false);
+    test_recheck_intent_under_small_writes(true, true);
+    test_recheck_intent_under_small_writes(true, false);
     test_corruption();
     test_full_overwrite(true);
     test_full_overwrite(false);
