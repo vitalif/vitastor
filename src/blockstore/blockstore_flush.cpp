@@ -96,6 +96,20 @@ void journal_flusher_t::release_trim()
     force_start--;
 }
 
+// Ask for an fsync. Used when a new entry depends on another not-yet-durable entry
+void journal_flusher_t::request_fsync()
+{
+    force_start++;
+    force_fsync++;
+    bs->ringloop->wakeup();
+}
+
+void journal_flusher_t::release_fsync()
+{
+    force_fsync--;
+    force_start--;
+}
+
 void journal_flusher_t::dump_diagnostics()
 {
     printf(
@@ -183,7 +197,7 @@ resume_0:
     wait_count = 0;
     cur_oid = {};
     res = bs->heap->get_next_compact(cur_oid);
-    if ((bs->intent_write_counter >= bs->journal_trim_interval) && co_id == 0)
+    if ((bs->intent_write_counter >= bs->journal_trim_interval || flusher->force_fsync > 0) && co_id == 0)
     {
         // Advance fsynced_lsn every <journal_trim_interval> intent writes
         bs->intent_write_counter = 0;

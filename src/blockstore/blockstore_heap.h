@@ -245,12 +245,12 @@ class blockstore_heap_t
     void reshard_add(heap_reshard_state_t *st, heap_list_item_t *li);
 
     void gc_block(heap_block_info_t & inf);
-    int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free);
+    int allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free, uint32_t prefer_block);
     void insert_list_items(heap_list_item_t** v, size_t count, bool postpone);
     void unlink_list_item(heap_list_item_t *li);
-    int add_entry(uint32_t wr_size, uint32_t *modified_block, bool allow_last_free,
-        bool explicit_complete, std::function<void(heap_entry_t *wr)> fill_entry);
-    int add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type);
+    int add_entry(uint32_t wr_size, heap_entry_t *prev_obj, uint32_t *modified_block, bool prefer_same,
+        bool allow_last_free, bool explicit_complete, std::function<void(heap_entry_t *wr)> fill_entry);
+    int add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type, bool prefer_same);
     uint32_t meta_alloc_pos(const heap_block_info_t & inf);
     void modify_alloc(uint32_t block_num, std::function<void(heap_block_info_t &)> change_cb);
     void mark_garbage_up_to(heap_entry_t *wr);

@@ -93,6 +93,7 @@ public:
 class journal_flusher_t
 {
     int force_start = 0;
+    int force_fsync = 0;
     int min_flusher_count = 0, max_flusher_count = 0, cur_flusher_count = 0, target_flusher_count = 0;
     journal_flusher_co *co;
     blockstore_impl_t *bs;
@@ -113,5 +114,7 @@ public:
     bool is_active();
     void request_trim();
     void release_trim();
+    void request_fsync();
+    void release_fsync();
     void dump_diagnostics();
 };

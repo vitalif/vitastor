@@ -39,7 +39,7 @@ struct blockstore_op_private_t
     int op_state;
 
     // Write, sync, stabilize
-    uint32_t modified_block, modified_block2;
+    uint32_t modified_block;
 
     // Read
     std::vector<copy_buffer_t> read_vec;
@@ -52,7 +52,9 @@ struct blockstore_op_private_t
     uint32_t write_type;
 
     // Stabilize, rollback
-    int stab_pos;
+    heap_entry_t *obj;
+    int stab_pos, res;
+    uint32_t modified_block2;
 
     // Write
     timespec tv_begin;

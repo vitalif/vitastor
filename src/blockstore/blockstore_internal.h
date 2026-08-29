@@ -43,6 +43,20 @@
 #define WAIT_SQE 1
 // Suspend operation until there are <wait_detail> bytes of free space in the journal on disk
 #define WAIT_COMPACTION 2
+// Suspend operation until LSN <wait_detail> becomes durable
+#define WAIT_META_FSYNC 3
+
+// In non-immediate_commit setups bs_heap may require us to write into the same block as the
+// previous object's entry block. EAGAIN is returned if it's impossible, in that case we
+// request an fsync and fsync lifts the placement restriction entirely.
+#define BS_SUBMIT_CHECK_PLACEMENT(res, prev_lsn) \
+    if ((res) == EAGAIN)\
+    {\
+        PRIV(op)->wait_for = WAIT_META_FSYNC;\
+        PRIV(op)->wait_detail = (prev_lsn);\
+        flusher->request_fsync();\
+        return 0;\
+    }
 
 #define COPY_BUF_JOURNAL    0x01
 #define COPY_BUF_DATA       0x02

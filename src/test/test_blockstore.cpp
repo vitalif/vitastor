@@ -1149,6 +1149,140 @@ static void test_write_no_space_eagain()
 
 // FIXME Add a simple intent_write / big_intent test
 
+// Entries of one object which aren't durable yet must all live in the same metadata block, so
+// that whatever survives a power outage is a prefix of the object's entry chain. When the block
+// of the previous entry can't take another one right now - here because it is being written -
+// the new write has to wait for it instead of going into another block, otherwise the outage
+// may keep the newer entry and drop the older one, and the object comes back at a version
+// whose predecessor is missing
+static void test_write_stays_in_same_meta_block()
+{
+    printf("\n-- test_write_stays_in_same_meta_block\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // Entries only become durable on an explicit fsync, which is what makes the rule apply
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.config["meta_device"] = "./test_meta.bin";
+    test.config["disable_meta_fsync"] = "0";
+    test.config["meta_device_size"] = "33554432";
+    test.config["meta_device_sect"] = "4096";
+    test.config["data_offset"] = "0";
+    test.init();
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    memset(buf, 0xaa, 128*1024);
+
+    // Create the object and make it durable, so that only the two writes below are in question
+    printf("writing v1 0+128K and syncing\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = oid;
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    op.buf = buf;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    // Record every metadata block write and hold the first one back. The superblock lives at
+    // meta_offset itself, the blocks start one block further, and the buffer area shares the
+    // same device because no separate journal device is configured
+    uint64_t first_block_off = test.bs->dsk.meta_offset + test.bs->dsk.meta_block_size;
+    uint64_t meta_end_off = test.bs->dsk.meta_offset + test.bs->dsk.meta_area_size;
+    std::vector<uint64_t> meta_writes;
+    ring_data_t *held = NULL;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_META_FD && sqe->opcode == IORING_OP_WRITEV &&
+            sqe->off >= first_block_off && sqe->off < meta_end_off)
+        {
+            meta_writes.push_back(sqe->off);
+            if (!held)
+            {
+                bool ok = test.meta_disk->submit(sqe);
+                assert(ok);
+                held = (ring_data_t*)sqe->user_data;
+                return true;
+            }
+        }
+        return false;
+    };
+
+    printf("writing v2 16K+4K and holding its metadata block write\n");
+    blockstore_op_t wr2;
+    bool wr2_done = false;
+    wr2.opcode = BS_OP_WRITE_STABLE;
+    wr2.oid = oid;
+    wr2.version = 2;
+    wr2.offset = 16384;
+    wr2.len = 4096;
+    wr2.buf = buf;
+    memset(buf, 0xbb, 4096);
+    wr2.callback = [&](blockstore_op_t *op) { wr2_done = true; };
+    test.bs->enqueue_op(&wr2);
+    for (int i = 0; i < 50 && !held; i++)
+        test.ringloop->loop();
+    assert(held);
+    assert(!wr2_done);
+    assert(meta_writes.size() == 1);
+
+    // v2 isn't durable and its block is busy, so v3 must not be put into another block
+    printf("writing v3 20K+4K - it must wait for v2's block instead of using another one\n");
+    blockstore_op_t wr3;
+    bool wr3_done = false;
+    wr3.opcode = BS_OP_WRITE_STABLE;
+    wr3.oid = oid;
+    wr3.version = 3;
+    wr3.offset = 20480;
+    wr3.len = 4096;
+    wr3.buf = buf + 4096;
+    memset(buf + 4096, 0xcc, 4096);
+    wr3.callback = [&](blockstore_op_t *op) { wr3_done = true; };
+    test.bs->enqueue_op(&wr3);
+    for (int i = 0; i < 50 && !wr3_done; i++)
+        test.ringloop->loop();
+    assert(!wr3_done);
+    assert(meta_writes.size() == 1);
+
+    printf("releasing the held metadata write\n");
+    test.ringloop->mark_completed(held);
+    for (int i = 0; i < 500 && !(wr2_done && wr3_done); i++)
+        test.ringloop->loop();
+    assert(wr2_done && wr3_done);
+    assert(wr2.retval == (int)wr2.len);
+    assert(wr3.retval == (int)wr3.len);
+
+    // Both entries ended up in one and the same metadata block
+    printf("metadata block writes: %zu\n", meta_writes.size());
+    for (auto off: meta_writes)
+        assert(off == meta_writes[0]);
+
+    printf("reading it back\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = 3;
+    rd.offset = 0;
+    rd.len = 128*1024;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(memcheck(rd.buf, 0xaa, 16384));
+    assert(memcheck(rd.buf + 16384, 0xbb, 4096));
+    assert(memcheck(rd.buf + 20480, 0xcc, 4096));
+    assert(memcheck(rd.buf + 24576, 0xaa, 128*1024 - 24576));
+    free(rd.buf);
+
+    test.sqe_handler = nullptr;
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_simple();
@@ -1169,5 +1303,6 @@ int main(int narg, char *args[])
     test_fsync_batch_big();
     test_list_limit();
     test_write_no_space_eagain();
+    test_write_stays_in_same_meta_block();
     return 0;
 }

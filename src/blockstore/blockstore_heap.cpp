@@ -1502,8 +1502,24 @@ void blockstore_heap_t::gc_block(heap_block_info_t & inf)
     }
 }
 
-int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free)
+// When the previous object's entry is not fsynced yet, we can't write a new one EXCEPT into
+// the same block which is passed here as <prefer_block>. If prefer_block is set but we can't
+// write into it right now, we return EAGAIN.
+int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, bool allow_last_free, uint32_t prefer_block)
 {
+    if (prefer_block != UINT32_MAX)
+    {
+        auto & inf = block_info.at(prefer_block);
+        // A block accumulates a consecutive LSN range only, see modify_alloc() below
+        if (inf.is_writing ||
+            inf.mod_lsn_to && inf.mod_lsn_to != next_lsn ||
+            inf.used_space - inf.garbage_space + entry_size > dsk->meta_block_size)
+        {
+            return EAGAIN;
+        }
+        last_allocated_block = prefer_block;
+        goto allocated;
+    }
     if (last_allocated_block != UINT32_MAX)
     {
         // First try to write into the same block as the previous time
@@ -1566,6 +1582,7 @@ int blockstore_heap_t::allocate_entry(uint32_t entry_size, uint32_t *block_num, 
             return ENOSPC;
         }
     }
+allocated:
     // Write into the same block
     *block_num = last_allocated_block;
     modify_alloc(last_allocated_block, [&](heap_block_info_t & inf)
@@ -1632,11 +1649,15 @@ void blockstore_heap_t::insert_list_items(heap_list_item_t** v, size_t count, bo
     }
 }
 
-int blockstore_heap_t::add_entry(uint32_t wr_size, uint32_t *modified_block,
+// <prev_obj> is the newest entry of the object the new entry is added to, or NULL if there is
+// none. It is used to keep all not-yet-durable entries of one object in the same metadata block,
+// see allocate_entry(). May return EAGAIN or EBUSY, meaning "retry later" - see there.
+int blockstore_heap_t::add_entry(uint32_t wr_size, heap_entry_t *prev_obj, uint32_t *modified_block, bool prefer_same,
     bool allow_last_free, bool explicit_complete, std::function<void(heap_entry_t *wr)> fill_entry)
 {
     uint32_t block_num;
-    int res = allocate_entry(wr_size, &block_num, allow_last_free);
+    int res = allocate_entry(wr_size, &block_num, allow_last_free, prefer_same && prev_obj
+        && prev_obj->lsn > get_fsynced_lsn() ? list_item(prev_obj)->block_num : UINT32_MAX);
     if (res != 0)
     {
         return res;
@@ -1681,7 +1702,7 @@ int blockstore_heap_t::add_small_write(object_id oid, heap_entry_t **obj_ptr, ui
     }
     uint32_t wr_size = get_small_entry_size(offset, len);
     // Small writes are written in parallel with buffered data so they require explicit_complete
-    return add_entry(wr_size, modified_block, false, true, [&](heap_entry_t *wr)
+    return add_entry(wr_size, obj, modified_block, true, false, true, [&](heap_entry_t *wr)
     {
         wr->entry_type = type;
         wr->inode = oid.inode;
@@ -1722,7 +1743,7 @@ int blockstore_heap_t::add_big_write(object_id oid, heap_entry_t *old_head, bool
     }
     uint32_t wr_size = get_big_entry_size();
     // Big writes are written after writing data so they don't require explicit_complete
-    return add_entry(wr_size, modified_block, false, false, [&](heap_entry_t *wr)
+    return add_entry(wr_size, old_head, modified_block, false, false, false, [&](heap_entry_t *wr)
     {
         wr->entry_type = BS_HEAP_BIG_WRITE | (stable ? BS_HEAP_STABLE : 0);
         wr->inode = oid.inode;
@@ -1748,7 +1769,7 @@ int blockstore_heap_t::add_redirect_intent(object_id oid, heap_entry_t **obj_ptr
 {
     uint32_t wr_size = get_big_intent_entry_size();
     // Big-redirect intents, just like regular big writes, are written after writing data so they don't require explicit_complete
-    return add_entry(wr_size, modified_block, false, false, [&](heap_entry_t *wr)
+    return add_entry(wr_size, *obj_ptr, modified_block, false, false, false, [&](heap_entry_t *wr)
     {
         wr->entry_type = BS_HEAP_BIG_INTENT|BS_HEAP_STABLE;
         wr->inode = oid.inode;
@@ -1784,7 +1805,7 @@ int blockstore_heap_t::add_big_intent(object_id oid, heap_entry_t **obj_ptr, uin
     }
     uint32_t wr_size = get_big_intent_entry_size();
     // Big intents are written before writing data so they require explicit_complete
-    return add_entry(wr_size, modified_block, false, true, [&](heap_entry_t *wr)
+    return add_entry(wr_size, obj, modified_block, false, false, true, [&](heap_entry_t *wr)
     {
         wr->entry_type = BS_HEAP_BIG_INTENT | BS_HEAP_STABLE;
         wr->inode = oid.inode;
@@ -1828,7 +1849,9 @@ int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t compact_version, 
     }
     if (do_delete)
     {
-        return add_entry(get_simple_entry_size(), modified_block, false, false, [&](heap_entry_t *wr)
+        // Compaction only ever touches durable entries and reuses their LSNs, so it doesn't
+        // need the "same block as the previous entry of the object" placement
+        return add_entry(get_simple_entry_size(), NULL, modified_block, false, false, false, [&](heap_entry_t *wr)
         {
             wr->entry_type = BS_HEAP_DELETE|BS_HEAP_STABLE;
             wr->inode = obj->inode;
@@ -1839,7 +1862,7 @@ int blockstore_heap_t::add_compact(heap_entry_t *obj, uint64_t compact_version, 
     }
     uint32_t wr_size = get_big_entry_size();
     // Compaction entry is added after copying data so it doesn't require explicit_complete
-    return add_entry(wr_size, modified_block, true, false, [&](heap_entry_t *new_wr)
+    return add_entry(wr_size, NULL, modified_block, false, true, false, [&](heap_entry_t *new_wr)
     {
         new_wr->entry_type = BS_HEAP_BIG_WRITE|BS_HEAP_STABLE;
         new_wr->inode = obj->inode;
@@ -1872,11 +1895,11 @@ int blockstore_heap_t::punch_holes(heap_entry_t *wr, uint8_t *new_bitmap, uint8_
     return 0;
 }
 
-int blockstore_heap_t::add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type)
+int blockstore_heap_t::add_simple(heap_entry_t *obj, uint64_t version, uint32_t *modified_block, uint32_t entry_type, bool prefer_same)
 {
     uint32_t wr_size = get_simple_entry_size();
     // Simple entries don't have data so they don't require explicit_complete
-    return add_entry(wr_size, modified_block, false, false, [&](heap_entry_t *wr)
+    return add_entry(wr_size, obj, modified_block, prefer_same, false, false, [&](heap_entry_t *wr)
     {
         wr->entry_type = entry_type;
         wr->inode = obj->inode;
@@ -1906,13 +1929,19 @@ int blockstore_heap_t::add_commit(heap_entry_t *obj, uint64_t version, uint32_t 
         if (wr->type() == BS_HEAP_COMMIT)
         {
             if (commit_version < wr->version)
+            {
                 commit_version = wr->version;
+            }
             wr = prev(wr);
             continue;
         }
-        if (wr->version == version)
+        if (wr->version >= version)
         {
+            // A version may be already committed, flushed, and removed, and it's not a bug
             found = true;
+        }
+        if (wr->version <= version)
+        {
             if (!(wr->entry_type & BS_HEAP_STABLE) && wr->version > commit_version)
             {
                 uncommitted = true;
@@ -1933,7 +1962,7 @@ int blockstore_heap_t::add_commit(heap_entry_t *obj, uint64_t version, uint32_t 
     {
         return 0;
     }
-    return add_simple(obj, version, modified_block, BS_HEAP_COMMIT);
+    return add_simple(obj, version, modified_block, BS_HEAP_COMMIT, true);
 }
 
 int blockstore_heap_t::add_rollback(heap_entry_t *obj, uint64_t version, uint32_t *modified_block)
@@ -1992,13 +2021,13 @@ int blockstore_heap_t::add_rollback(heap_entry_t *obj, uint64_t version, uint32_
     {
         return 0;
     }
-    return add_simple(obj, version, modified_block, BS_HEAP_ROLLBACK);
+    return add_simple(obj, version, modified_block, BS_HEAP_ROLLBACK, true);
 }
 
 int blockstore_heap_t::add_delete(heap_entry_t *obj, uint32_t *modified_block)
 {
     assert(obj);
-    return add_simple(obj, 0, modified_block, BS_HEAP_DELETE|BS_HEAP_STABLE);
+    return add_simple(obj, 0, modified_block, BS_HEAP_DELETE|BS_HEAP_STABLE, false);
 }
 
 // 2nd step: mark the block as being written (to prevent further in-memory updates to it),

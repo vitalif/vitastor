@@ -273,6 +273,19 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
         flusher->release_trim();
         PRIV(op)->wait_for = 0;
     }
+    else if (PRIV(op)->wait_for == WAIT_META_FSYNC)
+    {
+        if (heap->get_fsynced_lsn() < PRIV(op)->wait_detail)
+        {
+            // do not submit
+#ifdef BLOCKSTORE_DEBUG
+            printf("Still waiting for LSN %ju to become durable\n", PRIV(op)->wait_detail);
+#endif
+            return;
+        }
+        flusher->release_fsync();
+        PRIV(op)->wait_for = 0;
+    }
     else
     {
         throw std::runtime_error("BUG: op->wait_for value is unexpected");

@@ -14,6 +14,8 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     else if (priv->op_state == 3) goto resume_3;
     else if (priv->op_state == 4) goto resume_4;
     else if (priv->op_state == 5) goto resume_5;
+    else if (priv->op_state == 6) goto resume_6;
+    else if (priv->op_state == 7) goto resume_7;
     assert(!priv->op_state);
     op->retval = 0;
     PRIV(op)->lsn = 0;
@@ -21,30 +23,50 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
     for (priv->stab_pos = 0; priv->stab_pos < op->len; priv->stab_pos++)
     {
         {
-            auto obj = heap->read_entry(v[priv->stab_pos].oid);
-            if (!obj)
+            priv->obj = heap->read_entry(v[priv->stab_pos].oid);
+            if (!priv->obj)
             {
                 op->retval = -ENOENT;
                 FINISH_OP(op);
                 return 2;
             }
             priv->modified_block2 = UINT32_MAX;
-            int res = op->opcode == BS_OP_STABLE
-                ? heap->add_commit(obj, v[priv->stab_pos].version, &priv->modified_block2)
-                : heap->add_rollback(obj, v[priv->stab_pos].version, &priv->modified_block2);
-            if (res == EBUSY)
+            priv->res = op->opcode == BS_OP_STABLE
+                ? heap->add_commit(priv->obj, v[priv->stab_pos].version, &priv->modified_block2)
+                : heap->add_rollback(priv->obj, v[priv->stab_pos].version, &priv->modified_block2);
+            if (priv->res != 0)
+            {
+                // Flush the previous modified block on error or nobody may flush it at all
+resume_6:
+                if (priv->modified_block != UINT32_MAX)
+                {
+                    priv->op_state = 6;
+                    BS_SUBMIT_CHECK_SQES(1);
+                    prepare_meta_block_write(priv->modified_block);
+resume_7:
+                    if (meta_block_is_pending(priv->modified_block))
+                    {
+                        priv->op_state = 7;
+                        return 1;
+                    }
+                    priv->modified_block = UINT32_MAX;
+                    priv->op_state = 0;
+                }
+            }
+            BS_SUBMIT_CHECK_PLACEMENT(priv->res, priv->obj->lsn);
+            if (priv->res == EBUSY)
             {
                 op->retval = -EBUSY;
                 FINISH_OP(op);
                 return 2;
             }
-            if (res == ENOENT)
+            if (priv->res == ENOENT)
             {
                 op->retval = -ENOENT;
                 FINISH_OP(op);
                 return 2;
             }
-            if (res == ENOSPC)
+            if (priv->res == ENOSPC)
             {
                 if (!heap->get_to_compact_count())
                 {
@@ -58,11 +80,12 @@ int blockstore_impl_t::dequeue_stable(blockstore_op_t *op)
                 flusher->request_trim();
                 return 0;
             }
-            assert(res == 0);
+            assert(priv->res == 0);
         }
 resume_1:
         if (priv->modified_block != UINT32_MAX && priv->modified_block2 != priv->modified_block)
         {
+            priv->op_state = 1;
             BS_SUBMIT_CHECK_SQES(1);
             prepare_meta_block_write(priv->modified_block);
 resume_2:

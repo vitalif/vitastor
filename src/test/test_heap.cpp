@@ -63,12 +63,32 @@ int _test_do_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64
     return heap.add_big_write(oid, obj, stable, version, offset, len, location, ext_bitmap, data, mblock);
 }
 
+// A new entry has to go into the same metadata block as the previous not-yet-durable entry of the
+// same object, so add_*() returns EAGAIN when that block is full. The real blockstore fsyncs the
+// metadata and retries in that case, which lifts the placement restriction - do the same here
+static bool _test_retry_after_fsync(blockstore_heap_t & heap, int res)
+{
+    if (res != EAGAIN)
+        return false;
+    heap.mark_lsn_fsynced(heap.get_completed_lsn());
+    return true;
+}
+
+static heap_entry_t *_test_obj(blockstore_heap_t & heap, uint64_t inode, uint64_t stripe = 0)
+{
+    auto obj = heap.read_entry((object_id){ .inode = INODE_WITH_POOL(1, inode), .stripe = stripe });
+    assert(obj);
+    return obj;
+}
+
 void _test_big_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_t inode, uint64_t stripe, uint64_t version, uint64_t location,
     bool stable, uint32_t offset, uint32_t len, uint8_t *data, uint32_t expected_mblock = 0)
 {
     heap.use_data(INODE_WITH_POOL(1, inode), location); // blocks are allocated before write and outside the heap_t
     uint32_t mblock = 999999;
     int res = _test_do_big_write(heap, dsk, inode, stripe, version, location, stable, offset, len, data, &mblock);
+    if (_test_retry_after_fsync(heap, res))
+        res = _test_do_big_write(heap, dsk, inode, stripe, version, location, stable, offset, len, data, &mblock);
     assert(res == 0);
     assert(heap.is_data_used(location));
     assert(mblock == expected_mblock || expected_mblock == UINT32_MAX);
@@ -85,6 +105,8 @@ void _test_big_intent(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64_
     memset(ext_bitmap, 0x8e, dsk.clean_entry_bitmap_size);
     heap_entry_t *obj = heap.read_entry(oid);
     int res = heap.add_big_intent(oid, &obj, version, offset, len, ext_bitmap, data, NULL, &mblock);
+    if (_test_retry_after_fsync(heap, res))
+        res = heap.add_big_intent(oid, &obj, version, offset, len, ext_bitmap, data, NULL, &mblock);
     assert(res == 0);
     assert(mblock == 0);
     heap.start_block_write(mblock);
@@ -102,6 +124,8 @@ void _test_redirect_intent(blockstore_heap_t & heap, blockstore_disk_t & dsk, ui
     memset(ext_bitmap, 0x8e, dsk.clean_entry_bitmap_size);
     heap_entry_t *obj = heap.read_entry(oid);
     int res = heap.add_redirect_intent(oid, &obj, version, offset, len, location, ext_bitmap, data, &mblock);
+    if (_test_retry_after_fsync(heap, res))
+        res = heap.add_redirect_intent(oid, &obj, version, offset, len, location, ext_bitmap, data, &mblock);
     assert(res == 0);
     assert(mblock == expected_mblock || expected_mblock == UINT32_MAX);
     heap.start_block_write(mblock);
@@ -131,6 +155,8 @@ void _test_small_write(blockstore_heap_t & heap, blockstore_disk_t & dsk, uint64
     uint32_t mblock = 999999;
     heap_entry_t *obj = NULL;
     int res = _test_do_small_write(heap, dsk, inode, stripe, version, offset, len, location, stable, data, is_intent, &mblock, &obj);
+    if (_test_retry_after_fsync(heap, res))
+        res = _test_do_small_write(heap, dsk, inode, stripe, version, offset, len, location, stable, data, is_intent, &mblock, &obj);
     assert(res == 0);
     if (!is_intent)
         assert(!heap.is_buffer_area_free(location, len));
@@ -1396,6 +1422,86 @@ void test_recheck_intent_under_small_writes(bool async, bool csum)
     printf("...OK\n");
 }
 
+// Entries which aren't self-sufficient - small writes, intent writes, commits and rollbacks -
+// have to go into the same metadata block as the previous not-yet-durable entry of their object.
+void test_entry_placement_contract()
+{
+    printf("test_entry_placement_contract\n");
+    int res;
+    blockstore_disk_t dsk;
+    _test_init(dsk, false);
+    // The rule only applies to entries which aren't durable yet, and with the metadata fsync
+    // disabled an entry is durable as soon as its block write completes - so enable it here
+    dsk.disable_meta_fsync = dsk.disable_journal_fsync = false;
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    memset(buffer_area.data(), 0xab, 65536);
+    uint8_t *data = buffer_area.data();
+
+    blockstore_heap_t heap(&dsk, buffer_area.data());
+    heap.finish_recheck();
+
+    // A base big write for every object, all of them into block 0
+    for (uint64_t i = 1; i <= 8; i++)
+        _test_big_write(heap, dsk, i, 0, 1, i*0x20000, true, 0, 0, data);
+    // Objects 3 and 4 also get an unstable version, so that there is something
+    // to commit and something to roll back
+    _test_small_write(heap, dsk, 3, 0, 2, 8192, 4096, 0, false, data);
+    _test_small_write(heap, dsk, 4, 0, 2, 8192, 4096, 4096, false, data);
+    assert(heap.get_meta_block_used_space(1) == 0);
+
+    // Nothing may be added to block 0 while it's being written
+    heap.start_block_write(0);
+
+    uint32_t mblock = UINT32_MAX;
+    heap_entry_t *obj = NULL;
+
+    printf("  small_write, intent_write, commit and rollback must wait for the block\n");
+    res = _test_do_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 8192, true, data, false, &mblock, &obj);
+    assert(res == EAGAIN);
+    res = _test_do_small_write(heap, dsk, 2, 0, 2, 8192, 4096, 0, true, data, true, &mblock, &obj);
+    assert(res == EAGAIN);
+    res = heap.add_commit(_test_obj(heap, 3), 2, &mblock);
+    assert(res == EAGAIN);
+    res = heap.add_rollback(_test_obj(heap, 4), 1, &mblock);
+    assert(res == EAGAIN);
+    assert(heap.get_meta_block_used_space(1) == 0);
+
+    printf("  big_write, big_intent and delete may go into another block\n");
+    heap.use_data(INODE_WITH_POOL(1, 5), 0x200000);
+    res = _test_do_big_write(heap, dsk, 5, 0, 2, 0x200000, true, 0, 0, data, &mblock);
+    assert(res == 0 && mblock != 0);
+    heap.use_data(INODE_WITH_POOL(1, 6), 0x220000);
+    obj = _test_obj(heap, 6);
+    {
+        uint8_t ext_bitmap[dsk.clean_entry_bitmap_size];
+        memset(ext_bitmap, 0x8e, dsk.clean_entry_bitmap_size);
+        res = heap.add_redirect_intent((object_id){ .inode = INODE_WITH_POOL(1, 6), .stripe = 0 },
+            &obj, 2, 0, 16384, 0x220000, ext_bitmap, data, &mblock);
+        assert(res == 0 && mblock != 0);
+        obj = _test_obj(heap, 7);
+        res = heap.add_big_intent((object_id){ .inode = INODE_WITH_POOL(1, 7), .stripe = 0 },
+            &obj, 2, 0, 16384, ext_bitmap, data, NULL, &mblock);
+        assert(res == 0 && mblock != 0);
+    }
+    res = heap.add_delete(_test_obj(heap, 8), &mblock);
+    assert(res == 0 && mblock != 0);
+    assert(heap.get_meta_block_used_space(1) > 0);
+
+    printf("  and they all fit into block 0 again once its write completes\n");
+    heap.complete_block_write(0);
+    res = _test_do_small_write(heap, dsk, 1, 0, 2, 8192, 4096, 8192, true, data, false, &mblock, &obj);
+    assert(res == 0 && mblock == 0);
+    heap.use_buffer_area(INODE_WITH_POOL(1, 1), 8192, 4096);
+    res = _test_do_small_write(heap, dsk, 2, 0, 2, 8192, 4096, 0, true, data, true, &mblock, &obj);
+    assert(res == 0 && mblock == 0);
+    res = heap.add_commit(_test_obj(heap, 3), 2, &mblock);
+    assert(res == 0 && mblock == 0);
+    res = heap.add_rollback(_test_obj(heap, 4), 1, &mblock);
+    assert(res == 0 && mblock == 0);
+
+    printf("OK test_entry_placement_contract\n");
+}
+
 void test_corruption()
 {
     blockstore_disk_t dsk;
@@ -2113,6 +2219,9 @@ void test_full_alloc()
     for (int i = 0; i < rest_fit; i++)
     {
         _test_small_write(heap, dsk, 1, 1*0x20000, 5+i, 8192, 4096, (4*epb-1)*16384+3*4096+i*4096, true, buffer_area.data(), false, UINT32_MAX /*any block*/);
+        // This test is about allocation, so keep the "same block as the previous not-yet-durable
+        // entry of the object" rule out of the way by making every entry durable at once
+        heap.mark_lsn_fsynced(heap.get_completed_lsn());
     }
     assert(ENOSPC == _test_do_small_write(heap, dsk, 1, 1*0x20000, 5+rest_fit, 8192, 4096, (4*epb-1)*16384+3*4096+rest_fit*4096, true, buffer_area.data(), false, 0));
 
@@ -2953,6 +3062,7 @@ int main(int narg, char *args[])
     test_recheck_intent_under_small_writes(false, false);
     test_recheck_intent_under_small_writes(true, true);
     test_recheck_intent_under_small_writes(true, false);
+    test_entry_placement_contract();
     test_corruption();
     test_full_overwrite(true);
     test_full_overwrite(false);

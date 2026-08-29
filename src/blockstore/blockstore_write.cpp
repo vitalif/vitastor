@@ -135,6 +135,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         PRIV(op)->write_type = BS_HEAP_DELETE;
         BS_SUBMIT_CHECK_SQES(1);
         int res = heap->add_delete(obj, &PRIV(op)->modified_block);
+        assert(res != EAGAIN);
         if (res == ENOSPC)
             goto enospc;
         assert(res == 0);
@@ -208,6 +209,7 @@ enospc:
             PRIV(op)->location = obj->big_location(heap);
             res = heap->add_big_intent(op->oid, &obj, op->version, op->offset, op->len, op->bitmap,
                 (uint8_t*)op->buf, NULL, &PRIV(op)->modified_block);
+            assert(res != EAGAIN);
             if (res == ENOSPC)
                 goto enospc;
             assert(res == 0);
@@ -225,6 +227,7 @@ enospc:
             PRIV(op)->location = wr->big_location(heap);
             res = heap->add_small_write(op->oid, &obj, (BS_HEAP_INTENT_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
                 op->version, op->offset, op->len, 0, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
+            BS_SUBMIT_CHECK_PLACEMENT(res, obj->lsn);
             if (res == ENOSPC)
                 goto enospc;
             assert(res == 0);
@@ -258,6 +261,7 @@ enospc:
         BS_SUBMIT_CHECK_SQES(1 + (op->len > 0 ? 1 : 0));
         int res = heap->add_small_write(op->oid, &obj, (BS_HEAP_SMALL_WRITE | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
             op->version, op->offset, op->len, loc, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
+        BS_SUBMIT_CHECK_PLACEMENT(res, obj->lsn);
         if (res == ENOSPC)
             goto enospc;
         assert(res == 0);
@@ -381,6 +385,7 @@ resume_4:
             res = heap->add_big_write(op->oid, obj, op->opcode == BS_OP_WRITE_STABLE,
                 op->version, op->offset, op->len, PRIV(op)->location, op->bitmap, (uint8_t*)op->buf, &PRIV(op)->modified_block);
         }
+        assert(res != EAGAIN);
         if (res == ENOSPC)
         {
             if (!heap->get_to_compact_count())
