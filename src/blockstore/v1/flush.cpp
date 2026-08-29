@@ -58,6 +58,27 @@ journal_flusher_co::journal_flusher_co()
     };
 }
 
+journal_flusher_co::~journal_flusher_co()
+{
+    // A flush interrupted by an emergency shutdown still holds its read buffers and
+    // references to entry bitmaps/checksums. free_buffers() can't be used here because
+    // it also touches the shared metadata sector map, which may already be gone.
+    for (auto & vi: v)
+    {
+        if (vi.buf && (vi.copy_flags == COPY_BUF_JOURNAL || (vi.copy_flags & COPY_BUF_CSUM_FILL)) &&
+            (!bs->journal.inmemory || vi.buf < bs->journal.buffer ||
+            vi.buf >= (uint8_t*)bs->journal.buffer + bs->journal.len))
+        {
+            free(vi.buf);
+        }
+        if (vi.dyn_data && --(*vi.dyn_data) == 0) // refcount
+        {
+            free(vi.dyn_data);
+        }
+    }
+    v.clear();
+}
+
 journal_flusher_t::~journal_flusher_t()
 {
     if (!bs->journal.inmemory)

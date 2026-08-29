@@ -54,6 +54,7 @@ class journal_flusher_co
 
     bool try_trim = false;
     bool skip_copy = false, has_delete = false, has_writes = false;
+    ~journal_flusher_co();
     std::vector<copy_buffer_t> v;
     std::vector<copy_buffer_t>::iterator it;
     int i = 0;
