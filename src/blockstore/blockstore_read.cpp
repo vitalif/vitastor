@@ -75,10 +75,12 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *op)
                 return false;
             }
         }
-        if (need_skip && wr->type() == BS_HEAP_SMALL_WRITE &&
+        if (need_skip && (wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE) &&
             wr->small().offset < blk_end && wr->small().offset+wr->small().len > blk_start)
         {
-            // Small write may mutate big write checksums during flush
+            // Small write may mutate big write checksums during flush, and an intent write
+            // overwrites part of the data block in place right away. Either way the checksum
+            // of a checksum block they only partially cover no longer matches the disk
             skip_csum = COPY_BUF_SKIP_CSUM;
         }
         return true;
