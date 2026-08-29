@@ -80,6 +80,10 @@ struct obj_model_t
     uint64_t durable = 0;
     // Next version number to hand to the store
     uint64_t next_version = 1;
+    // Whether `durable` names a version that this store instance actually stabilized, and
+    // therefore still holds as a distinct version we can roll back to. Recovery resets it:
+    // the version we called durable may have been flushed into a single clean entry by then.
+    bool can_rollback = false;
     // Full object content as of every sequence number we still care about.
     // An empty vector means the object was deleted at that point.
     std::map<uint64_t, std::vector<uint8_t>> content;
@@ -111,7 +115,7 @@ struct chaos_t
     disk_mock_t *data_disk = NULL, *meta_disk = NULL;
     BS *bs = NULL;
     obj_model_t objs[OBJ_COUNT];
-    uint64_t crashes = 0, writes = 0, deletes = 0, refused_writes = 0, checked_reads = 0, round = 0;
+    uint64_t crashes = 0, writes = 0, deletes = 0, rollbacks = 0, refused_writes = 0, checked_reads = 0, round = 0;
     bool use_fsync = false, instant_writes = false;
     uint64_t seq_id = 0;
     bool trace = false;
@@ -316,15 +320,15 @@ struct chaos_t
 
     // Stabilize several versions in a single operation, the way an OSD does. With one
     // object touched this degenerates to a single entry, so both shapes get exercised.
-    pending_t *submit_stable(const std::vector<std::pair<int, uint64_t>> & entries)
+    pending_t *submit_stable(const std::vector<std::pair<int, uint64_t>> & entries, bool rollback = false)
     {
         auto *p = new pending_t();
         p->stabilized = entries;
-        p->op.opcode = BS_OP_STABLE;
+        p->op.opcode = rollback ? BS_OP_ROLLBACK : BS_OP_STABLE;
         p->op.len = entries.size();
         p->op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, entries.size()*sizeof(obj_ver_id));
         if (trace)
-            printf("stable ");
+            printf(rollback ? "rollback " : "stable ");
         for (size_t i = 0; i < entries.size(); i++)
         {
             auto & ov = ((obj_ver_id*)p->op.buf)[i];
@@ -411,6 +415,7 @@ struct chaos_t
                 {
                     // The object is gone, so the next write starts numbering over again
                     m.next_version = 1;
+                    m.can_rollback = false;
                 }
             }
             else if (p->op.retval == -EAGAIN)
@@ -450,6 +455,10 @@ struct chaos_t
         }
         if (rnd(0, 3) == 0)
             return;
+        // Sometimes throw the unstable versions away instead of committing them. Only the
+        // two-phase mode has anything to roll back - an instant write is stable at once.
+        if (!instant_writes && rnd(0, 3) == 0 && do_rollback_round(touched))
+            return;
         std::vector<std::pair<int, uint64_t>> stabilized;
         for (int obj: touched)
             if (objs[obj].synced > objs[obj].durable)
@@ -469,8 +478,53 @@ struct chaos_t
         for (auto & s: stabilized)
         {
             objs[s.first].durable = s.second;
+            objs[s.first].can_rollback = true;
             prune(s.first);
         }
+    }
+
+    // Roll the objects back to their last stable version, dropping everything written
+    // after it. Returns false if there was nothing to roll back.
+    bool do_rollback_round(const std::set<int> & touched)
+    {
+        std::vector<std::pair<int, uint64_t>> rolled;
+        for (int obj: touched)
+        {
+            auto & m = objs[obj];
+            // Rolling back to "no version at all" isn't expressible here, and a deletion
+            // is stable by itself, so only objects that have a stable version below the
+            // newest one can be rolled back
+            if (m.can_rollback && m.acked > m.durable && !m.content.at(m.durable).empty())
+                rolled.push_back(std::make_pair(obj, m.durable));
+        }
+        if (!rolled.size())
+            return false;
+        std::vector<pending_t*> batch;
+        batch.push_back(submit_stable(rolled, true));
+        wait_all(batch);
+        if (batch[0]->op.retval != 0)
+        {
+            fprintf(stderr, "rollback of %zu version(s) starting at %jx:%jx v%ju failed with retval=%jd\n",
+                rolled.size(), oid(rolled[0].first).inode, oid(rolled[0].first).stripe,
+                rolled[0].second, (int64_t)batch[0]->op.retval);
+            abort();
+        }
+        free_batch(batch);
+        for (auto & r: rolled)
+        {
+            auto & m = objs[r.first];
+            // Everything above the stable version is gone, and the store's version counter
+            // for the object goes back to it as well
+            while (m.content.size() && m.content.rbegin()->first > m.durable)
+            {
+                m.ver.erase(m.content.rbegin()->first);
+                m.content.erase(std::prev(m.content.end()));
+            }
+            m.acked = m.synced = m.durable;
+            m.next_version = m.ver.at(m.durable) + 1;
+            rollbacks++;
+        }
+        return true;
     }
 
     // Versions below the durable one can never be observed again
@@ -698,6 +752,7 @@ struct chaos_t
                 m.content[m.submitted] = got;
                 m.ver[m.submitted] = exists ? last_read_version : 0;
                 m.acked = m.synced = m.submitted;
+                m.can_rollback = false;
                 // Continue numbering above whatever the store came back with, or start
                 // over from 1 if the object is gone
                 m.next_version = exists ? last_read_version+1 : 1;
@@ -711,6 +766,7 @@ struct chaos_t
             m.content.clear();
             m.ver.clear();
             m.next_version = 1;
+            m.can_rollback = false;
             return;
         }
         fprintf(stderr, "object %d came back from %s %s, which is neither a version at or above "
@@ -767,9 +823,9 @@ static void run_impl(const chaos_cfg_t & cfg, int meta_format, uint32_t seed, ui
     t.trace = trace;
     t.create(seed);
     t.run(rounds);
-    printf("OK: %ju writes (%ju refused with EAGAIN), %ju deletes, %ju crashes, "
+    printf("OK: %ju writes (%ju refused with EAGAIN), %ju deletes, %ju rollbacks, %ju crashes, "
         "%ju verified reads, %ju disk ops\n", t.writes, t.refused_writes, t.deletes,
-        t.crashes, t.checked_reads, t.data_disk->completed_ops);
+        t.rollbacks, t.crashes, t.checked_reads, t.data_disk->completed_ops);
 }
 
 // Both implementations, both commit modes, and checksum blocks equal to and larger than
