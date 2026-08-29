@@ -111,20 +111,20 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
                 sync_op->version = op->version;
                 sync_op->callback = [this](blockstore_op_t *sync_op)
                 {
-                    flusher->unshift_flush((obj_ver_id){
+                    unshift_stable_flush((obj_ver_id){
                         .oid = sync_op->oid,
                         .version = sync_op->version-1,
-                    }, true);
+                    });
                     delete sync_op;
                 };
                 enqueue_own_op(sync_op);
             }
             else
             {
-                flusher->unshift_flush((obj_ver_id){
+                unshift_stable_flush((obj_ver_id){
                     .oid = op->oid,
                     .version = version-1,
-                }, true);
+                });
             }
         }
         else
@@ -226,6 +226,20 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         .dyn_data = dyn,
     });
     return true;
+}
+
+// Ask the flusher to flush <ov> right now, but only if it's already stable.
+// A sync we submit ourselves may complete without syncing anything, because a sync submitted
+// before it has already taken those writes over and is still in flight. In that case the entry
+// becomes stable - and is queued for flushing by mark_stable() - when that sync completes,
+// and forcing a flush of a still unstable entry would abort the flusher
+void blockstore_impl_t::unshift_stable_flush(obj_ver_id ov)
+{
+    auto dirty_it = dirty_db.find(ov);
+    if (dirty_it != dirty_db.end() && IS_STABLE(dirty_it->second.state))
+    {
+        flusher->unshift_flush(ov, true);
+    }
 }
 
 void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, blockstore_dirty_db_t::iterator dirty_it, int retval)

@@ -1718,6 +1718,124 @@ static void test_replay_reused_block_of_deleted_object()
     free(op.buf);
 }
 
+// A write of a version lower than an existing deletion is allowed, but the deletion has to be
+// flushed first - so the blockstore submits a sync of its own and force-flushes the deletion when
+// that sync completes. A sync submitted earlier may have already taken those writes over and still
+// be in flight though, and then our own sync completes without syncing anything at all. Forcing a
+// flush of a deletion which is still merely written aborted the flusher with
+// "BUG: Unexpected dirty_entry ... unstable state during flush"
+static void test_write_over_delete_with_concurrent_sync()
+{
+    printf("\n-- test_write_over_delete_with_concurrent_sync\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // Writes have to be synced explicitly, otherwise there is nothing for two syncs to race over
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint32_t block_size = test.dsk().data_block_size;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+
+    printf("write v1 (big)\n");
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = block_size;
+    memset(buf, 0xAA, block_size);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("delete v2 - it stays merely written until some sync acknowledges it\n");
+    op.opcode = BS_OP_DELETE;
+    op.version = 2;
+    op.offset = 0;
+    op.len = 0;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    auto del = test.find_dirty_entry(oid, 2);
+    assert(del && !IS_STABLE(del->state));
+
+    // Hold back the data fsync so that the first sync stays in flight while it already
+    // owns every unsynced write, the deletion included
+    ring_data_t *held_fsync = NULL;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (!held_fsync && sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_FSYNC)
+        {
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            held_fsync = (ring_data_t*)sqe->user_data;
+            return true;
+        }
+        return false;
+    };
+
+    printf("submitting a sync and holding it in flight\n");
+    blockstore_op_t sync_op;
+    bool sync_done = false;
+    sync_op.opcode = BS_OP_SYNC;
+    sync_op.buf = NULL;
+    sync_op.callback = [&](blockstore_op_t *op) { sync_done = true; };
+    test.bs->enqueue_op(&sync_op);
+    for (int i = 0; i < 10 && !held_fsync; i++)
+        test.ringloop->loop();
+    assert(held_fsync);
+    assert(!sync_done);
+
+    // The blockstore renames this write internally and submits a sync of its own to get the
+    // deletion into the journal. That sync finds nothing left to sync and finishes at once
+    printf("write v1 again, over the deletion\n");
+    blockstore_op_t wr;
+    bool wr_done = false;
+    wr.opcode = BS_OP_WRITE_STABLE;
+    wr.oid = oid;
+    wr.version = 1;
+    wr.offset = 0;
+    wr.len = block_size;
+    wr.buf = buf;
+    memset(buf, 0xBB, block_size);
+    wr.callback = [&](blockstore_op_t *op) { wr_done = true; };
+    test.bs->enqueue_op(&wr);
+    for (int i = 0; i < 20 && !wr_done; i++)
+        test.ringloop->loop();
+    // It can't be done yet - the deletion under it isn't even synced
+    assert(!wr_done);
+    assert(!sync_done);
+
+    printf("releasing the sync - the deletion becomes stable and is flushed\n");
+    test.sqe_handler = NULL;
+    test.ringloop->mark_completed(held_fsync);
+    while (!wr_done)
+        test.ringloop->loop();
+    assert(sync_done);
+    assert(sync_op.retval == 0);
+    assert(wr.retval == (int)wr.len);
+    assert(wr.version == 1);
+
+    printf("reading it back\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = 1;
+    rd.offset = 0;
+    rd.len = block_size;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(memcheck(rd.buf, 0xBB, rd.len));
+    free(rd.buf);
+
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -1739,5 +1857,6 @@ int main(int narg, char *args[])
     test_first_write_keeps_journal_superblock();
     test_read_journal_small_write_without_csums();
     test_replay_reused_block_of_deleted_object();
+    test_write_over_delete_with_concurrent_sync();
     return 0;
 }
