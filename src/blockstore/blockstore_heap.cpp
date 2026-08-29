@@ -1063,6 +1063,8 @@ int blockstore_heap_t::finish_recheck()
     }
     completed_lsn = next_lsn;
     first_inflight_lsn = next_lsn+1;
+    // Everything we just loaded from disk is durable by definition
+    fsynced_lsn = next_lsn;
     std::sort(compact_queue.begin(), compact_queue.end(), [this](const object_id & a, const object_id & b)
     {
         auto ao = read_entry(a);
