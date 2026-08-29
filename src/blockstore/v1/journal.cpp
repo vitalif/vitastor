@@ -234,38 +234,33 @@ void blockstore_impl_t::handle_journal_write(ring_data_t *data, uint64_t flush_i
     {
         journal.sector_info[fl_it->second.sector].flush_count--;
     }
-    auto is_first = fl_it == journal.flushing_ops.begin();
-    while (fl_it != journal.flushing_ops.end())
+    // Mark every operation waiting for this exact write as no longer pending
+    for (auto it = fl_it; it != journal.flushing_ops.end() && it->first == flush_id; it++)
     {
-        bool del = false;
-        if (fl_it->first == flush_id)
+        it->second.pending = 0;
+    }
+    // Do not complete an operation while an earlier journal write is still in flight:
+    // a power outage would then leave a hole in the journal in front of it, and recovery
+    // stops at the first hole, so an already acknowledged operation would be lost.
+    // Only release operations when the write that just finished is the oldest unfinished
+    // one, and then cascade over the following writes that are already finished, stopping
+    // at the first one which isn't.
+    if (fl_it != journal.flushing_ops.begin())
+    {
+        return;
+    }
+    while (fl_it != journal.flushing_ops.end() && !fl_it->second.pending)
+    {
+        auto priv = PRIV(fl_it->second.op);
+        priv->pending_ops--;
+        assert(priv->pending_ops >= 0);
+        if (priv->pending_ops == 0)
         {
-            fl_it->second.pending = 0;
-            del = is_first;
+            release_journal_sectors(fl_it->second.op);
+            priv->op_state++;
+            ringloop->wakeup();
         }
-        else
-        {
-            del = !fl_it->second.pending;
-        }
-        if (del)
-        {
-            // Do not complete this operation if previous writes are unfinished
-            // Otherwise also complete following operations waiting for this one
-            auto priv = PRIV(fl_it->second.op);
-            priv->pending_ops--;
-            assert(priv->pending_ops >= 0);
-            if (priv->pending_ops == 0)
-            {
-                release_journal_sectors(fl_it->second.op);
-                priv->op_state++;
-                ringloop->wakeup();
-            }
-            journal.flushing_ops.erase(fl_it++);
-        }
-        else
-        {
-            fl_it++;
-        }
+        journal.flushing_ops.erase(fl_it++);
     }
 }
 

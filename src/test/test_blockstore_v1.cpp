@@ -1348,6 +1348,86 @@ static void test_delete_over_ec_write_unstable()
     free(op.buf);
 }
 
+// Three journal writes are in flight at once and complete out of order: the newest first,
+// then the middle one, and only then the oldest. An operation must not be acknowledged
+// while a journal write submitted before it is still unfinished - a power outage right
+// there would leave a hole in the journal in front of its entry, and recovery stops at the
+// first hole, so the acknowledged operation would be lost.
+static void test_journal_write_order()
+{
+    printf("\n-- test_journal_write_order\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+    printf("blockstore initialized\n");
+
+    uint64_t journal_start = test.dsk().journal_offset;
+    uint64_t journal_end = test.dsk().journal_offset + test.dsk().journal_len;
+
+    // Execute journal writes, but hold back their completions so that we can order them
+    std::vector<ring_data_t*> journal_writes;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_WRITEV &&
+            sqe->off >= journal_start && sqe->off < journal_end)
+        {
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            journal_writes.push_back((ring_data_t*)sqe->user_data);
+            return true;
+        }
+        return false;
+    };
+
+    // Full-block writes so that the data goes to the data area and the only journal write
+    // of each operation is the one carrying its entry
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    memset(buf, 0xAA, 128*1024);
+    blockstore_op_t op[3];
+    bool done[3] = { false, false, false };
+    for (int i = 0; i < 3; i++)
+    {
+        op[i].opcode = BS_OP_WRITE;
+        op[i].oid = { .inode = 1, .stripe = (uint64_t)i * 0x20000 };
+        op[i].version = 1;
+        op[i].offset = 0;
+        op[i].len = 128*1024;
+        op[i].buf = buf;
+        op[i].callback = [&done, i](blockstore_op_t *op) { done[i] = true; };
+        // One operation per batch, so that each entry lands in its own journal sector:
+        // a sector with an unfinished write of its own can't be appended to
+        test.bs->enqueue_op(&op[i]);
+        for (int j = 0; j < 10 && journal_writes.size() < (size_t)i+1; j++)
+            test.ringloop->loop();
+    }
+    printf("journal writes in flight: %zu\n", journal_writes.size());
+    assert(journal_writes.size() == 3);
+    assert(!done[0] && !done[1] && !done[2]);
+
+    printf("completing the newest journal write\n");
+    test.ringloop->mark_completed(journal_writes[2]);
+    test.ringloop->loop();
+    assert(!done[0] && !done[1] && !done[2]);
+
+    printf("completing the middle one - the newest must still not be acknowledged\n");
+    test.ringloop->mark_completed(journal_writes[1]);
+    test.ringloop->loop();
+    assert(!done[0]);
+    assert(!done[1]);
+    assert(!done[2]);
+
+    printf("completing the oldest - now all three may be acknowledged\n");
+    test.ringloop->mark_completed(journal_writes[0]);
+    test.ringloop->loop();
+    assert(done[0] && done[1] && done[2]);
+    for (int i = 0; i < 3; i++)
+        assert(op[i].retval == (int)op[i].len);
+
+    test.sqe_handler = NULL;
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -1365,5 +1445,6 @@ int main(int narg, char *args[])
     test_used_blocks_replay_delete_over_unstable_big_write();
     test_delete_over_ec_write();
     test_delete_over_ec_write_unstable();
+    test_journal_write_order();
     return 0;
 }
