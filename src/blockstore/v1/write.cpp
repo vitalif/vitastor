@@ -117,7 +117,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
                     }, true);
                     delete sync_op;
                 };
-                enqueue_op(sync_op);
+                enqueue_own_op(sync_op);
             }
             else
             {
@@ -152,7 +152,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
         {
             delete sync_op;
         };
-        enqueue_op(sync_op);
+        enqueue_own_op(sync_op);
     }
     else if (!imm)
         unsynced_queued_ops++;

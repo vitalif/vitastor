@@ -35,8 +35,37 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
     flusher = new journal_flusher_t(this);
 }
 
+// Submit an operation the blockstore created for itself, and remember it so that it can
+// be cleaned up if we're destroyed before it completes
+void blockstore_impl_t::enqueue_own_op(blockstore_op_t *op)
+{
+    own_ops.insert(op);
+    auto cb = op->callback;
+    op->callback = [this, cb](blockstore_op_t *op)
+    {
+        own_ops.erase(op);
+        cb(op);
+    };
+    enqueue_op(op);
+}
+
 blockstore_impl_t::~blockstore_impl_t()
 {
+    // Destroy private state of operations still in the queue
+    for (auto op: submit_queue)
+    {
+        if (op && !own_ops.count(op))
+            PRIV(op)->~blockstore_op_private_t();
+    }
+    submit_queue.clear();
+    // Destroy our own operations
+    for (auto op: own_ops)
+    {
+        PRIV(op)->~blockstore_op_private_t();
+        delete op;
+    }
+    own_ops.clear();
+    // Clear dyn_data in dirty_db
     for (auto& obj: dirty_db)
         free_dirty_dyn_data(obj.second);
     delete data_alloc;
@@ -265,7 +294,7 @@ bool blockstore_impl_t::is_safe_to_stop()
             {
                 delete op;
             };
-            enqueue_op(op);
+            enqueue_own_op(op);
             stop_sync_submitted = true;
         }
         return false;

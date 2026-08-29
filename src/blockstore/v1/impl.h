@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <set>
+
 #include "blockstore.h"
 #include "blockstore_disk.h"
 #include "ondisk_formats.h"
@@ -163,6 +165,7 @@ class blockstore_impl_t: public blockstore_i
     uint8_t *clean_bitmaps = NULL;
     blockstore_dirty_db_t dirty_db;
     std::vector<blockstore_op_t*> submit_queue;
+    std::set<blockstore_op_t*> own_ops;
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     int unsynced_big_write_count = 0, unstable_unsynced = 0;
     int unsynced_queued_ops = 0;
@@ -260,6 +263,7 @@ class blockstore_impl_t: public blockstore_i
     int continue_write(blockstore_op_t *op);
     void release_journal_sectors(blockstore_op_t *op);
     void handle_write_event(ring_data_t *data, blockstore_op_t *op);
+    void enqueue_own_op(blockstore_op_t *op);
 
     // Sync
     int continue_sync(blockstore_op_t *op);
