@@ -20,14 +20,14 @@ static void include_list(std::vector<unclean_list_t> & lists,
     btree::btree_map<object_id, pg_osd_set_state_t*> & from,
     osd_op_describe_t & desc, uint64_t state_mask, uint64_t state)
 {
-    auto it = desc.min_inode || desc.min_offset ? from.lower_bound((object_id){
-        .inode = desc.min_inode,
-        .stripe = desc.min_offset,
-    }) : from.begin();
-    auto end_it = desc.max_inode || desc.max_offset ? from.upper_bound((object_id){
-        .inode = desc.max_inode,
-        .stripe = desc.max_offset,
-    }) : from.end();
+    auto min_oid = (object_id){ .inode = desc.min_inode, .stripe = desc.min_offset };
+    auto max_oid = (object_id){ .inode = desc.max_inode, .stripe = desc.max_offset };
+    if (min_oid != object_id{} && max_oid != object_id{} && max_oid < min_oid)
+    {
+        return;
+    }
+    auto it = min_oid != object_id{} ? from.lower_bound(min_oid) : from.begin();
+    auto end_it = max_oid != object_id{} ? from.upper_bound(max_oid) : from.end();
     lists.push_back((unclean_list_t){
         .it = it,
         .end = end_it,
