@@ -1603,6 +1603,121 @@ static void test_read_journal_small_write_without_csums()
     free(buf);
 }
 
+// Everything below the newest big write of an object is dead and has to be dropped
+// by the journal replay and not result in allocation conflicts.
+static void test_replay_reused_block_of_deleted_object()
+{
+    printf("\n-- test_replay_reused_block_of_deleted_object\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id pin = { .inode = 1, .stripe = 0 };
+    object_id victim = { .inode = 1, .stripe = 0x20000 };
+    object_id reuser = { .inode = 1, .stripe = 0x40000 };
+    uint32_t block_size = test.dsk().data_block_size;
+
+    blockstore_op_t op;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+    op.offset = 0;
+    op.len = block_size;
+
+    // An unstable write which is never flushed. It's the very first journal entry, so it pins
+    // journal.used_start and keeps everything written after it from being trimmed away
+    printf("write %jx:%jx v1 (unstable, pins the journal)\n", pin.inode, pin.stripe);
+    op.opcode = BS_OP_WRITE;
+    op.oid = pin;
+    op.version = 1;
+    memset(op.buf, 0xAA, op.len);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("write %jx:%jx v1 (big)\n", victim.inode, victim.stripe);
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = victim;
+    op.version = 1;
+    memset(op.buf, 0xBB, op.len);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    auto victim_v1 = test.find_dirty_entry(victim, 1);
+    assert(victim_v1);
+    uint64_t freed_loc = victim_v1->location;
+
+    // A small write in between is what later stops mark_stable() from erasing v1 on replay
+    printf("write %jx:%jx v2 (small)\n", victim.inode, victim.stripe);
+    op.version = 2;
+    op.len = 4096;
+    memset(op.buf, 0xCC, op.len);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    op.len = block_size;
+
+    // The next big write goes into another block, and flushing it frees the first one
+    printf("write %jx:%jx v3 (big) and flush, freeing block %ju\n",
+        victim.inode, victim.stripe, freed_loc / block_size);
+    op.version = 3;
+    memset(op.buf, 0xDD, op.len);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    auto victim_v3 = test.find_dirty_entry(victim, 3);
+    assert(victim_v3 && victim_v3->location != freed_loc);
+    test.force_compaction();
+    assert(!test.is_data_loc_used(freed_loc));
+
+    // Left unstable on purpose: a flushed write would get its own clean_db entry, and the
+    // version check would then filter the stale journal entry out on replay
+    printf("write %jx:%jx v1 (unstable), it should reuse the freed block\n", reuser.inode, reuser.stripe);
+    op.opcode = BS_OP_WRITE;
+    op.oid = reuser;
+    op.version = 1;
+    memset(op.buf, 0xEE, op.len);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    auto reuser_v1 = test.find_dirty_entry(reuser, 1);
+    assert(reuser_v1);
+    assert(reuser_v1->location == freed_loc);
+
+    // Deleting the victim removes its clean_db entry along with the version check which
+    // used to hide its old big_writes from the journal replay
+    printf("delete %jx:%jx and flush the deletion\n", victim.inode, victim.stripe);
+    op.opcode = BS_OP_DELETE;
+    op.oid = victim;
+    op.version = 4;
+    op.len = 0;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    test.force_compaction();
+
+    printf("restarting the blockstore (journal replay)\n");
+    test.destroy_bs();
+    test.init();
+
+    // The block belongs to the reuser, not to the deleted object
+    reuser_v1 = test.find_dirty_entry(reuser, 1);
+    assert(reuser_v1);
+    assert(reuser_v1->location == freed_loc);
+    assert(test.is_data_loc_used(freed_loc));
+    assert(!test.find_dirty_entry(victim, 1));
+    assert(!test.find_dirty_entry(victim, 3));
+
+    printf("reading %jx:%jx v1 back\n", reuser.inode, reuser.stripe);
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = reuser;
+    rd.version = 1;
+    rd.offset = 0;
+    rd.len = block_size;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(memcheck(rd.buf, 0xEE, rd.len));
+    free(rd.buf);
+
+    free(op.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -1623,5 +1738,6 @@ int main(int narg, char *args[])
     test_journal_write_order();
     test_first_write_keeps_journal_superblock();
     test_read_journal_small_write_without_csums();
+    test_replay_reused_block_of_deleted_object();
     return 0;
 }

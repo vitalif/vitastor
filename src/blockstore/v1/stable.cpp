@@ -536,7 +536,13 @@ void blockstore_impl_t::mark_stable(obj_ver_id v, bool forget_dirty)
                 // Big write overrides all previous dirty entries
                 erase_end = dirty_it;
             }
-            if (was_stable || dirty_it == dirty_db.begin())
+            // Stopping at an already stable entry is only correct when we aren't erasing anything:
+            // everything below a big write or a deletion is dead and has to be erased even if it
+            // was stabilized earlier. Entries are stabilized one by one during the journal replay,
+            // so a small write in between used to hide an older big write from this walk forever,
+            // leaving its data block claimed by an entry which isn't current any more.
+            // <forget_dirty> is only set by the journal replay, so the walk stays short at runtime
+            if (!forget_dirty && was_stable || dirty_it == dirty_db.begin())
             {
                 break;
             }
