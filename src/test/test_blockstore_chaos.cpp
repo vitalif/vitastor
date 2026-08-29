@@ -540,17 +540,17 @@ struct chaos_t
 
     // Read the whole object and return its content, or empty if it doesn't exist
     uint64_t last_read_version = 0;
-    std::vector<uint8_t> read_object(int obj, int *retval)
+    std::vector<uint8_t> read_object(int obj, int *retval, uint64_t offset = 0, uint64_t len = OBJ_SIZE)
     {
         std::vector<pending_t*> batch;
         auto *p = new pending_t();
         p->op.opcode = BS_OP_READ;
         p->op.oid = oid(obj);
         p->op.version = UINT64_MAX;
-        p->op.offset = 0;
-        p->op.len = OBJ_SIZE;
-        p->op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, OBJ_SIZE);
-        memset(p->op.buf, 0, OBJ_SIZE);
+        p->op.offset = offset;
+        p->op.len = len;
+        p->op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, len);
+        memset(p->op.buf, 0, len);
         if (trace)
             printf("read %jx:%jx %u +%u", p->op.oid.inode, p->op.oid.stripe, p->op.offset, p->op.len);
         batch.push_back(submit(p));
@@ -558,19 +558,19 @@ struct chaos_t
         *retval = p->op.retval;
         last_read_version = p->op.version;
         std::vector<uint8_t> res;
-        if (p->op.retval == OBJ_SIZE)
-            res.assign(p->op.buf, p->op.buf + OBJ_SIZE);
+        if (p->op.retval == (int)len)
+            res.assign(p->op.buf, p->op.buf + len);
         free_batch(batch);
         return res;
     }
 
     // With nothing in flight, a read of the newest version must return exactly what
     // the last acknowledged write put there - stable or not
-    void check_read(int obj)
+    void check_read(int obj, uint64_t offset = 0, uint64_t len = OBJ_SIZE)
     {
         auto & m = objs[obj];
         int retval = 0;
-        auto got = read_object(obj, &retval);
+        auto got = read_object(obj, &retval, offset, len);
         if (!m.acked || m.content.at(m.acked).empty())
         {
             if (retval != -ENOENT)
@@ -581,18 +581,39 @@ struct chaos_t
             }
             return;
         }
-        auto & want = m.content.at(m.acked);
-        if (retval != OBJ_SIZE || got != want)
+        std::vector<uint8_t> want(m.content.at(m.acked).begin() + offset,
+            m.content.at(m.acked).begin() + offset + len);
+        if (retval != (int)len || got != want)
         {
-            fprintf(stderr, "read of object %d v%ju returned retval=%d, content %s\n",
-                obj, m.acked, retval, retval == OBJ_SIZE ? "mismatch" : "n/a");
-            report_mismatch(obj, got, want);
+            fprintf(stderr, "read of object %d v%ju at %ju+%ju returned retval=%d, content %s\n",
+                obj, m.acked, offset, len, retval, retval == (int)len ? "mismatch" : "n/a");
+            report_mismatch(obj, got, want, offset);
             abort();
         }
         checked_reads++;
     }
 
-    void report_mismatch(int obj, const std::vector<uint8_t> & got, const std::vector<uint8_t> & want)
+    // Read a random part of a random object. Ranges are aligned to the write granularity
+    // but not to the checksum block size, so they cut across checksum blocks and across
+    // the boundaries of the extents that were actually written.
+    void do_read_round()
+    {
+        int n = (int)rnd(1, OBJ_COUNT);
+        for (int i = 0; i < n; i++)
+        {
+            int obj = (int)rnd(0, OBJ_COUNT-1);
+            if (rnd(0, 3) == 0)
+            {
+                check_read(obj);
+                continue;
+            }
+            uint64_t offset = rnd(0, OBJ_SIZE/GRAN - 1) * GRAN;
+            uint64_t len = rnd(1, (OBJ_SIZE - offset)/GRAN) * GRAN;
+            check_read(obj, offset, len);
+        }
+    }
+
+    void report_mismatch(int obj, const std::vector<uint8_t> & got, const std::vector<uint8_t> & want, uint64_t base = 0)
     {
         if (got.size() != want.size())
             return;
@@ -602,7 +623,7 @@ struct chaos_t
             if (g != w)
             {
                 fprintf(stderr, "  object %d offset %ju: got obj=%ju v%ju off=%ju, expected obj=%ju v%ju off=%ju\n",
-                    obj, i, (g >> 32) & 0xff, g >> 40, g & 0xffffffff,
+                    obj, base+i, (g >> 32) & 0xff, g >> 40, g & 0xffffffff,
                     (w >> 32) & 0xff, w >> 40, w & 0xffffffff);
                 return;
             }
@@ -796,12 +817,12 @@ struct chaos_t
         for (uint64_t i = 0; i < rounds; i++)
         {
             round = i;
-            uint64_t dice = rnd(0, 9);
-            if (dice < 6)
+            uint64_t dice = rnd(0, 19);
+            if (dice < 11)
                 do_write_round();
-            else if (dice < 7)
-                check_read((int)rnd(0, OBJ_COUNT-1));
-            else if (dice < 8)
+            else if (dice < 15)
+                do_read_round();
+            else if (dice < 17)
                 do_restart_round();
             else
                 do_crash_round();
