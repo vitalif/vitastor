@@ -12,11 +12,13 @@
 // checksums. A model of what was written is kept alongside, and after every simulated
 // power outage the recovered state is checked against it.
 //
-// Usage: test_blockstore_chaos [seed] [rounds] [config]
 // The seed picks the configuration too, so a failing run is replayed exactly by passing
-// the seed it printed. Without arguments it sweeps seeds over every configuration.
+// the seed it printed. Run with -h for the options.
 
 #include <malloc.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <errno.h>
 #include <map>
 #include <set>
 #include <vector>
@@ -30,6 +32,26 @@
 #define OBJ_SIZE (128*1024)
 #define GRAN 4096
 #define MAX_STEPS 1000000
+
+// How often the test does what. The first four are relative weights of the round types,
+// the rest are percentages of the decisions taken inside a round. Setting one to zero turns
+// the corresponding operation off entirely, which is how a workload without deletions or
+// without rollbacks is tested
+struct chaos_probs_t
+{
+    uint32_t write_round = 55, read_round = 20, restart_round = 10, crash_round = 15;
+    // Delete an existing object instead of writing to it
+    uint32_t del = 12;
+    // Sync after the writes of a write round, then stabilize what was synced,
+    // or roll it back instead (two-phase mode only - an instant write is stable at once)
+    uint32_t sync = 75, stabilize = 75, rollback = 25;
+    // Read the whole object instead of a random range
+    uint32_t full_read = 25;
+    // Sync before pulling the plug in a crash round
+    uint32_t crash_sync = 50;
+};
+
+static chaos_probs_t probs;
 
 // One point of the configuration matrix. The two implementations are supposed to have
 // identical semantics, so the very same workload and the very same checks run against both.
@@ -224,6 +246,12 @@ struct chaos_t
         return sim->random(min, max);
     }
 
+    // Draw unconditionally so that the sequence doesn't depend on the probability itself
+    bool chance(uint32_t percent)
+    {
+        return rnd(0, 99) < percent;
+    }
+
     object_id oid(int i)
     {
         return (object_id){ .inode = 1, .stripe = (uint64_t)i * OBJ_SIZE };
@@ -413,7 +441,7 @@ struct chaos_t
             bool exists = m.acked && !m.content.at(m.acked).empty();
             // Deleting a non-existent object is a no-op that the store answers right away
             // without creating an entry, so only delete what is actually there
-            if (exists && rnd(0, 7) == 0)
+            if (exists && chance(probs.del))
                 batch.push_back(submit_delete(obj));
             else
                 batch.push_back(submit_write(obj));
@@ -448,7 +476,7 @@ struct chaos_t
             }
         }
         free_batch(batch);
-        if (rnd(0, 3) == 0)
+        if (!chance(probs.sync))
             return;
         batch.push_back(submit_sync());
         wait_all(batch);
@@ -470,11 +498,11 @@ struct chaos_t
                 prune(obj);
             }
         }
-        if (rnd(0, 3) == 0)
+        if (!chance(probs.stabilize))
             return;
         // Sometimes throw the unstable versions away instead of committing them. Only the
         // two-phase mode has anything to roll back - an instant write is stable at once.
-        if (!instant_writes && rnd(0, 3) == 0 && do_rollback_round(touched))
+        if (!instant_writes && chance(probs.rollback) && do_rollback_round(touched))
             return;
         std::vector<std::pair<int, uint64_t>> stabilized;
         for (int obj: touched)
@@ -619,7 +647,7 @@ struct chaos_t
         for (int i = 0; i < n; i++)
         {
             int obj = (int)rnd(0, OBJ_COUNT-1);
-            if (rnd(0, 3) == 0)
+            if (chance(probs.full_read))
             {
                 check_read(obj);
                 continue;
@@ -664,7 +692,7 @@ struct chaos_t
             touched.insert(obj);
             batch.push_back(submit_write(obj));
         }
-        if (rnd(0, 1))
+        if (chance(probs.crash_sync))
             batch.push_back(submit_sync());
         // Let the operations get partway through, then pull the plug
         uint64_t steps = rnd(0, 40);
@@ -835,12 +863,13 @@ struct chaos_t
         for (uint64_t i = 0; i < rounds; i++)
         {
             round = i;
-            uint64_t dice = rnd(0, 19);
-            if (dice < 11)
+            uint64_t dice = rnd(0, probs.write_round + probs.read_round +
+                probs.restart_round + probs.crash_round - 1);
+            if (dice < probs.write_round)
                 do_write_round();
-            else if (dice < 15)
+            else if (dice < probs.write_round + probs.read_round)
                 do_read_round();
-            else if (dice < 17)
+            else if (dice < probs.write_round + probs.read_round + probs.restart_round)
                 do_restart_round();
             else
                 do_crash_round();
@@ -896,35 +925,183 @@ static void run_one(const chaos_cfg_t & cfg, uint32_t seed, uint64_t rounds, boo
         run_impl<blockstore_impl_t>(cfg, 3, seed, rounds, trace);
 }
 
+static const char *help_text =
+    "Seed-driven crash chaos test for the blockstore, (c) Vitaliy Filippov, 2019+ (VNPL-1.1)\n"
+    "\n"
+    "USAGE:\n"
+    "  test_blockstore_chaos [OPTIONS]\n"
+    "\n"
+    "Without options it runs seeds 1..%d. A range is run one seed per child process, so a\n"
+    "failure doesn't stop the sweep, and the failing seeds are listed at the end. A single\n"
+    "seed runs in-process, which is what you want under a debugger.\n"
+    "\n"
+    "  --seed <n>          Run just this seed, in-process\n"
+    "  --seeds <a>-<b>     Run seeds <a> through <b> (default 1-%d)\n"
+    "  --rounds <n>        Rounds per seed (default %d)\n"
+    "  --config <n>        Force configuration <n> instead of deriving it from the seed\n"
+    "  -v, --trace         Trace every operation and every simulated disk request\n"
+    "  -h, --help          Show this help\n"
+    "\n"
+    "Round type weights, relative to each other:\n"
+    "  --p-write <n>       Write round (default %u)\n"
+    "  --p-read <n>        Read round (default %u)\n"
+    "  --p-restart <n>     Clean restart round (default %u)\n"
+    "  --p-crash <n>       Power outage round (default %u)\n"
+    "\n"
+    "Probabilities inside a round, in percent. Set one to 0 to turn the operation off,\n"
+    "e.g. --p-delete 0 --p-rollback 0 for a workload without deletions and rollbacks:\n"
+    "  --p-delete <n>      Delete an existing object instead of writing to it (default %u)\n"
+    "  --p-sync <n>        Sync after the writes of a write round (default %u)\n"
+    "  --p-stabilize <n>   Stabilize what was synced (default %u)\n"
+    "  --p-rollback <n>    Roll back instead of stabilizing, two-phase mode only (default %u)\n"
+    "  --p-full-read <n>   Read the whole object instead of a random range (default %u)\n"
+    "  --p-crash-sync <n>  Sync before pulling the plug in a crash round (default %u)\n"
+    "\n"
+    "Configurations (%d):\n";
+
+static void print_help(int cfg_count, int default_seeds, uint64_t default_rounds)
+{
+    chaos_probs_t d;
+    printf(help_text, default_seeds, default_seeds, (int)default_rounds,
+        d.write_round, d.read_round, d.restart_round, d.crash_round,
+        d.del, d.sync, d.stabilize, d.rollback, d.full_read, d.crash_sync, cfg_count);
+    for (int i = 0; i < cfg_count; i++)
+        printf("  %2d: %s, fsync=%d, csum_block=%u, writes=%s\n", i, configs[i].impl,
+            configs[i].use_fsync ? 1 : 0, configs[i].csum_block,
+            configs[i].instant_writes ? "instant" : "two-phase");
+}
+
+// Run one seed in a child process so that an aborted run doesn't take the whole sweep
+// with it. Returns false if the child died or exited non-zero.
+static bool run_seed_isolated(const chaos_cfg_t & cfg, uint32_t seed, uint64_t rounds, bool trace)
+{
+    fflush(stdout);
+    fflush(stderr);
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        fprintf(stderr, "fork: %s\n", strerror(errno));
+        exit(1);
+    }
+    if (!pid)
+    {
+        run_one(cfg, seed, rounds, trace);
+        fflush(stdout);
+        fflush(stderr);
+        _exit(0);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+    if (WIFSIGNALED(status))
+    {
+        printf("seed %u killed by signal %d\n", seed, WTERMSIG(status));
+        return false;
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
 int main(int narg, char *args[])
 {
     // Failures are reported on stderr while progress goes to stdout - keep them in order
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     const int cfg_count = sizeof(configs)/sizeof(configs[0]);
-    if (narg > 1)
+    const int default_seeds = 200;
+    bool trace = false, single = false;
+    uint32_t seed_from = 1, seed_to = default_seeds, seed = 0;
+    uint64_t rounds = 300;
+    int force_cfg = -1;
+    for (int i = 1; i < narg; i++)
     {
-        // The seed picks the configuration as well, so reproducing a failure is a single
-        // short run. Pass a third argument to force a specific configuration instead.
-        bool trace = false;
-        int argpos = 1;
-        if (!strcmp(args[argpos], "-v"))
+        const char *opt = args[i];
+        const char *val = i < narg-1 ? args[i+1] : NULL;
+        auto take = [&](uint64_t & into)
         {
-            trace = true;
-            argpos++;
+            if (!val)
+            {
+                fprintf(stderr, "%s requires a value\n", opt);
+                exit(1);
+            }
+            into = strtoull(val, NULL, 10);
+            i++;
+        };
+        uint64_t v = 0;
+        if (!strcmp(opt, "-h") || !strcmp(opt, "--help"))
+        {
+            print_help(cfg_count, default_seeds, rounds);
+            return 0;
         }
-        uint32_t seed = narg > argpos ? (uint32_t)strtoul(args[argpos++], NULL, 10) : 0;
-        uint64_t rounds = narg > argpos ? strtoull(args[argpos++], NULL, 10) : 300;
-        int cfg = narg > argpos ? (int)strtoul(args[argpos++], NULL, 10) % cfg_count : (int)(seed % cfg_count);
-        run_one(configs[cfg], seed, rounds, trace);
+        else if (!strcmp(opt, "-v") || !strcmp(opt, "--trace"))
+            trace = true;
+        else if (!strcmp(opt, "--seed"))
+        {
+            take(v);
+            seed = (uint32_t)v;
+            single = true;
+        }
+        else if (!strcmp(opt, "--seeds"))
+        {
+            if (!val)
+            {
+                fprintf(stderr, "--seeds requires a value\n");
+                exit(1);
+            }
+            char *end = NULL;
+            seed_from = seed_to = (uint32_t)strtoul(val, &end, 10);
+            if (end && *end == '-')
+                seed_to = (uint32_t)strtoul(end+1, NULL, 10);
+            single = false;
+            i++;
+        }
+        else if (!strcmp(opt, "--rounds"))
+            take(rounds);
+        else if (!strcmp(opt, "--config"))
+        {
+            take(v);
+            force_cfg = (int)(v % cfg_count);
+        }
+        else if (!strcmp(opt, "--p-write"))    { take(v); probs.write_round = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-read"))     { take(v); probs.read_round = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-restart"))  { take(v); probs.restart_round = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-crash"))    { take(v); probs.crash_round = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-delete"))   { take(v); probs.del = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-sync"))     { take(v); probs.sync = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-stabilize")){ take(v); probs.stabilize = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-rollback")) { take(v); probs.rollback = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-full-read")){ take(v); probs.full_read = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-crash-sync")) { take(v); probs.crash_sync = (uint32_t)v; }
+        else
+        {
+            fprintf(stderr, "Unknown option %s, use -h for help\n", opt);
+            exit(1);
+        }
     }
-    else
+    if (!(probs.write_round + probs.read_round + probs.restart_round + probs.crash_round))
     {
-        // One run takes about a second. Sweep whole multiples of the configuration
-        // count so that every configuration gets the same number of seeds.
-        for (uint32_t seed = 1; seed <= 2*cfg_count; seed++)
-            run_one(configs[seed % cfg_count], seed, 300, false);
+        fprintf(stderr, "At least one round type must have a non-zero weight\n");
+        exit(1);
     }
-    printf("\nall ok\n");
+    // The seed picks the configuration as well, so reproducing a failure is a single short run
+    if (single)
+    {
+        run_one(configs[force_cfg >= 0 ? force_cfg : (int)(seed % cfg_count)], seed, rounds, trace);
+        printf("\nall ok\n");
+        return 0;
+    }
+    std::vector<uint32_t> failed;
+    for (uint32_t s = seed_from; s <= seed_to; s++)
+    {
+        if (!run_seed_isolated(configs[force_cfg >= 0 ? force_cfg : (int)(s % cfg_count)], s, rounds, trace))
+            failed.push_back(s);
+    }
+    if (failed.size())
+    {
+        printf("\nFailing seeds:");
+        for (auto s: failed)
+            printf(" %u", s);
+        printf("\n%zu of %u seed(s) failed\n", failed.size(), seed_to-seed_from+1);
+        return 1;
+    }
+    printf("\nall ok (%u seed(s))\n", seed_to-seed_from+1);
     return 0;
 }
