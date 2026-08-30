@@ -215,6 +215,8 @@ int blockstore_impl_t::split_stab_op(blockstore_op_t *op, std::function<int(obj_
     if (!todo && !bad_vers.size)
     {
         // Already stable
+        free(good_vers.items);
+        free(bad_vers.items);
         op->retval = 0;
         FINISH_OP(op);
         return 2;
@@ -222,7 +224,10 @@ int blockstore_impl_t::split_stab_op(blockstore_op_t *op, std::function<int(obj_
     op->retval = 0;
     if (!todo && !add_sync)
     {
-        // Only wait for inflight writes or current in-progress syncs
+        // Only wait for inflight writes or current in-progress syncs.
+        // The operation is retried from scratch, so the version vectors go with it
+        free(good_vers.items);
+        free(bad_vers.items);
         return 0;
     }
     blockstore_op_t *sync_op = NULL, *split_stab_op = NULL;
