@@ -61,8 +61,9 @@ struct chaos_cfg_t
     // false: immediate_commit=all with all fsyncs disabled
     // true:  immediate_commit=none, data fsync enabled, so the disk has a volatile cache
     bool use_fsync;
-    // Checksum block size. Deliberately includes sizes larger than the write granularity,
-    // where a write only covers part of a checksummed block
+    // Checksum block size, or 0 for no checksums at all - a rather different code path.
+    // Deliberately includes sizes larger than the write granularity, where a write only
+    // covers part of a checksummed block
     uint32_t csum_block;
     // false: BS_OP_WRITE followed by BS_OP_STABLE, the way an EC pool writes
     // true:  BS_OP_WRITE_STABLE, the way a replicated pool writes
@@ -155,8 +156,11 @@ struct chaos_t
         config["disable_data_fsync"] = cfg.use_fsync ? "0" : "1";
         config["immediate_commit"] = cfg.use_fsync ? "none" : "all";
         config["log_level"] = "0";
-        config["data_csum_type"] = "crc32c";
-        config["csum_block_size"] = std::to_string(cfg.csum_block);
+        if (cfg.csum_block)
+        {
+            config["data_csum_type"] = "crc32c";
+            config["csum_block_size"] = std::to_string(cfg.csum_block);
+        }
         config["meta_format"] = std::to_string(meta_format);
     }
 
@@ -883,8 +887,9 @@ struct chaos_t
 template<class BS>
 static void run_impl(const chaos_cfg_t & cfg, int meta_format, uint32_t seed, uint64_t rounds, bool trace)
 {
-    printf("\n-- chaos %s seed=%u rounds=%ju fsync=%d csum_block=%u writes=%s\n",
-        cfg.impl, seed, rounds, cfg.use_fsync ? 1 : 0, cfg.csum_block,
+    printf("\n-- chaos %s seed=%u rounds=%ju fsync=%d csum_block=%s writes=%s\n",
+        cfg.impl, seed, rounds, cfg.use_fsync ? 1 : 0,
+        cfg.csum_block ? std::to_string(cfg.csum_block).c_str() : "none",
         cfg.instant_writes ? "instant" : "two-phase");
     chaos_t<BS> t;
     t.configure(cfg, meta_format);
@@ -898,23 +903,34 @@ static void run_impl(const chaos_cfg_t & cfg, int meta_format, uint32_t seed, ui
 
 // Both implementations, both commit modes, and checksum blocks equal to and larger than
 // the write granularity - partial checksum block updates are a rich source of bugs
+// Both implementations, both commit modes, and checksum blocks equal to and larger than
+// the write granularity - partial checksum block updates are a rich source of bugs - plus
+// the checksumless mode
 static const chaos_cfg_t configs[] = {
-    { .impl = "v2", .use_fsync = false, .csum_block = 4096,  .instant_writes = false },
+    { .impl = "v2", .use_fsync = false, .csum_block = 0    , .instant_writes = false },
+    { .impl = "v2", .use_fsync = false, .csum_block = 4096 , .instant_writes = false },
     { .impl = "v2", .use_fsync = false, .csum_block = 16384, .instant_writes = false },
-    { .impl = "v2", .use_fsync = true,  .csum_block = 4096,  .instant_writes = false },
-    { .impl = "v2", .use_fsync = true,  .csum_block = 16384, .instant_writes = false },
-    { .impl = "v2", .use_fsync = false, .csum_block = 4096,  .instant_writes = true },
+    { .impl = "v2", .use_fsync = true , .csum_block = 0    , .instant_writes = false },
+    { .impl = "v2", .use_fsync = true , .csum_block = 4096 , .instant_writes = false },
+    { .impl = "v2", .use_fsync = true , .csum_block = 16384, .instant_writes = false },
+    { .impl = "v2", .use_fsync = false, .csum_block = 0    , .instant_writes = true },
+    { .impl = "v2", .use_fsync = false, .csum_block = 4096 , .instant_writes = true },
     { .impl = "v2", .use_fsync = false, .csum_block = 16384, .instant_writes = true },
-    { .impl = "v2", .use_fsync = true,  .csum_block = 4096,  .instant_writes = true },
-    { .impl = "v2", .use_fsync = true,  .csum_block = 16384, .instant_writes = true },
-    { .impl = "v1", .use_fsync = false, .csum_block = 4096,  .instant_writes = false },
+    { .impl = "v2", .use_fsync = true , .csum_block = 0    , .instant_writes = true },
+    { .impl = "v2", .use_fsync = true , .csum_block = 4096 , .instant_writes = true },
+    { .impl = "v2", .use_fsync = true , .csum_block = 16384, .instant_writes = true },
+    { .impl = "v1", .use_fsync = false, .csum_block = 0    , .instant_writes = false },
+    { .impl = "v1", .use_fsync = false, .csum_block = 4096 , .instant_writes = false },
     { .impl = "v1", .use_fsync = false, .csum_block = 16384, .instant_writes = false },
-    { .impl = "v1", .use_fsync = true,  .csum_block = 4096,  .instant_writes = false },
-    { .impl = "v1", .use_fsync = true,  .csum_block = 16384, .instant_writes = false },
-    { .impl = "v1", .use_fsync = false, .csum_block = 4096,  .instant_writes = true },
+    { .impl = "v1", .use_fsync = true , .csum_block = 0    , .instant_writes = false },
+    { .impl = "v1", .use_fsync = true , .csum_block = 4096 , .instant_writes = false },
+    { .impl = "v1", .use_fsync = true , .csum_block = 16384, .instant_writes = false },
+    { .impl = "v1", .use_fsync = false, .csum_block = 0    , .instant_writes = true },
+    { .impl = "v1", .use_fsync = false, .csum_block = 4096 , .instant_writes = true },
     { .impl = "v1", .use_fsync = false, .csum_block = 16384, .instant_writes = true },
-    { .impl = "v1", .use_fsync = true,  .csum_block = 4096,  .instant_writes = true },
-    { .impl = "v1", .use_fsync = true,  .csum_block = 16384, .instant_writes = true },
+    { .impl = "v1", .use_fsync = true , .csum_block = 0    , .instant_writes = true },
+    { .impl = "v1", .use_fsync = true , .csum_block = 4096 , .instant_writes = true },
+    { .impl = "v1", .use_fsync = true , .csum_block = 16384, .instant_writes = true },
 };
 
 static void run_one(const chaos_cfg_t & cfg, uint32_t seed, uint64_t rounds, bool trace)
@@ -966,8 +982,9 @@ static void print_help(int cfg_count, int default_seeds, uint64_t default_rounds
         d.write_round, d.read_round, d.restart_round, d.crash_round,
         d.del, d.sync, d.stabilize, d.rollback, d.full_read, d.crash_sync, cfg_count);
     for (int i = 0; i < cfg_count; i++)
-        printf("  %2d: %s, fsync=%d, csum_block=%u, writes=%s\n", i, configs[i].impl,
-            configs[i].use_fsync ? 1 : 0, configs[i].csum_block,
+        printf("  %2d: %s, fsync=%d, csum_block=%s, writes=%s\n", i, configs[i].impl,
+            configs[i].use_fsync ? 1 : 0,
+            configs[i].csum_block ? std::to_string(configs[i].csum_block).c_str() : "none",
             configs[i].instant_writes ? "instant" : "two-phase");
 }
 
