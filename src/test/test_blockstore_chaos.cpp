@@ -32,6 +32,8 @@
 #define OBJ_SIZE (128*1024)
 #define GRAN 4096
 #define MAX_STEPS 1000000
+// Size of the external bitmap the store keeps per object version: one bit per granule
+#define BMP_SIZE (OBJ_SIZE/GRAN/8)
 
 // How often the test does what. The first four are relative weights of the round types,
 // the rest are percentages of the decisions taken inside a round. Setting one to zero turns
@@ -112,6 +114,10 @@ struct obj_model_t
     std::map<uint64_t, std::vector<uint8_t>> content;
     // Sequence number -> version number as seen by the store
     std::map<uint64_t, uint64_t> ver;
+    // Sequence number -> the byte the external bitmap of that write was filled with.
+    // The bitmap is opaque to the blockstore but it travels with the entry through
+    // compaction, recovery and rollbacks just like the data does
+    std::map<uint64_t, uint8_t> bmp;
 };
 
 struct pending_t
@@ -124,6 +130,8 @@ struct pending_t
     uint64_t version = 0;
     uint64_t bs_version = 0;
     std::vector<uint8_t> content;
+    // External bitmap handed to the store with a write, or filled in by a read
+    std::vector<uint8_t> bitmap;
     // For a stabilize op: every (object, version) pair it carries
     std::vector<std::pair<int, uint64_t>> stabilized;
 };
@@ -245,6 +253,12 @@ struct chaos_t
         }
     }
 
+    // Every write gets its own recognisable external bitmap
+    uint8_t bitmap_byte(int obj, uint64_t bs_version)
+    {
+        return (uint8_t)(0x40 + obj*29 + bs_version*7);
+    }
+
     uint64_t rnd(uint64_t min, uint64_t max)
     {
         return sim->random(min, max);
@@ -331,6 +345,8 @@ struct chaos_t
         p->op.len = len;
         p->op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, len);
         memcpy(p->op.buf, p->content.data() + offset, len);
+        p->bitmap.assign(BMP_SIZE, bitmap_byte(obj, p->bs_version));
+        p->op.bitmap = p->bitmap.data();
         writes++;
         if (trace)
             printf("%s %jx:%jx v%ju %ju +%ju", instant_writes ? "write_stable" : "write", p->op.oid.inode, p->op.oid.stripe, p->bs_version, offset, len);
@@ -460,6 +476,8 @@ struct chaos_t
                 // p->content stays empty for a deletion, which is how the model spells "gone"
                 m.content[p->version] = p->content;
                 m.ver[p->version] = p->bs_version;
+                if (p->op.opcode != BS_OP_DELETE)
+                    m.bmp[p->version] = bitmap_byte(p->obj, p->bs_version);
                 if (p->op.opcode == BS_OP_DELETE)
                 {
                     // The object is gone, so the next write starts numbering over again
@@ -583,12 +601,14 @@ struct chaos_t
         while (m.content.size() && m.content.begin()->first < m.durable)
         {
             m.ver.erase(m.content.begin()->first);
+            m.bmp.erase(m.content.begin()->first);
             m.content.erase(m.content.begin());
         }
     }
 
     // Read the whole object and return its content, or empty if it doesn't exist
     uint64_t last_read_version = 0;
+    std::vector<uint8_t> last_read_bitmap;
     std::vector<uint8_t> read_object(int obj, int *retval, uint64_t offset = 0, uint64_t len = OBJ_SIZE)
     {
         std::vector<pending_t*> batch;
@@ -600,12 +620,15 @@ struct chaos_t
         p->op.len = len;
         p->op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, len);
         memset(p->op.buf, 0, len);
+        p->bitmap.assign(BMP_SIZE, 0);
+        p->op.bitmap = p->bitmap.data();
         if (trace)
             printf("read %jx:%jx %u +%u", p->op.oid.inode, p->op.oid.stripe, p->op.offset, p->op.len);
         batch.push_back(submit(p));
         wait_all(batch);
         *retval = p->op.retval;
         last_read_version = p->op.version;
+        last_read_bitmap = p->bitmap;
         std::vector<uint8_t> res;
         if (p->op.retval == (int)len)
             res.assign(p->op.buf, p->op.buf + len);
@@ -615,6 +638,22 @@ struct chaos_t
 
     // With nothing in flight, a read of the newest version must return exactly what
     // the last acknowledged write put there - stable or not
+    // The store must return the external bitmap of exactly the version it returned
+    void check_bitmap(int obj, uint64_t version, const char *what)
+    {
+        auto & m = objs[obj];
+        auto it = m.bmp.find(version);
+        if (it == m.bmp.end())
+            return;
+        std::vector<uint8_t> want(BMP_SIZE, it->second);
+        if (last_read_bitmap != want)
+        {
+            fprintf(stderr, "object %d %s returned the bitmap of another version: got %02x, expected %02x for v%ju\n",
+                obj, what, last_read_bitmap.size() ? last_read_bitmap[0] : 0, it->second, version);
+            abort();
+        }
+    }
+
     void check_read(int obj, uint64_t offset = 0, uint64_t len = OBJ_SIZE)
     {
         auto & m = objs[obj];
@@ -639,6 +678,7 @@ struct chaos_t
             report_mismatch(obj, got, want, offset);
             abort();
         }
+        check_bitmap(obj, m.acked, "read");
         checked_reads++;
     }
 
@@ -712,12 +752,14 @@ struct chaos_t
                 // Completed before the outage, so it definitely happened
                 m.acked = p->version;
                 m.content[p->version] = p->content;
+                m.bmp[p->version] = bitmap_byte(p->obj, p->bs_version);
             }
             else if (!p->done)
             {
                 // Still in flight when the power went away: the blockstore may or may not
                 // have committed it, so record the content as a legal outcome only
                 m.content[p->version] = p->content;
+                m.bmp[p->version] = bitmap_byte(p->obj, p->bs_version);
             }
         }
         sim->power_loss();
@@ -808,20 +850,30 @@ struct chaos_t
                 // last durable one. So keep the durable content around as a legal outcome
                 // and only move the "current" pointer. Version numbers stay monotonic
                 // because the blockstore may still hold unstable versions above the match.
+                check_bitmap(obj, v.first, what);
                 std::vector<uint8_t> durable_content;
                 bool has_durable = m.durable && m.content.count(m.durable);
                 uint64_t durable_ver = has_durable ? m.ver.at(m.durable) : 0;
+                bool has_durable_bmp = has_durable && m.bmp.count(m.durable);
+                uint8_t durable_bmp = has_durable_bmp ? m.bmp.at(m.durable) : 0;
                 if (has_durable)
                     durable_content = m.content.at(m.durable);
+                bool got_bmp = exists && m.bmp.count(v.first);
+                uint8_t got_bmp_byte = got_bmp ? m.bmp.at(v.first) : 0;
                 m.content.clear();
                 m.ver.clear();
+                m.bmp.clear();
                 if (has_durable)
                 {
                     m.content[m.durable] = durable_content;
                     m.ver[m.durable] = durable_ver;
+                    if (has_durable_bmp)
+                        m.bmp[m.durable] = durable_bmp;
                 }
                 m.content[m.submitted] = got;
                 m.ver[m.submitted] = exists ? last_read_version : 0;
+                if (got_bmp)
+                    m.bmp[m.submitted] = got_bmp_byte;
                 m.acked = m.synced = m.submitted;
                 m.can_rollback = false;
                 // Continue numbering above whatever the store came back with, or start
@@ -836,6 +888,7 @@ struct chaos_t
             m.acked = m.synced = 0;
             m.content.clear();
             m.ver.clear();
+            m.bmp.clear();
             m.next_version = 1;
             m.can_rollback = false;
             return;
