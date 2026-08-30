@@ -1283,6 +1283,119 @@ static void test_write_stays_in_same_meta_block()
     free(buf);
 }
 
+// Compaction merges newer writes into the base entry's data block in place, which changes bytes
+// that the base entry's checksums still describe. Reads never take those bytes from it, but the
+// startup recheck does - and when a checksum block is larger than the write granularity it can't
+// skip just the overwritten parts, because one poisoned part invalidates the checksum of the
+// whole block. So before overwriting the block the flusher has to persist completed_lsn, which
+// puts the base entry out of the recheck's scope entirely. Otherwise a crash in the middle of a
+// compaction makes recovery declare the base entry unfinished and drop the whole object
+static void test_compact_big_intent_survives_crash()
+{
+    printf("\n-- test_compact_big_intent_survives_crash\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // A checksum block larger than the write granularity is what makes the skipping inexact
+    test.config["csum_block_size"] = "16384";
+    // A big write becomes a redirect intent - and thus a big_intent entry - only when the data
+    // fsync is enabled and the write is stable
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    memset(buf, 0xaa, 128*1024);
+
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = oid;
+    op.buf = buf;
+
+    printf("writing v1 0+128K (becomes a big_intent)\n");
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("writing v2 and v3 on top of it\n");
+    op.version = 2;
+    op.offset = 4096;
+    op.len = 4096;
+    memset(buf, 0xbb, 4096);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    op.version = 3;
+    op.offset = 20480;
+    op.len = 4096;
+    memset(buf, 0xcc, 4096);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    // Compaction only takes entries which are already fsynced
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    // Find the base entry - the one whose data block compaction is about to overwrite
+    heap_entry_t *base = test.bs->heap->read_entry(oid);
+    while (base && base->type() != BS_HEAP_BIG_INTENT)
+        base = test.bs->heap->prev(base);
+    assert(base);
+    uint64_t base_loc = base->big_location(test.bs->heap);
+    printf("base entry is a big_intent l%ju at data offset %ju\n", base->lsn, base_loc);
+
+    // Let compaction overwrite the base block, then hold its completion so that the compaction
+    // never finishes - the block on the disk is already merged, the metadata still isn't
+    uint64_t block_start = test.bs->dsk.data_offset + base_loc;
+    uint64_t block_end = block_start + test.bs->dsk.data_block_size;
+    bool overwritten = false;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->opcode == IORING_OP_WRITEV && sqe->fd == MOCK_DATA_FD &&
+            sqe->off >= block_start && sqe->off < block_end)
+        {
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            overwritten = true;
+            return true;
+        }
+        return false;
+    };
+
+    printf("compacting, holding it as soon as the base block is overwritten\n");
+    test.bs->flusher->request_trim();
+    for (int i = 0; i < 1000 && !overwritten; i++)
+        test.ringloop->loop();
+    assert(overwritten);
+
+    printf("restarting the blockstore as if the power went away mid-compaction\n");
+    test.sqe_handler = nullptr;
+    test.destroy_bs();
+    test.ringloop->reset();
+    test.init();
+
+    printf("the object must still be there\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = 128*1024;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(memcheck(rd.buf, 0xaa, 4096));
+    assert(memcheck(rd.buf + 4096, 0xbb, 4096));
+    assert(memcheck(rd.buf + 8192, 0xaa, 12288));
+    assert(memcheck(rd.buf + 20480, 0xcc, 4096));
+    assert(memcheck(rd.buf + 24576, 0xaa, 128*1024 - 24576));
+    free(rd.buf);
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_simple();
@@ -1304,5 +1417,6 @@ int main(int narg, char *args[])
     test_list_limit();
     test_write_no_space_eagain();
     test_write_stays_in_same_meta_block();
+    test_compact_big_intent_survives_crash();
     return 0;
 }

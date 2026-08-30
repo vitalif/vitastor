@@ -936,6 +936,61 @@ void blockstore_heap_t::recheck_drop_entries(heap_entry_t *obj, heap_entry_t *ba
     }
 }
 
+// Verify the data of a rechecked entry, skipping the checksum blocks which newer entries of the
+// same object overwrite. Compaction merges those newer writes into the data block in place: it
+// changes bytes which <wr>'s checksums still describe, without touching <wr> itself. Nothing ever
+// reads those bytes from <wr> - they're shadowed - so a mismatch there means nothing.
+// This is only exact while a checksum block isn't larger than the write granularity. With larger
+// blocks an overwritten part poisons the checksum of the whole block, and skipping the block
+// would hide a genuinely unfinished write in the rest of it - so there the flusher instead makes
+// sure such an entry is below the persisted completed_lsn and never gets rechecked at all,
+// see the big_intent trim in journal_flusher_co::loop()
+bool blockstore_heap_t::recheck_verify(heap_entry_t *obj, heap_entry_t *wr, uint8_t *buf)
+{
+    if (!dsk->csum_block_size || dsk->csum_block_size > dsk->bitmap_granularity ||
+        wr == obj || wr->type() == BS_HEAP_SMALL_WRITE)
+    {
+        // The newest entry isn't shadowed by anything, and a small write has its own copy
+        // of the data in the buffer area which compaction only ever reads
+        return calc_checksums(wr, buf, false);
+    }
+    uint32_t start = 0, end = 0;
+    uint8_t *bitmap = NULL;
+    if (wr->type() == BS_HEAP_BIG_INTENT)
+    {
+        start = wr->big_intent().offset;
+        end = start + wr->big_intent().len;
+        bitmap = wr->get_int_bitmap(this);
+    }
+    else
+    {
+        assert(wr->type() == BS_HEAP_INTENT_WRITE);
+        start = wr->small().offset;
+        end = start + wr->small().len;
+    }
+    uint32_t csum_size = (dsk->data_csum_type & 0xFF);
+    uint8_t *csums = wr->get_checksums(this);
+    if (wr->type() == BS_HEAP_BIG_INTENT)
+        csums += start/dsk->csum_block_size * csum_size;
+    bool ok = true;
+    for (uint32_t pos = start; pos < end; pos += dsk->csum_block_size)
+    {
+        bool shadowed = false;
+        for (auto newer = obj; newer && newer != wr && !shadowed; newer = prev(newer))
+        {
+            if (newer->type() != BS_HEAP_SMALL_WRITE && newer->type() != BS_HEAP_INTENT_WRITE)
+                continue;
+            shadowed = newer->small().offset < pos+dsk->csum_block_size &&
+                newer->small().offset+newer->small().len > pos;
+        }
+        if (shadowed)
+            continue;
+        ok = calc_block_checksums((uint32_t*)(csums + (pos-start)/dsk->csum_block_size * csum_size),
+            buf + (pos-start), bitmap, pos, pos+dsk->csum_block_size, false, NULL) && ok;
+    }
+    return ok;
+}
+
 void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
 {
     if (st->sent_reads >= st->total_reads)
@@ -985,7 +1040,7 @@ void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
         recheck_cb(from_data, loc, len, [this, st, wr](uint8_t *buf)
         {
             st->checked_reads++;
-            if (!calc_checksums(wr, buf, false))
+            if (!recheck_verify(st->obj, wr, buf))
                 st->bad_wr = !st->bad_wr || st->bad_wr->lsn > wr->lsn ? wr : st->bad_wr;
             if (st->checked_reads >= st->total_reads)
             {

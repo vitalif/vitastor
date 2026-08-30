@@ -258,6 +258,7 @@ class blockstore_heap_t
     void push_inflight_lsn(uint64_t lsn, heap_entry_t *wr, uint64_t flags);
     void mark_completed_lsns(uint64_t mod_lsn);
     int count_recheck_entries(heap_entry_t *obj, bool & need_data);
+    bool recheck_verify(heap_entry_t *obj, heap_entry_t *wr, uint8_t *buf);
     void apply_inflight(heap_inflight_lsn_t & inflight);
 public:
     blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_area, int log_level = 0);

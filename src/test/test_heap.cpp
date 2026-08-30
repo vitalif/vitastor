@@ -1502,6 +1502,91 @@ void test_entry_placement_contract()
     printf("OK test_entry_placement_contract\n");
 }
 
+// Compaction merges newer writes into the base entry's data block in place. That changes bytes
+// which the base entry's checksums still describe, without touching the entry itself - and
+// nothing ever reads those bytes from it, because the newer writes shadow them. The startup
+// recheck has to skip them too, or a crash during compaction makes it declare a perfectly good
+// base entry unfinished and roll the whole object back. The parts which aren't shadowed must
+// still be checked, otherwise a big_intent whose data never landed would go unnoticed
+void test_recheck_skips_compacted_parts(bool async)
+{
+    printf("test_recheck_skips_compacted_parts %s\n", async ? "async" : "sync");
+
+    blockstore_disk_t dsk;
+    _test_init(dsk, true);
+    // Skipping is only exact while a checksum block isn't larger than the write granularity
+    assert(dsk.csum_block_size == dsk.bitmap_granularity);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    std::vector<uint8_t> tmp;
+
+    memset(buffer_area.data(), 0xab, 32*1024);
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_recheck();
+
+        // Both objects are a big_intent covering 0..16K with a small write shadowing 4K..8K
+        _test_redirect_intent(heap, dsk, 1, 0, 1, 0, true, 0, 16384, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 4096, 4096, 0, true, buffer_area.data());
+
+        _test_redirect_intent(heap, dsk, 2, 0, 1, 0x20000, true, 0, 16384, buffer_area.data());
+        _test_small_write(heap, dsk, 2, 0, 2, 4096, 4096, 4096, true, buffer_area.data());
+
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, async ? NULL : buffer_area.data(), 10);
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+
+        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t *buf)> cb)
+        {
+            if (!len)
+            {
+                return;
+            }
+            uint8_t *buf = (uint8_t*)malloc_or_die(len);
+            memset(buf, 0xab, len);
+            if (is_data)
+            {
+                // Object 1: compaction merged the small write into 4K..8K of the base block.
+                // Those bytes are shadowed, so the base entry must survive it
+                if (offset <= 4096 && offset+len >= 8192)
+                    memset(buf + 4096 - offset, 0xcc, 4096);
+                // Object 2: 8K..12K of the base block is wrong and nothing shadows it,
+                // which is what a big_intent whose data never landed looks like
+                if (offset <= 0x20000+8192 && offset+len >= 0x20000+12288)
+                    memset(buf + 0x20000 + 8192 - offset, 0xcc, 4096);
+            }
+            assert(cb);
+            cb(buf);
+            free(buf);
+        }, 1);
+        assert(done);
+
+        heap.finish_recheck();
+
+        // Object 1 survives whole - the mismatch was in a shadowed part
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 2);
+        assert(obj->version == 2);
+
+        // Object 2 is rolled back completely - the mismatch was in a part it really serves
+        oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(!obj);
+
+        assert(check_used_space(heap, dsk, 0));
+    }
+
+    printf("OK test_recheck_skips_compacted_parts\n");
+}
+
 void test_corruption()
 {
     blockstore_disk_t dsk;
@@ -3062,6 +3147,8 @@ int main(int narg, char *args[])
     test_recheck_intent_under_small_writes(false, false);
     test_recheck_intent_under_small_writes(true, true);
     test_recheck_intent_under_small_writes(true, false);
+    test_recheck_skips_compacted_parts(false);
+    test_recheck_skips_compacted_parts(true);
     test_entry_placement_contract();
     test_corruption();
     test_full_overwrite(true);

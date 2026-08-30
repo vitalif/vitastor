@@ -192,6 +192,8 @@ bool journal_flusher_co::loop()
     else if (wait_state == 23) goto resume_23;
     else if (wait_state == 24) goto resume_24;
     else if (wait_state == 25) goto resume_25;
+    else if (wait_state == 26) goto resume_26;
+    else if (wait_state == 27) goto resume_27;
 resume_0:
     wait_state = 0;
     wait_count = 0;
@@ -291,6 +293,20 @@ resume_1:
         goto resume_0;
     }
     flusher->active_flushers++;
+    if (!compact_info.do_delete && bs->dsk.csum_block_size > bs->dsk.bitmap_granularity &&
+        compact_info.clean_wr->type() == BS_HEAP_BIG_INTENT)
+    {
+        // Compaction merges newer writes into the data block in place, which changes bytes that
+        // <clean_wr>'s checksums still describe. Reads never take those bytes from it, but the
+        // startup recheck does - and with a checksum block larger than the write granularity it
+        // can't skip just the overwritten parts, see blockstore_heap_t::recheck_verify().
+        // So make sure the entry is out of the recheck's scope by persisting completed_lsn first.
+        // It is below fsynced_lsn already - iterate_compaction() doesn't return anything above it
+resume_26:
+resume_27:
+        if (!trim_lsn(26))
+            return false;
+    }
     for (i = 0; i < read_vec.size(); i++)
     {
         if ((read_vec[i].copy_flags & COPY_BUF_JOURNAL) &&
