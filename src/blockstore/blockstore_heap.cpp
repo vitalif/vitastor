@@ -693,10 +693,9 @@ int blockstore_heap_t::mark_used_blocks()
                         {
                             if (dsk->skip_double_claim)
                             {
-                                // There is a BUG currently:
-                                // Sometimes (under unknown conditions) deletion entries are removed from the disk
-                                // earlier than previous big_writes.
-                                // Until it's fixed, we provide a way to ignore such objects on start.
+                                // There was a bug in 3.0.x before 3.0.16 - deletion entries were sometimes
+                                // removed from the disk earlier than previous big_writes. Provide a workaround
+                                // for stores affected by this bug: ignore such objects on start.
                                 auto prev_li = used_by[wr->big().block_num];
                                 assert(prev_li);
                                 // Newer LSN must be trusted. Remove the older object.
