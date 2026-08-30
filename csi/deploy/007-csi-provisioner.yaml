@@ -87,7 +87,7 @@ spec:
             - name: socket-dir
               mountPath: /csi
         - name: csi-attacher
-          image: k8s.gcr.io/sig-storage/csi-attacher:v3.1.0
+          image: k8s.gcr.io/sig-storage/csi-attacher:v3.2.0
           args:
             - "--v=5"
             - "--csi-address=$(ADDRESS)"
@@ -121,7 +121,7 @@ spec:
             privileged: true
             capabilities:
               add: ["SYS_ADMIN"]
-          image: vitalif/vitastor-csi:v3.1.0
+          image: vitalif/vitastor-csi:v3.2.0
           args:
             - "--node=$(NODE_ID)"
             - "--endpoint=$(CSI_ENDPOINT)"
