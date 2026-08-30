@@ -397,7 +397,8 @@ void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
         if (op_data->flags & OP_DATA_ENOENT_OK)
         {
             retval = expected;
-            memset(((osd_rmw_stripe_t*)subop->rmw_buf)->read_buf, 0, expected);
+            if (expected > 0)
+                memset(((osd_rmw_stripe_t*)subop->rmw_buf)->read_buf, 0, expected);
             subop->reply.sec_rw.version = 0;
         }
         else
