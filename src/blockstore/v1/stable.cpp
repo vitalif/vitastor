@@ -73,7 +73,11 @@ static void append_version(ver_vector_t & vec, obj_ver_id ov)
     vec.items[vec.size++] = ov;
 }
 
-static bool check_unsynced(std::vector<obj_ver_id> & check, obj_ver_id ov, std::vector<obj_ver_id> & to, int *count)
+// Move the unsynced versions of <ov.oid> which the operation has to sync first from <check>
+// into <to>. Stabilization needs the versions up to <ov.version> synced, and a rollback needs
+// the versions above it - those are the ones it discards, and a rollback can only be journaled
+// after they reach the journal themselves
+static bool check_unsynced(std::vector<obj_ver_id> & check, obj_ver_id ov, std::vector<obj_ver_id> & to, int *count, bool above)
 {
     bool found = false;
     int j = 0, k = 0;
@@ -81,7 +85,7 @@ static bool check_unsynced(std::vector<obj_ver_id> & check, obj_ver_id ov, std::
     {
         if (check[j] == ov)
             found = true;
-        if (check[j].oid == ov.oid && check[j].version <= ov.version)
+        if (check[j].oid == ov.oid && (above ? check[j].version > ov.version : check[j].version <= ov.version))
         {
             to.push_back(check[j++]);
             if (count)
@@ -187,8 +191,9 @@ int blockstore_impl_t::split_stab_op(blockstore_op_t *op, std::function<int(obj_
                 PRIV(op)->sync_small_writes.clear();
                 add_sync = true;
             }
-            check_unsynced(unsynced_small_writes, *v, PRIV(op)->sync_small_writes, NULL);
-            check_unsynced(unsynced_big_writes, *v, PRIV(op)->sync_big_writes, &unsynced_big_write_count);
+            bool above = op->opcode == BS_OP_ROLLBACK;
+            check_unsynced(unsynced_small_writes, *v, PRIV(op)->sync_small_writes, NULL, above);
+            check_unsynced(unsynced_big_writes, *v, PRIV(op)->sync_big_writes, &unsynced_big_write_count, above);
         }
         else /* if (action == STAB_SPLIT_TODO) */
         {

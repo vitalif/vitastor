@@ -1946,6 +1946,90 @@ static void test_delete_while_sync_in_flight()
     free(buf);
 }
 
+
+// Peering rolls back the versions which didn't reach a quorum, and the client may well have
+// written something newer in the meantime which isn't synced yet. A rollback can only be
+// journaled after the versions it discards reach the journal themselves, so the blockstore
+// syncs them first - but it used to look for them among the versions *below* the rollback
+// point, the way stabilization does, find nothing there and wait for a sync that nobody
+// was ever going to start
+static void test_rollback_over_unsynced_write()
+{
+    printf("\n-- test_rollback_over_unsynced_write\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // Writes are only journaled on an explicit sync here, which is what makes the rollback
+    // wait for one
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint32_t block_size = test.dsk().data_block_size;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+
+    printf("write v1 (unstable) and sync it\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = block_size;
+    memset(buf, 0xAA, block_size);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    printf("write v2 (unstable), leaving it unsynced\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 2;
+    op.offset = 4096;
+    op.len = 4096;
+    memset(buf, 0xBB, 4096);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    assert(!IS_SYNCED(test.find_dirty_entry(oid, 2)->state));
+
+    printf("roll back to v1 - the store has to sync v2 on its own first\n");
+    blockstore_op_t rb;
+    bool rb_done = false;
+    rb.opcode = BS_OP_ROLLBACK;
+    rb.len = 1;
+    rb.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, sizeof(obj_ver_id));
+    *((obj_ver_id*)rb.buf) = (obj_ver_id){ .oid = oid, .version = 1 };
+    rb.callback = [&](blockstore_op_t *op) { rb_done = true; };
+    test.bs->enqueue_op(&rb);
+    for (int i = 0; i < 1000 && !rb_done; i++)
+        test.ringloop->loop();
+    assert(rb_done);
+    assert(rb.retval == 0);
+    free(rb.buf);
+
+    // v2 is gone, v1 is what the object holds now
+    assert(!test.find_dirty_entry(oid, 2));
+    printf("reading it back\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = block_size;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(rd.version == 1);
+    assert(memcheck(rd.buf, 0xAA, block_size));
+    free(rd.buf);
+
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -1967,6 +2051,7 @@ int main(int narg, char *args[])
     test_first_write_keeps_journal_superblock();
     test_read_journal_small_write_without_csums();
     test_delete_while_sync_in_flight();
+    test_rollback_over_unsynced_write();
     test_replay_reused_block_of_deleted_object();
     test_write_over_delete_with_concurrent_sync();
     return 0;
