@@ -922,11 +922,10 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
         }
         return 0;
     }
-    // Write current journal sector only if it's dirty and full, or in the immediate_commit mode
+    // Write current journal sector only if it's dirty and full, or in the immediate_commit mode.
     BS_SUBMIT_CHECK_SQES(
         (immediate_commit != IMMEDIATE_NONE ||
-            (dsk.journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
-            journal.sector_info[journal.cur_sector].dirty) ? 1 : 0
+            !journal.entry_fits(sizeof(journal_entry_del)) ? 1 : 0)
     );
     if (write_iodepth >= max_write_iodepth)
     {
@@ -935,7 +934,7 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     write_iodepth++;
     // Prepare journal sector write
     if (immediate_commit == IMMEDIATE_NONE &&
-        (dsk.journal_block_size - journal.in_sector_pos) < sizeof(journal_entry_del) &&
+        !journal.entry_fits(sizeof(journal_entry_del)) &&
         journal.sector_info[journal.cur_sector].dirty)
     {
         prepare_journal_sector_write(journal.cur_sector, op);

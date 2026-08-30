@@ -2030,6 +2030,124 @@ static void test_rollback_over_unsynced_write()
     free(buf);
 }
 
+// After recent changes, v1 store began to crash sometimes with:
+// v1/journal.cpp:148: Assertion `!journal.sector_info[journal.cur_sector].dirty' failed.
+// This is because entry_fits() should be used for checks, not just space check.
+static void test_delete_after_append_to_flying_journal_sector()
+{
+    printf("\n-- test_delete_after_append_to_flying_journal_sector\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    // The object which fills the journal sector, and a separate one to delete - deleting the
+    // first one would drop its own unsynced entries and get in the way of what's being tested
+    object_id oid = { .inode = 1, .stripe = 0 };
+    object_id victim = { .inode = 1, .stripe = 0x20000 };
+    uint32_t block_size = test.dsk().data_block_size;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+    memset(buf, 0xAA, block_size);
+
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+
+    printf("creating both objects\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = block_size;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    op.oid = victim;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    op.oid = oid;
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    // A small write puts an entry into the current journal sector and leaves it dirty
+    printf("small write v2 - the journal sector becomes dirty\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 2;
+    op.offset = 4096;
+    op.len = 4096;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    // Hold journal sector writes so that the sector below stays in flight
+    uint64_t journal_start = test.dsk().journal_offset;
+    uint64_t journal_end = journal_start + test.dsk().journal_len;
+    std::vector<ring_data_t*> held;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_WRITEV &&
+            sqe->off >= journal_start && sqe->off < journal_end)
+        {
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            held.push_back((ring_data_t*)sqe->user_data);
+            return true;
+        }
+        return false;
+    };
+
+    // A sync and one more small write in the same batch: the sync hands the sector to the ring
+    // and the write appends to it right after, before <written> is set
+    printf("sync + small write v3 in one batch - v3 lands in the sector already given to the ring\n");
+    blockstore_op_t sync_op, wr3;
+    bool sync_done = false, wr3_done = false;
+    sync_op.opcode = BS_OP_SYNC;
+    sync_op.buf = NULL;
+    sync_op.callback = [&](blockstore_op_t *op) { sync_done = true; };
+    wr3.opcode = BS_OP_WRITE;
+    wr3.oid = oid;
+    wr3.version = 3;
+    wr3.offset = 8192;
+    wr3.len = 4096;
+    wr3.buf = buf;
+    wr3.callback = [&](blockstore_op_t *op) { wr3_done = true; };
+    test.bs->enqueue_op(&sync_op);
+    test.bs->enqueue_op(&wr3);
+    for (int i = 0; i < 10 && !held.size(); i++)
+        test.ringloop->loop();
+    assert(held.size() > 0);
+    assert(!sync_done);
+
+    // Now the sector is dirty, written and still being flushed, and it has room to spare -
+    // exactly the state dequeue_del() used to misread
+    printf("deleting the other object while that sector is still in flight\n");
+    blockstore_op_t del;
+    bool del_done = false;
+    del.opcode = BS_OP_DELETE;
+    del.oid = victim;
+    del.version = 2;
+    del.offset = 0;
+    del.len = 0;
+    del.buf = NULL;
+    del.callback = [&](blockstore_op_t *op) { del_done = true; };
+    test.bs->enqueue_op(&del);
+    for (int i = 0; i < 20 && !del_done; i++)
+        test.ringloop->loop();
+
+    printf("releasing the held journal writes\n");
+    test.sqe_handler = nullptr;
+    for (auto *d: held)
+        test.ringloop->mark_completed(d);
+    while (!del_done || !sync_done || !wr3_done)
+        test.ringloop->loop();
+    assert(del.retval == 0);
+    assert(wr3.retval == (int)wr3.len);
+    assert(sync_op.retval == 0);
+
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -2051,6 +2169,7 @@ int main(int narg, char *args[])
     test_first_write_keeps_journal_superblock();
     test_read_journal_small_write_without_csums();
     test_delete_while_sync_in_flight();
+    test_delete_after_append_to_flying_journal_sector();
     test_rollback_over_unsynced_write();
     test_replay_reused_block_of_deleted_object();
     test_write_over_delete_with_concurrent_sync();
