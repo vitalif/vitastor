@@ -527,7 +527,7 @@ out_wakeup:
             {
                 if (result > 0 && cl->read_csum_state && !(cl->recv_flags[i] & RDR_NO_CSUM))
                     XXH3_64bits_update(cl->read_csum_state, cl->recv_list[i].iov_base, result);
-                cl->recv_list[i].iov_base += result;
+                cl->recv_list[i].iov_base = (char*)cl->recv_list[i].iov_base + result;
                 cl->recv_list[i].iov_len -= result;
             }
             else
