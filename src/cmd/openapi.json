@@ -274,9 +274,7 @@
                             "items": { "type": "integer", "format": "uint64" },
                             "description": "Deleted OSD numbers"
                         }
-                    },
-                    "format": "uint64",
-                    "description": "New OSD number"
+                    }
                 } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
                 "409": { "$ref": "#/components/responses/UpdateConflict" },
@@ -321,9 +319,7 @@
                         "reweight": { "type": "number", "minimum": 0, "maximum": 1, "description": "OSD weight" },
                         "tags": { "type": "array", "items": { "type": "string" }, "description": "OSD tags" },
                         "noout": { "type": "boolean", "description": "noout flag" }
-                    },
-                    "format": "uint64",
-                    "description": "New OSD number"
+                    }
                 } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
                 "409": { "$ref": "#/components/responses/UpdateConflict" },
