@@ -473,7 +473,7 @@ void blockstore_disk_t::open_journal()
         journal_fd = meta_fd;
         journal_device_sect = meta_device_sect;
         journal_device_size = 0;
-        if (journal_offset >= data_device_size)
+        if (journal_offset >= (meta_device_size > 0 ? meta_device_size : data_device_size))
         {
             throw std::runtime_error("journal_offset exceeds device size");
         }
