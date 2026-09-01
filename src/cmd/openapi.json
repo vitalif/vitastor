@@ -103,11 +103,9 @@
                     "pool_name": { "type": "string", "description": "Pool name for the new image/snapshot" },
                     "parent": { "type": "string", "description": "Create a clone with this parent image name" },
                     "enc_key": {
-                        "description": "Encryption key for the new/cloned image",
-                        "oneOf": [
-                            { "type": "string", "enum": [ "", "random" ] },
-                            { "type": "string", "pattern": "^[0-9a-fA-F]{128}$|^vault:" }
-                        ]
+                        "type": "string",
+                        "pattern": "^$|^random$|^[0-9a-fA-F]{128}$|^vault:",
+                        "description": "Encryption key for the new/cloned image"
                     },
                     "owner": { "type": "string", "description": "Set image owner" },
                     "owner_group": { "type": "string", "description": "Set image owner group" },
@@ -144,11 +142,9 @@
                     "readwrite": { "type": "boolean", "description": "Make the image read-write" },
                     "deleted": { "type": "boolean", "description": "Set or clear the 'deleted' flag" },
                     "enc_key": {
-                        "description": "Change encryption key for the image",
-                        "oneOf": [
-                            { "type": "string", "enum": [ "" ] },
-                            { "type": "string", "pattern": "^[0-9a-fA-F]{128}$|^vault:" }
-                        ]
+                        "type": "string",
+                        "pattern": "^$|^[0-9a-fA-F]{128}$|^vault:",
+                        "description": "Change encryption key for the image"
                     },
                     "owner": { "type": "string", "description": "Set image owner" },
                     "owner_group": { "type": "string", "description": "Set image owner group" },
