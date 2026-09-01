@@ -12,7 +12,6 @@
         "/status": { "get": {
             "summary": "Show server status",
             "operationId": "status",
-            "produces": [ "application/json" ],
             "parameters": [],
             "responses": {
                 "200": { "content": { "application/json": { "schema": {
@@ -61,7 +60,6 @@
         "/image/list": { "get": {
             "summary": "List images",
             "operationId": "imageListGet",
-            "produces": [ "application/json" ],
             "parameters": [ {
                 "name": "params",
                 "in": "query",
@@ -75,8 +73,6 @@
         }, "post": {
             "summary": "List images",
             "operationId": "imageListPost",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageListParams" } } } },
             "responses": {
                 "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageList" } } } }
@@ -85,8 +81,6 @@
         "/image/create": { "post": {
             "summary": "Create an image, snapshot, or a clone",
             "operationId": "imageCreate",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "required": [ "image" ],
@@ -124,8 +118,6 @@
         "/image/modify": { "post": {
             "summary": "Modify an image",
             "operationId": "imageModify",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "required": [ "image" ],
@@ -165,8 +157,6 @@
         "/image/delete": { "post": {
             "summary": "Delete image(s)",
             "operationId": "imageDelete",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "oneOf": [ {
                     "type": "object",
@@ -215,8 +205,6 @@
         "/image/flatten": { "post": {
             "summary": "Flatten an image",
             "operationId": "imageFlatten",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "required": [ "image" ],
@@ -235,7 +223,6 @@
         "/osd/list": { "get": {
             "summary": "List OSDs",
             "operationId": "osdListGet",
-            "produces": [ "application/json" ],
             "parameters": [ {
                 "name": "params",
                 "in": "query",
@@ -249,8 +236,6 @@
         }, "post": {
             "summary": "List OSDs",
             "operationId": "osdListPost",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OsdListParams" } } } },
             "responses": {
                 "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OsdList" } } } }
@@ -259,7 +244,6 @@
         "/osd/alloc": { "post": {
             "summary": "Allocate a new OSD number",
             "operationId": "osdAlloc",
-            "produces": [ "application/json" ],
             "responses": {
                 "200": { "content": { "application/json": { "schema": {
                     "type": "integer",
@@ -273,8 +257,6 @@
         "/osd/delete": { "post": {
             "summary": "Delete stopped OSD(s) from etcd",
             "operationId": "osdDelete",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "properties": {
@@ -323,8 +305,6 @@
         "/osd/modify": { "post": {
             "summary": "Modify OSD reweight, tags or noout flag",
             "operationId": "osdModify",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "properties": {
@@ -353,7 +333,6 @@
         "/pool/list": { "get": {
             "summary": "List pools",
             "operationId": "poolListGet",
-            "produces": [ "application/json" ],
             "parameters": [ {
                 "name": "params",
                 "in": "query",
@@ -367,8 +346,6 @@
         }, "post": {
             "summary": "List pools",
             "operationId": "poolListPost",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PoolListParams" } } } },
             "responses": {
                 "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PoolList" } } } }
@@ -377,8 +354,6 @@
         "/pool/create": { "post": {
             "summary": "Create a pool",
             "operationId": "poolCreate",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "allOf": [ {
                     "$ref": "#/components/schemas/PoolConfig"
@@ -399,8 +374,6 @@
         "/pool/modify": { "post": {
             "summary": "Modify a pool",
             "operationId": "poolModify",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "allOf": [ {
                     "$ref": "#/components/schemas/PoolConfig"
@@ -422,8 +395,6 @@
         "/pool/delete": { "post": {
             "summary": "Delete a pool",
             "operationId": "poolDelete",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "properties": {
@@ -445,7 +416,6 @@
         "/user/list": { "get": {
             "summary": "List users",
             "operationId": "userListGet",
-            "produces": [ "application/json" ],
             "parameters": [ {
                 "name": "params",
                 "in": "query",
@@ -459,8 +429,6 @@
         }, "post": {
             "summary": "List users",
             "operationId": "userListPost",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserListParams" } } } },
             "responses": {
                 "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserList" } } } }
@@ -469,8 +437,6 @@
         "/user/modify": { "post": {
             "summary": "Modify a user",
             "operationId": "userModify",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } },
             "responses": {
                 "200": { "content": { "application/json": { "schema": {
@@ -484,8 +450,6 @@
         "/user/delete": { "post": {
             "summary": "Delete a user",
             "operationId": "userDelete",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "properties": {
@@ -505,7 +469,6 @@
         "/pg/list": { "get": {
             "summary": "List PGs",
             "operationId": "pgListGet",
-            "produces": [ "application/json" ],
             "parameters": [ {
                 "name": "params",
                 "in": "query",
@@ -519,8 +482,6 @@
         }, "post": {
             "summary": "List PGs",
             "operationId": "pgListPost",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PgListParams" } } } },
             "responses": {
                 "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PgList" } } } }
@@ -529,8 +490,6 @@
         "/data/delete": { "post": {
             "summary": "Remove inode data without changing metadata",
             "operationId": "dataDelete",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "properties": {
@@ -571,7 +530,6 @@
         "/data/describe": { "get": {
             "summary": "Describe unclean object locations in the cluster",
             "operationId": "dataDescribeGet",
-            "produces": [ "application/json" ],
             "parameters": [ {
                 "name": "params",
                 "in": "query",
@@ -585,8 +543,6 @@
         }, "post": {
             "summary": "Describe unclean object locations in the cluster",
             "operationId": "dataDescribePost",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataDescribeParams" } } } },
             "responses": {
                 "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataDescribe" } } } }
@@ -595,8 +551,6 @@
         "/data/fix": { "post": {
             "summary": "Fix inconsistent objects in the cluster by deleting some copies",
             "operationId": "dataFix",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "properties": {
@@ -635,8 +589,6 @@
         "/data/merge": { "post": {
             "summary": "Merge layer data without changing metadata",
             "operationId": "dataMerge",
-            "consumes": [ "application/json" ],
-            "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
                 "properties": {
