@@ -218,7 +218,7 @@
             "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
                 "type": "object",
-                "required": [ "names" ],
+                "required": [ "image" ],
                 "properties": {
                     "image": { "type": "string", "description": "Image name to flatten" }
                 }
