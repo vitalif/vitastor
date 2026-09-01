@@ -14,7 +14,7 @@
             "operationId": "status",
             "parameters": [],
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "Cluster status", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": {
                         "pool_count": { "type": "integer", "format": "uint64", "description": "Total number of pools" },
@@ -68,14 +68,14 @@
                 "explode": true
             } ],
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageList" } } } }
+                "200": { "description": "List of images", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageList" } } } }
             }
         }, "post": {
             "summary": "List images",
             "operationId": "imageListPost",
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageListParams" } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageList" } } } }
+                "200": { "description": "List of images", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImageList" } } } }
             }
         } },
         "/image/create": { "post": {
@@ -108,7 +108,7 @@
                 }
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Image" } } } },
+                "200": { "description": "The created image, snapshot or clone", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Image" } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
                 "403": { "$ref": "#/components/responses/Forbidden" },
                 "409": { "$ref": "#/components/responses/UpdateConflict" },
@@ -147,7 +147,7 @@
                 }
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Image" } } } },
+                "200": { "description": "The modified image", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Image" } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
                 "403": { "$ref": "#/components/responses/Forbidden" },
                 "409": { "$ref": "#/components/responses/UpdateConflict" },
@@ -186,7 +186,7 @@
                 } ]
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "Deleted and rebased images", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": {
                         "deleted_ids": { "type": "array", "items": { "type": "integer", "format": "uint64" }, "description": "Full inode ID(s) of deleted images" },
@@ -213,7 +213,7 @@
                 }
             } } } },
             "responses": {
-                "200": { "content": { "text/plain": { "schema": { "type": "string", "description": "Empty response" } } } },
+                "200": { "description": "Image flattened", "content": { "text/plain": { "schema": { "type": "string", "description": "Empty response" } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
                 "403": { "$ref": "#/components/responses/Forbidden" },
                 "409": { "$ref": "#/components/responses/UpdateConflict" },
@@ -231,21 +231,21 @@
                 "explode": true
             } ],
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OsdList" } } } }
+                "200": { "description": "List of OSDs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OsdList" } } } }
             }
         }, "post": {
             "summary": "List OSDs",
             "operationId": "osdListPost",
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OsdListParams" } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OsdList" } } } }
+                "200": { "description": "List of OSDs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OsdList" } } } }
             }
         } },
         "/osd/alloc": { "post": {
             "summary": "Allocate a new OSD number",
             "operationId": "osdAlloc",
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "The allocated OSD number", "content": { "application/json": { "schema": {
                     "type": "integer",
                     "format": "uint64",
                     "description": "New OSD number"
@@ -266,7 +266,7 @@
                 }
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "Deleted OSD numbers", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": {
                         "deleted_osds": {
@@ -280,7 +280,7 @@
                 } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
                 "409": { "$ref": "#/components/responses/UpdateConflict" },
-                "412": { "content": { "application/json": { "schema": {
+                "412": { "description": "Precondition failed: removing these OSD(s) would affect some pools", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": {
                         "pool_effects": {
@@ -315,7 +315,7 @@
                 }
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "OSD settings after modification", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": {
                         "reweight": { "type": "number", "minimum": 0, "maximum": 1, "description": "OSD weight" },
@@ -341,14 +341,14 @@
                 "explode": true
             } ],
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PoolList" } } } }
+                "200": { "description": "List of pools", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PoolList" } } } }
             }
         }, "post": {
             "summary": "List pools",
             "operationId": "poolListPost",
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PoolListParams" } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PoolList" } } } }
+                "200": { "description": "List of pools", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PoolList" } } } }
             }
         } },
         "/pool/create": { "post": {
@@ -363,7 +363,7 @@
                 } } ]
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "The created pool", "content": { "application/json": { "schema": {
                     "$ref": "#/components/schemas/PoolConfig"
                 } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
@@ -384,7 +384,7 @@
                 } } ]
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "The modified pool", "content": { "application/json": { "schema": {
                     "$ref": "#/components/schemas/PoolConfig"
                 } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
@@ -404,7 +404,7 @@
                 }
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "Pool deleted", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": { "ok": { "type": "boolean" } }
                 } } } },
@@ -424,14 +424,14 @@
                 "explode": true
             } ],
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserList" } } } }
+                "200": { "description": "List of users", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserList" } } } }
             }
         }, "post": {
             "summary": "List users",
             "operationId": "userListPost",
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserListParams" } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserList" } } } }
+                "200": { "description": "List of users", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserList" } } } }
             }
         } },
         "/user/modify": { "post": {
@@ -439,7 +439,7 @@
             "operationId": "userModify",
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/User" } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "The modified user", "content": { "application/json": { "schema": {
                     "$ref": "#/components/schemas/User"
                 } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
@@ -457,7 +457,7 @@
                 }
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "User deleted", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": { "ok": { "type": "boolean" } }
                 } } } },
@@ -477,14 +477,14 @@
                 "explode": true
             } ],
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PgList" } } } }
+                "200": { "description": "List of PGs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PgList" } } } }
             }
         }, "post": {
             "summary": "List PGs",
             "operationId": "pgListPost",
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PgListParams" } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PgList" } } } }
+                "200": { "description": "List of PGs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PgList" } } } }
             }
         } },
         "/data/delete": { "post": {
@@ -500,14 +500,14 @@
                 }
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "Number of removed objects", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": {
                         "removed_objects": { "type": "integer", "format": "uint64", "description": "Removed object count" }
                     }
                 } } } },
                 "400": { "$ref": "#/components/responses/Invalid" },
-                "412": { "content": { "application/json": { "schema": {
+                "412": { "description": "Precondition failed: some data could not be removed", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": {
                         "total_objects": { "type": "integer", "format": "uint64", "description": "Total object count" },
@@ -538,14 +538,14 @@
                 "explode": true
             } ],
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataDescribe" } } } }
+                "200": { "description": "Unclean object locations", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataDescribe" } } } }
             }
         }, "post": {
             "summary": "Describe unclean object locations in the cluster",
             "operationId": "dataDescribePost",
             "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataDescribeParams" } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataDescribe" } } } }
+                "200": { "description": "Unclean object locations", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DataDescribe" } } } }
             }
         } },
         "/data/fix": { "post": {
@@ -574,7 +574,7 @@
                 }
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "The removed object copy", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": {
                         "inode": { "type": "integer", "format": "uint64", "description": "Full inode ID with pool" },
@@ -601,7 +601,7 @@
                 }
             } } } },
             "responses": {
-                "200": { "content": { "application/json": { "schema": {
+                "200": { "description": "The merged layer range", "content": { "application/json": { "schema": {
                     "type": "object",
                     "properties": {
                         "from": { "type": "string", "description": "First merged parent layer" },
