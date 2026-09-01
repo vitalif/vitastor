@@ -321,7 +321,7 @@
         } },
         "/osd/modify": { "post": {
             "summary": "Modify OSD reweight, tags or noout flag",
-            "operationId": "osdDelete",
+            "operationId": "osdModify",
             "consumes": [ "application/json" ],
             "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
@@ -593,7 +593,7 @@
         } },
         "/data/fix": { "post": {
             "summary": "Fix inconsistent objects in the cluster by deleting some copies",
-            "operationId": "dataDelete",
+            "operationId": "dataFix",
             "consumes": [ "application/json" ],
             "produces": [ "application/json" ],
             "requestBody": { "content": { "application/json": { "schema": {
