@@ -105,6 +105,7 @@ class journal_flusher_t
     int wanting_meta_fsync = 0;
     bool fsyncing_meta = false;
     int syncing_buffer = 0;
+    bool trimming_lsn = false;
 
 public:
     journal_flusher_t(blockstore_impl_t *bs);

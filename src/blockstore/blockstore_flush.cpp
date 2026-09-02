@@ -186,14 +186,16 @@ bool journal_flusher_co::loop()
     else if (wait_state == 17) goto resume_17;
     else if (wait_state == 18) goto resume_18;
     else if (wait_state == 19) goto resume_19;
-    else if (wait_state == 20) goto resume_20;
-    else if (wait_state == 21) goto resume_21;
     else if (wait_state == 22) goto resume_22;
     else if (wait_state == 23) goto resume_23;
     else if (wait_state == 24) goto resume_24;
     else if (wait_state == 25) goto resume_25;
     else if (wait_state == 26) goto resume_26;
     else if (wait_state == 27) goto resume_27;
+    else if (wait_state == 28) goto resume_28;
+    else if (wait_state == 29) goto resume_29;
+    else if (wait_state == 30) goto resume_30;
+    else if (wait_state == 31) goto resume_31;
 resume_0:
     wait_state = 0;
     wait_count = 0;
@@ -208,9 +210,10 @@ resume_18:
 resume_19:
         if (!fsync_buffer(17))
             return false;
-resume_20:
-resume_21:
-        if (!trim_lsn(20))
+resume_29:
+resume_30:
+resume_31:
+        if (!trim_lsn(29))
             return false;
     }
     if (res == ENOENT && flusher->force_start > 0 && co_id == 0 &&
@@ -304,6 +307,7 @@ resume_1:
         // It is below fsynced_lsn already - iterate_compaction() doesn't return anything above it
 resume_26:
 resume_27:
+resume_28:
         if (!trim_lsn(26))
             return false;
     }
@@ -909,27 +913,40 @@ bool journal_flusher_co::trim_lsn(int wait_base)
 {
     if (wait_state == wait_base)        goto resume_0;
     else if (wait_state == wait_base+1) goto resume_1;
+    else if (wait_state == wait_base+2) goto resume_2;
+resume_0:
+    if (flusher->trimming_lsn)
+    {
+        // Allow only one coroutine to update the superblock at a time to prevent parallel
+        // block updates or the device may in theory apply them in any order.
+        wait_state = wait_base;
+        return false;
+    }
     fsynced_lsn = bs->heap->get_fsynced_lsn();
     if (((blockstore_meta_header_v3_t*)bs->meta_superblock)->completed_lsn == fsynced_lsn)
     {
         return true;
     }
+    flusher->trimming_lsn = true;
     flusher->active_flushers++;
     ((blockstore_meta_header_v3_t*)bs->meta_superblock)->completed_lsn = fsynced_lsn;
     ((blockstore_meta_header_v3_t*)bs->meta_superblock)->set_crc32c();
-    await_sqe(0);
+    await_sqe(1);
     data->iov = (struct iovec){ bs->meta_superblock, (size_t)bs->dsk.meta_block_size };
     data->callback = simple_callback_w;
     io_uring_prep_writev(sqe, bs->dsk.meta_fd, &data->iov, 1, bs->dsk.meta_offset);
     // Update superblock with datasync
     sqe->rw_flags = RWF_DSYNC;
     wait_count++;
-resume_1:
+resume_2:
     if (wait_count > 0)
     {
-        wait_state = wait_base+1;
+        wait_state = wait_base+2;
         return false;
     }
+    // Superblock is updated, resume everyone who was waiting for it
+    flusher->trimming_lsn = false;
+    bs->ringloop->wakeup();
     flusher->active_flushers--;
     return true;
 }
