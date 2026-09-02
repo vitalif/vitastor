@@ -151,6 +151,17 @@ struct cli_serve_t
                     }
                 }
             }
+            else
+            {
+                std::string error;
+                http_ctx = http_context_init(parent->epmgr->tfd, "", "", "", false, error);
+                if (error != "")
+                {
+                    result = (cli_result_t){ .err = EINVAL, .text = error };
+                    state = 100;
+                    return;
+                }
+            }
             if (use_perms && client_ca == "")
             {
                 result = (cli_result_t){ .err = EINVAL, .text = "use_perms requires client_ca" };
