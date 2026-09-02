@@ -119,6 +119,7 @@ undo_wait:
         return 2;
     }
     op->retval = 0;
+    reads_in_flight.insert(op);
     return 2;
 }
 
@@ -407,6 +408,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
             op->retval = op->len;
         heap->unlock_entry(op->oid);
         free_read_buffers(PRIV(op)->read_vec);
+        reads_in_flight.erase(op);
         FINISH_OP(op);
     }
 }

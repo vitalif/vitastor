@@ -43,6 +43,19 @@ blockstore_impl_t::blockstore_impl_t(blockstore_config_t & config, ring_loop_i *
 
 blockstore_impl_t::~blockstore_impl_t()
 {
+    // Operations which were queued or in flight when we were destroyed still have their
+    // private state constructed, and a read also owns its read vector. Nobody is going to
+    // complete them now, so release it here
+    for (auto op: submit_queue)
+        if (op)
+            PRIV(op)->~blockstore_op_private_t();
+    submit_queue.clear();
+    for (auto op: reads_in_flight)
+    {
+        free_read_buffers(PRIV(op)->read_vec);
+        PRIV(op)->~blockstore_op_private_t();
+    }
+    reads_in_flight.clear();
     // Metadata block buffers are normally freed by the write completion callback,
     // so anything still here was queued or in flight when we were destroyed
     for (auto & mb: modified_blocks)

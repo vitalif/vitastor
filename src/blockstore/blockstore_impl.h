@@ -108,6 +108,9 @@ public:
     uint8_t* meta_superblock = NULL;
     uint8_t *buffer_area = NULL;
     std::vector<blockstore_op_t*> submit_queue;
+    // Reads waiting for their disk requests. They're out of submit_queue already, but we
+    // still own their private state, including the read vector - see the destructor
+    robin_hood::unordered_flat_set<blockstore_op_t*> reads_in_flight;
     int unsynced_data_write_count = 0, unsynced_buffer_write_count = 0, unsynced_meta_write_count = 0;
     int unsynced_queued_ops = 0;
 
