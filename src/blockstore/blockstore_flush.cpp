@@ -296,13 +296,16 @@ resume_1:
         goto resume_0;
     }
     flusher->active_flushers++;
-    if (!compact_info.do_delete && bs->dsk.csum_block_size > bs->dsk.bitmap_granularity &&
-        compact_info.clean_wr->type() == BS_HEAP_BIG_INTENT)
+    if (!compact_info.do_delete && compact_info.clean_wr->type() == BS_HEAP_BIG_INTENT &&
+        (!bs->dsk.csum_block_size || bs->dsk.csum_block_size > bs->dsk.bitmap_granularity))
     {
         // Compaction merges newer writes into the data block in place, which changes bytes that
         // <clean_wr>'s checksums still describe. Reads never take those bytes from it, but the
-        // startup recheck does - and with a checksum block larger than the write granularity it
-        // can't skip just the overwritten parts, see blockstore_heap_t::recheck_verify().
+        // startup recheck does, and it can only skip the overwritten parts when a checksum block
+        // covers exactly one write granule. With a larger block an overwritten part poisons the
+        // checksum of the whole block, and with checksums disabled a big_intent still carries a
+        // single checksum of its whole extent - it's the only way to tell an unfinished in-place
+        // write from a finished one. Either way see blockstore_heap_t::recheck_verify().
         // So make sure the entry is out of the recheck's scope by persisting completed_lsn first.
         // It is below fsynced_lsn already - iterate_compaction() doesn't return anything above it
 resume_26:

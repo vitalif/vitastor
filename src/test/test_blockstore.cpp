@@ -1290,14 +1290,24 @@ static void test_write_stays_in_same_meta_block()
 // whole block. So before overwriting the block the flusher has to persist completed_lsn, which
 // puts the base entry out of the recheck's scope entirely. Otherwise a crash in the middle of a
 // compaction makes recovery declare the base entry unfinished and drop the whole object
-static void test_compact_big_intent_survives_crash()
+// Compaction merges newer writes into the base data block in place, so after a crash the base
+// entry's checksums no longer match the block. The startup recheck may only skip the parts which
+// newer entries overwrite when one checksum block covers exactly one write granule. With a larger
+// block - and with checksums disabled, where a big_intent still carries a single checksum of its
+// whole extent - it can't, so the flusher has to persist completed_lsn before touching the block
+static void test_compact_big_intent_survives_crash(uint32_t csum_block)
 {
-    printf("\n-- test_compact_big_intent_survives_crash\n");
+    printf("\n-- test_compact_big_intent_survives_crash(csum_block=%u)\n", csum_block);
 
     bs_test_t test;
     test.default_cfg();
-    // A checksum block larger than the write granularity is what makes the skipping inexact
-    test.config["csum_block_size"] = "16384";
+    if (csum_block)
+        test.config["csum_block_size"] = std::to_string(csum_block);
+    else
+    {
+        test.config["data_csum_type"] = "none";
+        test.config.erase("csum_block_size");
+    }
     // A big write becomes a redirect intent - and thus a big_intent entry - only when the data
     // fsync is enabled and the write is stable
     test.config["disable_data_fsync"] = "0";
@@ -1489,7 +1499,8 @@ int main(int narg, char *args[])
     test_list_limit();
     test_write_no_space_eagain();
     test_write_stays_in_same_meta_block();
-    test_compact_big_intent_survives_crash();
     test_read_merge_exact_partial_blocks();
+    test_compact_big_intent_survives_crash(16384);
+    test_compact_big_intent_survives_crash(0);
     return 0;
 }
