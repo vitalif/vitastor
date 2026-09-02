@@ -2529,6 +2529,125 @@ static void test_recovered_state_is_made_durable()
     free(buf);
 }
 
+// With immediate_commit=none an operation only pre-fills its journal entry and leaves the sector
+// to be written out by a later sync. If a sync in the same batch has already queued that sector
+// for writing, the entry goes to the disk with that write anyway - but the sector used to be left
+// dirty, and then the next operation to write it out queued a second write of the very same
+// sector while the first one was still in flight
+static void test_no_double_submit_of_journal_sector()
+{
+    printf("\n-- test_no_double_submit_of_journal_sector\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // Sectors are only written out by a sync in this mode
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 8192);
+    memset(buf, 0xAA, 8192);
+
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = oid;
+    op.buf = buf;
+    op.offset = 0;
+
+    printf("create the object - a write to an object which doesn't exist yet is a big one\n");
+    op.version = 1;
+    op.len = 8192;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    blockstore_op_t sync0;
+    sync0.opcode = BS_OP_SYNC;
+    sync0.buf = NULL;
+    test.exec_op(&sync0);
+    assert(sync0.retval == 0);
+
+    printf("write v2 (small) - it only pre-fills its entry, leaving the sector dirty\n");
+    op.version = 2;
+    memset(buf, 0xBB, 8192);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    // Hold every journal sector write in flight and watch for a second write of the same one.
+    // Journal data writes of the small writes below are 8 KB, so they don't look like a sector
+    // write, and the journal superblock at offset 0 is written by trimming, not by us
+    uint64_t jstart = test.dsk().journal_offset, jlen = test.dsk().journal_len;
+    uint64_t jblock = test.dsk().journal_block_size;
+    std::map<uint64_t, int> inflight_sectors;
+    std::vector<ring_data_t*> held;
+    bool submitted_twice = false;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_WRITEV &&
+            ((iovec*)sqe->addr)[0].iov_len == jblock &&
+            sqe->off > jstart && sqe->off < jstart+jlen)
+        {
+            if (inflight_sectors[sqe->off]++ > 0)
+                submitted_twice = true;
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            held.push_back((ring_data_t*)sqe->user_data);
+            return true;
+        }
+        return false;
+    };
+
+    printf("a sync and a write v3 in the same batch - the sync queues the sector, v3 appends to it\n");
+    blockstore_op_t sync1;
+    bool sync1_done = false;
+    sync1.opcode = BS_OP_SYNC;
+    sync1.buf = NULL;
+    sync1.callback = [&](blockstore_op_t *op) { sync1_done = true; };
+    blockstore_op_t wr3;
+    bool wr3_done = false;
+    wr3.opcode = BS_OP_WRITE_STABLE;
+    wr3.oid = oid;
+    wr3.version = 3;
+    wr3.offset = 0;
+    wr3.len = 8192;
+    wr3.buf = buf;
+    wr3.callback = [&](blockstore_op_t *op) { wr3_done = true; };
+    test.bs->enqueue_op(&sync1);
+    test.bs->enqueue_op(&wr3);
+    test.ringloop->loop();
+    assert(held.size() == 1);
+    assert(!sync1_done);
+
+    printf("write v4 - it must not queue a second write of the sector held above\n");
+    blockstore_op_t wr4;
+    bool wr4_done = false;
+    wr4.opcode = BS_OP_WRITE_STABLE;
+    wr4.oid = oid;
+    wr4.version = 4;
+    wr4.offset = 0;
+    wr4.len = 8192;
+    wr4.buf = buf;
+    wr4.callback = [&](blockstore_op_t *op) { wr4_done = true; };
+    test.bs->enqueue_op(&wr4);
+    for (int i = 0; i < 20 && !wr4_done; i++)
+        test.ringloop->loop();
+    assert(!submitted_twice);
+
+    printf("releasing the held journal writes\n");
+    test.sqe_handler = NULL;
+    for (auto *data: held)
+        test.ringloop->mark_completed(data);
+    held.clear();
+    while (!sync1_done || !wr3_done || !wr4_done)
+        test.ringloop->loop();
+    assert(sync1.retval == 0);
+    assert(wr3.retval == (int)wr3.len);
+    assert(wr4.retval == (int)wr4.len);
+    assert(!submitted_twice);
+
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -2557,6 +2676,7 @@ int main(int narg, char *args[])
     test_delete_over_big_write_in_flying_sync();
     test_second_sync_waits_for_the_first();
     test_ack_waits_for_earlier_journal_data();
+    test_no_double_submit_of_journal_sector();
     test_recovered_state_is_made_durable();
     return 0;
 }

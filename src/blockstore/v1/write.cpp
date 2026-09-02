@@ -598,7 +598,13 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
             ? (uint8_t*)dirty_it->second.dyn_data+sizeof(int) : (uint8_t*)&dirty_it->second.dyn_data), dyn_size);
         je->crc32 = je_crc32((journal_entry*)je);
         journal.crc32_last = je->crc32;
-        if (immediate_commit != IMMEDIATE_NONE)
+        // With immediate_commit=none we normally leave the sector to be written out by a later
+        // sync. But if it is already queued for writing in this same batch, our entry goes to
+        // the disk with that write anyway - so join it instead of leaving the sector dirty,
+        // otherwise the next operation to write the sector out would queue a second write of
+        // it while the first one is still in flight. It costs no extra I/O: the write is
+        // already prepared, so prepare_journal_sector_write() only subscribes us to it
+        if (immediate_commit != IMMEDIATE_NONE || journal.sector_info[journal.cur_sector].submit_id)
         {
             prepare_journal_sector_write(journal.cur_sector, op);
         }
@@ -964,7 +970,8 @@ int blockstore_impl_t::dequeue_del(blockstore_op_t *op)
     je->crc32 = je_crc32((journal_entry*)je);
     journal.crc32_last = je->crc32;
     dirty_it->second.state = BS_ST_DELETE | BS_ST_SUBMITTED;
-    if (immediate_commit != IMMEDIATE_NONE)
+    // Join a sector write which is already queued in this same batch, see dequeue_write()
+    if (immediate_commit != IMMEDIATE_NONE || journal.sector_info[journal.cur_sector].submit_id)
     {
         prepare_journal_sector_write(journal.cur_sector, op);
     }
