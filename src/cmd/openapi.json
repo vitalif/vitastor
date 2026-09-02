@@ -728,7 +728,7 @@
             "ImageListParams": {
                 "type": "object",
                 "properties": {
-                    "globs": { "type": "array", "items": { "type": "string" }, "description": "Glob patterns or exact name matches" },
+                    "names": { "type": "array", "items": { "type": "string" }, "description": "Glob patterns or exact name matches" },
                     "exact": { "type": "boolean", "description": "Treat globs as exact name matches, not as patterns" },
                     "pool_id": { "type": "integer", "format": "uint64", "description": "Pool ID to list" },
                     "pool_name": { "type": "string", "description": "Pool name to list" },
