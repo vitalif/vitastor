@@ -165,6 +165,9 @@ class blockstore_impl_t: public blockstore_i
     uint8_t *clean_bitmaps = NULL;
     blockstore_dirty_db_t dirty_db;
     std::vector<blockstore_op_t*> submit_queue;
+    // Reads waiting for their disk requests. They're out of submit_queue already, but we
+    // still own their private state, including the read vector - see the destructor
+    std::set<blockstore_op_t*> reads_in_flight;
     std::set<blockstore_op_t*> own_ops;
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     int unsynced_big_write_count = 0, unstable_unsynced = 0;

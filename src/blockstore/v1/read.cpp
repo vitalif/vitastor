@@ -580,6 +580,7 @@ int blockstore_impl_t::dequeue_read(blockstore_op_t *read_op)
         }
     }
     read_op->retval = 0;
+    reads_in_flight.insert(read_op);
     return 2;
 undo_read:
     // need to wait. undo added requests, don't dequeue op
@@ -1106,6 +1107,7 @@ void blockstore_impl_t::handle_read_event(ring_data_t *data, blockstore_op_t *op
         }
         if (op->retval == 0)
             op->retval = op->len;
+        reads_in_flight.erase(op);
         FINISH_OP(op);
     }
 }

@@ -58,6 +58,14 @@ blockstore_impl_t::~blockstore_impl_t()
             PRIV(op)->~blockstore_op_private_t();
     }
     submit_queue.clear();
+    // Reads which were waiting for the disk own their read vector, and nobody is going to
+    // complete them now
+    for (auto op: reads_in_flight)
+    {
+        release_read_vec(op);
+        PRIV(op)->~blockstore_op_private_t();
+    }
+    reads_in_flight.clear();
     // Destroy our own operations
     for (auto op: own_ops)
     {
