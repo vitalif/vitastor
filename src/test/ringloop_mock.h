@@ -97,6 +97,7 @@ class disk_mock_t
     std::vector<bool> sector_written;
 
     void set_buffer(uint64_t end, uint8_t *buf, uint64_t len);
+    void commit_buffers();
     void erase_buffers(uint64_t begin, uint64_t end);
     ssize_t copy_from_sqe(io_uring_sqe *sqe, uint8_t *to, uint64_t base_offset, uint64_t limit = UINT64_MAX);
     void read_item(uint8_t *to, uint64_t offset, uint64_t len);

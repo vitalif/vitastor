@@ -12,6 +12,14 @@
 // checksums. A model of what was written is kept alongside, and after every simulated
 // power outage the recovered state is checked against it.
 //
+// The workload is a single loop of independent steps: every step either submits one more
+// operation, lets the simulation run for one event, restarts the store or pulls the plug.
+// Nothing waits for anything, so an outage lands wherever it lands - in the middle of a
+// write, of a sync, of a stabilize or of a rollback alike. What has to follow an operation
+// follows it asynchronously, from its completion: with capacitors a two-phase write becomes
+// stabilizable as soon as it completes, without them a sync makes everything it covered
+// stabilizable when the sync itself completes.
+//
 // The seed picks the configuration too, so a failing run is replayed exactly by passing
 // the seed it printed. Run with -h for the options.
 
@@ -35,25 +43,42 @@
 // Size of the external bitmap the store keeps per object version: one bit per granule
 #define BMP_SIZE (OBJ_SIZE/GRAN/8)
 
-// How often the test does what. The first four are relative weights of the round types,
-// the rest are percentages of the decisions taken inside a round. Setting one to zero turns
-// the corresponding operation off entirely, which is how a workload without deletions or
-// without rollbacks is tested
+// What one step of the test does. The first group is the relative weight of each possible
+// action - they're weights, not percentages, and only their ratio matters. Setting one to
+// zero turns the corresponding action off entirely, which is how a workload without
+// deletions or without rollbacks is tested
 struct chaos_probs_t
 {
-    uint32_t write_round = 55, read_round = 20, restart_round = 10, crash_round = 15;
-    // Delete an existing object instead of writing to it
-    uint32_t del = 12;
-    // Sync after the writes of a write round, then stabilize what was synced,
-    // or roll it back instead (two-phase mode only - an instant write is stable at once)
-    uint32_t sync = 75, stabilize = 75, rollback = 25;
-    // Read the whole object instead of a random range
+    // Submit nothing, just let the simulation run for one event
+    uint32_t wait = 500;
+    uint32_t write = 60, del = 6, read = 40, sync = 30, stabilize = 50, rollback = 6;
+    // Restart the store cleanly - everything in flight is allowed to finish first
+    uint32_t restart = 1;
+    // Pull the plug right now, whatever happens to be in flight
+    uint32_t crash = 2;
+    // Read the whole object instead of a random range, in percent
     uint32_t full_read = 25;
-    // Sync before pulling the plug in a crash round
-    uint32_t crash_sync = 50;
+    // How many operations may be in flight at once. When the limit is reached, a step
+    // waits for one of them to complete instead of submitting anything
+    uint32_t max_inflight = 8;
 };
 
 static chaos_probs_t probs;
+
+// What a single step decided to do
+enum chaos_action_t
+{
+    ACT_CRASH = 0,
+    ACT_RESTART,
+    ACT_WRITE,
+    ACT_DELETE,
+    ACT_READ,
+    ACT_SYNC,
+    ACT_STABILIZE,
+    ACT_ROLLBACK,
+    ACT_WAIT,
+    ACT_COUNT,
+};
 
 // One point of the configuration matrix. The two implementations are supposed to have
 // identical semantics, so the very same workload and the very same checks run against both.
@@ -105,6 +130,9 @@ struct obj_model_t
     uint64_t durable = 0;
     // Next version number to hand to the store
     uint64_t next_version = 1;
+    // Sequence number of the last acknowledged deletion. Everything below it is gone from
+    // the store, so a sync completing with an older snapshot doesn't make it stabilizable
+    uint64_t deleted_upto = 0;
     // Whether `durable` names a version that this store instance actually stabilized, and
     // therefore still holds as a distinct version we can roll back to. Recovery resets it:
     // the version we called durable may have been flushed into a single clean entry by then.
@@ -126,6 +154,10 @@ struct pending_t
     blockstore_op_t op = {};
     bool done = false;
     int obj = -1;
+    // Objects this operation refers to. While it's in flight no other operation may touch
+    // them, which is what keeps the model unambiguous: the base content of a write and the
+    // expected result of a read can't change under it
+    std::vector<int> touched;
     // Sequence number in the model, and the version number handed to the store
     uint64_t version = 0;
     uint64_t bs_version = 0;
@@ -134,6 +166,8 @@ struct pending_t
     std::vector<uint8_t> bitmap;
     // For a stabilize op: every (object, version) pair it carries
     std::vector<std::pair<int, uint64_t>> stabilized;
+    // Model update to run if - and only if - the operation completed successfully
+    std::function<void()> on_success;
 };
 
 template<class BS>
@@ -146,10 +180,20 @@ struct chaos_t
     disk_mock_t *data_disk = NULL, *meta_disk = NULL;
     BS *bs = NULL;
     obj_model_t objs[OBJ_COUNT];
-    uint64_t crashes = 0, writes = 0, deletes = 0, rollbacks = 0, refused_writes = 0, checked_reads = 0, round = 0;
+    uint64_t crashes = 0, restarts = 0, writes = 0, deletes = 0, syncs = 0, stabilizes = 0;
+    uint64_t rollbacks = 0, refused_writes = 0, checked_reads = 0, step_no = 0;
     bool use_fsync = false, instant_writes = false;
     uint64_t seq_id = 0;
     bool trace = false;
+
+    // Operations submitted but not yet accounted for
+    std::vector<pending_t*> inflight;
+    // Number of in-flight operations referring to each object
+    int busy[OBJ_COUNT] = {};
+    int sync_inflight = 0, rollback_inflight = 0;
+    // Object -> the highest sequence number which is written and synced, but not stable yet.
+    // Filled in from operation completions, drained by ACT_STABILIZE
+    std::map<int, uint64_t> to_stabilize;
 
     void configure(const chaos_cfg_t & cfg, int meta_format)
     {
@@ -236,6 +280,9 @@ struct chaos_t
     ~chaos_t()
     {
         destroy();
+        for (auto *p: inflight)
+            free_op(p);
+        inflight.clear();
         if (sim)
         {
             delete sim;
@@ -275,6 +322,12 @@ struct chaos_t
         return (object_id){ .inode = 1, .stripe = (uint64_t)i * OBJ_SIZE };
     }
 
+    bool exists(int obj)
+    {
+        auto & m = objs[obj];
+        return m.acked && !m.content.at(m.acked).empty();
+    }
+
     // Self-describing payload: every record says which object, which version and which
     // offset wrote it, so a mismatch tells exactly where the stale data came from. Its
     // size divides the write granularity, so records never straddle a write or a read.
@@ -311,7 +364,9 @@ struct chaos_t
         return m.content.at(m.acked);
     }
 
-    pending_t *submit(pending_t *p)
+    // Hand an operation to the store. Only the callback and the trace line - see submit()
+    // for the tracked variant, which is what the workload uses
+    void enqueue(pending_t *p)
     {
         p->seq_id = ++seq_id;
         if (trace)
@@ -323,7 +378,26 @@ struct chaos_t
             p->done = true;
         };
         bs->enqueue_op(&p->op);
+    }
+
+    pending_t *submit(pending_t *p)
+    {
+        for (int o: p->touched)
+            busy[o]++;
+        if (p->op.opcode == BS_OP_SYNC)
+            sync_inflight++;
+        else if (p->op.opcode == BS_OP_ROLLBACK)
+            rollback_inflight++;
+        enqueue(p);
+        inflight.push_back(p);
         return p;
+    }
+
+    void free_op(pending_t *p)
+    {
+        if (p->op.buf)
+            free(p->op.buf);
+        delete p;
     }
 
     pending_t *submit_write(int obj)
@@ -334,6 +408,7 @@ struct chaos_t
         uint64_t version = ++m.submitted;
         auto *p = new pending_t();
         p->obj = obj;
+        p->touched.push_back(obj);
         p->version = version;
         p->bs_version = m.next_version++;
         p->content = base_content(obj);
@@ -347,6 +422,7 @@ struct chaos_t
         memcpy(p->op.buf, p->content.data() + offset, len);
         p->bitmap.assign(BMP_SIZE, bitmap_byte(obj, p->bs_version));
         p->op.bitmap = p->bitmap.data();
+        p->on_success = [this, obj]() { written(obj); };
         writes++;
         if (trace)
             printf("%s %jx:%jx v%ju %ju +%ju", instant_writes ? "write_stable" : "write", p->op.oid.inode, p->op.oid.stripe, p->bs_version, offset, len);
@@ -360,6 +436,7 @@ struct chaos_t
         auto & m = objs[obj];
         auto *p = new pending_t();
         p->obj = obj;
+        p->touched.push_back(obj);
         p->version = ++m.submitted;
         p->bs_version = m.next_version++;
         p->op.opcode = BS_OP_DELETE;
@@ -368,6 +445,7 @@ struct chaos_t
         p->op.offset = 0;
         p->op.len = 0;
         p->op.buf = NULL;
+        p->on_success = [this, obj]() { written(obj); };
         deletes++;
         if (trace)
             printf("delete %jx:%jx v%ju", p->op.oid.inode, p->op.oid.stripe, p->bs_version);
@@ -378,6 +456,14 @@ struct chaos_t
     {
         auto *p = new pending_t();
         p->op.opcode = BS_OP_SYNC;
+        // What the sync is going to cover: everything acknowledged by the time it was
+        // submitted. Anything acknowledged later may or may not make it in, so it isn't
+        // counted - the snapshot is a lower bound, which is all the model needs
+        std::vector<uint64_t> covered(OBJ_COUNT);
+        for (int obj = 0; obj < OBJ_COUNT; obj++)
+            covered[obj] = objs[obj].acked;
+        p->on_success = [this, covered]() { synced(covered); };
+        syncs++;
         if (trace)
             printf("sync");
         return submit(p);
@@ -401,197 +487,421 @@ struct chaos_t
                 .oid = oid(entries[i].first),
                 .version = objs[entries[i].first].ver.at(entries[i].second),
             };
+            p->touched.push_back(entries[i].first);
             if (trace)
                 printf("%s%jx:%jx v%ju", i > 0 ? ", " : "", ov.oid.inode, ov.oid.stripe, ov.version);
         }
         return submit(p);
     }
 
-    void wait_all(std::vector<pending_t*> & batch)
+    // ---- model updates driven by completions ----
+
+    // A write or a deletion of `obj` completed. Whether that already makes it durable, and
+    // whether it now needs a stabilize, is exactly the difference between the configurations
+    void written(int obj)
     {
-        bool ok = sim->run_until([&batch]()
+        auto & m = objs[obj];
+        if (m.content.at(m.acked).empty())
         {
-            for (auto *p: batch)
-                if (!p->done)
-                    return false;
-            return true;
-        }, MAX_STEPS);
-        if (!ok)
-        {
-            fprintf(stderr, "round %ju: operations did not complete in %d steps at t=%juus - deadlock?\n",
-                round, MAX_STEPS, sim->now_us);
-            for (auto *p: batch)
-                if (!p->done)
-                    fprintf(stderr, "  stuck: opcode=%ju %jx:%jx v%ju %u+%u\n", p->op.opcode,
-                        p->op.oid.inode, p->op.oid.stripe, p->op.version, p->op.offset, p->op.len);
-            bs->dump_diagnostics();
-            dump_extra(bs);
-            fflush(stdout);
-            abort();
+            // The object is gone, so the next write starts numbering over again
+            m.next_version = 1;
+            m.can_rollback = false;
+            m.deleted_upto = m.acked;
+            to_stabilize.erase(obj);
         }
+        if (use_fsync)
+        {
+            // The disk has a volatile cache: nothing is guaranteed until a sync
+            return;
+        }
+        m.synced = m.acked;
+        promote(obj);
     }
 
-    void free_batch(std::vector<pending_t*> & batch)
+    // A sync covering `covered` completed
+    void synced(const std::vector<uint64_t> & covered)
     {
-        for (auto *p: batch)
+        for (int obj = 0; obj < OBJ_COUNT; obj++)
         {
-            if (p->op.buf)
-                free(p->op.buf);
-            delete p;
-        }
-        batch.clear();
-    }
-
-    // Write to a few objects at once, then optionally sync and stabilize. A version
-    // counts as durable once its write was synced and then stabilized, because
-    // stabilizing fsyncs the journal itself in both implementations. Writes made with
-    // BS_OP_WRITE_STABLE are stable already, so for them the sync alone is enough.
-    void do_write_round()
-    {
-        std::vector<pending_t*> batch;
-        std::set<int> touched;
-        int n = (int)rnd(1, OBJ_COUNT);
-        for (int i = 0; i < n; i++)
-        {
-            int obj = (int)rnd(0, OBJ_COUNT-1);
-            if (touched.find(obj) != touched.end())
+            auto & m = objs[obj];
+            // A deletion may have wiped out part of what the sync covered while it was in
+            // flight, and then the versions below it don't exist any more - stabilizing
+            // them would be as wrong here as it would be in an OSD
+            if (!covered[obj] || covered[obj] > m.acked || covered[obj] <= m.synced ||
+                covered[obj] < m.deleted_upto || !m.content.count(covered[obj]))
                 continue;
-            touched.insert(obj);
-            auto & m = objs[obj];
-            bool exists = m.acked && !m.content.at(m.acked).empty();
-            // Deleting a non-existent object is a no-op that the store answers right away
-            // without creating an entry, so only delete what is actually there
-            if (exists && chance(probs.del))
-                batch.push_back(submit_delete(obj));
-            else
-                batch.push_back(submit_write(obj));
-        }
-        wait_all(batch);
-        for (auto *p: batch)
-        {
-            auto & m = objs[p->obj];
-            if (p->op.opcode == BS_OP_DELETE ? p->op.retval == 0 : p->op.retval == (int)p->op.len)
-            {
-                m.acked = p->version;
-                // p->content stays empty for a deletion, which is how the model spells "gone"
-                m.content[p->version] = p->content;
-                m.ver[p->version] = p->bs_version;
-                if (p->op.opcode != BS_OP_DELETE)
-                    m.bmp[p->version] = bitmap_byte(p->obj, p->bs_version);
-                if (p->op.opcode == BS_OP_DELETE)
-                {
-                    // The object is gone, so the next write starts numbering over again
-                    m.next_version = 1;
-                    m.can_rollback = false;
-                }
-            }
-            else if (p->op.retval == -EAGAIN)
-            {
-                // Journal is full and the flusher can't keep up - expected under pressure
-                refused_writes++;
-            }
-            else
-            {
-                fprintf(stderr, "write of %jx:%jx v%ju failed with retval=%jd\n",
-                    p->op.oid.inode, p->op.oid.stripe, p->version, (int64_t)p->op.retval);
-                abort();
-            }
-        }
-        free_batch(batch);
-        if (!chance(probs.sync))
-            return;
-        batch.push_back(submit_sync());
-        wait_all(batch);
-        bool synced = batch[0]->op.retval == 0;
-        free_batch(batch);
-        if (!synced)
-            return;
-        for (int obj: touched)
-        {
-            auto & m = objs[obj];
-            m.synced = m.acked;
-            // A version written with BS_OP_WRITE_STABLE is stable as soon as it's written,
-            // and so is a deletion. For those the sync we just did already made it durable,
-            // and stabilizing them would be wrong - there is nothing to commit.
-            bool already_stable = instant_writes || m.synced && m.content.at(m.synced).empty();
-            if (already_stable && m.synced > m.durable)
-            {
-                m.durable = m.synced;
-                prune(obj);
-            }
-        }
-        if (!chance(probs.stabilize))
-            return;
-        // Sometimes throw the unstable versions away instead of committing them. Only the
-        // two-phase mode has anything to roll back - an instant write is stable at once.
-        if (!instant_writes && chance(probs.rollback) && do_rollback_round(touched))
-            return;
-        std::vector<std::pair<int, uint64_t>> stabilized;
-        for (int obj: touched)
-            if (objs[obj].synced > objs[obj].durable)
-                stabilized.push_back(std::make_pair(obj, objs[obj].synced));
-        if (!stabilized.size())
-            return;
-        batch.push_back(submit_stable(stabilized));
-        wait_all(batch);
-        if (batch[0]->op.retval != 0)
-        {
-            fprintf(stderr, "stabilize of %zu version(s) starting at %jx:%jx v%ju failed with retval=%jd\n",
-                stabilized.size(), oid(stabilized[0].first).inode, oid(stabilized[0].first).stripe,
-                stabilized[0].second, (int64_t)batch[0]->op.retval);
-            abort();
-        }
-        free_batch(batch);
-        for (auto & s: stabilized)
-        {
-            objs[s.first].durable = s.second;
-            objs[s.first].can_rollback = true;
-            prune(s.first);
+            m.synced = covered[obj];
+            promote(obj);
         }
     }
 
-    // Roll the objects back to their last stable version, dropping everything written
-    // after it. Returns false if there was nothing to roll back.
-    bool do_rollback_round(const std::set<int> & touched)
+    // Everything up to `synced` is on the disk now. A deletion and a BS_OP_WRITE_STABLE
+    // write are stable by themselves, so for them that already means durable; a two-phase
+    // write still has to be stabilized, which happens asynchronously from ACT_STABILIZE
+    void promote(int obj)
     {
+        auto & m = objs[obj];
+        if (m.synced <= m.durable)
+            return;
+        if (instant_writes || m.content.at(m.synced).empty())
+        {
+            m.durable = m.synced;
+            prune(obj);
+        }
+        else
+            to_stabilize[obj] = m.synced;
+    }
+
+    // ---- the steps themselves ----
+
+    chaos_action_t pick_action()
+    {
+        const uint32_t w[ACT_COUNT] = {
+            probs.crash, probs.restart, probs.write, probs.del,
+            probs.read, probs.sync, probs.stabilize, probs.rollback, probs.wait,
+        };
+        uint64_t total = 0;
+        for (int i = 0; i < ACT_COUNT; i++)
+            total += w[i];
+        if (!total)
+            return ACT_WAIT;
+        uint64_t dice = rnd(0, total-1), acc = 0;
+        for (int i = 0; i < ACT_COUNT; i++)
+        {
+            acc += w[i];
+            if (dice < acc)
+                return (chaos_action_t)i;
+        }
+        return ACT_WAIT;
+    }
+
+    void step()
+    {
+        reap();
+        auto action = pick_action();
+        if (action == ACT_CRASH)
+        {
+            do_crash();
+            return;
+        }
+        if (action == ACT_RESTART)
+        {
+            do_restart();
+            return;
+        }
+        bool submitted = false;
+        if (inflight.size() < probs.max_inflight)
+        {
+            switch (action)
+            {
+            case ACT_WRITE:     submitted = try_write(false); break;
+            case ACT_DELETE:    submitted = try_write(true); break;
+            case ACT_READ:      submitted = try_read(); break;
+            case ACT_SYNC:      submitted = try_sync(); break;
+            case ACT_STABILIZE: submitted = try_stabilize(); break;
+            case ACT_ROLLBACK:  submitted = try_rollback(); break;
+            default:            break;
+            }
+        }
+        if (submitted)
+            return;
+        if (inflight.size() >= probs.max_inflight)
+        {
+            // The queue is full - wait for room. Nothing completing at all within the step
+            // budget is the only way a hang shows up, so this is where it's caught
+            if (!sim->run_until([this]()
+                {
+                    for (auto *p: inflight)
+                        if (p->done)
+                            return true;
+                    return false;
+                }, MAX_STEPS))
+                report_deadlock();
+            return;
+        }
+        sim->step();
+    }
+
+    // Fold every completed operation into the model and free it
+    void reap()
+    {
+        for (size_t i = 0; i < inflight.size(); )
+        {
+            auto *p = inflight[i];
+            if (!p->done)
+            {
+                i++;
+                continue;
+            }
+            inflight.erase(inflight.begin()+i);
+            account(p);
+            free_op(p);
+        }
+    }
+
+    // Only one operation at a time may refer to an object: that way the base content of a
+    // write and the expected result of a read can't change while they're in flight
+    std::vector<int> free_objects(bool must_exist)
+    {
+        std::vector<int> res;
+        for (int obj = 0; obj < OBJ_COUNT; obj++)
+            if (!busy[obj] && (!must_exist || exists(obj)))
+                res.push_back(obj);
+        return res;
+    }
+
+    // Deleting a non-existent object is a no-op that the store answers right away without
+    // creating an entry, so only delete what is actually there
+    bool try_write(bool del)
+    {
+        auto cand = free_objects(del);
+        if (!cand.size())
+            return false;
+        int obj = cand[rnd(0, cand.size()-1)];
+        if (del)
+            submit_delete(obj);
+        else
+            submit_write(obj);
+        return true;
+    }
+
+    // Read a random part of a random object. Ranges are aligned to the write granularity
+    // but not to the checksum block size, so they cut across checksum blocks and across
+    // the boundaries of the extents that were actually written.
+    bool try_read()
+    {
+        auto cand = free_objects(false);
+        if (!cand.size())
+            return false;
+        int obj = cand[rnd(0, cand.size()-1)];
+        uint64_t offset = 0, len = OBJ_SIZE;
+        if (!chance(probs.full_read))
+        {
+            offset = rnd(0, OBJ_SIZE/GRAN - 1) * GRAN;
+            len = rnd(1, (OBJ_SIZE - offset)/GRAN) * GRAN;
+        }
+        auto *p = new pending_t();
+        p->obj = obj;
+        p->touched.push_back(obj);
+        fill_read(p, obj, offset, len);
+        submit(p);
+        return true;
+    }
+
+    bool try_sync()
+    {
+        // A rollback rewrites the model, so don't let a snapshot of it fly across one
+        if (rollback_inflight)
+            return false;
+        submit_sync();
+        return true;
+    }
+
+    // Commit whatever completions have made stabilizable so far. Objects are picked from
+    // to_stabilize, so a stabilize covers several of them exactly when several of them
+    // happened to become ready - which is what an OSD does too
+    bool try_stabilize()
+    {
+        std::vector<std::pair<int, uint64_t>> entries;
+        for (auto & s: to_stabilize)
+        {
+            auto & m = objs[s.first];
+            if (!busy[s.first] && s.second > m.durable && s.second <= m.synced &&
+                m.ver.count(s.second) && m.content.count(s.second))
+                entries.push_back(s);
+        }
+        if (!entries.size())
+            return false;
+        entries.resize(rnd(1, entries.size()));
+        for (auto & e: entries)
+            to_stabilize.erase(e.first);
+        auto *p = submit_stable(entries);
+        p->on_success = [this, entries]()
+        {
+            for (auto & e: entries)
+            {
+                objs[e.first].durable = e.second;
+                objs[e.first].can_rollback = true;
+                prune(e.first);
+            }
+        };
+        stabilizes++;
+        return true;
+    }
+
+    // Throw the unstable versions away instead of committing them. Only the two-phase mode
+    // has anything to roll back - an instant write is stable at once. Rolling back to "no
+    // version at all" isn't expressible here, and a deletion is stable by itself, so only
+    // objects that have a stable version below the newest one can be rolled back
+    bool try_rollback()
+    {
+        if (instant_writes || rollback_inflight || sync_inflight)
+            return false;
         std::vector<std::pair<int, uint64_t>> rolled;
-        for (int obj: touched)
+        for (int obj = 0; obj < OBJ_COUNT; obj++)
         {
             auto & m = objs[obj];
-            // Rolling back to "no version at all" isn't expressible here, and a deletion
-            // is stable by itself, so only objects that have a stable version below the
-            // newest one can be rolled back
-            if (m.can_rollback && m.acked > m.durable && !m.content.at(m.durable).empty())
+            if (!busy[obj] && m.can_rollback && m.acked > m.durable &&
+                m.content.count(m.durable) && !m.content.at(m.durable).empty())
                 rolled.push_back(std::make_pair(obj, m.durable));
         }
         if (!rolled.size())
             return false;
-        std::vector<pending_t*> batch;
-        batch.push_back(submit_stable(rolled, true));
-        wait_all(batch);
-        if (batch[0]->op.retval != 0)
+        rolled.resize(rnd(1, rolled.size()));
+        for (auto & r: rolled)
+            to_stabilize.erase(r.first);
+        auto *p = submit_stable(rolled, true);
+        p->on_success = [this, rolled]()
         {
-            fprintf(stderr, "rollback of %zu version(s) starting at %jx:%jx v%ju failed with retval=%jd\n",
-                rolled.size(), oid(rolled[0].first).inode, oid(rolled[0].first).stripe,
-                rolled[0].second, (int64_t)batch[0]->op.retval);
+            for (auto & r: rolled)
+            {
+                auto & m = objs[r.first];
+                // Everything above the stable version is gone, and the store's version counter
+                // for the object goes back to it as well
+                while (m.content.size() && m.content.rbegin()->first > m.durable)
+                {
+                    m.ver.erase(m.content.rbegin()->first);
+                    m.bmp.erase(m.content.rbegin()->first);
+                    m.content.erase(std::prev(m.content.end()));
+                }
+                m.acked = m.synced = m.durable;
+                m.next_version = m.ver.at(m.durable) + 1;
+                rollbacks++;
+            }
+        };
+        return true;
+    }
+
+    // Pull the plug right now. Whatever completed before the outage definitely happened;
+    // whatever was still in flight may or may not have, so its content is only recorded as
+    // a legal outcome. Every object then has to come back holding at least its durable
+    // version - or something newer that was actually written
+    void do_crash()
+    {
+        sim->power_loss();
+        crashes++;
+        for (auto *p: inflight)
+            account(p);
+        destroy();
+        for (auto *p: inflight)
+            free_op(p);
+        forget_inflight();
+        start_bs();
+        for (int obj = 0; obj < OBJ_COUNT; obj++)
+            check_recovered(obj, objs[obj].durable, "a power outage");
+    }
+
+    void forget_inflight()
+    {
+        inflight.clear();
+        for (int obj = 0; obj < OBJ_COUNT; obj++)
+            busy[obj] = 0;
+        sync_inflight = rollback_inflight = 0;
+        // The versions it named are either gone or renumbered by the recovery check
+        to_stabilize.clear();
+    }
+
+    // Wait for everything in flight to complete and fold it all into the model
+    void drain()
+    {
+        if (inflight.size())
+        {
+            if (!sim->run_until([this]()
+                {
+                    for (auto *p: inflight)
+                        if (!p->done)
+                            return false;
+                    return true;
+                }, MAX_STEPS))
+                report_deadlock();
+        }
+        reap();
+    }
+
+    void report_deadlock()
+    {
+        fprintf(stderr, "step %ju: operations did not complete in %d steps at t=%juus - deadlock?\n",
+            step_no, MAX_STEPS, sim->now_us);
+        for (auto *p: inflight)
+            if (!p->done)
+                fprintf(stderr, "  stuck: %s %jx:%jx v%ju %u+%u\n", op_name(p),
+                    p->op.oid.inode, p->op.oid.stripe, p->op.version, p->op.offset, p->op.len);
+        bs->dump_diagnostics();
+        dump_extra(bs);
+        fflush(stdout);
+        abort();
+    }
+
+    // Fold one finished - or interrupted - operation into the model
+    void account(pending_t *p)
+    {
+        for (int o: p->touched)
+            busy[o]--;
+        if (p->op.opcode == BS_OP_SYNC)
+            sync_inflight--;
+        else if (p->op.opcode == BS_OP_ROLLBACK)
+            rollback_inflight--;
+        if (p->op.opcode == BS_OP_READ)
+        {
+            // A read interrupted by an outage tells us nothing
+            if (p->done)
+                check_read_result(p);
+            return;
+        }
+        bool is_write = p->op.opcode == BS_OP_WRITE || p->op.opcode == BS_OP_WRITE_STABLE ||
+            p->op.opcode == BS_OP_DELETE;
+        bool ok = p->done && (p->op.opcode == BS_OP_WRITE || p->op.opcode == BS_OP_WRITE_STABLE
+            ? p->op.retval == (int)p->op.len : p->op.retval == 0);
+        if (p->done && !ok)
+        {
+            // Journal is full and the flusher can't keep up - expected under pressure.
+            // A sync may fail for the same reason, and then it simply didn't sync anything
+            if (is_write && p->op.retval == -EAGAIN)
+            {
+                refused_writes++;
+                return;
+            }
+            if (p->op.opcode == BS_OP_SYNC)
+                return;
+            if (p->stabilized.size())
+            {
+                // The entries of a stabilize live in the buffer, not in op.oid/op.version
+                fprintf(stderr, "%s failed with retval=%jd:", op_name(p), (int64_t)p->op.retval);
+                for (size_t i = 0; i < p->stabilized.size(); i++)
+                {
+                    auto & ov = ((obj_ver_id*)p->op.buf)[i];
+                    fprintf(stderr, " %jx:%jx v%ju", ov.oid.inode, ov.oid.stripe, ov.version);
+                }
+                fprintf(stderr, "\n");
+                abort();
+            }
+            fprintf(stderr, "%s of %jx:%jx v%ju failed with retval=%jd\n", op_name(p),
+                p->op.oid.inode, p->op.oid.stripe, p->op.version, (int64_t)p->op.retval);
             abort();
         }
-        free_batch(batch);
-        for (auto & r: rolled)
+        if (is_write)
         {
-            auto & m = objs[r.first];
-            // Everything above the stable version is gone, and the store's version counter
-            // for the object goes back to it as well
-            while (m.content.size() && m.content.rbegin()->first > m.durable)
-            {
-                m.ver.erase(m.content.rbegin()->first);
-                m.content.erase(std::prev(m.content.end()));
-            }
-            m.acked = m.synced = m.durable;
-            m.next_version = m.ver.at(m.durable) + 1;
-            rollbacks++;
+            // The content of a write which was in flight during an outage is just as legal an
+            // outcome as the content of one which completed. An empty vector spells "deleted"
+            auto & m = objs[p->obj];
+            m.content[p->version] = p->content;
+            m.ver[p->version] = p->bs_version;
+            if (p->op.opcode != BS_OP_DELETE)
+                m.bmp[p->version] = bitmap_byte(p->obj, p->bs_version);
+            if (ok)
+                m.acked = p->version;
         }
-        return true;
+        if (ok && p->on_success)
+            p->on_success();
+    }
+
+    static const char *op_name(pending_t *p)
+    {
+        return p->op.opcode == BS_OP_DELETE ? "delete"
+            : p->op.opcode == BS_OP_SYNC ? "sync"
+            : p->op.opcode == BS_OP_STABLE ? "stabilize"
+            : p->op.opcode == BS_OP_ROLLBACK ? "rollback"
+            : p->op.opcode == BS_OP_READ ? "read" : "write";
     }
 
     // Versions below the durable one can never be observed again
@@ -606,13 +916,8 @@ struct chaos_t
         }
     }
 
-    // Read the whole object and return its content, or empty if it doesn't exist
-    uint64_t last_read_version = 0;
-    std::vector<uint8_t> last_read_bitmap;
-    std::vector<uint8_t> read_object(int obj, int *retval, uint64_t offset = 0, uint64_t len = OBJ_SIZE)
+    void fill_read(pending_t *p, int obj, uint64_t offset, uint64_t len)
     {
-        std::vector<pending_t*> batch;
-        auto *p = new pending_t();
         p->op.opcode = BS_OP_READ;
         p->op.oid = oid(obj);
         p->op.version = UINT64_MAX;
@@ -624,82 +929,101 @@ struct chaos_t
         p->op.bitmap = p->bitmap.data();
         if (trace)
             printf("read %jx:%jx %u +%u", p->op.oid.inode, p->op.oid.stripe, p->op.offset, p->op.len);
-        batch.push_back(submit(p));
-        wait_all(batch);
+    }
+
+    // Read the whole object synchronously and return its content, or empty if it doesn't
+    // exist. Used by the recovery checks, where nothing else is in flight anyway
+    uint64_t last_read_version = 0;
+    std::vector<uint8_t> last_read_bitmap;
+    std::vector<uint8_t> read_object(int obj, int *retval)
+    {
+        auto *p = new pending_t();
+        fill_read(p, obj, 0, OBJ_SIZE);
+        enqueue(p);
+        if (!sim->run_until([p]() { return p->done; }, MAX_STEPS))
+        {
+            fprintf(stderr, "step %ju: a read of object %d did not complete in %d steps "
+                "at t=%juus - deadlock?\n", step_no, obj, MAX_STEPS, sim->now_us);
+            bs->dump_diagnostics();
+            dump_extra(bs);
+            fflush(stdout);
+            abort();
+        }
         *retval = p->op.retval;
         last_read_version = p->op.version;
         last_read_bitmap = p->bitmap;
         std::vector<uint8_t> res;
-        if (p->op.retval == (int)len)
-            res.assign(p->op.buf, p->op.buf + len);
-        free_batch(batch);
+        if (p->op.retval == (int)OBJ_SIZE)
+            res.assign(p->op.buf, p->op.buf + OBJ_SIZE);
+        free_op(p);
         return res;
     }
 
-    // With nothing in flight, a read of the newest version must return exactly what
-    // the last acknowledged write put there - stable or not
     // The store must return the external bitmap of exactly the version it returned
-    void check_bitmap(int obj, uint64_t version, const char *what)
+    void check_bitmap(int obj, uint64_t version, const std::vector<uint8_t> & got, const char *what)
     {
         auto & m = objs[obj];
         auto it = m.bmp.find(version);
         if (it == m.bmp.end())
             return;
         std::vector<uint8_t> want(BMP_SIZE, it->second);
-        if (last_read_bitmap != want)
+        if (got != want)
         {
             fprintf(stderr, "object %d %s returned the bitmap of another version: got %02x, expected %02x for v%ju\n",
-                obj, what, last_read_bitmap.size() ? last_read_bitmap[0] : 0, it->second, version);
+                obj, what, got.size() ? got[0] : 0, it->second, version);
             abort();
         }
     }
 
-    void check_read(int obj, uint64_t offset = 0, uint64_t len = OBJ_SIZE)
+    // No other operation may touch the object while a read of it is in flight, so a read
+    // of the newest version must return exactly what the last acknowledged write put there -
+    // stable or not
+    void check_read_result(pending_t *p)
     {
+        int obj = p->obj;
         auto & m = objs[obj];
-        int retval = 0;
-        auto got = read_object(obj, &retval, offset, len);
-        if (!m.acked || m.content.at(m.acked).empty())
+        uint64_t offset = p->op.offset, len = p->op.len;
+        if (!exists(obj))
         {
-            if (retval != -ENOENT)
+            if (p->op.retval != -ENOENT)
             {
-                fprintf(stderr, "read of %s object %d returned retval=%d\n",
-                    m.acked ? "deleted" : "never-written", obj, retval);
+                fprintf(stderr, "read of %s object %d returned retval=%jd\n",
+                    m.acked ? "deleted" : "never-written", obj, (int64_t)p->op.retval);
                 abort();
             }
             return;
         }
         std::vector<uint8_t> want(m.content.at(m.acked).begin() + offset,
             m.content.at(m.acked).begin() + offset + len);
-        if (retval != (int)len || got != want)
+        std::vector<uint8_t> got;
+        if (p->op.retval == (int)len)
+            got.assign(p->op.buf, p->op.buf + len);
+        if (p->op.retval != (int)len || got != want)
         {
-            fprintf(stderr, "read of object %d v%ju at %ju+%ju returned retval=%d, content %s\n",
-                obj, m.acked, offset, len, retval, retval == (int)len ? "mismatch" : "n/a");
+            fprintf(stderr, "read of object %d v%ju at %ju+%ju returned retval=%jd, content %s\n",
+                obj, m.acked, offset, len, (int64_t)p->op.retval,
+                p->op.retval == (int)len ? "mismatch" : "n/a");
             report_mismatch(obj, got, want, offset);
             abort();
         }
-        check_bitmap(obj, m.acked, "read");
+        check_bitmap(obj, m.acked, p->bitmap, "read");
         checked_reads++;
     }
 
-    // Read a random part of a random object. Ranges are aligned to the write granularity
-    // but not to the checksum block size, so they cut across checksum blocks and across
-    // the boundaries of the extents that were actually written.
-    void do_read_round()
+    // Synchronous whole-object check, for the very end of the run
+    void check_object(int obj)
     {
-        int n = (int)rnd(1, OBJ_COUNT);
-        for (int i = 0; i < n; i++)
+        auto *p = new pending_t();
+        p->obj = obj;
+        fill_read(p, obj, 0, OBJ_SIZE);
+        enqueue(p);
+        if (!sim->run_until([p]() { return p->done; }, MAX_STEPS))
         {
-            int obj = (int)rnd(0, OBJ_COUNT-1);
-            if (chance(probs.full_read))
-            {
-                check_read(obj);
-                continue;
-            }
-            uint64_t offset = rnd(0, OBJ_SIZE/GRAN - 1) * GRAN;
-            uint64_t len = rnd(1, (OBJ_SIZE - offset)/GRAN) * GRAN;
-            check_read(obj, offset, len);
+            fprintf(stderr, "the final read of object %d did not complete\n", obj);
+            abort();
         }
+        check_read_result(p);
+        free_op(p);
     }
 
     void report_mismatch(int obj, const std::vector<uint8_t> & got, const std::vector<uint8_t> & want, uint64_t base = 0)
@@ -720,62 +1044,13 @@ struct chaos_t
         }
     }
 
-    // Cut the power in the middle of a batch of operations, restart, and check that
-    // every object came back holding the content of *some* version between the last
-    // one we know is durable and the last one we ever submitted a write for.
-    void do_crash_round()
-    {
-        std::vector<pending_t*> batch;
-        int n = (int)rnd(1, OBJ_COUNT);
-        std::set<int> touched;
-        for (int i = 0; i < n; i++)
-        {
-            int obj = (int)rnd(0, OBJ_COUNT-1);
-            if (touched.find(obj) != touched.end())
-                continue;
-            touched.insert(obj);
-            batch.push_back(submit_write(obj));
-        }
-        if (chance(probs.crash_sync))
-            batch.push_back(submit_sync());
-        // Let the operations get partway through, then pull the plug
-        uint64_t steps = rnd(0, 40);
-        for (uint64_t i = 0; i < steps; i++)
-            sim->step();
-        for (auto *p: batch)
-        {
-            if (p->obj < 0)
-                continue;
-            auto & m = objs[p->obj];
-            if (p->done && p->op.retval == (int)p->op.len)
-            {
-                // Completed before the outage, so it definitely happened
-                m.acked = p->version;
-                m.content[p->version] = p->content;
-                m.bmp[p->version] = bitmap_byte(p->obj, p->bs_version);
-            }
-            else if (!p->done)
-            {
-                // Still in flight when the power went away: the blockstore may or may not
-                // have committed it, so record the content as a legal outcome only
-                m.content[p->version] = p->content;
-                m.bmp[p->version] = bitmap_byte(p->obj, p->bs_version);
-            }
-        }
-        sim->power_loss();
-        crashes++;
-        destroy();
-        free_batch(batch);
-        start_bs();
-        for (int obj = 0; obj < OBJ_COUNT; obj++)
-            check_recovered(obj, objs[obj].durable, "a power outage");
-    }
-
     // Restart without any power loss at all: everything in flight is allowed to finish
     // first, so nothing may be lost and every object must come back holding exactly what
     // its last acknowledged write put there
-    void do_restart_round()
+    void do_restart()
     {
+        drain();
+        restarts++;
         std::vector<std::vector<uint8_t>> before(OBJ_COUNT);
         std::vector<uint64_t> before_ver(OBJ_COUNT, 0);
         std::vector<int> before_rv(OBJ_COUNT, 0);
@@ -788,10 +1063,11 @@ struct chaos_t
         // under it, or an unfinished write would later execute against freed buffers
         if (!sim->run_until([this]() { return !sim->has_inflight(); }, MAX_STEPS))
         {
-            fprintf(stderr, "round %ju: disk did not go idle before a clean restart\n", round);
+            fprintf(stderr, "step %ju: disk did not go idle before a clean restart\n", step_no);
             abort();
         }
         destroy();
+        forget_inflight();
         start_bs();
         for (int obj = 0; obj < OBJ_COUNT; obj++)
         {
@@ -850,7 +1126,7 @@ struct chaos_t
                 // last durable one. So keep the durable content around as a legal outcome
                 // and only move the "current" pointer. Version numbers stay monotonic
                 // because the blockstore may still hold unstable versions above the match.
-                check_bitmap(obj, v.first, what);
+                check_bitmap(obj, v.first, last_read_bitmap, what);
                 std::vector<uint8_t> durable_content;
                 bool has_durable = m.durable && m.content.count(m.durable);
                 uint64_t durable_ver = has_durable ? m.ver.at(m.durable) : 0;
@@ -876,6 +1152,7 @@ struct chaos_t
                     m.bmp[m.submitted] = got_bmp_byte;
                 m.acked = m.synced = m.submitted;
                 m.can_rollback = false;
+                m.deleted_upto = 0;
                 // Continue numbering above whatever the store came back with, or start
                 // over from 1 if the object is gone
                 m.next_version = exists ? last_read_version+1 : 1;
@@ -891,6 +1168,7 @@ struct chaos_t
             m.bmp.clear();
             m.next_version = 1;
             m.can_rollback = false;
+            m.deleted_upto = 0;
             return;
         }
         fprintf(stderr, "object %d came back from %s %s, which is neither a version at or above "
@@ -915,47 +1193,35 @@ struct chaos_t
         abort();
     }
 
-    void run(uint64_t rounds)
+    void run(uint64_t steps)
     {
-        for (uint64_t i = 0; i < rounds; i++)
-        {
-            round = i;
-            uint64_t dice = rnd(0, probs.write_round + probs.read_round +
-                probs.restart_round + probs.crash_round - 1);
-            if (dice < probs.write_round)
-                do_write_round();
-            else if (dice < probs.write_round + probs.read_round)
-                do_read_round();
-            else if (dice < probs.write_round + probs.read_round + probs.restart_round)
-                do_restart_round();
-            else
-                do_crash_round();
-        }
-        // Everything durable must still be there at the end
+        for (step_no = 0; step_no < steps; step_no++)
+            step();
+        // Everything still in flight must complete, and everything durable must still be there
+        drain();
         for (int obj = 0; obj < OBJ_COUNT; obj++)
-            check_read(obj);
+            check_object(obj);
     }
 };
 
 template<class BS>
-static void run_impl(const chaos_cfg_t & cfg, int meta_format, uint32_t seed, uint64_t rounds, bool trace)
+static void run_impl(const chaos_cfg_t & cfg, int meta_format, uint32_t seed, uint64_t steps, bool trace)
 {
-    printf("\n-- chaos %s seed=%u rounds=%ju fsync=%d csum_block=%s writes=%s\n",
-        cfg.impl, seed, rounds, cfg.use_fsync ? 1 : 0,
+    printf("\n-- chaos %s seed=%u steps=%ju fsync=%d csum_block=%s writes=%s\n",
+        cfg.impl, seed, steps, cfg.use_fsync ? 1 : 0,
         cfg.csum_block ? std::to_string(cfg.csum_block).c_str() : "none",
         cfg.instant_writes ? "instant" : "two-phase");
     chaos_t<BS> t;
     t.configure(cfg, meta_format);
     t.trace = trace;
     t.create(seed);
-    t.run(rounds);
-    printf("OK: %ju writes (%ju refused with EAGAIN), %ju deletes, %ju rollbacks, %ju crashes, "
-        "%ju verified reads, %ju disk ops\n", t.writes, t.refused_writes, t.deletes,
-        t.rollbacks, t.crashes, t.checked_reads, t.data_disk->completed_ops);
+    t.run(steps);
+    printf("OK: %ju writes (%ju refused with EAGAIN), %ju deletes, %ju syncs, %ju stabilizes, "
+        "%ju rollbacks, %ju crashes, %ju clean restarts, %ju verified reads, %ju disk ops\n",
+        t.writes, t.refused_writes, t.deletes, t.syncs, t.stabilizes, t.rollbacks, t.crashes,
+        t.restarts, t.checked_reads, t.data_disk->completed_ops);
 }
 
-// Both implementations, both commit modes, and checksum blocks equal to and larger than
-// the write granularity - partial checksum block updates are a rich source of bugs
 // Both implementations, both commit modes, and checksum blocks equal to and larger than
 // the write granularity - partial checksum block updates are a rich source of bugs - plus
 // the checksumless mode
@@ -986,12 +1252,12 @@ static const chaos_cfg_t configs[] = {
     { .impl = "v1", .use_fsync = true , .csum_block = 16384, .instant_writes = true },
 };
 
-static void run_one(const chaos_cfg_t & cfg, uint32_t seed, uint64_t rounds, bool trace)
+static void run_one(const chaos_cfg_t & cfg, uint32_t seed, uint64_t steps, bool trace)
 {
     if (!strcmp(cfg.impl, "v1"))
-        run_impl<v1::blockstore_impl_t>(cfg, 2, seed, rounds, trace);
+        run_impl<v1::blockstore_impl_t>(cfg, 2, seed, steps, trace);
     else
-        run_impl<blockstore_impl_t>(cfg, 3, seed, rounds, trace);
+        run_impl<blockstore_impl_t>(cfg, 3, seed, steps, trace);
 }
 
 static const char *help_text =
@@ -1006,34 +1272,35 @@ static const char *help_text =
     "\n"
     "  --seed <n>          Run just this seed, in-process\n"
     "  --seeds <a>-<b>     Run seeds <a> through <b> (default 1-%d)\n"
-    "  --rounds <n>        Rounds per seed (default %d)\n"
+    "  --steps <n>         Steps per seed (default %ju)\n"
     "  --config <n>        Force configuration <n> instead of deriving it from the seed\n"
+    "  --max-inflight <n>  Operations in flight at once (default %u)\n"
     "  -v, --trace         Trace every operation and every simulated disk request\n"
     "  -h, --help          Show this help\n"
     "\n"
-    "Round type weights, relative to each other:\n"
-    "  --p-write <n>       Write round (default %u)\n"
-    "  --p-read <n>        Read round (default %u)\n"
-    "  --p-restart <n>     Clean restart round (default %u)\n"
-    "  --p-crash <n>       Power outage round (default %u)\n"
+    "Every step picks one action below at random, by weight. The weights are relative to\n"
+    "each other, and setting one to 0 turns the action off, e.g. --p-delete 0 --p-rollback 0\n"
+    "gives a workload without deletions and rollbacks:\n"
+    "  --p-wait <n>        Submit nothing, just let the simulation run (default %u)\n"
+    "  --p-write <n>       Write a random range of a random object (default %u)\n"
+    "  --p-delete <n>      Delete an existing object (default %u)\n"
+    "  --p-read <n>        Read back and verify a random object (default %u)\n"
+    "  --p-sync <n>        Sync (default %u)\n"
+    "  --p-stabilize <n>   Commit whatever became stabilizable (default %u)\n"
+    "  --p-rollback <n>    Roll back to the last stable version, two-phase mode only (default %u)\n"
+    "  --p-restart <n>     Clean restart, letting everything in flight finish (default %u)\n"
+    "  --p-crash <n>       Pull the plug right now, whatever is in flight (default %u)\n"
     "\n"
-    "Probabilities inside a round, in percent. Set one to 0 to turn the operation off,\n"
-    "e.g. --p-delete 0 --p-rollback 0 for a workload without deletions and rollbacks:\n"
-    "  --p-delete <n>      Delete an existing object instead of writing to it (default %u)\n"
-    "  --p-sync <n>        Sync after the writes of a write round (default %u)\n"
-    "  --p-stabilize <n>   Stabilize what was synced (default %u)\n"
-    "  --p-rollback <n>    Roll back instead of stabilizing, two-phase mode only (default %u)\n"
-    "  --p-full-read <n>   Read the whole object instead of a random range (default %u)\n"
-    "  --p-crash-sync <n>  Sync before pulling the plug in a crash round (default %u)\n"
+    "  --p-full-read <n>   Percentage of reads covering the whole object (default %u)\n"
     "\n"
     "Configurations (%d):\n";
 
-static void print_help(int cfg_count, int default_seeds, uint64_t default_rounds)
+static void print_help(int cfg_count, int default_seeds, uint64_t default_steps)
 {
     chaos_probs_t d;
-    printf(help_text, default_seeds, default_seeds, (int)default_rounds,
-        d.write_round, d.read_round, d.restart_round, d.crash_round,
-        d.del, d.sync, d.stabilize, d.rollback, d.full_read, d.crash_sync, cfg_count);
+    printf(help_text, default_seeds, default_seeds, default_steps, d.max_inflight,
+        d.wait, d.write, d.del, d.read, d.sync, d.stabilize, d.rollback, d.restart, d.crash,
+        d.full_read, cfg_count);
     for (int i = 0; i < cfg_count; i++)
         printf("  %2d: %s, fsync=%d, csum_block=%s, writes=%s\n", i, configs[i].impl,
             configs[i].use_fsync ? 1 : 0,
@@ -1043,7 +1310,7 @@ static void print_help(int cfg_count, int default_seeds, uint64_t default_rounds
 
 // Run one seed in a child process so that an aborted run doesn't take the whole sweep
 // with it. Returns false if the child died or exited non-zero.
-static bool run_seed_isolated(const chaos_cfg_t & cfg, uint32_t seed, uint64_t rounds, bool trace)
+static bool run_seed_isolated(const chaos_cfg_t & cfg, uint32_t seed, uint64_t steps, bool trace)
 {
     fflush(stdout);
     fflush(stderr);
@@ -1055,7 +1322,7 @@ static bool run_seed_isolated(const chaos_cfg_t & cfg, uint32_t seed, uint64_t r
     }
     if (!pid)
     {
-        run_one(cfg, seed, rounds, trace);
+        run_one(cfg, seed, steps, trace);
         fflush(stdout);
         fflush(stderr);
         _exit(0);
@@ -1079,7 +1346,7 @@ int main(int narg, char *args[])
     const int default_seeds = 200;
     bool trace = false, single = false;
     uint32_t seed_from = 1, seed_to = default_seeds, seed = 0;
-    uint64_t rounds = 300;
+    uint64_t steps = 10000;
     int force_cfg = -1;
     for (int i = 1; i < narg; i++)
     {
@@ -1098,7 +1365,7 @@ int main(int narg, char *args[])
         uint64_t v = 0;
         if (!strcmp(opt, "-h") || !strcmp(opt, "--help"))
         {
-            print_help(cfg_count, default_seeds, rounds);
+            print_help(cfg_count, default_seeds, steps);
             return 0;
         }
         else if (!strcmp(opt, "-v") || !strcmp(opt, "--trace"))
@@ -1123,45 +1390,46 @@ int main(int narg, char *args[])
             single = false;
             i++;
         }
-        else if (!strcmp(opt, "--rounds"))
-            take(rounds);
+        else if (!strcmp(opt, "--steps"))
+            take(steps);
         else if (!strcmp(opt, "--config"))
         {
             take(v);
             force_cfg = (int)(v % cfg_count);
         }
-        else if (!strcmp(opt, "--p-write"))    { take(v); probs.write_round = (uint32_t)v; }
-        else if (!strcmp(opt, "--p-read"))     { take(v); probs.read_round = (uint32_t)v; }
-        else if (!strcmp(opt, "--p-restart"))  { take(v); probs.restart_round = (uint32_t)v; }
-        else if (!strcmp(opt, "--p-crash"))    { take(v); probs.crash_round = (uint32_t)v; }
-        else if (!strcmp(opt, "--p-delete"))   { take(v); probs.del = (uint32_t)v; }
-        else if (!strcmp(opt, "--p-sync"))     { take(v); probs.sync = (uint32_t)v; }
-        else if (!strcmp(opt, "--p-stabilize")){ take(v); probs.stabilize = (uint32_t)v; }
-        else if (!strcmp(opt, "--p-rollback")) { take(v); probs.rollback = (uint32_t)v; }
-        else if (!strcmp(opt, "--p-full-read")){ take(v); probs.full_read = (uint32_t)v; }
-        else if (!strcmp(opt, "--p-crash-sync")) { take(v); probs.crash_sync = (uint32_t)v; }
+        else if (!strcmp(opt, "--max-inflight")) { take(v); probs.max_inflight = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-wait"))       { take(v); probs.wait = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-write"))      { take(v); probs.write = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-delete"))     { take(v); probs.del = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-read"))       { take(v); probs.read = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-sync"))       { take(v); probs.sync = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-stabilize"))  { take(v); probs.stabilize = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-rollback"))   { take(v); probs.rollback = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-restart"))    { take(v); probs.restart = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-crash"))      { take(v); probs.crash = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-full-read"))  { take(v); probs.full_read = (uint32_t)v; }
         else
         {
             fprintf(stderr, "Unknown option %s, use -h for help\n", opt);
             exit(1);
         }
     }
-    if (!(probs.write_round + probs.read_round + probs.restart_round + probs.crash_round))
+    if (!probs.max_inflight)
     {
-        fprintf(stderr, "At least one round type must have a non-zero weight\n");
+        fprintf(stderr, "--max-inflight must be at least 1\n");
         exit(1);
     }
     // The seed picks the configuration as well, so reproducing a failure is a single short run
     if (single)
     {
-        run_one(configs[force_cfg >= 0 ? force_cfg : (int)(seed % cfg_count)], seed, rounds, trace);
+        run_one(configs[force_cfg >= 0 ? force_cfg : (int)(seed % cfg_count)], seed, steps, trace);
         printf("\nall ok\n");
         return 0;
     }
     std::vector<uint32_t> failed;
     for (uint32_t s = seed_from; s <= seed_to; s++)
     {
-        if (!run_seed_isolated(configs[force_cfg >= 0 ? force_cfg : (int)(s % cfg_count)], s, rounds, trace))
+        if (!run_seed_isolated(configs[force_cfg >= 0 ? force_cfg : (int)(s % cfg_count)], s, steps, trace))
             failed.push_back(s);
     }
     if (failed.size())

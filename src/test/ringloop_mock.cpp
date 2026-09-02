@@ -213,6 +213,17 @@ void disk_mock_t::set_buffer(uint64_t end, uint8_t *buf, uint64_t len)
         buffers[end] = (iovec){ .iov_base = buf, .iov_len = len };
 }
 
+// Move the whole volatile write cache to the platter
+void disk_mock_t::commit_buffers()
+{
+    for (auto & b: buffers)
+    {
+        memcpy(data + b.first - b.second.iov_len, b.second.iov_base, b.second.iov_len);
+        free(b.second.iov_base);
+    }
+    buffers.clear();
+}
+
 void disk_mock_t::erase_buffers(uint64_t begin, uint64_t end)
 {
     for (auto it = buffers.upper_bound(begin); it != buffers.end(); )
@@ -430,15 +441,7 @@ bool disk_mock_t::execute(io_uring_sqe *sqe)
     {
         if (trace)
             printf("%s: fsync\n", name.c_str());
-        if (buffers.size())
-        {
-            for (auto & b: buffers)
-            {
-                memcpy(data + b.first - b.second.iov_len, b.second.iov_base, b.second.iov_len);
-                free(b.second.iov_base);
-            }
-            buffers.clear();
-        }
+        commit_buffers();
         userdata->res = 0;
     }
     else
@@ -577,9 +580,12 @@ void disk_mock_t::power_loss(std::mt19937 & rnd)
             copy_from_sqe(&sqe, data, 0, limit);
     }
     inflight.clear();
-    // Whatever was still in the volatile write cache is lost, except the part
-    // the device happened to flush on its own before the power went away
+    // Whatever was still in the volatile write cache is lost, except the part the device
+    // happened to flush on its own before the power went away. That part is on the platter
+    // afterwards: the cache is gone together with the power, so nothing may survive in it
+    // and quietly disappear at the next outage instead
     discard_buffers(false, (uint32_t)rnd());
+    commit_buffers();
 }
 
 uint64_t disk_mock_t::first_unwritten(uint64_t from, uint64_t to)
