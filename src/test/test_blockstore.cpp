@@ -1290,6 +1290,122 @@ static void test_write_stays_in_same_meta_block()
 // whole block. So before overwriting the block the flusher has to persist completed_lsn, which
 // puts the base entry out of the recheck's scope entirely. Otherwise a crash in the middle of a
 // compaction makes recovery declare the base entry unfinished and drop the whole object
+// A stabilize right after a write leaves a commit entry on top of the object's chain. The
+// startup recheck looks for buffered small writes whose data may be missing from the disk, and
+// it must not stop at that commit - otherwise a write whose data never reached the platter
+// stays in the metadata and the object comes back holding whatever the buffer area held before
+static void test_recheck_under_commit()
+{
+    printf("\n-- test_recheck_under_commit\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // A volatile write cache is what makes the data of an acknowledged write disappear
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+
+    auto sync = [&]()
+    {
+        blockstore_op_t s;
+        s.opcode = BS_OP_SYNC;
+        test.exec_op(&s);
+        assert(s.retval == 0);
+    };
+    auto stabilize = [&](uint64_t version)
+    {
+        blockstore_op_t s;
+        s.opcode = BS_OP_STABLE;
+        s.len = 1;
+        s.buf = (uint8_t*)malloc_or_die(sizeof(obj_ver_id));
+        *((obj_ver_id*)s.buf) = (obj_ver_id){ .oid = oid, .version = version };
+        test.exec_op(&s);
+        assert(s.retval == 0);
+        free(s.buf);
+    };
+
+    printf("writing v1 0+128K, syncing and stabilizing it\n");
+    memset(buf, 0xaa, 128*1024);
+    op.opcode = BS_OP_WRITE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    sync();
+    stabilize(1);
+
+    printf("writing v2 4096+4096 and syncing it, without stabilizing yet\n");
+    memset(buf, 0xbb, 4096);
+    op.version = 2;
+    op.offset = 4096;
+    op.len = 4096;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    sync();
+
+    // Swallow the data of the next write: the disk acknowledges it from its volatile cache
+    // and then loses it, while the metadata entry does reach the platter
+    uint64_t buf_start = test.bs->dsk.journal_offset;
+    uint64_t buf_end = buf_start + test.bs->dsk.journal_len;
+    bool swallowed = false;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->opcode == IORING_OP_WRITEV && sqe->fd == MOCK_DATA_FD &&
+            sqe->off >= buf_start && sqe->off < buf_end)
+        {
+            auto *data = (ring_data_t*)sqe->user_data;
+            data->res = data->iov.iov_len;
+            test.ringloop->mark_completed(data);
+            swallowed = true;
+            return true;
+        }
+        return false;
+    };
+
+    printf("writing v3 8192+4096, losing its data in the disk cache\n");
+    memset(buf, 0xcc, 4096);
+    op.version = 3;
+    op.offset = 8192;
+    op.len = 4096;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    assert(swallowed);
+    test.sqe_handler = nullptr;
+
+    printf("stabilizing v2 - its commit entry lands on top of v3\n");
+    stabilize(2);
+
+    printf("restarting the blockstore\n");
+    test.destroy_bs();
+    test.ringloop->reset();
+    test.init();
+
+    printf("v3 must be gone and the object must be readable as v2\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = 128*1024;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(rd.version == 2);
+    assert(memcheck(rd.buf, 0xaa, 4096));
+    assert(memcheck(rd.buf + 4096, 0xbb, 4096));
+    assert(memcheck(rd.buf + 8192, 0xaa, 128*1024 - 8192));
+    free(rd.buf);
+    free(buf);
+}
+
 // Compaction merges newer writes into the base data block in place, so after a crash the base
 // entry's checksums no longer match the block. The startup recheck may only skip the parts which
 // newer entries overwrite when one checksum block covers exactly one write granule. With a larger
@@ -1502,5 +1618,6 @@ int main(int narg, char *args[])
     test_read_merge_exact_partial_blocks();
     test_compact_big_intent_survives_crash(16384);
     test_compact_big_intent_survives_crash(0);
+    test_recheck_under_commit();
     return 0;
 }

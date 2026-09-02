@@ -593,17 +593,30 @@ void blockstore_heap_t::finish_load()
 // which would make the recheck fail on perfectly good data.
 // <need_data> is set if any of them requires reading the data device, i.e. if the recheck
 // can't be done synchronously in memory.
+// Commit and rollback entries carry no data of their own, but they're kept in the object's
+// chain, so a stabilize or a rollback right after a write leaves one sitting on top of - or
+// in between - the writes whose data still has to be rechecked. Skip over them.
+heap_entry_t *blockstore_heap_t::skip_commits(heap_entry_t *wr)
+{
+    while (wr && (wr->type() == BS_HEAP_COMMIT || wr->type() == BS_HEAP_ROLLBACK))
+    {
+        wr = prev(wr);
+    }
+    return wr;
+}
+
 int blockstore_heap_t::count_recheck_entries(heap_entry_t *obj, bool & need_data)
 {
     int count = 0;
     need_data = false;
-    auto wr = obj;
-    for (; wr && wr->type() == BS_HEAP_SMALL_WRITE; wr = prev(wr))
+    auto wr = skip_commits(obj);
+    auto newest = wr;
+    for (; wr && wr->type() == BS_HEAP_SMALL_WRITE; wr = skip_commits(prev(wr)))
     {
         count++;
     }
     if (wr && wr->lsn > completed_lsn &&
-        (wr->type() == BS_HEAP_BIG_INTENT || wr == obj && wr->type() == BS_HEAP_INTENT_WRITE))
+        (wr->type() == BS_HEAP_BIG_INTENT || wr == newest && wr->type() == BS_HEAP_INTENT_WRITE))
     {
         count++;
         need_data = true;
@@ -912,7 +925,8 @@ void blockstore_heap_t::recheck_drop_entries(heap_entry_t *obj, heap_entry_t *ba
     int bad_count = 1;
     for (auto wr = obj; wr && wr != bad_wr; wr = prev(wr))
     {
-        bad_count++;
+        if (wr->type() != BS_HEAP_COMMIT && wr->type() != BS_HEAP_ROLLBACK)
+            bad_count++;
     }
     auto prev_wr = prev(bad_wr);
     if (prev_wr)
@@ -928,9 +942,18 @@ void blockstore_heap_t::recheck_drop_entries(heap_entry_t *obj, heap_entry_t *ba
     while (li && prev_wr != &li->entry)
     {
         auto prev = li->prev;
+        auto type = li->entry.type();
+        if ((type == BS_HEAP_COMMIT || type == BS_HEAP_ROLLBACK) && li->entry.version < bad_wr->version)
+        {
+            // A commit or a rollback of an older version refers to versions which are below
+            // the unfinished write and survive it, so it has to survive too - otherwise a
+            // version the client was told is stable would silently become unstable again
+            li = prev;
+            continue;
+        }
         // Small writes may be stacked on top of an intent write, so the types may differ
-        assert(li->entry.type() == BS_HEAP_SMALL_WRITE || li->entry.type() == BS_HEAP_INTENT_WRITE ||
-            li->entry.type() == BS_HEAP_BIG_INTENT);
+        assert(type == BS_HEAP_SMALL_WRITE || type == BS_HEAP_INTENT_WRITE ||
+            type == BS_HEAP_BIG_INTENT || type == BS_HEAP_COMMIT || type == BS_HEAP_ROLLBACK);
         init_erase_bad_entry(li);
         unlink_list_item(li);
         li = prev;
@@ -998,8 +1021,8 @@ void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
         return;
     while (recheck_in_progress < recheck_queue_depth)
     {
-        auto wr = st->next_wr;
-        st->next_wr = prev(st->next_wr);
+        auto wr = skip_commits(st->next_wr);
+        st->next_wr = prev(wr);
         uint64_t loc = 0, len = 0;
         bool from_data = false;
         if (wr->type() == BS_HEAP_SMALL_WRITE)
@@ -1091,8 +1114,8 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
         {
             // Check this object synchronously
             heap_entry_t *bad_wr = NULL;
-            auto wr = obj;
-            for (int i = 0; i < recheck_count; i++, wr = prev(wr))
+            auto wr = skip_commits(obj);
+            for (int i = 0; i < recheck_count; i++, wr = skip_commits(prev(wr)))
             {
                 fprintf(stderr, "Notice: rechecking %jx:%jx l%ju - %u bytes at %ju in buffer area\n",
                     wr->inode, wr->stripe, wr->lsn, wr->small().len, wr->small().location);
