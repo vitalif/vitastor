@@ -388,7 +388,9 @@ struct cli_serve_t
             conn->p->user = parent->cli->st_cli->get_user(msg->tls_cn);
             conn->p->is_admin = msg->tls_ca_idx >= 1;
         }
-        auto ctype = msg->headers["content-type"];
+        // Don't insert a new value
+        auto ctype_it = msg->headers.find("content-type");
+        std::string ctype = (ctype_it != msg->headers.end()) ? ctype_it->second : "";
         if (conn->request_method != "GET" && conn->request_method != "POST")
         {
             conn->result = { .err = ENOSYS, .text = "Unsupported request method "+conn->request_method };
