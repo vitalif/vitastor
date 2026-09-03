@@ -48,9 +48,16 @@ bool blockstore_impl_t::forget_unstable_before_delete(blockstore_op_t *op, block
             return false;
         if (!is_still_unsynced(IS_BIG_WRITE(prev_it->second.state) ? unsynced_big_writes : unsynced_small_writes, prev_it->first))
         {
-            // A sync in flight already owns it: it journals the entry before our deletion
-            // anyway, and erasing it here would leave that sync with a dangling dirty_db entry
-            // in ack_sync() and would decrement unstable_unsynced a second time
+            // A sync in flight already owns it, so we can't erase it here: that would leave
+            // the sync with a dangling dirty_db entry in ack_sync() and would decrement
+            // unstable_unsynced a second time.
+            // A small write is journaled as soon as it's dequeued, so it is already in front
+            // of our deletion. A big write is not: its journal entry is only written when the
+            // sync reaches its journaling phase, which may well be after our deletion is
+            // journaled. Journal replay would then take it for a new write over the deletion
+            // and resurrect the object, so wait for that sync to finish instead
+            if (IS_BIG_WRITE(prev_it->second.state))
+                return false;
             break;
         }
         first_it = prev_it;

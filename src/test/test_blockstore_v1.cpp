@@ -2148,6 +2148,118 @@ static void test_delete_after_append_to_flying_journal_sector()
     free(buf);
 }
 
+// A big write is only journaled when a sync reaches its journaling phase, long after the write
+// itself was acknowledged. A deletion of the same object arriving in between is journaled right
+// away, so its entry ends up in front of the big write - and journal replay then takes that big
+// write for a new write over the deletion, resurrecting the object. If the object is written
+// again after the deletion is flushed, both incarnations get version 1 and the same data block,
+// and the replay aborts with "big_write journal_entry was allocated over another object"
+static void test_delete_over_big_write_in_flying_sync()
+{
+    printf("\n-- test_delete_over_big_write_in_flying_sync\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // Big writes are only journaled by a sync in this mode
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint32_t block_size = test.dsk().data_block_size;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+
+    printf("write v1 (big) - its data is on the disk, its journal entry is not\n");
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = block_size;
+    memset(buf, 0xAA, block_size);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    // Hold the data fsync so that the sync stays in its first phase: it has already taken the
+    // big write over, but hasn't written its journal entry yet
+    ring_data_t *held_fsync = NULL;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (!held_fsync && sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_FSYNC)
+        {
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            held_fsync = (ring_data_t*)sqe->user_data;
+            return true;
+        }
+        return false;
+    };
+
+    printf("submitting a sync and holding it in flight\n");
+    blockstore_op_t sync_op;
+    bool sync_done = false;
+    sync_op.opcode = BS_OP_SYNC;
+    sync_op.buf = NULL;
+    sync_op.callback = [&](blockstore_op_t *op) { sync_done = true; };
+    test.bs->enqueue_op(&sync_op);
+    for (int i = 0; i < 10 && !held_fsync; i++)
+        test.ringloop->loop();
+    assert(held_fsync);
+    assert(!sync_done);
+
+    printf("deleting the object while that sync is in flight\n");
+    blockstore_op_t del;
+    bool del_done = false;
+    del.opcode = BS_OP_DELETE;
+    del.oid = oid;
+    del.version = 2;
+    del.offset = 0;
+    del.len = 0;
+    del.buf = NULL;
+    del.callback = [&](blockstore_op_t *op) { del_done = true; };
+    test.bs->enqueue_op(&del);
+    for (int i = 0; i < 20 && !del_done; i++)
+        test.ringloop->loop();
+    // The deletion must not get into the journal in front of the big write
+    assert(!del_done);
+
+    printf("releasing the sync\n");
+    test.sqe_handler = NULL;
+    test.ringloop->mark_completed(held_fsync);
+    while (!sync_done || !del_done)
+        test.ringloop->loop();
+    assert(sync_op.retval == 0);
+    assert(del.retval == 0);
+
+    printf("syncing the deletion into the journal\n");
+    blockstore_op_t sync2;
+    sync2.opcode = BS_OP_SYNC;
+    sync2.buf = NULL;
+    test.exec_op(&sync2);
+    assert(sync2.retval == 0);
+
+    printf("restarting the blockstore (journal replay)\n");
+    test.destroy_bs();
+    test.init();
+
+    printf("the object must still be deleted\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = block_size;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == -ENOENT);
+    free(rd.buf);
+
+    free(buf);
+}
+
 // continue_sync() takes the unsynced writes over into its own state as soon as it starts. A
 // second sync running at the same time used to find both lists empty, decide there was nothing
 // to sync and report success at once - so a client which wrote, then synced, then got an "ok"
@@ -2255,6 +2367,7 @@ int main(int narg, char *args[])
     test_rollback_over_unsynced_write();
     test_replay_reused_block_of_deleted_object();
     test_write_over_delete_with_concurrent_sync();
+    test_delete_over_big_write_in_flying_sync();
     test_second_sync_waits_for_the_first();
     return 0;
 }
