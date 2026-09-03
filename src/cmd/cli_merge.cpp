@@ -487,9 +487,7 @@ struct snap_merger_t
     void read_and_write(uint64_t offset)
     {
         snap_rw_op_t *rwo = new snap_rw_op_t;
-        // Initialize counter to 1 to later allow write_subop() to return immediately
-        // (even though it shouldn't really do that)
-        rwo->todo = 1;
+        rwo->todo = 0;
         rwo->buf = malloc(target_block_size);
         rwo->offset = offset;
         rwo_read(rwo);
@@ -503,8 +501,10 @@ struct snap_merger_t
         op->offset = rwo->offset;
         op->len = target_block_size;
         op->iov.push_back(rwo->buf, target_block_size);
+        rwo->todo++;
         op->callback = [this, rwo](cluster_op_t *op)
         {
+            rwo->todo--;
             if (op->retval != op->len)
             {
                 rwo->error_code = op->retval;
@@ -535,7 +535,6 @@ struct snap_merger_t
                 if (rwo->end > rwo->start)
                 {
                     // write start->end
-                    rwo->todo++;
                     write_subop(rwo, rwo->start*gran, rwo->end*gran, use_cas && to_num == target ? 1+rwo->op.version : 0);
                     rwo->start = rwo->end;
                     if (use_cas)
@@ -554,7 +553,6 @@ struct snap_merger_t
         if (rwo->end > rwo->start && !rwo->error_code)
         {
             // write start->end
-            rwo->todo++;
             write_subop(rwo, rwo->start*gran, rwo->end*gran, use_cas && to_num == target ? 1+rwo->op.version : 0);
             rwo->start = rwo->end;
             if (use_cas)
@@ -562,7 +560,6 @@ struct snap_merger_t
                 return;
             }
         }
-        rwo->todo--;
         // Just in case, if everything is done
         autofree_op(rwo);
     }
@@ -577,6 +574,7 @@ struct snap_merger_t
         subop->version = version;
         subop->flags = OSD_OP_IGNORE_READONLY;
         subop->iov.push_back((uint8_t*)rwo->buf+start, end-start);
+        rwo->todo++;
         subop->callback = [this, rwo](cluster_op_t *subop)
         {
             rwo->todo--;
