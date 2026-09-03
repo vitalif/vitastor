@@ -254,7 +254,7 @@ class blockstore_heap_t
     uint32_t meta_alloc_pos(const heap_block_info_t & inf);
     void modify_alloc(uint32_t block_num, std::function<void(heap_block_info_t &)> change_cb);
     void mark_garbage_up_to(heap_entry_t *wr);
-    void mark_garbage(uint32_t block_num, heap_entry_t *prev_wr, uint32_t used_big);
+    void mark_garbage(uint32_t block_num, heap_entry_t *prev_wr, uint32_t used_big, uint32_t keep_big);
     void push_inflight_lsn(uint64_t lsn, heap_entry_t *wr, uint64_t flags);
     void mark_completed_lsns(uint64_t mod_lsn);
     heap_entry_t *skip_commits(heap_entry_t *wr);

@@ -1594,6 +1594,126 @@ static void test_read_merge_exact_partial_blocks()
     free(op3.buf);
 }
 
+// Compaction merges the newer writes into the base data block in place and gives the entry it
+// adds the very same location. Walking down the chain to mark everything below it as garbage
+// must therefore not free that block - not even when a big write of its own sits in between,
+// which is what a rolled back big write leaves behind. Freeing it handed the block out to the
+// next object while the entry still pointed at it, and the store refused to start with
+// "double-claimed data block"
+static void test_compact_over_rolled_back_big_write()
+{
+    printf("\n-- test_compact_over_rolled_back_big_write\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    object_id other = { .inode = 1, .stripe = 0x20000 };
+    uint32_t block_size = test.bs->dsk.data_block_size;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+
+    auto stabilize = [&](object_id o, uint64_t version, bool rollback)
+    {
+        blockstore_op_t s;
+        s.opcode = rollback ? BS_OP_ROLLBACK : BS_OP_STABLE;
+        s.len = 1;
+        s.buf = (uint8_t*)malloc_or_die(sizeof(obj_ver_id));
+        *((obj_ver_id*)s.buf) = (obj_ver_id){ .oid = o, .version = version };
+        test.exec_op(&s);
+        assert(s.retval == 0);
+        free(s.buf);
+    };
+    // The newest entry which owns a data block - commits and small writes sit on top of it
+    auto base_entry = [&](object_id o)
+    {
+        auto *wr = test.bs->heap->read_entry(o);
+        while (wr && wr->type() != BS_HEAP_BIG_WRITE && wr->type() != BS_HEAP_BIG_INTENT)
+            wr = test.bs->heap->prev(wr);
+        assert(wr);
+        return wr;
+    };
+
+    printf("write v1 (big) and stabilize it - this is the base block\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = block_size;
+    memset(buf, 0xAA, block_size);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    stabilize(oid, 1, false);
+    uint64_t base_loc = base_entry(oid)->big_location(test.bs->heap);
+    printf("base block is at %ju\n", base_loc);
+
+    printf("write v2 (big) into another block and roll it back\n");
+    op.version = 2;
+    memset(buf, 0xBB, block_size);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    uint64_t rolled_loc = base_entry(oid)->big_location(test.bs->heap);
+    assert(rolled_loc != base_loc);
+    stabilize(oid, 1, true);
+
+    printf("write v2 again (small) on top of the base and stabilize it\n");
+    op.version = 2;
+    op.offset = 8192;
+    op.len = 4096;
+    memset(buf, 0xCC, 4096);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    stabilize(oid, 2, false);
+
+    test.force_compaction();
+    // Garbage is only collected once the compacted entry is durable
+    blockstore_op_t sync;
+    sync.opcode = BS_OP_SYNC;
+    test.exec_op(&sync);
+    assert(sync.retval == 0);
+    for (int i = 0; i < 1000 && test.bs->heap->get_fsynced_lsn() < test.bs->heap->get_completed_lsn(); i++)
+        test.ringloop->loop();
+
+    printf("the compacted entry must still own the base block\n");
+    auto *compacted = base_entry(oid);
+    assert(compacted->type() == BS_HEAP_BIG_WRITE);
+    assert(compacted->big_location(test.bs->heap) == base_loc);
+    assert(test.bs->heap->is_data_used(base_loc));
+    // The rolled back write is gone, so its block is free again
+    assert(!test.bs->heap->is_data_used(rolled_loc));
+
+    printf("another object must not be given the same block\n");
+    op.oid = other;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = block_size;
+    memset(buf, 0xDD, block_size);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    assert(base_entry(other)->big_location(test.bs->heap) != base_loc);
+
+    printf("reading the object back\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = block_size;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(memcheck(rd.buf, 0xAA, 8192));
+    assert(memcheck(rd.buf + 8192, 0xCC, 4096));
+    assert(memcheck(rd.buf + 12288, 0xAA, block_size - 12288));
+    free(rd.buf);
+
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_simple();
@@ -1619,5 +1739,6 @@ int main(int narg, char *args[])
     test_compact_big_intent_survives_crash(16384);
     test_compact_big_intent_survives_crash(0);
     test_recheck_under_commit();
+    test_compact_over_rolled_back_big_write();
     return 0;
 }

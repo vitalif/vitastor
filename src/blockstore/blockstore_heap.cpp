@@ -2217,12 +2217,19 @@ void blockstore_heap_t::mark_garbage_up_to(heap_entry_t *wr)
         return;
     }
     assert(wr->is_overwrite());
-    uint32_t used_big = (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT ? wr->big().block_num : UINT32_MAX);
+    // <wr> survives, so its data block must not be freed no matter how far down the chain
+    // another entry referring to it turns out to be: compaction merges newer writes into the
+    // base block in place and gives its location to the entry it adds, and a rolled back big
+    // write of its own may well sit in between the two.
+    // <used_big> additionally keeps the walk from freeing the same block twice when several
+    // entries in a row share it
+    uint32_t keep_big = (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT ? wr->big().block_num : UINT32_MAX);
+    uint32_t used_big = keep_big;
     wr = prev(wr);
     while (wr && !wr->is_garbage())
     {
         auto prev_wr = prev(wr);
-        mark_garbage(list_item(wr)->block_num, wr, used_big);
+        mark_garbage(list_item(wr)->block_num, wr, used_big, keep_big);
         if (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT)
         {
             used_big = wr->big().block_num;
@@ -2231,7 +2238,7 @@ void blockstore_heap_t::mark_garbage_up_to(heap_entry_t *wr)
     }
 }
 
-void blockstore_heap_t::mark_garbage(uint32_t block_num, heap_entry_t *prev_wr, uint32_t used_big)
+void blockstore_heap_t::mark_garbage(uint32_t block_num, heap_entry_t *prev_wr, uint32_t used_big, uint32_t keep_big)
 {
     prev_wr->set_garbage();
     garbage_entries++;
@@ -2241,7 +2248,8 @@ void blockstore_heap_t::mark_garbage(uint32_t block_num, heap_entry_t *prev_wr, 
     {
         free_buffer_area(prev_wr->inode, prev_wr->small().location, prev_wr->small().len);
     }
-    else if ((prev_wr->type() == BS_HEAP_BIG_WRITE || prev_wr->type() == BS_HEAP_BIG_INTENT) && prev_wr->big().block_num != used_big)
+    else if ((prev_wr->type() == BS_HEAP_BIG_WRITE || prev_wr->type() == BS_HEAP_BIG_INTENT) &&
+        prev_wr->big().block_num != used_big && prev_wr->big().block_num != keep_big)
     {
         free_data(prev_wr->inode, prev_wr->big_location(this));
     }
@@ -2786,7 +2794,7 @@ void blockstore_heap_t::apply_inflight(heap_inflight_lsn_t & inflight)
         else if (!li->prev && li->next->entry.entry_type == (BS_HEAP_DELETE|BS_HEAP_STABLE))
         {
             // free BS_HEAP_DELETEs when all previous entries are also freed
-            mark_garbage(li->next->block_num, &li->next->entry, UINT32_MAX);
+            mark_garbage(li->next->block_num, &li->next->entry, UINT32_MAX, UINT32_MAX);
         }
         unlink_list_item(li);
     }
