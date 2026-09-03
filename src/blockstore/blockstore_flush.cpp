@@ -745,9 +745,11 @@ bool journal_flusher_co::read_buffered(int wait_base)
     else if (wait_state == wait_base+1)
         goto resume_1;
     wait_count = 0;
-    if (bs->dsk.inmemory_journal && !read_to_fill_incomplete)
+    if (bs->dsk.inmemory_journal && bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity)
     {
         // Happy path: nothing to read :)
+        // We may have to read intent writes to recalculate block checksums, so proceed
+        // even if read_to_fill_incomplete is false, but csum_block_size is > bitmap_granularity
         return true;
     }
     for (i = 0; i < read_vec.size(); i++)

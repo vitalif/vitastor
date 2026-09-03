@@ -1714,6 +1714,80 @@ static void test_compact_over_rolled_back_big_write()
     free(buf);
 }
 
+// With a checksum block larger than the write granularity, compaction puts the intent writes it
+// merges into read_vec as well - not to write them (their data is already in place inside the
+// data block) but because recalculating the checksum of a block they only partially cover needs
+// their bytes. Reading them was skipped whenever the journal was in memory and no checksum block
+// needed padding, and then the checksum was calculated over a NULL buffer
+static void test_compact_intent_write_in_partial_csum_block()
+{
+    printf("\n-- test_compact_intent_write_in_partial_csum_block\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // The intent write and the small write below have to share one checksum block
+    test.config["csum_block_size"] = "16384";
+    test.init();
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint32_t block_size = test.bs->dsk.data_block_size;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = oid;
+    op.buf = buf;
+
+    printf("write v1 0+128K - the base data block\n");
+    op.version = 1;
+    op.offset = 0;
+    op.len = block_size;
+    memset(buf, 0xAA, block_size);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    // A write of at most atomic_write_size bytes over a stable big write goes into the data
+    // block in place instead of into the buffer area
+    printf("write v2 0+4K - it becomes an intent write\n");
+    op.version = 2;
+    op.offset = 0;
+    op.len = 4096;
+    memset(buf, 0xBB, 4096);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    assert(test.bs->heap->read_entry(oid)->type() == BS_HEAP_INTENT_WRITE);
+
+    // The rest of the same checksum block, so that the block has no unwritten part left and
+    // compaction doesn't have to pad anything
+    printf("write v3 4K+12K - a buffered small write filling the rest of the checksum block\n");
+    op.version = 3;
+    op.offset = 4096;
+    op.len = 12288;
+    memset(buf, 0xCC, 12288);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    assert(test.bs->heap->read_entry(oid)->type() == BS_HEAP_SMALL_WRITE);
+
+    test.force_compaction();
+
+    printf("reading the object back\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = block_size;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(memcheck(rd.buf, 0xBB, 4096));
+    assert(memcheck(rd.buf + 4096, 0xCC, 12288));
+    assert(memcheck(rd.buf + 16384, 0xAA, block_size - 16384));
+    free(rd.buf);
+
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_simple();
@@ -1740,5 +1814,6 @@ int main(int narg, char *args[])
     test_compact_big_intent_survives_crash(0);
     test_recheck_under_commit();
     test_compact_over_rolled_back_big_write();
+    test_compact_intent_write_in_partial_csum_block();
     return 0;
 }
