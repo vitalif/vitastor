@@ -510,6 +510,8 @@ int blockstore_init_journal::loop()
         goto resume_6;
     else if (wait_state == 7)
         goto resume_7;
+    else if (wait_state == 8)
+        goto resume_8;
     printf("Reading blockstore journal\n");
     if (!bs->journal.inmemory)
         submitted_buf = memalign_or_die(MEM_ALIGNMENT, 2*bs->journal.block_size);
@@ -753,6 +755,43 @@ resume_1:
     }
     bs->flusher->mark_trim_possible();
     bs->journal.dirty_start = bs->journal.next_free;
+    if (!bs->readonly)
+    {
+        // Everything we just read may still be sitting in the volatile write cache of the device:
+        // the instance which wrote it is gone, so nothing is going to flush it any more, and a
+        // sync would find nothing of its own to sync and report success while a power outage
+        // could still take the recovered state away. Make it durable right here instead
+        {
+            bool fsync_data = !bs->disable_data_fsync;
+            bool fsync_meta = !bs->disable_meta_fsync;
+            bool fsync_journal = !bs->disable_journal_fsync;
+            // The same device may serve several roles - fsync each distinct one exactly once
+            if (bs->dsk.meta_fd == bs->dsk.data_fd)
+                fsync_data = fsync_data || fsync_meta, fsync_meta = false;
+            if (bs->dsk.journal_fd == bs->dsk.data_fd)
+                fsync_data = fsync_data || fsync_journal, fsync_journal = false;
+            else if (bs->dsk.journal_fd == bs->dsk.meta_fd)
+                fsync_meta = fsync_meta || fsync_journal, fsync_journal = false;
+            for (int i = 0; i < 3; i++)
+            {
+                if (i == 0 ? !fsync_data : (i == 1 ? !fsync_meta : !fsync_journal))
+                    continue;
+                GET_SQE();
+                data->iov = { 0 };
+                data->callback = simple_callback;
+                io_uring_prep_fsync(sqe, i == 0 ? bs->dsk.data_fd : (i == 1 ? bs->dsk.meta_fd : bs->dsk.journal_fd), IORING_FSYNC_DATASYNC);
+                wait_count++;
+            }
+            if (wait_count > 0)
+                bs->ringloop->submit();
+        }
+    resume_8:
+        if (wait_count > 0)
+        {
+            wait_state = 8;
+            return 1;
+        }
+    }
     printf(
         "Journal entries loaded: %ju, free journal space: %ju bytes (%08jx..%08jx is used), free blocks: %ju / %ju\n",
         entries_loaded,

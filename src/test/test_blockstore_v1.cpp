@@ -2342,6 +2342,99 @@ static void test_second_sync_waits_for_the_first()
     free(buf);
 }
 
+// Whatever the journal replay reads may still be sitting in the volatile write cache: the
+// instance which wrote it is gone, so nothing is going to flush it any more and a sync finds
+// nothing of its own to sync. Recovery has to make the state it recovered durable itself
+static void test_recovered_state_is_made_durable()
+{
+    printf("\n-- test_recovered_state_is_made_durable\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // A volatile write cache is what makes the difference here
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+    memset(buf, 0xAA, 4096);
+
+    printf("create the object first - a write to an object which doesn't exist yet is a big one\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = oid;
+    op.version = 1;
+    op.offset = 0;
+    op.len = 4096;
+    op.buf = buf;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    blockstore_op_t sync0;
+    sync0.opcode = BS_OP_SYNC;
+    sync0.buf = NULL;
+    test.exec_op(&sync0);
+    assert(sync0.retval == 0);
+
+    printf("write v2 (small, journaled)\n");
+    memset(buf, 0xBB, 4096);
+    op.version = 2;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    // Let the sync write the journal sector out, but never let anything fsync
+    bool held_fsync = false;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_FSYNC)
+        {
+            held_fsync = true;
+            return true;
+        }
+        return false;
+    };
+    printf("syncing, but holding the journal fsync back\n");
+    blockstore_op_t sync;
+    bool sync_done = false;
+    sync.opcode = BS_OP_SYNC;
+    sync.buf = NULL;
+    sync.callback = [&](blockstore_op_t *op) { sync_done = true; };
+    test.bs->enqueue_op(&sync);
+    for (int i = 0; i < 20 && !held_fsync; i++)
+        test.ringloop->loop();
+    assert(held_fsync);
+    assert(!sync_done);
+
+    printf("restarting as if the process had died before the fsync\n");
+    test.sqe_handler = NULL;
+    test.destroy_bs();
+    test.ringloop->reset();
+    test.init();
+
+    printf("now the power goes away - the volatile cache is lost\n");
+    test.data_disk->discard_buffers(true, 0);
+    test.destroy_bs();
+    test.ringloop->reset();
+    test.init();
+
+    printf("the recovered write must still be there\n");
+    fflush(stdout);
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = 4096;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(memcheck(rd.buf, 0xBB, 4096));
+    free(rd.buf);
+
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -2369,5 +2462,6 @@ int main(int narg, char *args[])
     test_write_over_delete_with_concurrent_sync();
     test_delete_over_big_write_in_flying_sync();
     test_second_sync_waits_for_the_first();
+    test_recovered_state_is_made_durable();
     return 0;
 }
