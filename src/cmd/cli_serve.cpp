@@ -413,82 +413,89 @@ struct cli_serve_t
         else
         {
             auto uri = explode("?", conn->request_path, true);
-            uri[0] = trim(uri[0], "/");
-            auto cmd_it = cmd_paths.find(uri[0]);
-            if (uri[0] == "")
+            if (uri.empty())
             {
-                std::string text = "Supported APIs:\n\n- GET /openapi\n";
-                for (auto & pp: cmd_paths)
-                {
-                    text += (pp.second.allow_get ? "- GET" : "- POST") + (" /" + pp.first) + "\n";
-                }
-                conn->result = { .text = text };
-            }
-            else if (uri[0] == "openapi")
-            {
-                conn->response_type = "application/json";
-                conn->result = { .text = openapi_description };
-                if (use_perms)
-                {
-                    // Filter available paths by privileges
-                    if (!conn->p->is_admin)
-                    {
-                        std::string error;
-                        auto openapi = json11::Json::parse(openapi_description, error).object_items();
-                        json11::Json::object paths;
-                        for (auto & kv: openapi["paths"].object_items())
-                        {
-                            auto cmd_it = cmd_paths.find(kv.first.substr(1));
-                            if (cmd_it != cmd_paths.end() && cmd_it->second.allow_client)
-                            {
-                                paths[kv.first] = kv.second;
-                            }
-                        }
-                        openapi["paths"] = paths;
-                        conn->response_type = "application/json";
-                        conn->result = { .text = json11::Json(openapi).dump() };
-                    }
-                    else if (!conn->p->user)
-                    {
-                        conn->response_type = "";
-                        conn->result = { .err = EACCES, .text = "Access denied" };
-                    }
-                }
-            }
-            else if (cmd_it == cmd_paths.end())
-            {
-                conn->result = { .err = EOPNOTSUPP, .text = "unknown command: "+uri[0] };
-            }
-            else if (conn->request_method == "GET" && !cmd_it->second.allow_get)
-            {
-                conn->result = { .err = ENOSYS, .text = "method /"+uri[0]+" only allows POST requests" };
-            }
-            else if (use_perms && !conn->p->is_admin && !cmd_it->second.allow_client)
-            {
-                conn->result = { .err = EACCES, .text = "Access denied" };
+                conn->result = { .err = EINVAL, .text = "Invalid request path" };
             }
             else
             {
-                std::string error;
-                json11::Json::object cfg;
-                if (conn->request_method == "POST")
+                uri[0] = trim(uri[0], "/");
+                auto cmd_it = cmd_paths.find(uri[0]);
+                if (uri[0] == "")
                 {
-                    cfg = json11::Json::parse(conn->request_body, error).object_items();
+                    std::string text = "Supported APIs:\n\n- GET /openapi\n";
+                    for (auto & pp: cmd_paths)
+                    {
+                        text += (pp.second.allow_get ? "- GET" : "- POST") + (" /" + pp.first) + "\n";
+                    }
+                    conn->result = { .text = text };
+                }
+                else if (uri[0] == "openapi")
+                {
+                    conn->response_type = "application/json";
+                    conn->result = { .text = openapi_description };
+                    if (use_perms)
+                    {
+                        // Filter available paths by privileges
+                        if (!conn->p->is_admin)
+                        {
+                            std::string error;
+                            auto openapi = json11::Json::parse(openapi_description, error).object_items();
+                            json11::Json::object paths;
+                            for (auto & kv: openapi["paths"].object_items())
+                            {
+                                auto cmd_it = cmd_paths.find(kv.first.substr(1));
+                                if (cmd_it != cmd_paths.end() && cmd_it->second.allow_client)
+                                {
+                                    paths[kv.first] = kv.second;
+                                }
+                            }
+                            openapi["paths"] = paths;
+                            conn->response_type = "application/json";
+                            conn->result = { .text = json11::Json(openapi).dump() };
+                        }
+                        else if (!conn->p->user)
+                        {
+                            conn->response_type = "";
+                            conn->result = { .err = EACCES, .text = "Access denied" };
+                        }
+                    }
+                }
+                else if (cmd_it == cmd_paths.end())
+                {
+                    conn->result = { .err = EOPNOTSUPP, .text = "unknown command: "+uri[0] };
+                }
+                else if (conn->request_method == "GET" && !cmd_it->second.allow_get)
+                {
+                    conn->result = { .err = ENOSYS, .text = "method /"+uri[0]+" only allows POST requests" };
+                }
+                else if (use_perms && !conn->p->is_admin && !cmd_it->second.allow_client)
+                {
+                    conn->result = { .err = EACCES, .text = "Access denied" };
                 }
                 else
                 {
-                    // Parse URI
-                    cfg = parse_uri_params(uri.size() > 1 ? uri[1] : "");
-                }
-                if (error != "")
-                {
-                    conn->result = { .err = EINVAL, .text = "Invalid JSON in body: "+error };
-                }
-                else
-                {
-                    cfg["command"] = json11::Json::array{cmd_it->second.cmd};
-                    conn->p->parse_api_opts(cfg);
-                    conn->action_cb = conn->p->start(cfg, conn->result);
+                    std::string error;
+                    json11::Json::object cfg;
+                    if (conn->request_method == "POST")
+                    {
+                        cfg = json11::Json::parse(conn->request_body, error).object_items();
+                    }
+                    else
+                    {
+                        // Parse URI
+                        cfg = parse_uri_params(uri.size() > 1 ? uri[1] : "");
+                    }
+                    if (error != "")
+                    {
+                        conn->result = { .err = EINVAL, .text = "Invalid JSON in body: "+error };
+                    }
+                    else
+                    {
+                        cfg["command"] = json11::Json::array{cmd_it->second.cmd};
+                        conn->p->parse_api_opts(cfg);
+                        conn->action_cb = conn->p->start(cfg, conn->result);
+                    }
                 }
             }
         }
