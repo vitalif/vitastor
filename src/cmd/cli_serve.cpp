@@ -458,7 +458,7 @@ struct cli_serve_t
                 else
                 {
                     // Parse URI
-                    cfg = parse_uri_params(uri[1]);
+                    cfg = parse_uri_params(uri.size() > 1 ? uri[1] : "");
                 }
                 if (error != "")
                 {
