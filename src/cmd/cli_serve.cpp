@@ -131,24 +131,24 @@ struct cli_serve_t
                     state = 100;
                     return;
                 }
-                std::string error;
-                http_ctx = http_context_init(parent->epmgr->tfd, api_cert, api_pkey, client_ca, client_ca != "", error);
-                if (error != "")
+            }
+            std::string error;
+            http_ctx = http_context_init(parent->epmgr->tfd, api_cert, api_pkey, client_ca, client_ca != "", error);
+            if (error != "")
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = error };
+                state = 100;
+                return;
+            }
+            if (client_ca != "" && admin_ca != "")
+            {
+                bool ok = http_context_add_ca(http_ctx, admin_ca);
+                if (!ok)
                 {
-                    result = (cli_result_t){ .err = EINVAL, .text = error };
+                    http_context_destroy(http_ctx);
+                    result = (cli_result_t){ .err = EINVAL, .text = "Failed to load admin_ca" };
                     state = 100;
                     return;
-                }
-                if (client_ca != "" && admin_ca != "")
-                {
-                    bool ok = http_context_add_ca(http_ctx, admin_ca);
-                    if (!ok)
-                    {
-                        http_context_destroy(http_ctx);
-                        result = (cli_result_t){ .err = EINVAL, .text = "Failed to load admin_ca" };
-                        state = 100;
-                        return;
-                    }
                 }
             }
             if (use_perms && client_ca == "")
