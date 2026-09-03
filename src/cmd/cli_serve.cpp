@@ -365,10 +365,17 @@ struct cli_serve_t
         conn->p->is_command_line = false;
         // Parse request
         auto req_line = explode(" ", msg->status_line, true);
+        if (req_line.empty())
+        {
+            conn->result = { .err = EINVAL, .text = "Invalid request line" };
+            http_reply(conn->co, cli_http_response(conn));
+            delete conn->p;
+            conn->p = NULL;
+            return;
+        }
         if (req_line.size() < 2)
         {
-            if (req_line[0] == "")
-                req_line[0] = "-";
+            // Checked if req_line is empty, so size must be 1 now
             req_line.push_back("-");
         }
         conn->request_time = ts;
