@@ -160,6 +160,7 @@ void blockstore_impl_t::loop()
         // has_writes == 1 - some writes in progress
         // has_writes == 2 - tried to submit some writes, but failed
         int has_writes = 0, op_idx = 0, new_idx = 0;
+        bool has_unfinished_sync = false;
         for (; op_idx < submit_queue.size(); op_idx++, new_idx++)
         {
             auto op = submit_queue[op_idx];
@@ -217,7 +218,19 @@ void blockstore_impl_t::loop()
                 // sync only completed writes?
                 // wait for the data device fsync to complete, then submit journal writes for big writes
                 // then submit an fsync operation
-                wr_st = continue_sync(op);
+                //
+                // Only one sync at a time: continue_sync() takes the unsynced writes over into
+                // its own state, so a second sync started while the first one is still in flight
+                // would find nothing left to sync and report success without anything having
+                // reached the disk - while the writes it was supposed to cover are still in the
+                // first sync's hands
+                if (!has_unfinished_sync)
+                {
+                    wr_st = continue_sync(op);
+                    has_unfinished_sync = (wr_st != 2);
+                }
+                else
+                    wr_st = 0;
             }
             else if (op->opcode == BS_OP_STABLE)
             {

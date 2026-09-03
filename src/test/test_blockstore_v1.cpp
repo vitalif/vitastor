@@ -2148,6 +2148,88 @@ static void test_delete_after_append_to_flying_journal_sector()
     free(buf);
 }
 
+// continue_sync() takes the unsynced writes over into its own state as soon as it starts. A
+// second sync running at the same time used to find both lists empty, decide there was nothing
+// to sync and report success at once - so a client which wrote, then synced, then got an "ok"
+// could still lose that write to a power outage, because the write was only in the hands of the
+// first sync, which hadn't finished yet
+static void test_second_sync_waits_for_the_first()
+{
+    printf("\n-- test_second_sync_waits_for_the_first\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // Writes have to be synced explicitly, otherwise there is nothing for two syncs to race over
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+
+    printf("write v1 (small, unsynced)\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = oid;
+    op.version = 1;
+    op.offset = 0;
+    op.len = 4096;
+    op.buf = buf;
+    memset(buf, 0xAA, 4096);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    // Hold the journal fsync so that the first sync stays in flight after it has already
+    // taken the write over
+    ring_data_t *held_fsync = NULL;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (!held_fsync && sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_FSYNC)
+        {
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            held_fsync = (ring_data_t*)sqe->user_data;
+            return true;
+        }
+        return false;
+    };
+
+    printf("submitting the first sync and holding it in flight\n");
+    blockstore_op_t sync1;
+    bool sync1_done = false;
+    sync1.opcode = BS_OP_SYNC;
+    sync1.buf = NULL;
+    sync1.callback = [&](blockstore_op_t *op) { sync1_done = true; };
+    test.bs->enqueue_op(&sync1);
+    for (int i = 0; i < 20 && !held_fsync; i++)
+        test.ringloop->loop();
+    assert(held_fsync);
+    assert(!sync1_done);
+
+    printf("submitting the second sync - it must not report success on its own\n");
+    blockstore_op_t sync2;
+    bool sync2_done = false;
+    sync2.opcode = BS_OP_SYNC;
+    sync2.buf = NULL;
+    sync2.callback = [&](blockstore_op_t *op) { sync2_done = true; };
+    test.bs->enqueue_op(&sync2);
+    for (int i = 0; i < 20 && !sync2_done; i++)
+        test.ringloop->loop();
+    assert(!sync2_done);
+    assert(!sync1_done);
+
+    printf("releasing the first sync\n");
+    test.sqe_handler = NULL;
+    test.ringloop->mark_completed(held_fsync);
+    while (!sync1_done || !sync2_done)
+        test.ringloop->loop();
+    assert(sync1.retval == 0);
+    assert(sync2.retval == 0);
+
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -2173,5 +2255,6 @@ int main(int narg, char *args[])
     test_rollback_over_unsynced_write();
     test_replay_reused_block_of_deleted_object();
     test_write_over_delete_with_concurrent_sync();
+    test_second_sync_waits_for_the_first();
     return 0;
 }
