@@ -2342,6 +2342,100 @@ static void test_second_sync_waits_for_the_first()
     free(buf);
 }
 
+// An operation which appends its entry to a journal sector another operation has already queued
+// in the same batch has to wait for that operation's journal data write too. The data lies behind
+// our entry on the disk and recovery stops at the first hole in the journal, so completing before
+// it is durable let an acknowledged deletion disappear together with the unfinished write in
+// front of it
+static void test_ack_waits_for_earlier_journal_data()
+{
+    printf("\n-- test_ack_waits_for_earlier_journal_data\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id victim = { .inode = 1, .stripe = 0 };
+    object_id other = { .inode = 1, .stripe = 0x20000 };
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 8192);
+    memset(buf, 0xAA, 8192);
+
+    printf("create both objects - a write to an object which doesn't exist yet is a big one,\n"
+        "and a big write puts its data on the data device instead of into the journal\n");
+    blockstore_op_t pre;
+    pre.opcode = BS_OP_WRITE_STABLE;
+    pre.oid = victim;
+    pre.version = 1;
+    pre.offset = 0;
+    pre.len = 4096;
+    pre.buf = buf;
+    test.exec_op(&pre);
+    assert(pre.retval == (int)pre.len);
+    pre.oid = other;
+    test.exec_op(&pre);
+    assert(pre.retval == (int)pre.len);
+
+    // Hold the journal data write of the small write below - it is the only 8 KB write there is
+    ring_data_t *held_data = NULL;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (!held_data && sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_WRITEV &&
+            ((iovec*)sqe->addr)[0].iov_len == 8192)
+        {
+            bool ok = test.data_disk->submit(sqe);
+            assert(ok);
+            held_data = (ring_data_t*)sqe->user_data;
+            return true;
+        }
+        return false;
+    };
+
+    printf("submitting a small write and a deletion in the same batch\n");
+    blockstore_op_t wr;
+    bool wr_done = false;
+    wr.opcode = BS_OP_WRITE_STABLE;
+    wr.oid = other;
+    wr.version = 2;
+    wr.offset = 0;
+    wr.len = 8192;
+    wr.buf = buf;
+    wr.callback = [&](blockstore_op_t *op) { wr_done = true; };
+    blockstore_op_t del;
+    bool del_done = false;
+    del.opcode = BS_OP_DELETE;
+    del.oid = victim;
+    del.version = 2;
+    del.offset = 0;
+    del.len = 0;
+    del.buf = NULL;
+    del.callback = [&](blockstore_op_t *op) { del_done = true; };
+    // Both have to reach the queue before the event loop runs, so that their entries end up
+    // in the same journal sector
+    test.bs->enqueue_op(&wr);
+    test.bs->enqueue_op(&del);
+    for (int i = 0; i < 20 && !held_data; i++)
+        test.ringloop->loop();
+    assert(held_data);
+    // Let the journal sector write - which did complete - be processed
+    for (int i = 0; i < 20; i++)
+        test.ringloop->loop();
+    // The deletion's entry is in front of the held data on the disk, but recovery would never
+    // get to it, so it must not be acknowledged yet
+    assert(!del_done);
+    assert(!wr_done);
+
+    printf("releasing the journal data write\n");
+    test.sqe_handler = NULL;
+    test.ringloop->mark_completed(held_data);
+    while (!wr_done || !del_done)
+        test.ringloop->loop();
+    assert(wr.retval == (int)wr.len);
+    assert(del.retval == 0);
+
+    free(buf);
+}
+
 // Whatever the journal replay reads may still be sitting in the volatile write cache: the
 // instance which wrote it is gone, so nothing is going to flush it any more and a sync finds
 // nothing of its own to sync. Recovery has to make the state it recovered durable itself
@@ -2462,6 +2556,7 @@ int main(int narg, char *args[])
     test_write_over_delete_with_concurrent_sync();
     test_delete_over_big_write_in_flying_sync();
     test_second_sync_waits_for_the_first();
+    test_ack_waits_for_earlier_journal_data();
     test_recovered_state_is_made_durable();
     return 0;
 }

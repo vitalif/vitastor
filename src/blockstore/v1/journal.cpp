@@ -186,6 +186,7 @@ void blockstore_impl_t::prepare_journal_sector_write(int cur_sector, blockstore_
 {
     // Don't submit the same sector twice in the same batch
     assert(journal.sector_info[cur_sector].dirty);
+    bool submitted_now = false;
     if (!journal.sector_info[cur_sector].submit_id)
     {
         io_uring_sqe *sqe = get_sqe();
@@ -209,12 +210,19 @@ void blockstore_impl_t::prepare_journal_sector_write(int cur_sector, blockstore_
         io_uring_prep_writev(
             sqe, dsk.journal_fd, &data->iov, 1, journal.offset + journal.sector_info[cur_sector].offset
         );
+        submitted_now = true;
     }
     journal.sector_info[cur_sector].dirty = false;
-    // But always remember that this operation has to wait until this exact journal write is finished
-    journal.flushing_ops.emplace(journal.sector_info[cur_sector].submit_id, (pending_journaling_t){
+    // But always remember that this operation has to wait until this exact journal write is finished.
+    // An operation which appends to a sector another one has already queued in this same batch also
+    // has to wait for everything queued in between - the journal data write of that other operation
+    // in particular. That data lies behind our entry on the disk, and recovery stops at the first
+    // hole in the journal, so completing before it is durable would let an acknowledged operation
+    // disappear together with the unfinished write in front of it
+    journal.flushing_ops.emplace(journal.submit_id, (pending_journaling_t){
         .pending = 1,
-        .sector = cur_sector,
+        // Only the operation which queued the sector write itself releases its flush_count
+        .sector = submitted_now ? cur_sector : -1,
         .op = op,
     });
     auto priv = PRIV(op);
