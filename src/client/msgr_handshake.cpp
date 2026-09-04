@@ -1,8 +1,9 @@
 // Copyright (c) Vitaliy Filippov, 2026+
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
-#include <stdint.h>
+#undef NDEBUG
 #include <assert.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <string>

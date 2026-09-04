@@ -44,11 +44,13 @@
 
 #pragma once
 
+#undef NDEBUG
+#include <assert.h>
+
 #include "xdr_impl.h"
 
 #include <string.h>
 #include <endian.h>
-#include <assert.h>
 #include <vector>
 
 #include "malloc_or_die.h"

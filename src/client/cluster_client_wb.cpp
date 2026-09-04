@@ -1,7 +1,8 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
-#include <cassert>
+#undef NDEBUG
+#include <assert.h>
 
 #include "cluster_client_impl.h"
 

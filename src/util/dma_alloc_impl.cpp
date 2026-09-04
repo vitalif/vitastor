@@ -3,8 +3,9 @@
 //
 // Simple & stupid freelist memory allocator (allocates buffers within regions)
 
-#include <stdio.h>
+#undef NDEBUG
 #include <assert.h>
+#include <stdio.h>
 #include <errno.h>
 #include <unistd.h>
 #include <sys/mman.h>

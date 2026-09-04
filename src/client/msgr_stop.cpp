@@ -1,8 +1,9 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
-#include <unistd.h>
+#undef NDEBUG
 #include <assert.h>
+#include <unistd.h>
 
 #include "messenger.h"
 #include "../util/xxh_x86dispatch.h"

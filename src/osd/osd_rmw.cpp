@@ -1,9 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#undef NDEBUG
+#include <assert.h>
 #include <stdexcept>
 #include <string.h>
-#include <assert.h>
 extern "C" {
 #include <reed_sol.h>
 #include <jerasure.h>

@@ -1,6 +1,7 @@
 // Copyright (c) Vitaliy Filippov, 2026+
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
+#undef NDEBUG
 #include <assert.h>
 
 #ifdef WITH_ISAL_CRYPTO

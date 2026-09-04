@@ -1,8 +1,9 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
-#include <stdexcept>
+#undef NDEBUG
 #include <assert.h>
+#include <stdexcept>
 #include "cluster_client_impl.h"
 #include "str_util.h"
 

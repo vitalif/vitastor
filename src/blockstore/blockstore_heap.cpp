@@ -2,6 +2,7 @@
 // Copyright (c) Vitaliy Filippov, 2025+
 // License: VNPL-1.1 (see README.md for details)
 
+#undef NDEBUG
 #include <assert.h>
 #include <string.h>
 #include <stddef.h>

@@ -1,9 +1,10 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 or GNU GPL-2.0+ (see README.md for details)
 
+#undef NDEBUG
+#include <assert.h>
 #include <unistd.h>
 #include <stdexcept>
-#include <assert.h>
 
 #include "messenger.h"
 

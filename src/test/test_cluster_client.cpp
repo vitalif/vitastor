@@ -1,11 +1,13 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
-#include <openssl/rand.h>
-
+#undef NDEBUG
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
+
+#include <openssl/rand.h>
+
 #include "etcd_state_client_mock.h"
 #include "cluster_client_impl.h"
 #include "msgr_encrypt.h"

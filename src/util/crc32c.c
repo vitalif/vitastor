@@ -33,11 +33,12 @@
    1.1   1 Aug 2013  Correct comments on why three crc instructions in parallel
  */
 
+#undef NDEBUG
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <unistd.h>
-#include <assert.h>
 #include "crc32c.h"
 
 #ifdef WITH_ISAL

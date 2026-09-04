@@ -7,8 +7,9 @@
 #define _LARGEFILE64_SOURCE
 #endif
 
-#include <string.h>
+#undef NDEBUG
 #include <assert.h>
+#include <string.h>
 #include <liburing.h>
 
 #include <string>

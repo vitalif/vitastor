@@ -3,6 +3,7 @@
 
 #pragma once
 
+#undef NDEBUG
 #include <assert.h>
 #include <stdint.h>
 

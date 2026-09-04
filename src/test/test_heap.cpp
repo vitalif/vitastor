@@ -1,10 +1,11 @@
 // Copyright (c) Vitaliy Filippov, 2019+
 // License: VNPL-1.1 (see README.md for details)
 
+#undef NDEBUG
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 #include "../util/malloc_or_die.h"
 #include "../util/allocator.h"
 #include "blockstore_heap.h"
