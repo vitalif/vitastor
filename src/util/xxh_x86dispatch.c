@@ -48,12 +48,10 @@
  * @{
  */
 
+#if (defined(__x86_64__) || defined(__i386__) || defined(_M_IX86) || defined(_M_X64))
+
 #if defined (__cplusplus)
 extern "C" {
-#endif
-
-#if !(defined(__x86_64__) || defined(__i386__) || defined(_M_IX86) || defined(_M_X64))
-#  error "Dispatching is currently only supported on x86 and x86_64."
 #endif
 
 /*! @cond Doxygen ignores this part */
@@ -818,3 +816,9 @@ XXH3_128bits_update_dispatch(XXH_NOESCAPE XXH3_state_t* state, XXH_NOESCAPE cons
 }
 #endif
 /*! @} */
+
+#else
+
+#include "xxhash.c"
+
+#endif /* (defined(__x86_64__) || defined(__i386__) || defined(_M_IX86) || defined(_M_X64)) */

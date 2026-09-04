@@ -37,6 +37,8 @@
 
 #include "xxhash.h"  /* XXH64_hash_t, XXH3_state_t */
 
+#if (defined(__x86_64__) || defined(__i386__) || defined(_M_IX86) || defined(_M_X64))
+
 #if defined (__cplusplus)
 extern "C" {
 #endif
@@ -89,5 +91,7 @@ XXH_PUBLIC_API XXH_errorcode XXH3_128bits_update_dispatch(XXH_NOESCAPE XXH3_stat
 # define XXH3_128bits_update XXH3_128bits_update_dispatch
 
 #endif /* XXH_DISPATCH_DISABLE_REPLACE */
+
+#endif /* (defined(__x86_64__) || defined(__i386__) || defined(_M_IX86) || defined(_M_X64)) */
 
 #endif /* XXH_X86DISPATCH_H_13563687684 */
