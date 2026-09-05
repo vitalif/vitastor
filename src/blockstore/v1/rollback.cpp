@@ -43,7 +43,7 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
                 else if (IS_STABLE(dirty_it->second.state))
                 {
                     // Can't jump back over a stable version
-                    return -EINVAL;
+                    return -EBUSY;
                 }
                 else if (!IS_SYNCED(dirty_it->second.state))
                 {

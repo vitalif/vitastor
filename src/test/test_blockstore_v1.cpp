@@ -2706,12 +2706,12 @@ static void test_rollback_over_stable_write()
     test.exec_op(&st);
     assert(st.retval == 0);
 
-    printf("try to roll back to v1 - should complete with EINVAL\n");
+    printf("try to roll back to v1 - should complete with EBUSY\n");
     st.opcode = BS_OP_ROLLBACK;
     *((obj_ver_id*)st.buf) = (obj_ver_id){ .oid = oid, .version = 1 };
     test.exec_op(&st);
-    assert(st.retval == -EINVAL);
-    printf("...got EINVAL\n");
+    assert(st.retval == -EBUSY);
+    printf("...got EBUSY\n");
 
     free(st.buf);
     free(buf);
