@@ -62,8 +62,11 @@ jobs:
     needs: build
     container: ${{env.TEST_IMAGE}}:${{github.sha}}
     steps:
-    # leak sanitizer sometimes crashes
     - run: cd /root/vitastor/build && make -j16 build_tests test
+    - name: Print logs
+      if: always() && steps.run.outcome == 'failure'
+      run: |
+        cat /root/vitastor/build/Testing/Temporary/LastTest.log
 
   npm_lint:
     runs-on: ubuntu-latest
