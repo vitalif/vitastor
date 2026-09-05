@@ -28,7 +28,9 @@
 #include <unistd.h>
 #include <errno.h>
 #include <map>
+#include <random>
 #include <set>
+#include <time.h>
 #include <vector>
 
 #include "str_util.h"
@@ -1266,12 +1268,18 @@ static const char *help_text =
     "USAGE:\n"
     "  test_blockstore_chaos [OPTIONS]\n"
     "\n"
-    "Without options it runs seeds 1..%d. A range is run one seed per child process, so a\n"
-    "failure doesn't stop the sweep, and the failing seeds are listed at the end. A single\n"
-    "seed runs in-process, which is what you want under a debugger.\n"
+    "Without options it runs a fixed range of seeds covering every configuration twice, and\n"
+    "then fills the run up to %d seeds with random ones, so that every build tries a new set\n"
+    "of situations instead of the same ones over and over. Every seed is printed, and the\n"
+    "failing ones are listed at the end, so a failure is reproduced by passing its seed back.\n"
+    "Seeds are run one per child process, so a failure doesn't stop the sweep. A single seed\n"
+    "runs in-process, which is what you want under a debugger.\n"
     "\n"
     "  --seed <n>          Run just this seed, in-process\n"
-    "  --seeds <a>-<b>     Run seeds <a> through <b> (default 1-%d)\n"
+    "  --seeds <a>-<b>     Run seeds <a> through <b> (default 1-%d). Turns the random seeds\n"
+    "                      off unless --random is given as well\n"
+    "  --random <n>        Run <n> random seeds after the range above (default %d). They are\n"
+    "                      spread over the configurations evenly\n"
     "  --steps <n>         Steps per seed (default %ju)\n"
     "  --config <n>        Force configuration <n> instead of deriving it from the seed\n"
     "  --max-inflight <n>  Operations in flight at once (default %u)\n"
@@ -1295,10 +1303,10 @@ static const char *help_text =
     "\n"
     "Configurations (%d):\n";
 
-static void print_help(int cfg_count, int default_seeds, uint64_t default_steps)
+static void print_help(int cfg_count, int default_seeds, int default_fixed, int default_random, uint64_t default_steps)
 {
     chaos_probs_t d;
-    printf(help_text, default_seeds, default_seeds, default_steps, d.max_inflight,
+    printf(help_text, default_seeds, default_fixed, default_random, default_steps, d.max_inflight,
         d.wait, d.write, d.del, d.read, d.sync, d.stabilize, d.rollback, d.restart, d.crash,
         d.full_read, cfg_count);
     for (int i = 0; i < cfg_count; i++)
@@ -1344,8 +1352,13 @@ int main(int narg, char *args[])
     setvbuf(stderr, NULL, _IONBF, 0);
     const int cfg_count = sizeof(configs)/sizeof(configs[0]);
     const int default_seeds = 200;
-    bool trace = false, single = false;
-    uint32_t seed_from = 1, seed_to = default_seeds, seed = 0;
+    // Every configuration twice as a fixed regression floor, and the rest of the run filled up
+    // with random seeds so that every build tries situations the previous ones never reached
+    const int default_fixed = 2*cfg_count;
+    const int default_random = default_seeds > default_fixed ? default_seeds-default_fixed : 0;
+    bool trace = false, single = false, seeds_given = false, random_given = false;
+    uint32_t seed_from = 1, seed_to = default_fixed, seed = 0;
+    int random_count = default_random;
     uint64_t steps = 10000;
     int force_cfg = -1;
     for (int i = 1; i < narg; i++)
@@ -1365,7 +1378,7 @@ int main(int narg, char *args[])
         uint64_t v = 0;
         if (!strcmp(opt, "-h") || !strcmp(opt, "--help"))
         {
-            print_help(cfg_count, default_seeds, steps);
+            print_help(cfg_count, default_seeds, default_fixed, default_random, steps);
             return 0;
         }
         else if (!strcmp(opt, "-v") || !strcmp(opt, "--trace"))
@@ -1388,7 +1401,14 @@ int main(int narg, char *args[])
             if (end && *end == '-')
                 seed_to = (uint32_t)strtoul(end+1, NULL, 10);
             single = false;
+            seeds_given = true;
             i++;
+        }
+        else if (!strcmp(opt, "--random"))
+        {
+            take(v);
+            random_count = (int)v;
+            random_given = true;
         }
         else if (!strcmp(opt, "--steps"))
             take(steps);
@@ -1426,8 +1446,32 @@ int main(int narg, char *args[])
         printf("\nall ok\n");
         return 0;
     }
-    std::vector<uint32_t> failed;
+    // An explicit range means "run exactly these", not "these plus a pile of random ones"
+    if (seeds_given && !random_given)
+        random_count = 0;
+    std::vector<uint32_t> seeds;
     for (uint32_t s = seed_from; s <= seed_to; s++)
+        seeds.push_back(s);
+    size_t fixed_count = seeds.size();
+    if (random_count > 0)
+    {
+        std::set<uint32_t> used(seeds.begin(), seeds.end());
+        std::mt19937 rnd(time(NULL) ^ getpid());
+        for (int i = 0; i < random_count; i++)
+        {
+            uint32_t s;
+            do
+            {
+                // The seed picks the configuration too, and some configurations are far more
+                // interesting than others - so spread the random seeds over them evenly
+                s = (rnd() % (1u<<30)) / cfg_count * cfg_count + (i % cfg_count);
+            } while (!s || !used.insert(s).second);
+            seeds.push_back(s);
+        }
+        printf("Running %zu fixed seed(s) and %d random one(s)\n", fixed_count, random_count);
+    }
+    std::vector<uint32_t> failed;
+    for (auto s: seeds)
     {
         if (!run_seed_isolated(configs[force_cfg >= 0 ? force_cfg : (int)(s % cfg_count)], s, steps, trace))
             failed.push_back(s);
@@ -1437,9 +1481,9 @@ int main(int narg, char *args[])
         printf("\nFailing seeds:");
         for (auto s: failed)
             printf(" %u", s);
-        printf("\n%zu of %u seed(s) failed\n", failed.size(), seed_to-seed_from+1);
+        printf("\n%zu of %zu seed(s) failed\n", failed.size(), seeds.size());
         return 1;
     }
-    printf("\nall ok (%u seed(s))\n", seed_to-seed_from+1);
+    printf("\nall ok (%zu seed(s))\n", seeds.size());
     return 0;
 }
