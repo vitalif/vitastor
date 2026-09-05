@@ -329,19 +329,21 @@ static void coroutine_fn vitastor_co_resize(void *opaque)
     }
 #else
     BdrvChild *c;
+    WITH_GRAPH_RDLOCK_GUARD() {
 #if QEMU_VERSION_MAJOR >= 9
-    assert_bdrv_graph_readable();
+        assert_bdrv_graph_readable();
 #endif
-    QLIST_FOREACH(c, &bs->parents, next_parent) {
+        QLIST_FOREACH(c, &bs->parents, next_parent) {
 #if QEMU_VERSION_MAJOR >= 6
-        if (c->klass->resize) {
-            c->klass->resize(c);
-        }
+            if (c->klass->resize) {
+                c->klass->resize(c);
+            }
 #else
-        if (c->role->resize) {
-            c->role->resize(c);
-        }
+            if (c->role->resize) {
+                c->role->resize(c);
+            }
 #endif
+        }
     }
 #endif
     bdrv_dec_in_flight(bs);
