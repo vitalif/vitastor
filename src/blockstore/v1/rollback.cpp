@@ -28,7 +28,7 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
         else
         {
             dirty_it--;
-            if (dirty_it->first.oid != ov.oid || dirty_it->first.version < ov.version)
+            if (dirty_it->first.oid != ov.oid || dirty_it->first.version <= ov.version)
             {
                 // Already rolled back, skip this object version
                 return STAB_SPLIT_DONE;
@@ -40,8 +40,12 @@ int blockstore_impl_t::dequeue_rollback(blockstore_op_t *op)
                     // Object write is still in progress. Wait until the write request completes
                     return STAB_SPLIT_WAIT;
                 }
-                else if (!IS_SYNCED(dirty_it->second.state) ||
-                    IS_STABLE(dirty_it->second.state))
+                else if (IS_STABLE(dirty_it->second.state))
+                {
+                    // Can't jump back over a stable version
+                    return -EINVAL;
+                }
+                else if (!IS_SYNCED(dirty_it->second.state))
                 {
                     // Sync the object
                     return STAB_SPLIT_SYNC;

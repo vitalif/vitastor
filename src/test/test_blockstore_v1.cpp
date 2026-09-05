@@ -174,8 +174,17 @@ struct bs_test_t
             done = true;
         };
         bs->enqueue_op(op);
+        int iters = 0;
         while (!done)
+        {
             ringloop->loop();
+            iters++;
+            if (iters >= 100000)
+            {
+                fprintf(stderr, "Operation didn't complete in %d iterations - deadlock?\n", iters);
+                abort();
+            }
+        }
         op->callback = nullptr;
     }
 };
@@ -2648,6 +2657,66 @@ static void test_no_double_submit_of_journal_sector()
     free(buf);
 }
 
+static void test_rollback_over_stable_write()
+{
+    printf("\n-- test_rollback_over_stable_write\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+
+    printf("write v1\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = 4096;
+    memset(buf, 0xAA, 4096);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("write v2\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 2;
+    op.offset = 0;
+    op.len = 4096;
+    memset(buf, 0xEF, 4096);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    // commit v2
+    printf("sync+stabilize v2\n");
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    blockstore_op_t st;
+    st.opcode = BS_OP_STABLE;
+    st.len = 1;
+    st.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, sizeof(obj_ver_id));
+    *((obj_ver_id*)st.buf) = (obj_ver_id){ .oid = oid, .version = 2 };
+    test.exec_op(&st);
+    assert(st.retval == 0);
+
+    printf("try to roll back to v1 - should complete with EINVAL\n");
+    st.opcode = BS_OP_ROLLBACK;
+    *((obj_ver_id*)st.buf) = (obj_ver_id){ .oid = oid, .version = 1 };
+    test.exec_op(&st);
+    assert(st.retval == -EINVAL);
+    printf("...got EINVAL\n");
+
+    free(st.buf);
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -2678,5 +2747,6 @@ int main(int narg, char *args[])
     test_ack_waits_for_earlier_journal_data();
     test_no_double_submit_of_journal_sector();
     test_recovered_state_is_made_durable();
+    test_rollback_over_stable_write();
     return 0;
 }
