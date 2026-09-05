@@ -25,7 +25,7 @@
 //
 // Example:
 //
-// <parent> - <from> - <layer 2> - <to> - <child 1>
+// <parent> - <from> - <layer 2> - <to> - <child 1> - <child 5>
 //                 \           \       \- <child 2>
 //                  \           \- <child 3>
 //                   \-<child 4>
@@ -39,7 +39,8 @@
 // 3) Process <child 1>:
 //    - Merge <from>..<child 1> to <layer 2>
 //    - Set <layer 2> parent to <parent>
-//    - Rename <layer 2> to <child 1>
+//    - Swap <layer 2> and <child 1> names and change <child 5> parent to <layer 2>
+//    - Remove the data of new <layer 2> (old <child 1>)
 // 4) Delete other layers of the chain (<from>, <to>)
 struct snap_remover_t
 {
@@ -70,6 +71,7 @@ struct snap_remover_t
     std::vector<std::string> rebased_images, deleted_images;
     std::vector<uint64_t> deleted_ids;
     std::string inverse_child_name, inverse_parent_name;
+    inode_config_t inverse_child_new_cfg, inverse_parent_new_cfg;
     cli_result_t result;
 
     bool is_done()
@@ -97,6 +99,8 @@ struct snap_remover_t
             goto resume_8;
         else if (state == 9)
             goto resume_9;
+        else if (state == 10)
+            goto resume_10;
         else if (state == 100)
             goto resume_100;
         assert(!state);
@@ -155,18 +159,26 @@ resume_3:
 resume_4:
             while (!wait_result(4))
                 return;
-            // Delete "inverse" child data
-            start_delete_source(inverse_child);
-resume_5:
-            while (!wait_result(5))
-                return;
-            // Delete "inverse" child metadata, rename parent over it,
-            // and also change parent links of the previous "inverse" child
+            // Delete "inverse" child metadata, swap it with the parent,
+            // and also change parent links to the previous "inverse" child
             rename_inverse_parent();
             if (state == 100)
                 return;
-            state = 6;
+            state = 5;
+resume_5:
+            if (parent->waiting > 0)
+                return;
+            // Delete "inverse" child data
+            start_delete_source(inverse_child);
 resume_6:
+            while (!wait_result(6))
+                return;
+            // Finally remove the unneeded "inverse" child, renamed to parent
+            delete_inode_config(inverse_child);
+            if (state == 100)
+                return;
+            state = 7;
+resume_7:
             if (parent->waiting > 0)
                 return;
         }
@@ -183,18 +195,18 @@ resume_6:
             }
             // Mark child as deleted
             start_mark_deleted(chain_list[current_child]);
-resume_9:
-            while (!wait_result(9))
+resume_8:
+            while (!wait_result(8))
                 return;
             start_delete_source(chain_list[current_child]);
-resume_7:
-            while (!wait_result(7))
+resume_9:
+            while (!wait_result(9))
                 return;
             delete_inode_config(chain_list[current_child]);
             if (state == 100)
                 return;
-            state = 8;
-resume_8:
+            state = 10;
+resume_10:
             if (parent->waiting > 0)
                 return;
         }
@@ -461,11 +473,13 @@ resume_100:
             parent->cli->st_cli->etcd_prefix+"/index/image/"+inverse_parent_name
         );
         // Fill new configuration
-        inode_config_t new_cfg = *child_cfg;
-        new_cfg.deleted = false;
-        new_cfg.num = target_cfg->num;
-        new_cfg.enc_key = target_cfg->enc_key;
-        new_cfg.parent_id = new_parent;
+        inverse_parent_new_cfg = *child_cfg;
+        inverse_parent_new_cfg.deleted = false;
+        inverse_parent_new_cfg.num = target_cfg->num;
+        inverse_parent_new_cfg.enc_key = target_cfg->enc_key;
+        inverse_parent_new_cfg.parent_id = new_parent;
+        inverse_child_new_cfg = *child_cfg;
+        inverse_child_new_cfg.name = inverse_parent_name;
         json11::Json::array cmp = json11::Json::array {
             json11::Json::object {
                 { "target", "MOD" },
@@ -481,20 +495,27 @@ resume_100:
             },
         };
         json11::Json::array txn = json11::Json::array {
+            // child -> rename to parent
             json11::Json::object {
-                { "request_delete_range", json11::Json::object {
+                { "request_put", json11::Json::object {
                     { "key", child_cfg_key },
-                } },
-            },
-            json11::Json::object {
-                { "request_delete_range", json11::Json::object {
-                    { "key", target_idx_key },
+                    { "value", base64_encode(json11::Json(parent->cli->st_cli->serialize_inode_cfg(&inverse_child_new_cfg)).dump()) },
                 } },
             },
             json11::Json::object {
                 { "request_put", json11::Json::object {
+                    { "key", target_idx_key },
+                    { "value", base64_encode(json11::Json({
+                        { "id", INODE_NO_POOL(inverse_child) },
+                        { "pool_id", (uint64_t)INODE_POOL(inverse_child) },
+                    }).dump()) },
+                } },
+            },
+            // parent -> rename to child
+            json11::Json::object {
+                { "request_put", json11::Json::object {
                     { "key", target_cfg_key },
-                    { "value", base64_encode(json11::Json(parent->cli->st_cli->serialize_inode_cfg(&new_cfg)).dump()) },
+                    { "value", base64_encode(json11::Json(parent->cli->st_cli->serialize_inode_cfg(&inverse_parent_new_cfg)).dump()) },
                 } },
             },
             json11::Json::object {
@@ -556,8 +577,14 @@ resume_100:
                 state = 100;
                 return;
             }
+            inverse_child_new_cfg.mod_revision = res["header"]["revision"].uint64_value();
+            inverse_parent_new_cfg.mod_revision = res["header"]["revision"].uint64_value();
+            parent->cli->st_cli->inode_by_name.erase(inverse_child_name);
+            parent->cli->st_cli->inode_by_name.erase(inverse_parent_name);
+            parent->cli->st_cli->insert_inode_config(inverse_child_new_cfg);
+            parent->cli->st_cli->insert_inode_config(inverse_parent_new_cfg);
             if (parent->progress)
-                printf("Layer %s renamed to %s\n", inverse_parent_name.c_str(), inverse_child_name.c_str());
+                printf("Layers %s and %s swapped\n", inverse_parent_name.c_str(), inverse_child_name.c_str());
             parent->ringloop->wakeup();
         });
     }
