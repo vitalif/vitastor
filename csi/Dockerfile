@@ -37,8 +37,8 @@ RUN (echo deb http://vitastor.io/debian trixie main > /etc/apt/sources.list.d/vi
     wget -q -O /etc/apt/trusted.gpg.d/vitastor.gpg https://vitastor.io/debian/pubkey.gpg && \
     apt-get update && \
     apt-get install -y vitastor-client ibverbs-providers && \
-    wget https://vitastor.io/archive/qemu/qemu-trixie-10.0.2%2Bds-2%2Bvitastor1/qemu-utils_10.0.2%2Bds-2%2Bvitastor1_amd64.deb && \
-    wget https://vitastor.io/archive/qemu/qemu-trixie-10.0.2%2Bds-2%2Bvitastor1/qemu-block-extra_10.0.2%2Bds-2%2Bvitastor1_amd64.deb && \
+    wget https://vitastor.io/archive/qemu/qemu-trixie-10.0.11%2Bds-0%2Bdeb13u1%2Bvitastor2/qemu-utils_10.0.11%2Bds-0%2Bdeb13u1%2Bvitastor2_amd64.deb && \
+    wget https://vitastor.io/archive/qemu/qemu-trixie-10.0.11%2Bds-0%2Bdeb13u1%2Bvitastor2/qemu-block-extra_10.0.11%2Bds-0%2Bdeb13u1%2Bvitastor2_amd64.deb && \
     dpkg -x qemu-utils*.deb tmp1 && \
     dpkg -x qemu-block-extra*.deb tmp1 && \
     cp -a tmp1/usr/bin/qemu-storage-daemon /usr/bin/ && \

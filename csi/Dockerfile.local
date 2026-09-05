@@ -25,8 +25,8 @@ RUN apt-get update && \
         # NFS mount dependencies
         nfs-common netbase \
         # dependencies of qemu-storage-daemon
-        libnuma1 liburing2 libglib2.0-0 libfuse3-3 libaio1 libzstd1 libnettle8 \
-        libgmp10 libhogweed6 libp11-kit0 libidn2-0 libunistring2 libtasn1-6 libpcre2-8-0 libffi8 && \
+        libaio1t64 libc6 libfuse3-4 libglib2.0-0t64 libgmp10 libgnutls30t64 \
+        libhogweed6t64 libnettle8t64 libnuma1 libselinux1 liburing2 libzstd1 zlib1g && \
     apt-get clean && \
     (echo options nbd nbds_max=128 > /etc/modprobe.d/nbd.conf)
 
@@ -36,8 +36,8 @@ ADD deb /deb
 
 RUN apt-get update && \
     apt-get -y install /deb/vitastor-client_*.deb && \
-    wget https://vitastor.io/archive/qemu/qemu-trixie-9.2.2%2Bds-1%2Bvitastor4/qemu-utils_9.2.2%2Bds-1%2Bvitastor4_amd64.deb && \
-    wget https://vitastor.io/archive/qemu/qemu-trixie-9.2.2%2Bds-1%2Bvitastor4/qemu-block-extra_9.2.2%2Bds-1%2Bvitastor4_amd64.deb && \
+    wget https://vitastor.io/archive/qemu/qemu-trixie-10.0.11%2Bds-0%2Bdeb13u1%2Bvitastor2/qemu-utils_10.0.11%2Bds-0%2Bdeb13u1%2Bvitastor2_amd64.deb && \
+    wget https://vitastor.io/archive/qemu/qemu-trixie-10.0.11%2Bds-0%2Bdeb13u1%2Bvitastor2/qemu-block-extra_10.0.11%2Bds-0%2Bdeb13u1%2Bvitastor2_amd64.deb && \
     dpkg -x qemu-utils*.deb tmp1 && \
     dpkg -x qemu-block-extra*.deb tmp1 && \
     cp -a tmp1/usr/bin/qemu-storage-daemon /usr/bin/ && \

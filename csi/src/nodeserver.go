@@ -1107,7 +1107,7 @@ func (ns *NodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
         timeout := 30
         var actualSize uint64
         var err error
-        for i := 0; i < timeout && actualSize < requiredBytes; i++
+        for i := 0; i < timeout && actualSize < uint64(requiredBytes); i++
         {
             actualSize, err = GetBlockDeviceSize(devicePath)
             if (err != nil)
@@ -1116,9 +1116,9 @@ func (ns *NodeServer) NodeExpandVolume(ctx context.Context, req *csi.NodeExpandV
             }
             time.Sleep(1 * time.Second)
         }
-        if (actualSize < requiredBytes)
+        if (actualSize < uint64(requiredBytes))
         {
-            return nil, status.Error(codes.NotFound, "Failed to wait for online resize of %s to %v bytes: actual size is still %v after %v seconds",
+            return nil, status.Errorf(codes.NotFound, "Failed to wait for online resize of %s to %v bytes: actual size is still %v after %v seconds",
                 devicePath, requiredBytes, actualSize, timeout)
         }
     }
