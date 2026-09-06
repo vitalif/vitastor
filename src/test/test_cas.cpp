@@ -351,6 +351,8 @@ resume_2:
 
 int main(int narg, char *args[])
 {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
     json11::Json::object cfgo;
     for (int i = 1; i < narg; i++)
     {
