@@ -26,6 +26,10 @@ int main(int argc, char *argv[])
 {
     pg_t pg = {
         .state = PG_PEERING,
+        .scheme = POOL_SCHEME_XOR,
+        .pg_cursize = 3,
+        .pg_size = 3,
+        .pg_minsize = 2,
         .pg_num = 1,
         .target_set = { 1, 2, 3 },
         .cur_set = { 1, 2, 3 },
