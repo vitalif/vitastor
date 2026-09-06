@@ -307,7 +307,7 @@ class get_op_writer_t: public msgr_op_writer_t
 
 public:
     get_op_writer_t(osd_messenger_t* msgr, osd_client_t* cl, uint8_t*, size_t):
-        msgr(msgr), cl(cl), from(cl->write_op_pos), done(0), enc_size(0), done_enc(0), enc_buf(NULL)
+        msgr(msgr), cl(cl), from(cl->write_op_pos), done(0), op_enc(0), enc_size(0), done_enc(0), enc_buf(NULL)
     {
     }
 
