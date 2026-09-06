@@ -53,10 +53,17 @@
 
 #define MAX_SIMPLE_PAYLOAD_SIZE 1048576
 
+#define MSGR_SENDP_BUF 1
+#define MSGR_SENDP_IN 2
+#define MSGR_SENDP_OUT 4
+#define MSGR_SENDP_REF 8
+
+struct osd_client_t;
+
 struct msgr_sendp_t
 {
-    osd_op_t *op;
-    int flags;
+    void *buf;
+    uint32_t flags;
 };
 
 #ifdef WITH_RDMA
@@ -151,13 +158,14 @@ struct osd_client_t
     bool write_ready = true;
     std::vector<iovec> send_list;
     size_t send_list_size = 0;
-    std::deque<osd_op_t*> send_free_ops;
-    std::vector<osd_op_t*> zc_free_list;
+    uint64_t next_send_free = 0;
+    std::deque<msgr_sendp_t> send_free;
     op_aes_xts_encrypt_t *xts_enc_ctx = NULL;
     XXH3_state_t* write_csum_state = NULL;
 
     ~osd_client_t();
     void cancel_ops();
+    void unref_send_free(uint64_t from, uint64_t to);
 };
 
 struct osd_wanted_peer_t
@@ -346,8 +354,7 @@ protected:
 
     bool try_send(osd_client_t *cl);
     bool wakeup_send(osd_client_t *cl);
-    bool handle_send(int result, bool prev, bool more, osd_client_t *cl);
-    static void post_send_free(osd_op_t *op);
+    bool handle_send(int result, bool prev, bool more, osd_client_t *cl, uint64_t free_from, uint64_t free_to);
     bool op_write_to(osd_client_t *cl, msgr_op_writer_t & wr);
     void next_write_op(osd_client_t *cl);
     bool op_write_buf(osd_client_t *cl, uint8_t *src, size_t src_len, uint8_t *dst, size_t dst_len, bool skip_csum, size_t & from, size_t & done);

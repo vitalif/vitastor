@@ -328,8 +328,8 @@ public:
             enc_size = n < GCM_TMP_BUF_SIZE ? GCM_TMP_BUF_SIZE : n;
             enc_buf = (uint8_t*)malloc_or_die(enc_size);
             done_enc = 0;
-            assert(!((size_t)enc_buf & 7));
-            cl->send_free_ops.push_back((osd_op_t*)((size_t)enc_buf | 1));
+            assert(cl->send_free.size() < UINT64_MAX - cl->next_send_free);
+            cl->send_free.push_back({ .buf = enc_buf, .flags = MSGR_SENDP_BUF|MSGR_SENDP_REF });
         }
     }
 
@@ -525,6 +525,7 @@ restart:
         // Do not copy more data into it, just wait for EPOLLOUT
         return true;
     }
+    uint64_t send_free_from = cl->next_send_free + cl->send_free.size();
     if (cl->hs)
     {
         // Send handshake message
@@ -532,8 +533,8 @@ restart:
         {
             uint8_t *out = cl->hs->get_out();
             cl->send_list.push_back((iovec){ .iov_base = out, .iov_len = cl->hs->out_size() });
-            assert(!((size_t)out & 7));
-            cl->send_free_ops.push_back((osd_op_t*)((size_t)out | 1));
+            assert(cl->send_free.size() < UINT64_MAX - cl->next_send_free);
+            cl->send_free.push_back({ .buf = out, .flags = MSGR_SENDP_BUF|MSGR_SENDP_REF });
             cl->hs->reset_out();
         }
         if (!cl->hs->out_size() && cl->hs->done())
@@ -548,6 +549,7 @@ restart:
 copy_ops:
         copy_ops_to_with<get_op_writer_t>(cl, NULL, 0);
     }
+    uint64_t send_free_to = cl->next_send_free + cl->send_free.size();
     if (cl->io_error)
     {
         stop_client(cl->client_id);
@@ -580,7 +582,10 @@ copy_ops:
         cl->write_msg.msg_iovlen = cl->send_list.size();
         cl->refs++;
         ring_data_t* data = ((ring_data_t*)sqe->user_data);
-        data->callback = [this, cl](ring_data_t *data) { handle_send(data->res, data->prev, data->more, cl); };
+        data->callback = [this, cl, send_free_from, send_free_to](ring_data_t *data)
+        {
+            handle_send(data->res, data->prev, data->more, cl, send_free_from, send_free_to);
+        };
         bool use_zc = has_sendmsg_zc && min_zerocopy_send_size >= 0;
         if (use_zc && min_zerocopy_send_size > 0 &&
             cl->send_list_size/cl->write_msg.msg_iovlen < min_zerocopy_send_size)
@@ -614,7 +619,7 @@ copy_ops:
             {
                 result = -errno;
             }
-            if (!handle_send(result, false, false, cl))
+            if (!handle_send(result, false, false, cl, cl->next_send_free, send_free_to))
             {
                 return false;
             }
@@ -668,17 +673,20 @@ size_t osd_messenger_t::copy_ops_to_with(osd_client_t *cl, uint8_t *dst, size_t 
             next_write_op(cl);
         }
         osd_op_t *op = cl->write_op;
+        auto prev_pos = cl->write_op_pos;
         if (!op_write_to(cl, wr))
         {
             if (cl->io_error)
                 return 0;
+            if (cl->write_op_pos != prev_pos)
+            {
+                // part of the operation is already in the current send batch
+                cl->send_free.push_back({ .buf = op, .flags = MSGR_SENDP_REF });
+            }
             break;
         }
-        if (!cl->write_op && op->op_type == OSD_OP_IN)
-        {
-            // this is a reply, free the op after sending it
-            cl->send_free_ops.push_back(op);
-        }
+        assert(cl->send_free.size() < UINT64_MAX - cl->next_send_free);
+        cl->send_free.push_back({ .buf = op, .flags = (uint32_t)((op->op_type == OSD_OP_IN ? MSGR_SENDP_IN : MSGR_SENDP_OUT) | MSGR_SENDP_REF) });
     }
     return wr.get_done();
 }
@@ -735,7 +743,7 @@ static void eat_send_list(osd_client_t *cl, size_t n)
     }
 }
 
-bool osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t *cl)
+bool osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t *cl, uint64_t free_from, uint64_t free_to)
 {
     if (!prev)
     {
@@ -765,12 +773,8 @@ bool osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
     {
         if (prev)
         {
-            // Second notification - only free a batch of postponed ops
-            int i = 0;
-            for (; i < cl->zc_free_list.size() && cl->zc_free_list[i]; i++)
-                post_send_free(cl->zc_free_list[i]);
-            if (i > 0)
-                cl->zc_free_list.erase(cl->zc_free_list.begin(), cl->zc_free_list.begin()+i+1);
+            // Second (zero-copy release) notification
+            cl->unref_send_free(free_from, free_to);
             return true;
         }
         if (cl->send_list_size <= result)
@@ -792,16 +796,10 @@ bool osd_messenger_t::handle_send(int result, bool prev, bool more, osd_client_t
             cl->send_list_size -= result;
             return true;
         }
-        for (auto op: cl->send_free_ops)
+        if (!more)
         {
-            if (more)
-                cl->zc_free_list.push_back(op);
-            else
-                post_send_free(op);
+            cl->unref_send_free(free_from, free_to);
         }
-        if (more)
-            cl->zc_free_list.push_back(NULL); // end marker
-        cl->send_free_ops.clear();
         if ((cl->proto_csum_status & MSGR_CSUM_NEG) && !cl->write_op && !cl->write_ops.size())
         {
             // Checksums negotiated, enable

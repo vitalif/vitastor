@@ -44,14 +44,37 @@ void osd_op_t::cancel()
     }
 }
 
-void osd_messenger_t::post_send_free(osd_op_t *op)
+// Mark <from>..<to> in <send_free> as unreferenced, free if it's in the beginning
+void osd_client_t::unref_send_free(uint64_t from, uint64_t to)
 {
-    if (!op)
-        return;
-    else if (!((size_t)op & 7))
-        delete op;
-    else
-        free((void*)((size_t)op & ~(size_t)7));
+    assert(from >= next_send_free && to <= next_send_free + send_free.size());
+    bool first = (from == next_send_free);
+    auto it = send_free.begin() + (from - next_send_free);
+    for (uint64_t i = from; i < to; i++, it++)
+    {
+        it->flags &= ~MSGR_SENDP_REF;
+        if (first)
+        {
+            if (it->flags & MSGR_SENDP_IN)
+                delete (osd_op_t*)it->buf;
+            else if (it->flags & MSGR_SENDP_BUF)
+                free(it->buf);
+        }
+    }
+    if (first)
+    {
+        while (it != send_free.end() && !(it->flags & MSGR_SENDP_REF))
+        {
+            if (it->flags & MSGR_SENDP_IN)
+                delete (osd_op_t*)it->buf;
+            else if (it->flags & MSGR_SENDP_BUF)
+                free(it->buf);
+            to++;
+            it++;
+        }
+        next_send_free += (to - from);
+        send_free.erase(send_free.begin(), it);
+    }
 }
 
 // force_delete means stop the client anyway, even if there are refs to it in the event loop.
@@ -193,14 +216,7 @@ osd_client_t::~osd_client_t()
     }
     // Cancel outbound ops
     cancel_ops();
-    for (osd_op_t *op: send_free_ops)
-    {
-        osd_messenger_t::post_send_free(op);
-    }
-    for (osd_op_t *op: zc_free_list)
-    {
-        osd_messenger_t::post_send_free(op);
-    }
+    unref_send_free(next_send_free, next_send_free + send_free.size());
     if (read_csum_state)
     {
         XXH3_freeState(read_csum_state);

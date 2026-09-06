@@ -598,6 +598,7 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
             : rc->send_done_pos-rc->send_out_pos);
         if (dst_len > rc->max_msg)
             dst_len = rc->max_msg;
+        uint64_t send_free_from = cl->next_send_free + cl->send_free.size();
         copied = copy_ops_to(cl, dst, dst_len);
         if (cl->io_error)
         {
@@ -619,7 +620,7 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
             };
             try_send_rdma_wr(cl, &sge, 1);
             rc->send_sizes.push_back(copied);
-            cl->send_free_ops.push_back(NULL); // end marker
+            cl->unref_send_free(send_free_from, cl->next_send_free + cl->send_free.size()); // unref at once - everything is already copied
         }
     }
     return true;
@@ -736,12 +737,6 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
                 if (rc->send_done_pos == rc->send_out_size)
                     rc->send_done_pos = 0;
                 assert(rc->send_done_pos < rc->send_out_size);
-                while (osd_op_t *op = cl->send_free_ops.front())
-                {
-                    post_send_free(op);
-                    cl->send_free_ops.pop_front();
-                }
-                cl->send_free_ops.pop_front();
                 if ((cl->proto_csum_status & MSGR_CSUM_NEG) && !cl->write_op && !cl->write_ops.size())
                 {
                     // Checksums negotiated, enable

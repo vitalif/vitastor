@@ -181,7 +181,7 @@ struct __attribute__((visibility("default"))) osd_op_t
     void *buf = NULL;
     // bitmap, bitmap_len, bmp_data are only meaningful for reads
     void *bitmap = NULL;
-    unsigned bitmap_len = 0;
+    uint32_t bitmap_len = 0;
     size_t bmp_data = 0;
     uint8_t *bitmap_buf = NULL;
     void *rmw_buf = NULL;
