@@ -214,6 +214,19 @@ osd_client_t::~osd_client_t()
         read_op->cancel();
         read_op = NULL;
     }
+    // Delete unsent replies - before cancel_ops() because it may delete outbound operations.
+    if (write_op)
+    {
+        if (write_op->op_type == OSD_OP_IN)
+            delete write_op;
+        write_op = NULL;
+    }
+    for (auto op: write_ops)
+    {
+        if (op->op_type == OSD_OP_IN)
+            delete op;
+    }
+    write_ops.clear();
     // Cancel outbound ops
     cancel_ops();
     unref_send_free(next_send_free, next_send_free + send_free.size());
