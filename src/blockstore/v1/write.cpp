@@ -129,6 +129,10 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             if (op->opcode == BS_OP_WRITE_STABLE && !IS_INSTANT(dirty_it->second.state))
             {
                 op->retval = -EINVAL;
+                if (!is_del && alloc_dyn_data)
+                {
+                    free(dyn);
+                }
                 return false;
             }
             found = true;
