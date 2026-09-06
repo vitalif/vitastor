@@ -23,14 +23,9 @@ ring_loop_t::ring_loop_t(int qd, bool multithreaded, bool sqe128)
     {
         throw std::runtime_error(std::string("io_uring_queue_init: ") + strerror(-ret));
     }
-    free_ring_data_ptr = *ring.sq.kring_entries;
-    ring_datas = (struct ring_data_t*)calloc(free_ring_data_ptr, sizeof(ring_data_t));
-    free_ring_data = (int*)malloc(sizeof(int) * free_ring_data_ptr);
-    if (!ring_datas || !free_ring_data)
-    {
-        throw std::bad_alloc();
-    }
-    for (int i = 0; i < free_ring_data_ptr; i++)
+    ring_datas.resize(*ring.sq.kring_entries);
+    free_ring_data.resize(*ring.sq.kring_entries);
+    for (int i = 0; i < free_ring_data.size(); i++)
     {
         free_ring_data[i] = i;
     }
@@ -46,8 +41,6 @@ ring_loop_t::ring_loop_t(int qd, bool multithreaded, bool sqe128)
 
 ring_loop_t::~ring_loop_t()
 {
-    free(free_ring_data);
-    free(ring_datas);
     io_uring_queue_exit(&ring);
     if (ring_eventfd)
     {
@@ -82,7 +75,7 @@ io_uring_sqe* ring_loop_t::get_sqe()
 {
     if (mt)
         mu.lock();
-    if (free_ring_data_ptr == 0)
+    if (!free_ring_data.size())
     {
         if (mt)
             mu.unlock();
@@ -91,7 +84,8 @@ io_uring_sqe* ring_loop_t::get_sqe()
     struct io_uring_sqe* sqe = io_uring_get_sqe(&ring);
     assert(sqe);
     *sqe = { 0 };
-    io_uring_sqe_set_data(sqe, ring_datas + free_ring_data[--free_ring_data_ptr]);
+    io_uring_sqe_set_data(sqe, ring_datas.data() + free_ring_data.back());
+    free_ring_data.pop_back();
     if (mt)
         mu.unlock();
     return sqe;
@@ -144,7 +138,7 @@ void ring_loop_t::loop()
             dl.prev = d->prev;
             dl.callback.swap(d->callback);
             d->prev = d->more = false;
-            free_ring_data[free_ring_data_ptr++] = d - ring_datas;
+            free_ring_data.push_back(d - ring_datas.data());
             if (mt)
                 mu.unlock();
             dl.callback(&dl);
@@ -152,7 +146,7 @@ void ring_loop_t::loop()
         else
         {
             fprintf(stderr, "Warning: empty callback in SQE\n");
-            free_ring_data[free_ring_data_ptr++] = d - ring_datas;
+            free_ring_data.push_back(d - ring_datas.data());
             if (mt)
                 mu.unlock();
         }
@@ -187,7 +181,7 @@ void ring_loop_t::restore(unsigned sqe_tail)
     unsigned inc = (1 << io_uring_sqe_shift(&ring));
     for (unsigned i = sqe_tail; i < ring.sq.sqe_tail; i += inc)
     {
-        free_ring_data[free_ring_data_ptr++] = ((ring_data_t*)ring.sq.sqes[i & *ring.sq.kring_mask].user_data) - ring_datas;
+        free_ring_data.push_back(((ring_data_t*)ring.sq.sqes[i & *ring.sq.kring_mask].user_data) - ring_datas.data());
     }
     ring.sq.sqe_tail = sqe_tail;
 }
@@ -198,10 +192,10 @@ unsigned ring_loop_t::space_left()
     unsigned int head = io_uring_smp_load_acquire(sq->khead);
     unsigned int next = sq->sqe_tail + 1;
     int left = (*sq->kring_entries - (next - head)) >> io_uring_sqe_shift(&ring);
-    if (left > free_ring_data_ptr)
+    if (left > free_ring_data.size())
     {
         // return min(sqes left, ring_datas left)
-        return free_ring_data_ptr;
+        return free_ring_data.size();
     }
     return left;
 }

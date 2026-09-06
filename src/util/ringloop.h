@@ -58,11 +58,10 @@ class __attribute__((visibility("default"))) ring_loop_t: public ring_loop_i
 {
     std::vector<std::function<void()>> immediate_queue, immediate_queue2;
     std::vector<ring_consumer_t*> consumers;
-    struct ring_data_t *ring_datas;
+    std::vector<ring_data_t> ring_datas;
+    std::vector<int> free_ring_data;
     std::mutex mu;
     bool mt;
-    int *free_ring_data;
-    unsigned free_ring_data_ptr;
     bool in_loop;
     bool loop_again;
     struct io_uring ring;
