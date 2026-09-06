@@ -309,29 +309,6 @@ void osd_t::handle_primary_bs_subop(osd_op_t *subop)
 {
     osd_op_t *cur_op = (osd_op_t*)subop->op_type;
     blockstore_op_t *bs_op = subop->bs_op;
-    int64_t expected = bs_op->opcode == BS_OP_READ || bs_op->opcode == BS_OP_WRITE
-        || bs_op->opcode == BS_OP_WRITE_STABLE ? bs_op->len : 0;
-    if (bs_op->retval != expected && bs_op->opcode != BS_OP_READ && bs_op->retval != -EAGAIN &&
-        (bs_op->opcode != BS_OP_WRITE && bs_op->opcode != BS_OP_WRITE_STABLE || bs_op->retval != -ENOSPC))
-    {
-        // die on any error except ENOSPC or EAGAIN during write
-        if (bs_op->opcode == BS_OP_WRITE || bs_op->opcode == BS_OP_WRITE_STABLE)
-        {
-            printf(
-                "%s subop to %jx:%jx v%ju failed locally: retval = %jd (expected %jd)\n",
-                osd_op_names[bs_op_to_osd_op[bs_op->opcode]],
-                bs_op->oid.inode, bs_op->oid.stripe, bs_op->version, bs_op->retval, expected
-            );
-        }
-        else
-        {
-            printf(
-                "%s subop failed locally: retval = %jd (expected %jd)\n",
-                osd_op_names[bs_op_to_osd_op[bs_op->opcode]], bs_op->retval, expected
-            );
-        }
-        throw std::runtime_error("local blockstore modification failed");
-    }
     bool recovery_related = cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB;
     add_bs_subop_stats(subop, recovery_related);
     subop->req.hdr.opcode = bs_op_to_osd_op[bs_op->opcode];
