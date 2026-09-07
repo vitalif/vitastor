@@ -983,6 +983,7 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_dd(json11::Json cfg)
     dd->parent = this;
     dd->iinfo.iimg = cfg["iimg"].string_value();
     dd->oinfo.oimg = cfg["oimg"].string_value();
+    dd->oinfo.out_pool = cfg["opool"].string_value();
     dd->iinfo.ifile = cfg["if"].string_value();
     dd->oinfo.ofile = cfg["of"].string_value();
     dd->blocksize = parse_size(cfg["bs"].string_value());

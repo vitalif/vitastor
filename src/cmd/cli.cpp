@@ -82,6 +82,7 @@ static const char* help_text =
     "  iimg=<image>   Copy from Vitastor image <image>\n"
     "  if=<file>      Copy from file <file>\n"
     "  oimg=<image>   Copy to Vitastor image <image>\n"
+    "  opool=<pool>   Pool to create output image if it doesn't exist\n"
     "  of=<file>      Copy to file <file>\n"
     "  bs=1M          Set copy block size\n"
     "  count=N        Copy only N input blocks. If N ends in B it counts bytes, not blocks\n"
