@@ -677,10 +677,8 @@ bool osd_messenger_t::handle_buffer_with(osd_client_t *cl, uint8_t *curbuf, size
 
 bool osd_messenger_t::handle_hdr(osd_client_t *cl)
 {
-    if (cl->proto_csum_status == MSGR_CSUM_FULL)
-    {
-        XXH3_64bits_update(cl->read_csum_state, cl->read_op->req.buf, OSD_PACKET_SIZE);
-    }
+    // Note: the header is already checksummed by the reader in op_read_from(),
+    // which passes RDR_NO_CSUM for it only in MSGR_CSUM_PAYLOAD mode
     if (cl->read_op->req.hdr.magic == SECONDARY_OSD_REPLY_MAGIC)
     {
         auto req_it = cl->sent_ops.find(cl->read_op->req.hdr.id);
