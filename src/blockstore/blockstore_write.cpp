@@ -77,34 +77,36 @@ bool blockstore_impl_t::intent_write_allowed(blockstore_op_t *op, heap_entry_t *
     {
         return false;
     }
-    bool ok = true;
+    bool ok = false;
     heap->iterate_with_stable(obj, obj->lsn, [&](heap_entry_t *wr, bool stable)
     {
-        // Intent writes are not allowed over buffered writes
         auto t = wr->type();
-        if (t == BS_HEAP_SMALL_WRITE)
-        {
-            ok = false;
-            return false;
-        }
-        // Intent writes are not allowed over unstable writes
         if (!stable)
         {
-            ok = false;
+            // Intent writes are not allowed over unstable writes
             return false;
         }
-        // Intent writes are not allowed over unfinished intent writes
-        if ((t == BS_HEAP_INTENT_WRITE || t == BS_HEAP_BIG_INTENT) && wr->lsn > heap->get_fsynced_lsn())
+        else if (t == BS_HEAP_INTENT_WRITE || t == BS_HEAP_BIG_INTENT)
         {
-            ok = false;
-            return false;
+            // Intent writes are not allowed over unfinished intent writes
+            ok = (wr->lsn <= heap->get_fsynced_lsn());
         }
-        // Intent writes are allowed over BIG_WRITEs even with fsyncs because BIG_WRITE is always counted as fsynced
-        if (t == BS_HEAP_BIG_WRITE || t == BS_HEAP_BIG_INTENT)
+        // Intent writes are allowed over BIG_WRITEs even with enable data_fsync
+        // because BIG_WRITEs are always fsynced before adding the entry
+        else if (t == BS_HEAP_BIG_WRITE)
         {
-            return false;
+            // But sadly with one exception: a BIG_WRITE may be a result of compaction, with a
+            // reused older LSN, still in progress of being written. In that case it can still
+            // disappear after a reboot, and if it disappears, an older small_write may be replayed
+            // again over our intent write data if it's there. So we have to check the previous write too...
+            if (wr->lsn == flusher->get_flushing_lsn({ .inode = wr->inode, .stripe = wr->stripe }))
+            {
+                return true;
+            }
+            ok = true;
         }
-        return true;
+        // Intent writes are not allowed over buffered writes and other write types
+        return false;
     });
     return ok;
 }

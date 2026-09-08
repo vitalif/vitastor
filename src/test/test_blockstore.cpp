@@ -1788,6 +1788,134 @@ static void test_compact_intent_write_in_partial_csum_block()
     free(buf);
 }
 
+// Placing an intent write over big_write is always OK except in one case:
+// if the big_write is a result of unfinished compaction and has a preceding small_write entry.
+// Because in this case the compaction big_write may disappear after a reboot and small_write
+// can then be replayed over our intent_write. However, if the big_write only has intent_writes
+// before it - overwriting it again is OK.
+static void test_no_intent_over_unwritten_compaction()
+{
+    printf("\n-- test_no_intent_over_unwritten_compaction\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.init();
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = oid;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+
+    // A full block, then a 4K write over it - which is done in place because the big_write
+    // under it is already on the disk
+    printf("writing 0+128K v1\n");
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    memset(op.buf, 0xaa, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+
+    printf("writing 4K+4K v2\n");
+    op.version = 2;
+    op.offset = 4096;
+    op.len = 4096;
+    memset(op.buf, 0xbb, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+    auto obj = test.bs->heap->read_entry(oid);
+    assert(obj && obj->entry_type == (BS_HEAP_BIG_INTENT|BS_HEAP_STABLE));
+
+    // 8K is over atomic_write_size, so this one can't be done in place and goes to the buffer
+    printf("writing 16K+8K v3\n");
+    op.version = 3;
+    op.offset = 16384;
+    op.len = 8192;
+    memset(op.buf, 0xcc, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+    obj = test.bs->heap->read_entry(oid);
+    assert(obj && obj->entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE));
+
+    // Compact the object, but hold the metadata write of the compacted entry. Skip the
+    // superblock - it's written by the same flusher and holding it would stall everything
+    io_uring_sqe held_sqe;
+    ring_data_t *held_data = NULL;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (!held_data && sqe->fd == MOCK_DATA_FD && sqe->opcode == IORING_OP_WRITEV &&
+            sqe->off >= test.bs->dsk.meta_offset + test.bs->dsk.meta_block_size &&
+            sqe->off < parse_size(test.config["journal_offset"]))
+        {
+            held_sqe = *sqe;
+            held_data = (ring_data_t*)sqe->user_data;
+            return true;
+        }
+        return false;
+    };
+    printf("compacting\n");
+    test.bs->flusher->request_trim();
+    while (!held_data)
+        test.ringloop->loop();
+    obj = test.bs->heap->read_entry(oid);
+    assert(obj && obj->entry_type == (BS_HEAP_BIG_WRITE|BS_HEAP_STABLE));
+
+    // Another 4K write. It looks like a perfect candidate for an in-place write - a big_write
+    // with an old LSN right under it - but that entry isn't on the disk yet, so it has to be
+    // buffered instead
+    printf("writing 40K+4K v4\n");
+    op.version = 4;
+    op.offset = 40960;
+    op.len = 4096;
+    memset(op.buf, 0xdd, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+    obj = test.bs->heap->read_entry(oid);
+    assert(obj && obj->entry_type == (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE));
+
+    // Let the compaction finish
+    printf("releasing the metadata write\n");
+    bool ok = test.data_disk->submit(&held_sqe);
+    assert(ok);
+    test.ringloop->mark_completed(held_data);
+    test.sqe_handler = nullptr;
+    while (test.bs->flusher->is_active())
+        test.ringloop->loop();
+    test.bs->flusher->release_trim();
+
+    // Everything must read back, both now and after a restart
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_READ;
+    op2.oid = oid;
+    op2.version = UINT64_MAX;
+    op2.offset = 0;
+    op2.len = 128*1024;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+    for (int i = 0; i < 2; i++)
+    {
+        if (i)
+        {
+            printf("restarting\n");
+            test.destroy_bs();
+            test.init();
+        }
+        printf("reading\n");
+        test.exec_op(&op2);
+        assert(op2.retval == op2.len);
+        assert(memcheck(op2.buf, 0xaa, 4096));
+        assert(memcheck(op2.buf+4096, 0xbb, 4096));
+        assert(memcheck(op2.buf+8192, 0xaa, 8192));
+        assert(memcheck(op2.buf+16384, 0xcc, 8192));
+        assert(memcheck(op2.buf+24576, 0xaa, 16384));
+        assert(memcheck(op2.buf+40960, 0xdd, 4096));
+        assert(memcheck(op2.buf+45056, 0xaa, 128*1024-45056));
+    }
+
+    free(op.buf);
+    free(op2.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_simple();
@@ -1815,5 +1943,6 @@ int main(int narg, char *args[])
     test_recheck_under_commit();
     test_compact_over_rolled_back_big_write();
     test_compact_intent_write_in_partial_csum_block();
+    test_no_intent_over_unwritten_compaction();
     return 0;
 }

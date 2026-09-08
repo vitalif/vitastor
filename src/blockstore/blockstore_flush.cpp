@@ -80,6 +80,16 @@ int journal_flusher_t::get_syncing_buffer()
     return syncing_buffer;
 }
 
+uint64_t journal_flusher_t::get_flushing_lsn(object_id oid)
+{
+    auto it = flushing.find(oid);
+    if (it == flushing.end())
+    {
+        return 0;
+    }
+    return it->second;
+}
+
 bool journal_flusher_t::is_active()
 {
     return active_flushers > 0;
@@ -250,7 +260,6 @@ resume_16:
         }
         assert(false);
     }
-    flusher->flushing.insert(cur_oid);
 resume_1:
     wait_state = 1;
     should_repeat = false;
@@ -258,7 +267,6 @@ resume_1:
     if (!cur_obj)
     {
         // Object does not exist
-        flusher->flushing.erase(cur_oid);
         goto resume_0;
     }
     // Scan versions to flush
@@ -291,10 +299,10 @@ resume_1:
     if (!compact_info.compact_lsn)
     {
         // Flushing is aborted
-        flusher->flushing.erase(cur_oid);
         bs->heap->unlock_entry(cur_oid);
         goto resume_0;
     }
+    flusher->flushing[cur_oid] = compact_info.compact_lsn;
     flusher->active_flushers++;
     if (!compact_info.do_delete && compact_info.clean_wr->type() == BS_HEAP_BIG_INTENT &&
         (!bs->dsk.csum_block_size || bs->dsk.csum_block_size > bs->dsk.bitmap_granularity))
@@ -519,12 +527,12 @@ resume_13:
         printf("Compacted %jx:%jx l%ju (%d writes)\n", cur_oid.inode, cur_oid.stripe, compact_info.compact_lsn, copy_count);
     }
     flusher->active_flushers--;
+    flusher->flushing.erase(cur_oid);
     if (should_repeat)
     {
         // Flush the same object again
         goto resume_1;
     }
-    flusher->flushing.erase(cur_oid);
     // All done
     goto resume_0;
 }

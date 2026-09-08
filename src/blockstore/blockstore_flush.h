@@ -99,7 +99,7 @@ class journal_flusher_t
     blockstore_impl_t *bs;
     friend class journal_flusher_co;
 
-    robin_hood::unordered_flat_set<object_id> flushing;
+    robin_hood::unordered_flat_map<object_id, uint64_t> flushing;
     int active_flushers = 0;
     std::list<flusher_data_sync_t> data_syncs;
     int wanting_meta_fsync = 0;
@@ -112,6 +112,7 @@ public:
     ~journal_flusher_t();
     void loop();
     int get_syncing_buffer();
+    uint64_t get_flushing_lsn(object_id oid);
     bool is_active();
     void request_trim();
     void release_trim();
