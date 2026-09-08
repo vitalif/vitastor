@@ -64,6 +64,11 @@ bool blockstore_impl_t::forget_unstable_before_delete(blockstore_op_t *op, block
     }
     if (first_it == dirty_it)
         return true;
+    // Their durability becomes ours: they're acknowledged, but from now on the only thing
+    // on the disk which accounts for them is our deletion. A sync started before we're
+    // journaled and acked would otherwise find nothing to do and report success
+    unsynced_forgotten++;
+    PRIV(op)->forgot_unsynced = true;
     for (auto it = first_it; it != dirty_it; it++)
     {
         // Drop it from the unsynced lists so that a later sync doesn't journal it
@@ -335,6 +340,11 @@ void blockstore_impl_t::unshift_stable_flush(obj_ver_id ov)
 
 void blockstore_impl_t::cancel_all_writes(blockstore_op_t *op, blockstore_dirty_db_t::iterator dirty_it, int retval)
 {
+    if (PRIV(op)->forgot_unsynced)
+    {
+        PRIV(op)->forgot_unsynced = false;
+        unsynced_forgotten--;
+    }
     while (dirty_it != dirty_db.end() && dirty_it->first.oid == op->oid)
     {
         free_dirty_dyn_data(dirty_it->second);
@@ -802,6 +812,12 @@ resume_4:
                     .version = op->version,
                 });
             }
+        }
+        if (PRIV(op)->forgot_unsynced)
+        {
+            // We're in the unsynced lists ourselves now, so a sync may proceed again
+            PRIV(op)->forgot_unsynced = false;
+            unsynced_forgotten--;
         }
         if (imm && (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE)
         {

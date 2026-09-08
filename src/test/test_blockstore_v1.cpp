@@ -2717,6 +2717,93 @@ static void test_rollback_over_stable_write()
     free(buf);
 }
 
+// A deletion takes the preceding unsynced writes of the object over: it drops them from the
+// unsynced lists and erases them from the journal, because from that moment the only thing on
+// the disk accounting for them is the deletion itself. A sync submitted while the deletion is
+// still in flight must therefore wait for it - otherwise it finds nothing left to sync, reports
+// success, and a power outage then takes away both the deletion and the writes it swallowed,
+// leaving the object at a version older than the one the sync acknowledged
+static void test_sync_waits_for_delete_taking_over_unsynced()
+{
+    printf("\n-- test_sync_waits_for_delete_taking_over_unsynced\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // Writes are only durable after an explicit sync here
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+    printf("blockstore initialized\n");
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 4096);
+
+    printf("write v1 and make it durable\n");
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = oid;
+    op.version = 1;
+    op.offset = 0;
+    op.len = 4096;
+    op.buf = buf;
+    memset(buf, 0xAA, 4096);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    blockstore_op_t sync0;
+    sync0.opcode = BS_OP_SYNC;
+    sync0.buf = NULL;
+    test.exec_op(&sync0);
+    assert(sync0.retval == 0);
+
+    printf("write v2 (acknowledged, but unsynced)\n");
+    memset(buf, 0xBB, 4096);
+    op.version = 2;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+
+    printf("submitting a deletion and a sync in one batch\n");
+    blockstore_op_t del;
+    bool del_done = false;
+    del.opcode = BS_OP_DELETE;
+    del.oid = oid;
+    del.version = 3;
+    del.buf = NULL;
+    del.callback = [&](blockstore_op_t *op) { del_done = true; };
+    blockstore_op_t sync;
+    bool sync_done = false;
+    sync.opcode = BS_OP_SYNC;
+    sync.buf = NULL;
+    sync.callback = [&](blockstore_op_t *op) { sync_done = true; };
+    test.bs->enqueue_op(&del);
+    test.bs->enqueue_op(&sync);
+    while (!sync_done)
+        test.ringloop->loop();
+    assert(sync.retval == 0);
+    // The deletion swallowed v2, so the sync could only report success after it
+    assert(del_done);
+    assert(del.retval == 0);
+
+    printf("now the power goes away - the volatile cache is lost\n");
+    test.destroy_bs();
+    test.ringloop->reset();
+    test.data_disk->discard_buffers(true, 0);
+    test.init();
+
+    printf("the object must be gone, not back at v1\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = 4096;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == -ENOENT);
+    free(rd.buf);
+
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -2748,5 +2835,6 @@ int main(int narg, char *args[])
     test_no_double_submit_of_journal_sector();
     test_recovered_state_is_made_durable();
     test_rollback_over_stable_write();
+    test_sync_waits_for_delete_taking_over_unsynced();
     return 0;
 }

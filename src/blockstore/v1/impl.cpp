@@ -223,8 +223,11 @@ void blockstore_impl_t::loop()
                 // its own state, so a second sync started while the first one is still in flight
                 // would find nothing left to sync and report success without anything having
                 // reached the disk - while the writes it was supposed to cover are still in the
-                // first sync's hands
-                if (!has_unfinished_sync)
+                // first sync's hands.
+                // A deletion takes them over in the very same way, see
+                // forget_unstable_before_delete() - so wait for it to be journaled and acked,
+                // and it lands in the unsynced lists itself by then
+                if (!has_unfinished_sync && !unsynced_forgotten)
                 {
                     wr_st = continue_sync(op);
                     has_unfinished_sync = (wr_st != 2);
@@ -425,6 +428,7 @@ void blockstore_impl_t::init_op(blockstore_op_t *op)
     PRIV(op)->wait_for = 0;
     PRIV(op)->op_state = 0;
     PRIV(op)->pending_ops = 0;
+    PRIV(op)->forgot_unsynced = false;
 }
 
 static bool replace_stable(object_id oid, uint64_t version, int search_start, int search_end, obj_ver_id* list)

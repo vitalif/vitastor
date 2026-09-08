@@ -111,6 +111,9 @@ struct blockstore_op_private_t
     // Warning: must not have a default value here because it's written to before calling constructor in blockstore_write.cpp O_o
     uint64_t real_version;
     timespec tv_begin;
+    // Set on a deletion which dropped preceding unsynced writes of the same object,
+    // see forget_unstable_before_delete()
+    bool forgot_unsynced;
 
     // Sync
     std::vector<obj_ver_id> sync_big_writes, sync_small_writes;
@@ -171,6 +174,9 @@ class blockstore_impl_t: public blockstore_i
     std::set<blockstore_op_t*> own_ops;
     std::vector<obj_ver_id> unsynced_big_writes, unsynced_small_writes;
     int unsynced_big_write_count = 0, unstable_unsynced = 0;
+    // Number of deletions which took over the durability of preceding unsynced writes but
+    // aren't journaled themselves yet, see forget_unstable_before_delete()
+    int unsynced_forgotten = 0;
     int unsynced_queued_ops = 0;
     allocator_t *data_alloc = NULL;
     uint64_t used_blocks = 0;
