@@ -919,6 +919,19 @@ void blockstore_heap_t::recheck_full_gc()
     }
 }
 
+// The entries which were hiding under the ones just dropped are the newest ones of the object
+// now, and their data may be unfinished just as well - a redirect intent acked without a data
+// fsync, or a buffered small write, both of which the outage may have left without their data.
+// So look at what became visible and recheck it too
+void blockstore_heap_t::recheck_requeue(object_id oid)
+{
+    auto obj = read_entry(oid);
+    if (obj)
+    {
+        recheck_queue.push_back(obj);
+    }
+}
+
 void blockstore_heap_t::recheck_drop_entries(heap_entry_t *obj, heap_entry_t *bad_wr)
 {
     // write entry is invalid, erase it and all newer entries
@@ -1072,6 +1085,7 @@ int blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
             break;
         }
         st->next_wr = prev(wr);
+        st->oldest_wr = wr;
         st->sent_reads++;
         recheck_in_progress++;
         recheck_pending_reads--;
@@ -1083,9 +1097,19 @@ int blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
                 st->bad_wr = !st->bad_wr || st->bad_wr->lsn > wr->lsn ? wr : st->bad_wr;
             if (st->checked_reads >= st->total_reads)
             {
-                if (st->bad_wr)
-                    recheck_drop_entries(st->obj, st->bad_wr);
-                recheck_states.erase(st->obj);
+                auto bad_wr = st->bad_wr;
+                auto obj = st->obj;
+                // Entries below the oldest one we read are unverified, the rest of the set
+                // is already known to be good
+                bool check_more = (bad_wr && bad_wr == st->oldest_wr);
+                recheck_states.erase(obj);
+                if (bad_wr)
+                {
+                    object_id oid = { .inode = obj->inode, .stripe = obj->stripe };
+                    recheck_drop_entries(obj, bad_wr);
+                    if (check_more)
+                        recheck_requeue(oid);
+                }
             }
             recheck_in_progress--;
             recheck_small_writes(NULL, 0);
@@ -1133,20 +1157,33 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
         recheck_queue.pop_front();
         bool need_data = false;
         int recheck_count = count_recheck_entries(obj, need_data);
+        if (!recheck_count)
+        {
+            // Nothing left to recheck - the object was requeued after a drop which exposed
+            // entries that are already known to be good
+            continue;
+        }
         if (!need_data && buffer_area)
         {
             // Check this object synchronously
-            heap_entry_t *bad_wr = NULL;
+            heap_entry_t *bad_wr = NULL, *oldest_wr = NULL;
             auto wr = skip_commits(obj);
             for (int i = 0; i < recheck_count; i++, wr = skip_commits(prev(wr)))
             {
                 fprintf(stderr, "Notice: rechecking %jx:%jx l%ju - %u bytes at %ju in buffer area\n",
                     wr->inode, wr->stripe, wr->lsn, wr->small().len, wr->small().location);
+                oldest_wr = wr;
                 if (!calc_checksums(wr, buffer_area + wr->small().location, false))
                     bad_wr = wr;
             }
             if (bad_wr)
+            {
+                object_id oid = { .inode = obj->inode, .stripe = obj->stripe };
+                bool check_more = (bad_wr == oldest_wr);
                 recheck_drop_entries(obj, bad_wr);
+                if (check_more)
+                    recheck_requeue(oid);
+            }
         }
         else
         {

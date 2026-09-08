@@ -1262,6 +1262,11 @@ void test_recheck(bool async, bool csum)
                         memcpy(buf, buffer_area.data(), len);
                     else if (offset == 0x20000+8*1024) // invalid
                         memset(buf, 0xcc, len);
+                    // Object 2's older intent write: dropping the newest one exposes it, and
+                    // the newest is exactly what an in-place write may have destroyed, so it
+                    // gets rechecked too. Here it's intact
+                    else if (offset == 0x20000+4*1024)
+                        memcpy(buf, buffer_area.data(), len);
                     else if (offset == 0xA0000+16*1024) // valid
                         memcpy(buf, buffer_area.data(), len);
                     else if (offset == 0xC0000+16*1024) // invalid
@@ -1285,7 +1290,7 @@ void test_recheck(bool async, bool csum)
             }
         }, 1);
         assert(done);
-        assert(calls == (async ? 13 : 7));
+        assert(calls == (async ? 14 : 8));
 
         heap.finish_recheck();
 
@@ -1624,6 +1629,94 @@ void test_recheck_skips_compacted_parts(bool async)
     }
 
     printf("OK test_recheck_skips_compacted_parts\n");
+}
+
+// Dropping an unfinished entry uncovers the entries below it, and their data may be just as
+// unfinished - a buffered small write whose data never landed, or another redirect intent.
+// They become the newest entries of the object, so they have to be rechecked in turn.
+void test_recheck_under_dropped_intent(bool async)
+{
+    printf("test_recheck_under_dropped_intent %s\n", async ? "async" : "sync");
+
+    blockstore_disk_t dsk;
+    _test_init(dsk, true);
+    // Keep the metadata fsync enabled so that adding the redirect intent doesn't immediately
+    // mark the entries under it as garbage: the block persisted below is the one an outage
+    // leaves behind, written when the intent was added and never rewritten since
+    dsk.disable_meta_fsync = false;
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    std::vector<uint8_t> tmp;
+
+    memset(buffer_area.data(), 0xab, 32*1024);
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_recheck();
+
+        // Both objects are a big_write with a buffered small write and a redirect intent
+        // on top of it, and in both the intent's data never reached the disk
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 8192, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 4096, 8192, 0, true, buffer_area.data());
+        _test_redirect_intent(heap, dsk, 1, 0, 3, 0x20000, true, 16384, 8192, buffer_area.data());
+
+        _test_big_write(heap, dsk, 2, 0, 1, 0x40000, true, 0, 8192, buffer_area.data());
+        _test_small_write(heap, dsk, 2, 0, 2, 4096, 8192, 8192, true, buffer_area.data());
+        _test_redirect_intent(heap, dsk, 2, 0, 3, 0x60000, true, 16384, 8192, buffer_area.data());
+
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+
+    // Object 1 also lost the buffered data of the small write which the intent was hiding
+    memset(buffer_area.data(), 0xcc, 8192);
+
+    {
+        blockstore_heap_t heap(&dsk, async ? NULL : buffer_area.data(), 10);
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+
+        bool done = heap.recheck_small_writes([&](bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t *buf)> cb)
+        {
+            if (!len)
+            {
+                return;
+            }
+            uint8_t *buf = (uint8_t*)malloc_or_die(len);
+            // Neither intent's data landed
+            if (is_data)
+                memset(buf, 0xcc, len);
+            else
+                memcpy(buf, buffer_area.data()+offset, len);
+            assert(cb);
+            cb(buf);
+            free(buf);
+        }, 1);
+        assert(done);
+
+        heap.finish_recheck();
+
+        // Object 1 is left with the big_write alone - the small write uncovered by dropping
+        // the intent is unfinished as well
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 1);
+        assert(obj->entry_type == BS_HEAP_BIG_WRITE|BS_HEAP_STABLE);
+        assert(obj->version == 1);
+
+        // Object 2 keeps its small write - only the intent above it was unfinished
+        oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 2);
+        assert(obj->entry_type == BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE);
+        assert(obj->version == 2);
+
+        assert(check_used_space(heap, dsk, 0));
+    }
+
+    printf("OK test_recheck_under_dropped_intent\n");
 }
 
 // A part of an entry is only shadowed as long as the entry shadowing it stays. The recheck may
@@ -3312,6 +3405,8 @@ int main(int narg, char *args[])
     test_recheck_skips_compacted_parts(true);
     test_recheck_shadow_of_dropped_entry(false);
     test_recheck_shadow_of_dropped_entry(true);
+    test_recheck_under_dropped_intent(false);
+    test_recheck_under_dropped_intent(true);
     test_entry_placement_contract();
     test_corruption();
     test_full_overwrite(true);

@@ -167,6 +167,9 @@ struct heap_recheck_state_t
     size_t sent_reads = 0;
     size_t checked_reads = 0;
     heap_entry_t *bad_wr = NULL;
+    // The oldest entry a read was issued for. Everything below it is unverified, so if it
+    // turns out to be bad the object has to be looked at again after dropping it
+    heap_entry_t *oldest_wr = NULL;
 };
 
 using i64hash_t = robin_hood::hash<uint64_t>;
@@ -233,6 +236,7 @@ class blockstore_heap_t
     uint64_t get_pg_id(inode_t inode, uint64_t stripe);
     bool validate_object(heap_entry_t *obj);
     void fill_recheck_queue();
+    void recheck_requeue(object_id oid);
     void recheck_drop_entries(heap_entry_t *obj, heap_entry_t *bad_wr);
     int recheck_start_reads(heap_recheck_state_t *st);
     int mark_used_blocks();
