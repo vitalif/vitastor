@@ -234,7 +234,7 @@ class blockstore_heap_t
     bool validate_object(heap_entry_t *obj);
     void fill_recheck_queue();
     void recheck_drop_entries(heap_entry_t *obj, heap_entry_t *bad_wr);
-    void recheck_start_reads(heap_recheck_state_t *st);
+    int recheck_start_reads(heap_recheck_state_t *st);
     int mark_used_blocks();
     void init_free_bad_entry(heap_entry_t *wr);
     void init_erase_bad_entry(heap_list_item_t *li);
@@ -259,7 +259,7 @@ class blockstore_heap_t
     void mark_completed_lsns(uint64_t mod_lsn);
     heap_entry_t *skip_commits(heap_entry_t *wr);
     int count_recheck_entries(heap_entry_t *obj, bool & need_data);
-    bool recheck_verify(heap_entry_t *obj, heap_entry_t *wr, uint8_t *buf);
+    bool recheck_verify(heap_recheck_state_t *st, heap_entry_t *wr, uint8_t *buf);
     void apply_inflight(heap_inflight_lsn_t & inflight);
 public:
     blockstore_heap_t(blockstore_disk_t *dsk, uint8_t *buffer_area, int log_level = 0);

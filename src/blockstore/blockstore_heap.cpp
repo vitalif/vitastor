@@ -964,13 +964,19 @@ void blockstore_heap_t::recheck_drop_entries(heap_entry_t *obj, heap_entry_t *ba
 // same object overwrite. Compaction merges those newer writes into the data block in place: it
 // changes bytes which <wr>'s checksums still describe, without touching <wr> itself. Nothing ever
 // reads those bytes from <wr> - they're shadowed - so a mismatch there means nothing.
+// A shadow only holds while the entry casting it stays, though: the very same recheck may find
+// that newer entry unfinished and drop it, and then the bytes under it become visible again.
+// So entries which this recheck is about to drop cast no shadow. This is why the entry needing
+// a data read is always verified last, see recheck_start_reads() - by then it is already known
+// which of the entries above it survive.
 // This is only exact while a checksum block isn't larger than the write granularity. With larger
 // blocks an overwritten part poisons the checksum of the whole block, and skipping the block
 // would hide a genuinely unfinished write in the rest of it - so there the flusher instead makes
 // sure such an entry is below the persisted completed_lsn and never gets rechecked at all,
 // see the big_intent trim in journal_flusher_co::loop()
-bool blockstore_heap_t::recheck_verify(heap_entry_t *obj, heap_entry_t *wr, uint8_t *buf)
+bool blockstore_heap_t::recheck_verify(heap_recheck_state_t *st, heap_entry_t *wr, uint8_t *buf)
 {
+    auto obj = st->obj;
     if (!dsk->csum_block_size || dsk->csum_block_size > dsk->bitmap_granularity ||
         wr == obj || wr->type() == BS_HEAP_SMALL_WRITE)
     {
@@ -1002,7 +1008,8 @@ bool blockstore_heap_t::recheck_verify(heap_entry_t *obj, heap_entry_t *wr, uint
         bool shadowed = false;
         for (auto newer = obj; newer && newer != wr && !shadowed; newer = prev(newer))
         {
-            if (newer->type() != BS_HEAP_SMALL_WRITE && newer->type() != BS_HEAP_INTENT_WRITE)
+            if (newer->type() != BS_HEAP_SMALL_WRITE && newer->type() != BS_HEAP_INTENT_WRITE ||
+                st->bad_wr && newer->lsn >= st->bad_wr->lsn)
                 continue;
             shadowed = newer->small().offset < pos+dsk->csum_block_size &&
                 newer->small().offset+newer->small().len > pos;
@@ -1015,14 +1022,14 @@ bool blockstore_heap_t::recheck_verify(heap_entry_t *obj, heap_entry_t *wr, uint
     return ok;
 }
 
-void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
+int blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
 {
+    int started = 0;
     if (st->sent_reads >= st->total_reads)
-        return;
+        return 0;
     while (recheck_in_progress < recheck_queue_depth)
     {
         auto wr = skip_commits(st->next_wr);
-        st->next_wr = prev(wr);
         uint64_t loc = 0, len = 0;
         bool from_data = false;
         if (wr->type() == BS_HEAP_SMALL_WRITE)
@@ -1057,6 +1064,14 @@ void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
             len = wr->small().len;
             from_data = true;
         }
+        if (from_data && st->checked_reads < st->sent_reads)
+        {
+            // Part of this entry's data may be shadowed by the newer entries of the same
+            // object, and whether it really is depends on whether they survive the recheck.
+            // So verify it only when all of them are already verified - see recheck_verify()
+            break;
+        }
+        st->next_wr = prev(wr);
         st->sent_reads++;
         recheck_in_progress++;
         recheck_pending_reads--;
@@ -1064,7 +1079,7 @@ void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
         recheck_cb(from_data, loc, len, [this, st, wr](uint8_t *buf)
         {
             st->checked_reads++;
-            if (!recheck_verify(st->obj, wr, buf))
+            if (!recheck_verify(st, wr, buf))
                 st->bad_wr = !st->bad_wr || st->bad_wr->lsn > wr->lsn ? wr : st->bad_wr;
             if (st->checked_reads >= st->total_reads)
             {
@@ -1075,9 +1090,11 @@ void blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
             recheck_in_progress--;
             recheck_small_writes(NULL, 0);
         });
+        started++;
         if (is_last)
             break;
     }
+    return started;
 }
 
 bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t* buf)>)> read_buffer, int queue_depth)
@@ -1101,8 +1118,14 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
     in_recheck = true;
     while (recheck_pending_reads > 0 && recheck_in_progress < recheck_queue_depth)
     {
+        int started = 0;
         for (auto & sp: recheck_states)
-            recheck_start_reads(&sp.second);
+            started += recheck_start_reads(&sp.second);
+        if (!started)
+        {
+            // Everything left is postponed until the reads in flight complete
+            break;
+        }
     }
     while (recheck_queue.size() > 0 && recheck_in_progress < recheck_queue_depth)
     {

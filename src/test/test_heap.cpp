@@ -1626,6 +1626,128 @@ void test_recheck_skips_compacted_parts(bool async)
     printf("OK test_recheck_skips_compacted_parts\n");
 }
 
+// A part of an entry is only shadowed as long as the entry shadowing it stays. The recheck may
+// find that newer entry unfinished and drop it, and then the bytes under it become visible
+// again - so they have to be verified after all, and the entry dropped as well if they are bad.
+// <reverse> completes the reads in the opposite order to make sure the recheck doesn't depend
+// on the order in which the disk answers.
+void test_recheck_shadow_of_dropped_entry(bool reverse)
+{
+    printf("test_recheck_shadow_of_dropped_entry %s\n", reverse ? "reverse" : "in order");
+
+    blockstore_disk_t dsk;
+    _test_init(dsk, true);
+    // Skipping is only exact while a checksum block isn't larger than the write granularity
+    assert(dsk.csum_block_size == dsk.bitmap_granularity);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    std::vector<uint8_t> tmp;
+
+    memset(buffer_area.data(), 0xab, 32*1024);
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_recheck();
+
+        // All three objects are a big_intent covering 0..16K with a small write shadowing 4K..8K
+        _test_redirect_intent(heap, dsk, 1, 0, 1, 0, true, 0, 16384, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 4096, 4096, 0, true, buffer_area.data());
+
+        _test_redirect_intent(heap, dsk, 2, 0, 1, 0x20000, true, 0, 16384, buffer_area.data());
+        _test_small_write(heap, dsk, 2, 0, 2, 4096, 4096, 4096, true, buffer_area.data());
+
+        _test_redirect_intent(heap, dsk, 3, 0, 1, 0x40000, true, 0, 16384, buffer_area.data());
+        _test_small_write(heap, dsk, 3, 0, 2, 4096, 4096, 8192, true, buffer_area.data());
+
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, NULL, 10);
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+
+        struct pending_read_t
+        {
+            bool is_data;
+            uint64_t offset, len;
+            std::function<void(uint8_t*)> cb;
+        };
+        std::vector<pending_read_t> pending;
+        bool all_done = false;
+        auto reader = [&](bool is_data, uint64_t offset, uint64_t len, std::function<void(uint8_t *buf)> cb)
+        {
+            if (!len)
+            {
+                all_done = true;
+                return;
+            }
+            pending.push_back((pending_read_t){ .is_data = is_data, .offset = offset, .len = len, .cb = cb });
+        };
+        auto complete = [&](const pending_read_t & rd)
+        {
+            uint8_t *buf = (uint8_t*)malloc_or_die(rd.len);
+            memset(buf, 0xab, rd.len);
+            if (rd.is_data)
+            {
+                // Object 1: the shadowed 4K..8K of the base block is wrong, and so is the
+                // small write shadowing it - so the base entry isn't verified by anything
+                if (rd.offset <= 4096 && rd.offset+rd.len >= 8192)
+                    memset(buf + 4096 - rd.offset, 0xcc, 4096);
+                // Object 3: only the shadowed part is wrong, and the small write over it is
+                // good - which is what an in-place compaction looks like
+                if (rd.offset <= 0x40000+4096 && rd.offset+rd.len >= 0x40000+8192)
+                    memset(buf + 0x40000 + 4096 - rd.offset, 0xcc, 4096);
+            }
+            else
+            {
+                // Buffered data of the small writes of objects 1 and 2 never landed
+                if (rd.offset < 8192)
+                    memset(buf, 0xcc, rd.len);
+            }
+            assert(rd.cb);
+            rd.cb(buf);
+            free(buf);
+        };
+        heap.recheck_small_writes(reader, 4);
+        while (!all_done)
+        {
+            assert(pending.size() > 0);
+            auto batch = pending;
+            pending.clear();
+            for (size_t i = 0; i < batch.size(); i++)
+                complete(batch[reverse ? batch.size()-1-i : i]);
+        }
+
+        heap.finish_recheck();
+
+        // Object 1 is rolled back completely: the small write is gone and the part of the
+        // base entry it used to shadow turned out to be bad
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        heap_entry_t *obj = heap.read_entry(oid);
+        assert(!obj);
+
+        // Object 2 only loses the small write - the base entry under it is intact
+        oid = { .inode = INODE_WITH_POOL(1, 2), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 1);
+        assert(obj->version == 1);
+
+        // Object 3 survives whole - the mismatch is in a part which stays shadowed
+        oid = { .inode = INODE_WITH_POOL(1, 3), .stripe = 0 };
+        obj = heap.read_entry(oid);
+        assert(obj);
+        assert(count_writes(heap, obj) == 2);
+        assert(obj->version == 2);
+
+        assert(check_used_space(heap, dsk, 0));
+    }
+
+    printf("OK test_recheck_shadow_of_dropped_entry\n");
+}
+
 void test_corruption()
 {
     blockstore_disk_t dsk;
@@ -3188,6 +3310,8 @@ int main(int narg, char *args[])
     test_recheck_intent_under_small_writes(true, false);
     test_recheck_skips_compacted_parts(false);
     test_recheck_skips_compacted_parts(true);
+    test_recheck_shadow_of_dropped_entry(false);
+    test_recheck_shadow_of_dropped_entry(true);
     test_entry_placement_contract();
     test_corruption();
     test_full_overwrite(true);
