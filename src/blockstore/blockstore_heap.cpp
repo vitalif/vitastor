@@ -2337,10 +2337,11 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
     {
         if (wr->type() == BS_HEAP_ROLLBACK && wr->lsn <= fsynced_lsn)
         {
+            // compact_version in commit/rollback is taken from actual write entries
+            // to handle lsn=0 reset correctly
             if (!res.compact_lsn)
             {
                 res.compact_lsn = wr->lsn;
-                res.compact_version = wr->version;
             }
             if (rollback_version > wr->version)
             {
@@ -2350,14 +2351,15 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
         }
         if (wr->type() == BS_HEAP_COMMIT && wr->lsn <= fsynced_lsn)
         {
+            res.do_delete = false;
             if (!res.compact_lsn)
             {
                 res.compact_lsn = wr->lsn;
-                res.compact_version = wr->version;
             }
-            res.do_delete = false;
             if (commit_version < wr->version)
+            {
                 commit_version = wr->version;
+            }
             continue;
         }
         bool rolled_back = (wr->version > rollback_version);
@@ -2370,6 +2372,7 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
         if (!stable && !committed || wr->lsn > fsynced_lsn)
         {
             // Unstable and non-fsynced writes can't be compacted yet
+            // Reset newer compact_lsn to place compact entry correctly
             res.do_delete = false;
             res.compact_lsn = 0;
             res.compact_version = 0;
@@ -2386,6 +2389,9 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
             if (!stable && !res.compact_lsn)
             {
                 res.compact_lsn = wr->lsn;
+            }
+            if (res.compact_version < wr->version)
+            {
                 res.compact_version = wr->version;
             }
             res.clean_wr = wr;
@@ -2402,6 +2408,9 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
         if (!res.compact_lsn)
         {
             res.compact_lsn = wr->lsn;
+        }
+        if (res.compact_version < wr->version)
+        {
             res.compact_version = wr->version;
         }
         res.do_delete = false;
