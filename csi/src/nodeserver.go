@@ -96,18 +96,16 @@ func NewNodeServer(driver *Driver) *NodeServer
     {
         ns.restoreUblkDaemons()
     }
-    if (ns.method == MOUNT_VDUSE || ns.method == MOUNT_UBLK)
+    ns.restoreNfsDaemons()
+    dur, err := time.ParseDuration(os.Getenv("RESTART_INTERVAL"))
+    if (err != nil)
     {
-        dur, err := time.ParseDuration(os.Getenv("RESTART_INTERVAL"))
-        if (err != nil)
-        {
-            dur = 10 * time.Second
-        }
-        ns.restartInterval = dur
-        if (ns.restartInterval != time.Duration(0))
-        {
-            go ns.restarter()
-        }
+        dur = 10 * time.Second
+    }
+    ns.restartInterval = dur
+    if (ns.restartInterval != time.Duration(0))
+    {
+        go ns.restarter()
     }
     return ns
 }
@@ -134,10 +132,8 @@ func (ns *NodeServer) unlockVolume(lockId string)
 
 func (ns *NodeServer) restarter()
 {
-    // Restart dead VDUSE daemons at regular intervals
-    // Otherwise volume I/O may hang in case of a qemu-storage-daemon crash
-    // Moreover, it may lead to a kernel panic of the kernel is configured to
-    // panic on hung tasks
+    // Restart dead storage daemons at regular intervals. Otherwise volume I/O
+    // may hang and may even lead to a kernel panic if panic_on_hung_task is set.
     ticker := time.NewTicker(ns.restartInterval)
     defer ticker.Stop()
     for
@@ -151,6 +147,7 @@ func (ns *NodeServer) restarter()
         {
             ns.restoreUblkDaemons()
         }
+        ns.restoreNfsDaemons()
     }
 }
 
@@ -329,15 +326,10 @@ func (ns *NodeServer) restoreNfsDaemons()
     {
         return
     }
-    activeNFS, err := ns.listActiveNFS()
-    if (err != nil)
-    {
-        return
-    }
     // Check all state files and try to restore active mounts
     for _, stateFile := range stateFiles
     {
-        ns.checkNfsState(stateFile, activeNFS)
+        ns.checkNfsState(stateFile)
     }
 }
 
@@ -363,24 +355,43 @@ func (ns *NodeServer) readNfsState(stateFile string, allowNotExists bool) (*NfsS
     return &state, nil
 }
 
-func (ns *NodeServer) checkNfsState(stateFile string, activeNfs map[int][]string)
+func (ns *NodeServer) checkNfsState(stateFile string)
 {
-    // Read state file
+    // Read state file to determine the lock ID
     state, err := ns.readNfsState(stateFile, false)
     if (err != nil)
     {
         return
     }
     // Lock FS
-    ns.lockVolume(state.ConfigPath+":fs:"+state.FsName)
-    defer ns.unlockVolume(state.ConfigPath+":fs:"+state.FsName)
-    // Check if NFS at this port is still mounted
+    lockId := state.ConfigPath+":fs:"+state.FsName
+    ns.lockVolume(lockId)
+    defer ns.unlockVolume(lockId)
+    // Recheck state and mounts under the lock: publish/unpublish may have changed
+    // both while this recovery attempt was waiting for the lock.
+    state, err = ns.readNfsState(stateFile, true)
+    if (err != nil || state == nil)
+    {
+        return
+    }
+    activeNfs, err := ns.listActiveNFS()
+    if (err != nil)
+    {
+        return
+    }
     pidFile := ns.stateDir + filepath.Base(stateFile)
     pidFile = pidFile[0:len(pidFile)-5] + ".pid"
     if (len(activeNfs[state.Port]) == 0)
     {
-        // this is a stale state file, remove it
+        // This is a stale state file. Remove the root staging mount before
+        // stopping the daemon, otherwise a dead hidden NFS mount may remain.
         klog.Warningf("state file %v contains stale mount at port %d, removing it", stateFile, state.Port)
+        err = mount.CleanupMountPoint(state.Path, ns.mounter, false)
+        if (err != nil)
+        {
+            klog.Errorf("failed to unmount stale NFS mount %v: %v", state.Path, err)
+            return
+        }
         ns.stopNFS(stateFile, pidFile)
         return
     }
@@ -400,6 +411,7 @@ func (ns *NodeServer) checkNfsState(stateFile string, activeNfs map[int][]string
             "--pidfile", pidFile,
             "--bind", "127.0.0.1",
             "--port", fmt.Sprintf("%d", state.Port),
+            "--config_path", state.ConfigPath,
             "--fs", state.FsName,
             "--pool", state.Pool,
             "--portmap", "0",
@@ -725,6 +737,7 @@ func (ns *NodeServer) mountNFS(ctxVars map[string]string) (string, error)
         "--pidfile", pidFile,
         "--bind", "127.0.0.1",
         "--port", "auto",
+        "--config_path", state.ConfigPath,
         "--fs", state.FsName,
         "--pool", state.Pool,
         "--portmap", "0",
@@ -815,26 +828,38 @@ func (ns *NodeServer) listActiveNFS() (map[int][]string, error)
         klog.Errorf("failed to list mounts: %v", err)
         return nil, err
     }
+    return collectActiveNFS(mounts), nil
+}
+
+func collectActiveNFS(mounts []mount.MountInfo) map[int][]string
+{
     activeNFS := make(map[int][]string)
-    for _, mount := range mounts
+    for _, mnt := range mounts
     {
-        // Volume mounts always refer to subpaths
-        if (mount.FsType == "nfs" && mount.Root != "/")
+        // Only count PVC subdirectory mounts, not the root staging mount. Newer
+        // kernels expose the subdirectory in Source while older ones expose it
+        // in Root. The staging mount may also be visible through several bind
+        // aliases in the CSI container, so its mount point isn't a reliable
+        // discriminator.
+        if (mnt.FsType != "nfs" || !strings.HasPrefix(mnt.Source, "127.0.0.1:/") ||
+            (mnt.Source == "127.0.0.1:/" && mnt.Root == "/"))
         {
-            for _, opt := range mount.MountOptions
+            continue
+        }
+        // NFS-specific options, including port, are per-superblock options.
+        for _, opt := range mnt.SuperOptions
+        {
+            if (strings.HasPrefix(opt, "port="))
             {
-                if (strings.HasPrefix(opt, "port="))
+                port64, err := strconv.ParseUint(opt[5:], 10, 16)
+                if (err == nil)
                 {
-                    port64, err := strconv.ParseUint(opt[5:], 10, 16)
-                    if (err == nil)
-                    {
-                        activeNFS[int(port64)] = append(activeNFS[int(port64)], mount.MountPoint)
-                    }
+                    activeNFS[int(port64)] = append(activeNFS[int(port64)], mnt.MountPoint)
                 }
             }
         }
     }
-    return activeNFS, nil
+    return activeNFS
 }
 
 // NodePublishVolume mounts the volume mounted to the staging path to the target path
