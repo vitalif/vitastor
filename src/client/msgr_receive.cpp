@@ -397,7 +397,7 @@ void osd_messenger_t::read_requests()
             continue;
         }
         auto cl = cl_it->second;
-        if (cl->read_op && cl->read_op_pos >= OSD_PACKET_SIZE && cl->read_op_size-(cl->read_op_pos-OSD_PACKET_SIZE) >= receive_buffer_size)
+        if (!rxbounce && cl->read_op && cl->read_op_pos >= OSD_PACKET_SIZE && cl->read_op_size-(cl->read_op_pos-OSD_PACKET_SIZE) >= receive_buffer_size)
         {
             get_op_reader_t rdr(this, cl);
             if (!op_read_from(cl, rdr))

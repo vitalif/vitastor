@@ -33,6 +33,7 @@ between clients, OSDs and etcd.
 - [etcd_ws_keepalive_interval](#etcd_ws_keepalive_interval)
 - [etcd_min_reload_interval](#etcd_min_reload_interval)
 - [tcp_header_buffer_size](#tcp_header_buffer_size)
+- [rxbounce](#rxbounce)
 - [min_zerocopy_send_size](#min_zerocopy_send_size)
 - [use_sync_send_recv](#use_sync_send_recv)
 
@@ -302,6 +303,21 @@ it requires to copy the data an additional time. The rest of each packet
 is received without an additional copy. You can try to play with this
 parameter and see how it affects random iops and linear bandwidth if you
 want.
+
+## rxbounce
+
+- Type: boolean
+- Default: false
+- Can be changed online: yes
+
+Receive all TCP data into an intermediate buffer before copying to the actual
+destination. Enabling this option is required for Windows guests if you use TCP
+and [security.en.md#proto_checksums](proto_checksums) because Windows uses a
+shared system-wide 'dummy page' to skip unneeded blocks during reads and breaks
+checksum verification with it when data copy is avoided. rxbounce is only needed
+when you use TCP and don't use transport encryption (AES-GCM); it's not required
+with RDMA or with GCM encryption because both always copy data anyway (yes, RDMA
+isn't actually zerocopy in Vitastor).
 
 ## min_zerocopy_send_size
 

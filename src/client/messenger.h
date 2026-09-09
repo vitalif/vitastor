@@ -230,6 +230,7 @@ protected:
     int min_zerocopy_send_size = DEFAULT_MIN_ZEROCOPY_SEND_SIZE;
     int iothread_count = 0;
     int max_cipher_pool_size = 256;
+    bool rxbounce = false;
 
     std::string client_cert;
     std::string client_key;

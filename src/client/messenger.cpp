@@ -10,6 +10,7 @@
 #include <stdexcept>
 
 #include "addr_util.h"
+#include "json_util.h"
 #include "str_util.h"
 #include "messenger.h"
 #ifdef WITH_RDMA
@@ -244,6 +245,7 @@ void osd_messenger_t::parse_config(const json11::Json & config, bool init)
     if (!this->osd_ping_timeout)
         this->osd_ping_timeout = 5;
     this->log_level = config["log_level"].uint64_value();
+    this->rxbounce = json_is_true(config["rxbounce"]);
     // All other parameters are only set on init
     if (!init)
         return;
@@ -251,13 +253,13 @@ void osd_messenger_t::parse_config(const json11::Json & config, bool init)
     if (!config["use_rdma"].is_null())
     {
         // RDMA is on by default in RDMA-enabled builds
-        this->use_rdma = config["use_rdma"].bool_value() || config["use_rdma"].uint64_value() != 0;
+        this->use_rdma = json_is_true(config["use_rdma"].bool_value());
     }
 #ifdef WITH_RDMACM
     // Use RDMA CM? (required for iWARP and may be useful for IB)
     // FIXME: Only parse during start
-    this->use_rdmacm = config["use_rdmacm"].bool_value() || config["use_rdmacm"].uint64_value() != 0;
-    this->disable_tcp = this->use_rdmacm && (config["disable_tcp"].bool_value() || config["disable_tcp"].uint64_value() != 0);
+    this->use_rdmacm = json_is_true(config["use_rdmacm"]);
+    this->disable_tcp = this->use_rdmacm && json_is_true(config["disable_tcp"]);
 #endif
     this->rdma_device = config["rdma_device"].string_value();
     this->rdma_port_num = (uint8_t)config["rdma_port_num"].uint64_value();

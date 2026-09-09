@@ -358,6 +358,29 @@
     параметра читается без дополнительного копирования. Вы можете попробовать
     поменять этот параметр и посмотреть, как он влияет на производительность
     случайного и линейного доступа.
+- name: rxbounce
+  type: bool
+  default: false
+  online: true
+  info: |
+    Receive all TCP data into an intermediate buffer before copying to the actual
+    destination. Enabling this option is required for Windows guests if you use TCP
+    and [security.en.md#proto_checksums](proto_checksums) because Windows uses a
+    shared system-wide 'dummy page' to skip unneeded blocks during reads and breaks
+    checksum verification with it when data copy is avoided. rxbounce is only needed
+    when you use TCP and don't use transport encryption (AES-GCM); it's not required
+    with RDMA or with GCM encryption because both always copy data anyway (yes, RDMA
+    isn't actually zerocopy in Vitastor).
+  info_ru: |
+    Принимать все данные по TCP в промежуточный буфер и потом копировать их в
+    буфер клиента (ВМ). Это нужно для гостевых ОС Windows с TCP и включёнными
+    [security.ru.md#proto_checksums](proto_checksums), потому что Windows использует
+    одну разделяемую общесистемную страницу-заглушку для пропуска ненужных блоков
+    при чтении и ломает проверку контрольных сумм, если данные не копируются лишний
+    раз. Опция rxbounce нужна только если вы используете TCP и не используете
+    транспортное шифрование (AES-GCM); с RDMA или шифрованием опция не нужна, так
+    как в этом случае данные копируются всегда (да, RDMA в Vitastor на самом деле
+    не zero-copy).
 - name: min_zerocopy_send_size
   type: int
   default: 32768

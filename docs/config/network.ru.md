@@ -33,6 +33,7 @@
 - [etcd_ws_keepalive_interval](#etcd_ws_keepalive_interval)
 - [etcd_min_reload_interval](#etcd_min_reload_interval)
 - [tcp_header_buffer_size](#tcp_header_buffer_size)
+- [rxbounce](#rxbounce)
 - [min_zerocopy_send_size](#min_zerocopy_send_size)
 - [use_sync_send_recv](#use_sync_send_recv)
 
@@ -309,6 +310,22 @@ Vitastor содержат 128-байтные заголовки, за котор
 параметра читается без дополнительного копирования. Вы можете попробовать
 поменять этот параметр и посмотреть, как он влияет на производительность
 случайного и линейного доступа.
+
+## rxbounce
+
+- Тип: булево (да/нет)
+- Значение по умолчанию: false
+- Можно менять на лету: да
+
+Принимать все данные по TCP в промежуточный буфер и потом копировать их в
+буфер клиента (ВМ). Это нужно для гостевых ОС Windows с TCP и включёнными
+[security.ru.md#proto_checksums](proto_checksums), потому что Windows использует
+одну разделяемую общесистемную страницу-заглушку для пропуска ненужных блоков
+при чтении и ломает проверку контрольных сумм, если данные не копируются лишний
+раз. Опция rxbounce нужна только если вы используете TCP и не используете
+транспортное шифрование (AES-GCM); с RDMA или шифрованием опция не нужна, так
+как в этом случае данные копируются всегда (да, RDMA в Vitastor на самом деле
+не zero-copy).
 
 ## min_zerocopy_send_size
 
