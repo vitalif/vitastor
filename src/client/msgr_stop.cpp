@@ -162,12 +162,23 @@ void osd_messenger_t::stop_client(uint64_t client_id, bool force_delete)
     }
     if (cl->peer_fd >= 0)
     {
-        int r = shutdown(cl->peer_fd, SHUT_RDWR);
-        if (r != 0 && errno != ENOTCONN)
+        if (ringloop)
         {
-            fprintf(stderr, "[OSD %ju] failed to shutdown a socket: %s (code %d)\n", osd_num, strerror(errno), errno);
+            // Flush unflushed send/recv requests, just in case
+            ringloop->submit();
         }
+        tfd->set_fd_handler(cl->peer_fd, false, NULL);
+        clients_by_fd.erase(cl->peer_fd);
+        close(cl->peer_fd);
+        cl->peer_fd = -1;
     }
+#ifdef WITH_RDMA
+    if (cl->rdma_conn)
+    {
+        destroy_rdma_conn(cl->rdma_conn);
+        cl->rdma_conn = NULL;
+    }
+#endif
     cl->refs--;
     if (cl->refs <= 0 || force_delete)
     {
@@ -179,18 +190,6 @@ void osd_messenger_t::destroy_client(osd_client_t *cl)
 {
     // Find the item again because it can be invalidated at this point
     clients.erase(cl->client_id);
-    if (cl->peer_fd >= 0)
-    {
-        tfd->set_fd_handler(cl->peer_fd, false, NULL);
-        clients_by_fd.erase(cl->peer_fd);
-    }
-#ifdef WITH_RDMA
-    if (cl->rdma_conn)
-    {
-        destroy_rdma_conn(cl->rdma_conn);
-        cl->rdma_conn = NULL;
-    }
-#endif
     delete cl;
 }
 
@@ -198,13 +197,7 @@ osd_client_t::~osd_client_t()
 {
     free(in_buf);
     in_buf = NULL;
-    if (peer_fd >= 0)
-    {
-        // Close the FD only when the client is actually destroyed
-        // Which only happens when all references are cleared
-        close(peer_fd);
-        peer_fd = -1;
-    }
+    assert(peer_fd < 0);
     // Then cancel all operations
     // Operations have to be canceled only after clearing all references to osd_client_t
     // because otherwise their buffers may be still present in io_uring asynchronous requests
