@@ -329,7 +329,9 @@ static void coroutine_fn vitastor_co_resize(void *opaque)
     }
 #else
     BdrvChild *c;
+#if QEMU_VERSION_MAJOR >= 8
     WITH_GRAPH_RDLOCK_GUARD() {
+#endif
 #if QEMU_VERSION_MAJOR >= 9
         assert_bdrv_graph_readable();
 #endif
@@ -344,7 +346,9 @@ static void coroutine_fn vitastor_co_resize(void *opaque)
             }
 #endif
         }
+#if QEMU_VERSION_MAJOR >= 8
     }
+#endif
 #endif
     bdrv_dec_in_flight(bs);
 }
