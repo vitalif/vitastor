@@ -196,6 +196,7 @@ Options can be specified in classic dd style (`key=value`) or like usual (`--key
 | `iimg=<image>`  | Copy from Vitastor image `<image>`                                      |
 | `if=<file>`     | Copy from file `<file>`                                                 |
 | `oimg=<image>`  | Copy to Vitastor image `<image>`                                        |
+| `opool=<pool>`  | Pool to create output image if it doesn't exist                         |
 | `of=<file>`     | Copy to file `<file>`                                                   |
 | `bs=1M`         | Set copy block size                                                     |
 | `count=N`       | Copy only N input blocks. If N ends in B it counts bytes, not blocks    |

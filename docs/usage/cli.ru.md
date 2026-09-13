@@ -203,6 +203,7 @@ vitastor-cli dd [iimg=<image> | if=<file>] [oimg=<image> | of=<file>] [bs=1M] \
 | `iimg=<image>`  | Копировать из образа Vitastor `<image>`                                 |
 | `if=<file>`     | Копировать из файла `<file>`                                            |
 | `oimg=<image>`  | Копировать в образ Vitastor `<image>`                                   |
+| `opool=<pool>`  | Пул для создания выходного образа, если он не существует                |
 | `of=<file>`     | Копировать в файл `<file>`                                              |
 | `bs=1M`         | Задать размер блока копирования                                         |
 | `count=N`       | Копировать не более N блоков. Если N заканчивается на B - то N байт.    |
