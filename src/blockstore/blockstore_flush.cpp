@@ -213,18 +213,25 @@ resume_0:
     res = bs->heap->get_next_compact(cur_oid);
     if ((bs->intent_write_counter >= bs->journal_trim_interval || flusher->force_fsync > 0) && co_id == 0)
     {
-        // Advance fsynced_lsn every <journal_trim_interval> intent writes
-        bs->intent_write_counter = 0;
 resume_17:
 resume_18:
 resume_19:
         if (!fsync_buffer(17))
+        {
             return false;
+        }
+        if (bs->intent_write_counter >= bs->journal_trim_interval)
+        {
+            // Advance fsynced_lsn every <journal_trim_interval> intent writes
+            bs->intent_write_counter = 0;
 resume_29:
 resume_30:
 resume_31:
-        if (!trim_lsn(29))
-            return false;
+            if (!trim_lsn(29))
+            {
+                return false;
+            }
+        }
     }
     if (res == ENOENT && flusher->force_start > 0 && co_id == 0 &&
         (!bs->dsk.disable_journal_fsync || !bs->dsk.disable_meta_fsync || !bs->dsk.disable_data_fsync))
