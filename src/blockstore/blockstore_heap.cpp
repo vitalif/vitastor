@@ -2436,9 +2436,11 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
             res.do_delete = false;
             res.compact_lsn = 0;
             res.compact_version = 0;
-            if (!under_pressure && (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_DELETE))
+            if ((!under_pressure || stable) && (wr->type() == BS_HEAP_BIG_WRITE || wr->type() == BS_HEAP_BIG_INTENT || wr->type() == BS_HEAP_DELETE))
             {
                 // We may postpone compaction if we have an unstable overwrite when not under pressure
+                // We MUST postpone if the overwrite is STABLE (even if under pressure), 
+                // because add_compact will reject STABLE overwrites with EBUSY.
                 return res;
             }
             continue;

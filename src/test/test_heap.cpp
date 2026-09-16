@@ -1014,6 +1014,211 @@ void test_iterate_compaction()
         blockstore_heap_t heap(&dsk, buffer_area.data());
         heap.finish_recheck();
 
+        // Case: BIG_STABLE(v1 l1) SMALL_STABLE(v2 l2) BIG_STABLE(v3 l3) un-fsynced
+        // -> skip compaction of l2 into l1 EVEN WHEN under pressure,
+        // because add_compact rejects stable overwrites with EBUSY
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 0, 4096, 0, true, buffer_area.data(), false);
+
+        heap.use_data(INODE_WITH_POOL(1, 1), 128*1024);
+        uint32_t mblock = 999999;
+        res = _test_do_big_write(heap, dsk, 1, 0, 3, 128*1024, true, 0, 0, buffer_area.data(), &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        assert(obj->lsn == 3);
+        assert(obj->is_overwrite());
+        assert(heap.get_fsynced_lsn() == 2);
+
+        // When not under pressure: postpone compaction
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 0);
+        assert(compact_info.compact_version == 0);
+        assert(!compact_info.clean_wr);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 0);
+
+        // When under pressure: MUST ALSO postpone compaction because obj is STABLE!
+        // Before the fix, this would incorrectly compact l2 (compact_lsn == 2)
+        compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), true, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 0);
+        assert(compact_info.compact_version == 0);
+        assert(!compact_info.clean_wr);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 0);
+
+        // Verify that add_compact() rejects stable overwrites with EBUSY
+        uint32_t compact_mblock = 999999;
+        uint8_t ref_int_bitmap[dsk.clean_entry_bitmap_size];
+        memset(ref_int_bitmap, 0, dsk.clean_entry_bitmap_size);
+        res = heap.add_compact(obj, 2, 2, 0, false, &compact_mblock, ref_int_bitmap, ref_int_bitmap, NULL);
+        assert(res == EBUSY);
+
+        heap.complete_block_write(mblock);
+        assert(heap.get_fsynced_lsn() == 3);
+
+        // Once fsynced, l3 is durable and becomes the clean_wr base
+        compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 0);
+        assert(compact_info.clean_wr && compact_info.clean_wr->lsn == 3);
+        assert(small_writes == 0);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_recheck();
+
+        // Case: BIG_STABLE(v1 l1) SMALL_STABLE(v2 l2) BIG_INTENT(v3 l3) un-fsynced
+        // -> skip compaction of l2 into l1 both when not under pressure and under pressure
+        // Before the fix, BIG_INTENT was missing from the check and was never skipped.
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 0, 4096, 0, true, buffer_area.data(), false);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        uint8_t ext_bitmap[dsk.clean_entry_bitmap_size];
+        memset(ext_bitmap, 0x8e, dsk.clean_entry_bitmap_size);
+        heap.use_data(INODE_WITH_POOL(1, 1), 128*1024);
+        uint32_t mblock = 999999;
+        res = heap.add_redirect_intent(oid, &obj, 3, 0, dsk.data_block_size, 128*1024, ext_bitmap, buffer_area.data(), &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+
+        obj = heap.read_entry(oid);
+        assert(obj->lsn == 3);
+        assert(obj->type() == BS_HEAP_BIG_INTENT);
+        assert(obj->is_overwrite());
+        assert(heap.get_fsynced_lsn() == 2);
+
+        // When not under pressure: MUST postpone compaction!
+        // Before the fix, BIG_INTENT was not checked, so it incorrectly compacted l2 (compact_lsn == 2)
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 0);
+        assert(compact_info.compact_version == 0);
+        assert(!compact_info.clean_wr);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 0);
+
+        // When under pressure: MUST ALSO postpone compaction!
+        compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), true, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 0);
+        assert(compact_info.compact_version == 0);
+        assert(!compact_info.clean_wr);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 0);
+
+        // Verify add_compact() rejects stable overwrite with EBUSY
+        uint32_t compact_mblock = 999999;
+        uint8_t ref_int_bitmap[dsk.clean_entry_bitmap_size];
+        memset(ref_int_bitmap, 0, dsk.clean_entry_bitmap_size);
+        res = heap.add_compact(obj, 2, 2, 0, false, &compact_mblock, ref_int_bitmap, ref_int_bitmap, NULL);
+        assert(res == EBUSY);
+
+        // Complete block write
+        heap.complete_block_write(mblock);
+        assert(heap.get_fsynced_lsn() == 3);
+
+        // Once fsynced, BIG_INTENT is clean_wr base
+        compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 0);
+        assert(compact_info.clean_wr && compact_info.clean_wr->lsn == 3);
+        assert(small_writes == 0);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_recheck();
+
+        // Case: BIG_STABLE(v1 l1) SMALL_STABLE(v2 l2) DELETE_STABLE(l3) un-fsynced
+        // -> skip compaction of l2 into l1 EVEN WHEN under pressure,
+        // because add_compact rejects stable overwrites with EBUSY
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 4096, buffer_area.data());
+        _test_small_write(heap, dsk, 1, 0, 2, 0, 4096, 0, true, buffer_area.data(), false);
+
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        uint32_t mblock = 999999;
+        res = heap.add_delete(obj, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+
+        obj = heap.read_entry(oid);
+        assert(obj->lsn == 3);
+        assert(obj->type() == BS_HEAP_DELETE);
+        assert(obj->is_overwrite());
+        assert(heap.get_fsynced_lsn() == 2);
+
+        // When not under pressure: postpone compaction
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 0);
+        assert(compact_info.compact_version == 0);
+        assert(!compact_info.clean_wr);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 0);
+
+        // When under pressure: MUST ALSO postpone compaction because DELETE is STABLE!
+        // Before the fix, this would incorrectly compact l2 (compact_lsn == 2)
+        compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), true, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.compact_lsn == 0);
+        assert(compact_info.compact_version == 0);
+        assert(!compact_info.clean_wr);
+        assert(!compact_info.do_delete);
+        assert(small_writes == 0);
+
+        // Verify add_compact() rejects stable overwrite with EBUSY
+        uint32_t compact_mblock = 999999;
+        uint8_t ref_int_bitmap[dsk.clean_entry_bitmap_size];
+        memset(ref_int_bitmap, 0, dsk.clean_entry_bitmap_size);
+        res = heap.add_compact(obj, 2, 2, 0, false, &compact_mblock, ref_int_bitmap, ref_int_bitmap, NULL);
+        assert(res == EBUSY);
+
+        // Complete block write
+        heap.complete_block_write(mblock);
+        assert(heap.get_fsynced_lsn() == 3);
+
+        // Once fsynced, DELETE is processed
+        compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        assert(compact_info.do_delete);
+        assert(!compact_info.clean_wr);
+        assert(small_writes == 0);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_recheck();
+
         // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) ROLLBACK(v2 l4) ROLLBACK(v1 l5)
         // -> compact by adding BIG_STABLE(v1 l6) and skip l2 and l3
         uint32_t mblock = 0;
