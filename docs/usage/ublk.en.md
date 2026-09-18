@@ -13,6 +13,10 @@ It's not zero-copy, but it's still a fast implementation, outperforming both [NB
 and [VDUSE](qemu.en.md#vduse) iops-wise and may or may not outperform VDUSE in linear I/O MB/s.
 ublk also allows to recover devices even if the server (vitastor-ublk process) dies.
 
+vitastor-ublk supports TRIM (discard): running `blkdiscard` or `fstrim` on the mapped
+device deletes Vitastor objects fully covered by the trimmed range and frees their
+space in the pool. See [TRIM notes](qemu.en.md#trimdiscard) for semantics details.
+
 ## Example performance comparison
 
 TCP (100G), 3 hosts each with 6 NVMe OSDs, 3 replicas, single client

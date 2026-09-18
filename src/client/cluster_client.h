@@ -14,6 +14,14 @@
 #define DEFAULT_CLIENT_MAX_WRITEBACK_IODEPTH 256
 #define OSD_OP_READ_BITMAP OSD_OP_SEC_READ_BMP
 #define OSD_OP_READ_CHAIN_BITMAP 0x102
+// Client-level TRIM (discard). An advisory operation: the requested range is clipped
+// inwards to object (stripe) boundaries and all objects fully covered by it are deleted.
+// Data of partially covered objects is left in place. If the inode has a parent (layer),
+// parent data becomes visible in the deleted area again, which is allowed for TRIM
+// because reads after a TRIM return undefined data.
+// Internally the operation is converted to OSD_OP_DELETE (op->opcode is rewritten!)
+// with object-aligned offset/len, so it doesn't require any OSD-side support.
+#define OSD_OP_TRIM 0x103
 
 #define OSD_OP_IGNORE_READONLY 0x08
 #define OSD_OP_WAIT_UP_TIMEOUT 0x10
@@ -35,7 +43,7 @@ struct cluster_op_part_t
 
 struct __attribute__((visibility("default"))) cluster_op_t
 {
-    uint64_t opcode; // OSD_OP_READ, OSD_OP_WRITE, OSD_OP_SYNC, OSD_OP_DELETE, OSD_OP_READ_BITMAP, OSD_OP_READ_CHAIN_BITMAP
+    uint64_t opcode; // OSD_OP_READ, OSD_OP_WRITE, OSD_OP_SYNC, OSD_OP_DELETE, OSD_OP_READ_BITMAP, OSD_OP_READ_CHAIN_BITMAP, OSD_OP_TRIM
     uint64_t inode;
     uint64_t offset;
     uint64_t len;
@@ -49,6 +57,7 @@ struct __attribute__((visibility("default"))) cluster_op_t
     // negative retval is an error number
     // write and read return len on success
     // sync and delete return 0 on success
+    // trim returns the number of bytes actually covered by whole deleted objects (may be 0)
     // read_bitmap and read_chain_bitmap return the length of bitmap in bits(!)
     int retval;
     osd_op_buf_list_t iov;

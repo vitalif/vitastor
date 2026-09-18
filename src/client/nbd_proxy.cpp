@@ -615,7 +615,7 @@ help:
             {
                 dev_num = (int)cfg["dev_num"].uint64_value();
             }
-            uint64_t flags = NBD_FLAG_SEND_FLUSH;
+            uint64_t flags = NBD_FLAG_SEND_FLUSH | NBD_FLAG_SEND_TRIM;
             uint64_t cflags = 0;
             if (!cfg["readonly"].is_null() || !cfg["nbd_ro"].is_null())
                 flags |= NBD_FLAG_READ_ONLY;
@@ -655,7 +655,7 @@ help:
             if (!cfg["dev_num"].is_null())
             {
                 int r;
-                uint64_t flags = NBD_FLAG_SEND_FLUSH;
+                uint64_t flags = NBD_FLAG_SEND_FLUSH | NBD_FLAG_SEND_TRIM;
                 if (!cfg["readonly"].is_null())
                     flags |= NBD_FLAG_READ_ONLY;
                 dev_num = cfg["dev_num"].int64_value();
@@ -677,7 +677,7 @@ help:
                         i++;
                         continue;
                     }
-                    int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH, nbd_timeout, bg);
+                    int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH | NBD_FLAG_SEND_TRIM, nbd_timeout, bg);
                     if (r == 0)
                     {
                         printf("/dev/nbd%d\n", i);
@@ -1211,7 +1211,8 @@ protected:
                 return;
             }
             if (be32toh(cur_req.magic) != NBD_REQUEST_MAGIC ||
-                req_type != NBD_CMD_READ && req_type != NBD_CMD_WRITE && req_type != NBD_CMD_FLUSH)
+                req_type != NBD_CMD_READ && req_type != NBD_CMD_WRITE &&
+                req_type != NBD_CMD_FLUSH && req_type != NBD_CMD_TRIM)
             {
                 printf("Unexpected request: magic=%x type=%x, terminating\n", cur_req.magic, req_type);
                 exit(1);
@@ -1230,6 +1231,14 @@ protected:
                 op->len = be32toh(cur_req.len);
                 buf = malloc_or_die(sizeof(nbd_reply) + op->len);
                 op->iov.push_back((uint8_t*)buf + sizeof(nbd_reply), op->len);
+            }
+            else if (req_type == NBD_CMD_TRIM)
+            {
+                op->opcode = OSD_OP_TRIM;
+                op->inode = inode ? inode : watch->cfg.num;
+                op->offset = be64toh(cur_req.from);
+                op->len = be32toh(cur_req.len);
+                buf = malloc_or_die(sizeof(nbd_reply));
             }
             else if (req_type == NBD_CMD_FLUSH)
             {
@@ -1267,7 +1276,15 @@ protected:
                 cur_buf = &cur_req;
                 cur_left = sizeof(nbd_request);
                 read_state = CL_READ_HDR;
-                cli->execute(op);
+                if (op->opcode == OSD_OP_TRIM && !inode && watch->cfg.readonly)
+                {
+                    op->retval = -EROFS;
+                    std::function<void(cluster_op_t*)>(op->callback)(op);
+                }
+                else
+                {
+                    cli->execute(op);
+                }
             }
         }
         else

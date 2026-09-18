@@ -740,7 +740,7 @@ void cluster_client_t::execute(cluster_op_t *op)
 {
     if (op->opcode != OSD_OP_SYNC && op->opcode != OSD_OP_READ &&
         op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_READ_CHAIN_BITMAP &&
-        op->opcode != OSD_OP_WRITE && op->opcode != OSD_OP_DELETE)
+        op->opcode != OSD_OP_WRITE && op->opcode != OSD_OP_DELETE && op->opcode != OSD_OP_TRIM)
     {
         op->retval = -EINVAL;
         auto cb = std::move(op->callback);
@@ -972,6 +972,30 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
         auto cb = std::move(op->callback);
         cb(op);
         return false;
+    }
+    if (op->opcode == OSD_OP_TRIM)
+    {
+        // TRIM is advisory: clip the range inwards to object (stripe) boundaries
+        // and delete all objects fully covered by it. Note that if the inode has
+        // a parent, parent data will become visible in the deleted area again,
+        // which is allowed because reads after TRIM return undefined data
+        auto & pool_cfg = pool_it->second;
+        uint64_t pg_block_size = pool_cfg.data_block_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED
+            ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+        uint64_t trim_begin = ((op->offset + pg_block_size-1) / pg_block_size) * pg_block_size;
+        uint64_t trim_end = ((op->offset + op->len) / pg_block_size) * pg_block_size;
+        if (trim_end <= trim_begin)
+        {
+            // No whole objects are covered by the range - nothing to do
+            op->retval = 0;
+            auto cb = std::move(op->callback);
+            cb(op);
+            return false;
+        }
+        // Convert TRIM to an object-aligned DELETE
+        op->opcode = OSD_OP_DELETE;
+        op->offset = trim_begin;
+        op->len = trim_end - trim_begin;
     }
     // Check alignment
     if (!op->len && (op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP || op->opcode == OSD_OP_WRITE) ||

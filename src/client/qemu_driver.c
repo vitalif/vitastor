@@ -986,6 +986,24 @@ static int vitastor_refresh_limits(BlockDriverState *bs)
     bs->bl.min_mem_alignment = 4096;
 #endif
     bs->bl.opt_mem_alignment = 4096;
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 6
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 7
+    {
+        // TRIM only deletes whole objects, so discards should be aligned to the
+        // "stripe size" of the pool = block_size * number of data chunks
+        VitastorClient *client = bs->opaque;
+        uint64_t inode = client->watch ? vitastor_c_inode_get_num(client->watch) : client->inode;
+        uint32_t discard_alignment = vitastor_c_inode_get_block_size(client->proxy, inode);
+        if (discard_alignment)
+        {
+            bs->bl.pdiscard_alignment = discard_alignment;
+            // Cap single discard requests at ~1 GB to limit request tracking overhead
+            bs->bl.max_pdiscard = (1 << 30) < discard_alignment
+                ? discard_alignment : (1 << 30) / discard_alignment * discard_alignment;
+        }
+    }
+#endif
+#endif
 #if QEMU_VERSION_MAJOR < 2 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR == 0
     return 0;
 #endif
@@ -1306,6 +1324,46 @@ static int coroutine_fn vitastor_co_flush(BlockDriverState *bs)
     return task.ret;
 }
 
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 6
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 7
+static int coroutine_fn vitastor_co_pdiscard(BlockDriverState *bs,
+#if QEMU_VERSION_MAJOR >= 7 || QEMU_VERSION_MAJOR == 6 && QEMU_VERSION_MINOR >= 2
+    int64_t offset, int64_t bytes
+#else
+    int64_t offset, int bytes
+#endif
+)
+{
+    VitastorClient *client = bs->opaque;
+    VitastorRPC task;
+    vitastor_co_pin_to_bs_ctx(bs);
+    vitastor_co_init_task(bs, &task);
+
+    if (client->last_bitmap)
+    {
+        // Invalidate last bitmap on discard
+        free(client->last_bitmap);
+        client->last_bitmap = NULL;
+    }
+
+    uint64_t inode = client->watch ? vitastor_c_inode_get_num(client->watch) : client->inode;
+    qemu_mutex_lock(&client->mutex);
+    vitastor_c_trim(client->proxy, inode, offset, bytes, vitastor_co_generic_cb, &task);
+    if (!client->auto_loop)
+        vitastor_schedule_uring_handler(client);
+    qemu_mutex_unlock(&client->mutex);
+
+    while (!task.complete)
+    {
+        qemu_coroutine_yield();
+    }
+
+    // TRIM returns the number of freed bytes, discard just requires 0 on success
+    return task.ret < 0 ? task.ret : 0;
+}
+#endif
+#endif
+
 #if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 0
 static QemuOptsList vitastor_create_opts = {
     .name = "vitastor-create-opts",
@@ -1418,6 +1476,14 @@ static BlockDriver bdrv_vitastor = {
 #endif
 
     .bdrv_co_flush_to_disk          = vitastor_co_flush,
+
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 6
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 7
+    // TRIM/discard support (requires the "discard": "unmap" blockdev option to be
+    // actually used, deletes and frees whole objects covered by the request)
+    .bdrv_co_pdiscard               = vitastor_co_pdiscard,
+#endif
+#endif
 
 #if QEMU_VERSION_MAJOR >= 4
     .strong_runtime_opts            = vitastor_strong_runtime_opts,

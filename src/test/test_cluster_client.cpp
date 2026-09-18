@@ -682,6 +682,141 @@ void test_writeback_queue_split()
     printf("[ok] test_writeback_queue_split\n");
 }
 
+int *test_trim_op(cluster_client_t *cli, uint64_t offset, uint64_t len, int64_t expect_freed, bool instant = false)
+{
+    printf("Post trim %jx+%jx\n", offset, len);
+    int *r = new int;
+    *r = instant ? -1001 : -1000;
+    cluster_op_t *op = new cluster_op_t();
+    op->opcode = OSD_OP_TRIM;
+    op->inode = 0x1000000000001;
+    op->offset = offset;
+    op->len = len;
+    op->callback = [r, expect_freed](cluster_op_t *op)
+    {
+        if (*r == -1000)
+            printf("Error: Not allowed to complete yet\n");
+        assert(*r != -1000);
+        assert(op->retval < 0 || op->retval == expect_freed);
+        *r = op->retval >= 0 ? 1 : op->retval;
+        printf("Done trim %jx+%jx r=%d\n", op->offset, op->len, op->retval);
+        delete op;
+    };
+    cli->execute(op);
+    if (instant)
+    {
+        long res = *r;
+        assert(*r >= 0);
+        delete r;
+        return (int*)res;
+    }
+    return r;
+}
+
+void test_trim()
+{
+    json11::Json config;
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
+    configure_single_pg_pool(mock);
+    mock->resume();
+    pretend_connected(cli, 1);
+
+    // Write 3 objects (128K each)
+    int *r1 = test_write(cli, 0, 0x60000, 0x55);
+    can_complete(r1);
+    check_op_count(cli, 1, 3);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x20000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x20000, 0x20000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x40000, 0x20000), 0);
+    check_completed(r1);
+
+    // A trim smaller than one object must complete instantly and do nothing
+    assert((long)test_trim_op(cli, 0x1000, 0x2000, 0, true) == 1);
+    check_op_count(cli, 1, 0);
+
+    // A trim covering objects 2 and 3 and a part of object 1 must
+    // only delete objects 2 and 3
+    r1 = test_trim_op(cli, 0x1000, 0x5F000, 0x40000);
+    can_complete(r1);
+    check_op_count(cli, 1, 2);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_DELETE, 0x20000, 0), 0);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_DELETE, 0x40000, 0), 0);
+    check_completed(r1);
+
+    // Replay after a reconnection must repeat the write clipped by the trim
+    // and the delete as SEPARATE operations, not as one merged operation
+    pretend_disconnected(cli, 1);
+    pretend_connected(cli, 1);
+    cluster_client_test_t::continue_ops(cli);
+    check_op_count(cli, 1, 3);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 0x20000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_DELETE, 0x20000, 0), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_DELETE, 0x40000, 0), 0);
+    check_op_count(cli, 1, 0);
+
+    int *r2 = test_sync(cli);
+    can_complete(r2);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_SYNC, 0, 0), 0);
+    check_completed(r2);
+
+    // Free client
+    delete cli;
+    delete tfd;
+    printf("[ok] trim test\n");
+}
+
+void test_trim_writeback()
+{
+    json11::Json config = json11::Json::object {
+        { "client_enable_writeback", true },
+        { "client_writeback_allowed", true },
+        { "client_max_buffered_bytes", 1024*1024 },
+        { "client_max_buffered_ops", 16 },
+        { "client_max_writeback_iodepth", 16 },
+        { "client_max_dirty_bytes", 1024*1024 },
+        { "client_max_dirty_ops", 16 },
+    };
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
+    configure_single_pg_pool(mock);
+    mock->resume();
+    pretend_connected(cli, 1);
+
+    // Buffer a write over 3 objects, then a trim over all of them,
+    // then a small write into the first object splitting the trim
+    assert((long)test_write(cli, 0, 0x60000, 0x55, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+    assert((long)test_trim_op(cli, 0, 0x60000, 0x60000, true) == 1);
+    check_op_count(cli, 1, 0);
+    assert((long)test_write(cli, 0x1000, 0x1000, 0x56, NULL, true) == 1);
+    check_op_count(cli, 1, 0);
+
+    // Flush everything. The delete fragment before the small write must be
+    // dropped (smaller than an object), the fragment after it must be clipped
+    // to whole objects 2 and 3
+    int *r2 = test_sync(cli);
+    check_op_count(cli, 1, 3);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x1000, 0x1000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_DELETE, 0x20000, 0), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_DELETE, 0x40000, 0), 0);
+    can_complete(r2);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_SYNC, 0, 0), 0);
+    check_completed(r2);
+
+    // Free client
+    delete cli;
+    delete tfd;
+    printf("[ok] trim writeback test\n");
+}
+
 void test_deoptimize_snapshot_read()
 {
     json11::Json config = json11::Json::object {
@@ -1129,6 +1264,8 @@ int main(int narg, char *args[])
     test_writeback();
     test_writeback_merge();
     test_writeback_queue_split();
+    test_trim();
+    test_trim_writeback();
     test_deoptimize_snapshot_read();
     test_msgr_encrypt();
     test_msgr_decrypt_chain();

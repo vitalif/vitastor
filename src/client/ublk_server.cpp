@@ -653,9 +653,13 @@ protected:
         {
             phys_shift++;
         }
+        // opt_block_size = pool "stripe size" (block_size * data chunk count).
+        // TRIM only deletes whole objects, so it's also the discard granularity
+        uint32_t discard_granularity = opt_block_size && !(opt_block_size & 511) && opt_block_size <= (1<<30)
+            ? (uint32_t)opt_block_size : 0;
         ublk_params params = {
             .len = sizeof(ublk_params),
-            .types = UBLK_PARAM_TYPE_BASIC,
+            .types = UBLK_PARAM_TYPE_BASIC | (discard_granularity ? (uint32_t)UBLK_PARAM_TYPE_DISCARD : 0u),
             .basic = {
                 .attrs = attrs, // UBLK_ATTR_READ_ONLY | UBLK_ATTR_ROTATIONAL | UBLK_ATTR_VOLATILE_CACHE | UBLK_ATTR_FUA
                 .logical_bs_shift = phys_shift,
@@ -669,10 +673,12 @@ protected:
             },
             .discard = {
                 .discard_alignment = 0,
-                .discard_granularity = 0,
-                .max_discard_sectors = 0,
+                .discard_granularity = discard_granularity,
+                // Cap single discards at ~1 GB, aligned to the granularity
+                .max_discard_sectors = discard_granularity
+                    ? (uint32_t)((((uint64_t)1<<30) / discard_granularity * discard_granularity) >> 9) : 0,
                 .max_write_zeroes_sectors = 0,
-                .max_discard_segments = 0,
+                .max_discard_segments = discard_granularity ? (uint16_t)1 : (uint16_t)0,
             },
         };
         res = sync_unpriv_cmd(false, new_opcodes ? UBLK_U_CMD_SET_PARAMS : UBLK_CMD_SET_PARAMS, &params, sizeof(params));
@@ -866,7 +872,25 @@ protected:
             };
             cli->execute(op);
         }
-        else if (opcode == UBLK_IO_OP_WRITE_ZEROES || opcode == UBLK_IO_OP_DISCARD)
+        else if (opcode == UBLK_IO_OP_DISCARD)
+        {
+            cluster_op_t *op = new cluster_op_t;
+            op->opcode = OSD_OP_TRIM;
+            op->inode = inode ? inode : watch->cfg.num;
+            op->offset = iod->start_sector * 512;
+            op->len = (uint64_t)iod->nr_sectors * 512;
+            int req_len = (int)((uint64_t)iod->nr_sectors * 512);
+            op->callback = [this, i, req_len](cluster_op_t *op)
+            {
+                // TRIM returns the number of freed bytes which may be less than
+                // the requested length, but for ublk it's still a full success
+                submit_request(new_opcodes ? UBLK_U_IO_COMMIT_AND_FETCH_REQ : UBLK_IO_COMMIT_AND_FETCH_REQ,
+                    i, op->retval < 0 ? op->retval : req_len);
+                delete op;
+            };
+            cli->execute(op);
+        }
+        else if (opcode == UBLK_IO_OP_WRITE_ZEROES)
         {
             submit_request(new_opcodes ? UBLK_U_IO_COMMIT_AND_FETCH_REQ : UBLK_IO_COMMIT_AND_FETCH_REQ, i, -EINVAL);
         }

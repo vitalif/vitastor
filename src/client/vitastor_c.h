@@ -7,7 +7,7 @@
 #define VITASTOR_QEMU_PROXY_H
 
 // C API wrapper version
-#define VITASTOR_C_API_VERSION 5
+#define VITASTOR_C_API_VERSION 6
 
 #ifndef POOL_ID_BITS
 #define POOL_ID_BITS 16
@@ -66,6 +66,12 @@ void vitastor_c_read(vitastor_c *client, uint64_t inode, uint64_t offset, uint64
 void vitastor_c_write(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len, uint64_t check_version,
     struct iovec *iov, int iovcnt, VitastorIOHandler cb, void *opaque);
 void vitastor_c_delete(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len, uint64_t check_version,
+    VitastorIOHandler cb, void *opaque);
+// TRIM (discard). Advisory: the range is clipped inwards to object (stripe) boundaries,
+// objects fully covered by it are deleted and their space is freed, the rest of the range
+// is ignored. If the image is a clone, parent data may become visible in the trimmed area.
+// Callback retval is the number of bytes covered by deleted objects (>= 0) or a negative error
+void vitastor_c_trim(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
     VitastorIOHandler cb, void *opaque);
 void vitastor_c_read_bitmap(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
     int with_parents, VitastorReadBitmapHandler cb, void *opaque);

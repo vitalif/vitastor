@@ -350,6 +350,26 @@ void vitastor_c_delete(vitastor_c *client, uint64_t inode, uint64_t offset, uint
     }
 }
 
+void vitastor_c_trim(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
+    VitastorIOHandler cb, void *opaque)
+{
+    cluster_op_t *op = new cluster_op_t;
+    op->opcode = OSD_OP_TRIM;
+    op->inode = inode;
+    op->offset = offset;
+    op->len = len;
+    op->callback = [cb, opaque](cluster_op_t *op)
+    {
+        cb(opaque, op->retval);
+        delete op;
+    };
+    client->cli->execute(op);
+    if (client->ringloop)
+    {
+        client->ringloop->loop();
+    }
+}
+
 void vitastor_c_read_bitmap(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
     int with_parents, VitastorReadBitmapHandler cb, void *opaque)
 {
