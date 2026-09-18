@@ -76,8 +76,13 @@ uint32_t blockstore_heap_t::get_big_intent_entry_size()
         (!dsk->csum_block_size ? 4 : dsk->data_block_size/dsk->csum_block_size * (dsk->data_csum_type & 0xFF));
 }
 
-uint32_t blockstore_heap_t::get_small_entry_size(uint32_t offset, uint32_t len)
+uint32_t blockstore_heap_t::get_small_entry_size(uint32_t entry_type, uint32_t offset, uint32_t len)
 {
+    if ((entry_type & BS_HEAP_ZERO) && (entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
+    {
+        // Zero writes have no data and no checksums
+        return sizeof(heap_small_write_t) + dsk->clean_entry_bitmap_size;
+    }
     return sizeof(heap_small_write_t) + dsk->clean_entry_bitmap_size +
         (!dsk->csum_block_size ? 4 : (dsk->data_csum_type & 0xFF) *
             ((offset+len+dsk->csum_block_size-1)/dsk->csum_block_size - offset/dsk->csum_block_size));
@@ -87,7 +92,7 @@ uint32_t blockstore_heap_t::get_csum_size(heap_entry_t *wr)
 {
     if (wr->type() == BS_HEAP_SMALL_WRITE)
     {
-        return get_csum_size(wr->type(), wr->small().offset, wr->small().len);
+        return get_csum_size(wr->entry_type, wr->small().offset, wr->small().len);
     }
     return get_csum_size(wr->type());
 }
@@ -96,6 +101,11 @@ uint32_t blockstore_heap_t::get_csum_size(uint32_t entry_type, uint32_t offset, 
 {
     if (!dsk->csum_block_size)
     {
+        return 0;
+    }
+    if ((entry_type & BS_HEAP_ZERO) && (entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE)
+    {
+        // Zero writes have no checksums
         return 0;
     }
     if ((entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE ||
@@ -125,8 +135,8 @@ uint32_t heap_entry_t::get_size(blockstore_heap_t *heap)
     if (type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE)
     {
         if (size < sizeof(heap_small_write_t))
-            return heap->get_small_entry_size(0, 0);
-        return heap->get_small_entry_size(small().offset, small().len);
+            return heap->get_small_entry_size(entry_type, 0, 0);
+        return heap->get_small_entry_size(entry_type, small().offset, small().len);
     }
     return heap->get_simple_entry_size();
 }
@@ -184,7 +194,7 @@ uint8_t *heap_entry_t::get_checksums(blockstore_heap_t *heap)
 {
     if (!heap->dsk->csum_block_size)
         return NULL;
-    if ((type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE) && small().len > 0)
+    if ((type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE) && small().len > 0 && !is_zero_write())
         return ((uint8_t*)this + sizeof(heap_small_write_t) + heap->dsk->clean_entry_bitmap_size);
     if (type() == BS_HEAP_BIG_WRITE)
         return ((uint8_t*)this + sizeof(heap_big_write_t) + 2*heap->dsk->clean_entry_bitmap_size);
@@ -197,7 +207,7 @@ uint32_t *heap_entry_t::get_checksum(blockstore_heap_t *heap)
 {
     if (type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE)
     {
-        if (heap->dsk->csum_block_size || small().len == 0)
+        if (heap->dsk->csum_block_size || small().len == 0 || is_zero_write())
             return NULL;
         return (uint32_t*)((uint8_t*)this + sizeof(heap_small_write_t) + heap->dsk->clean_entry_bitmap_size);
     }
@@ -356,7 +366,8 @@ corrupted_block:
             wr->entry_type &= ~BS_HEAP_GARBAGE;
             if ((wr->entry_type & BS_HEAP_TYPE) < BS_HEAP_BIG_WRITE ||
                 (wr->entry_type & BS_HEAP_TYPE) > BS_HEAP_ROLLBACK ||
-                (wr->entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE)) ||
+                (wr->entry_type & ~(BS_HEAP_TYPE|BS_HEAP_STABLE|BS_HEAP_ZERO)) ||
+                (wr->entry_type & BS_HEAP_ZERO) && (wr->entry_type & BS_HEAP_TYPE) != BS_HEAP_SMALL_WRITE ||
                 (wr->entry_type == BS_HEAP_DELETE) ||
                 (wr->entry_type == (BS_HEAP_ROLLBACK|BS_HEAP_STABLE)) ||
                 (wr->entry_type == (BS_HEAP_COMMIT|BS_HEAP_STABLE)))
@@ -403,7 +414,8 @@ corrupted_object:
             if ((wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE) &&
                 (wr->small().offset+wr->small().len > dsk->data_block_size ||
                 wr->small().offset % dsk->bitmap_granularity ||
-                wr->small().len % dsk->bitmap_granularity))
+                wr->small().len % dsk->bitmap_granularity ||
+                wr->is_zero_write() && wr->small().location != 0))
             {
                 fprintf(stderr, "Error: %s entry %jx:%jx v%ju has invalid offset/length: %u/%u. Metadata is incompatible with current parameters. ",
                     wr->type() == BS_HEAP_SMALL_WRITE ? "small_write" : "intent_write",
@@ -598,7 +610,9 @@ void blockstore_heap_t::finish_load()
 // in between - the writes whose data still has to be rechecked. Skip over them.
 heap_entry_t *blockstore_heap_t::skip_commits(heap_entry_t *wr)
 {
-    while (wr && (wr->type() == BS_HEAP_COMMIT || wr->type() == BS_HEAP_ROLLBACK))
+    // Only used by the small write data recheck code, so it also skips
+    // zero writes - they have no data to recheck
+    while (wr && (wr->type() == BS_HEAP_COMMIT || wr->type() == BS_HEAP_ROLLBACK || wr->is_zero_write()))
     {
         wr = prev(wr);
     }
@@ -690,7 +704,7 @@ int blockstore_heap_t::mark_used_blocks()
                         });
                         continue;
                     }
-                    if (wr->type() == BS_HEAP_SMALL_WRITE)
+                    if (wr->type() == BS_HEAP_SMALL_WRITE && !wr->is_zero_write())
                     {
                         if (!is_buffer_area_free(wr->small().location, wr->small().len))
                         {
@@ -766,7 +780,7 @@ int blockstore_heap_t::mark_used_blocks()
 
 void blockstore_heap_t::init_free_bad_entry(heap_entry_t *wr)
 {
-    if (wr->type() == BS_HEAP_SMALL_WRITE)
+    if (wr->type() == BS_HEAP_SMALL_WRITE && !wr->is_zero_write())
     {
         free_buffer_area(wr->inode, wr->small().location, wr->small().len);
     }
@@ -1245,6 +1259,11 @@ int blockstore_heap_t::finish_recheck()
 
 bool blockstore_heap_t::calc_checksums(heap_entry_t *wr, uint8_t *data, bool set, uint32_t offset, uint32_t len)
 {
+    if (wr->is_zero_write())
+    {
+        // Zero writes have no data and no checksums
+        return true;
+    }
     if (!dsk->csum_block_size)
     {
         if (wr->type() == BS_HEAP_BIG_WRITE)
@@ -1834,12 +1853,14 @@ int blockstore_heap_t::add_small_write(object_id oid, heap_entry_t **obj_ptr, ui
 {
     auto obj = *obj_ptr;
     if (!obj || obj->type() == BS_HEAP_DELETE || obj->version > version ||
-        type != (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) && type != BS_HEAP_SMALL_WRITE && type != (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) ||
-        (type & BS_HEAP_STABLE) && !(obj->entry_type & BS_HEAP_STABLE))
+        type != (BS_HEAP_SMALL_WRITE|BS_HEAP_STABLE) && type != BS_HEAP_SMALL_WRITE && type != (BS_HEAP_INTENT_WRITE|BS_HEAP_STABLE) &&
+        type != (BS_HEAP_SMALL_WRITE|BS_HEAP_ZERO|BS_HEAP_STABLE) && type != (BS_HEAP_SMALL_WRITE|BS_HEAP_ZERO) ||
+        (type & BS_HEAP_STABLE) && !(obj->entry_type & BS_HEAP_STABLE) ||
+        (type & BS_HEAP_ZERO) && (location != 0 || data != NULL))
     {
         return EINVAL;
     }
-    uint32_t wr_size = get_small_entry_size(offset, len);
+    uint32_t wr_size = get_small_entry_size(type, offset, len);
     // Small writes are written in parallel with buffered data so they require explicit_complete
     return add_entry(wr_size, obj, modified_block, true, false, true, [&](heap_entry_t *wr)
     {
@@ -2304,7 +2325,7 @@ void blockstore_heap_t::mark_garbage(uint32_t block_num, heap_entry_t *prev_wr, 
     garbage_entries++;
     garbage_memory += list_item_overhead(prev_wr->size);
     // And this is the moment when we can free the data reference
-    if (prev_wr->type() == BS_HEAP_SMALL_WRITE && prev_wr->small().len > 0)
+    if (prev_wr->type() == BS_HEAP_SMALL_WRITE && prev_wr->small().len > 0 && !prev_wr->is_zero_write())
     {
         free_buffer_area(prev_wr->inode, prev_wr->small().location, prev_wr->small().len);
     }

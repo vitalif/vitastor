@@ -817,6 +817,118 @@ void test_trim_writeback()
     printf("[ok] trim writeback test\n");
 }
 
+int *test_write_zeroes_op(cluster_client_t *cli, uint64_t offset, uint64_t len, uint64_t flags = 0, bool instant = false)
+{
+    printf("Post write_zeroes %jx+%jx\n", offset, len);
+    int *r = new int;
+    *r = instant ? -1001 : -1000;
+    cluster_op_t *op = new cluster_op_t();
+    op->opcode = OSD_OP_WRITE_ZEROES;
+    op->inode = 0x1000000000001;
+    op->offset = offset;
+    op->len = len;
+    op->flags = flags;
+    op->callback = [r](cluster_op_t *op)
+    {
+        if (*r == -1000)
+            printf("Error: Not allowed to complete yet\n");
+        assert(*r != -1000);
+        assert(op->retval == op->len || op->retval < 0);
+        *r = op->retval == op->len ? 1 : op->retval;
+        printf("Done write_zeroes %jx+%jx r=%d\n", op->offset, op->len, op->retval);
+        delete op;
+    };
+    cli->execute(op);
+    if (instant)
+    {
+        long res = *r;
+        delete r;
+        return (int*)res;
+    }
+    return r;
+}
+
+void test_write_zeroes()
+{
+    json11::Json config;
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
+    configure_single_pg_pool(mock);
+    mock->resume();
+    pretend_connected(cli, 1);
+
+    // Unaligned requests must fail with EINVAL instantly
+    assert((long)test_write_zeroes_op(cli, 100, 0x1000, 0, true) == -EINVAL);
+    check_op_count(cli, 1, 0);
+
+    // Plain image (no parent): covered objects are deleted, edges are written
+    int *r1 = test_write_zeroes_op(cli, 0x1000, 0x40000);
+    can_complete(r1);
+    check_op_count(cli, 1, 3);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x1000, 0x1F000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_DELETE, 0x20000, 0), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x40000, 0x1000), 0);
+    check_completed(r1);
+
+    // A fully aligned range on a plain image turns into a pure delete
+    r1 = test_write_zeroes_op(cli, 0x20000, 0x40000);
+    can_complete(r1);
+    check_op_count(cli, 1, 2);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_DELETE, 0x20000, 0), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_DELETE, 0x40000, 0), 0);
+    check_completed(r1);
+
+    // With OSD_OP_NO_UNMAP everything must be physically written
+    r1 = test_write_zeroes_op(cli, 0x1000, 0x40000, OSD_OP_NO_UNMAP);
+    can_complete(r1);
+    check_op_count(cli, 1, 3);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x1000, 0x1F000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x20000, 0x20000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x40000, 0x1000), 0);
+    check_completed(r1);
+
+    // On a clone (image with a parent) everything must be physically written too,
+    // because deleting objects would expose parent data instead of zeroes
+    mock->set("/vitastor/config/inode/1/1", json11::Json::object {
+        { "name", "child" },
+        { "size", 128*1024*1024 },
+        { "parent_id", 2 },
+    });
+    r1 = test_write_zeroes_op(cli, 0x1000, 0x40000);
+    can_complete(r1);
+    check_op_count(cli, 1, 3);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x1000, 0x1F000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x20000, 0x20000), 0);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x40000, 0x1000), 0);
+    check_completed(r1);
+
+    // When the peer OSD advertises the "zero_writes" feature, zero writes
+    // must be sent as data-less operations with the OSD_RW_ZERO flag
+    cli->msgr.osd_peers.at(1)->enable_zero_writes = true;
+    r1 = test_write_zeroes_op(cli, 0x1000, 0x40000);
+    can_complete(r1);
+    check_op_count(cli, 1, 3);
+    {
+        osd_op_t *zop1 = find_op(cli, 1, OSD_OP_WRITE, 0x1000, 0x1F000);
+        osd_op_t *zop2 = find_op(cli, 1, OSD_OP_WRITE, 0x20000, 0x20000);
+        osd_op_t *zop3 = find_op(cli, 1, OSD_OP_WRITE, 0x40000, 0x1000);
+        assert(zop1 && (zop1->req.rw.flags & OSD_RW_ZERO) && !zop1->iov.count);
+        assert(zop2 && (zop2->req.rw.flags & OSD_RW_ZERO) && !zop2->iov.count);
+        assert(zop3 && (zop3->req.rw.flags & OSD_RW_ZERO) && !zop3->iov.count);
+        pretend_op_completed(cli, zop1, 0);
+        pretend_op_completed(cli, zop2, 0);
+        pretend_op_completed(cli, zop3, 0);
+    }
+    check_completed(r1);
+
+    // Free client
+    delete cli;
+    delete tfd;
+    printf("[ok] write_zeroes test\n");
+}
+
 void test_deoptimize_snapshot_read()
 {
     json11::Json config = json11::Json::object {
@@ -1266,6 +1378,7 @@ int main(int narg, char *args[])
     test_writeback_queue_split();
     test_trim();
     test_trim_writeback();
+    test_write_zeroes();
     test_deoptimize_snapshot_read();
     test_msgr_encrypt();
     test_msgr_decrypt_chain();

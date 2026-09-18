@@ -27,6 +27,17 @@
 #include "epoll_manager.h"
 #include "str_util.h"
 
+// May be missing from old <linux/nbd.h>
+#ifndef NBD_CMD_WRITE_ZEROES
+#define NBD_CMD_WRITE_ZEROES 6
+#endif
+#ifndef NBD_FLAG_SEND_WRITE_ZEROES
+#define NBD_FLAG_SEND_WRITE_ZEROES (1 << 6)
+#endif
+#ifndef NBD_CMD_FLAG_NO_HOLE
+#define NBD_CMD_FLAG_NO_HOLE (1 << 17)
+#endif
+
 #ifdef HAVE_NBD_NETLINK_H
 #include <netlink/attr.h>
 #include <netlink/genl/ctrl.h>
@@ -615,7 +626,7 @@ help:
             {
                 dev_num = (int)cfg["dev_num"].uint64_value();
             }
-            uint64_t flags = NBD_FLAG_SEND_FLUSH | NBD_FLAG_SEND_TRIM;
+            uint64_t flags = NBD_FLAG_SEND_FLUSH | NBD_FLAG_SEND_TRIM | NBD_FLAG_SEND_WRITE_ZEROES;
             uint64_t cflags = 0;
             if (!cfg["readonly"].is_null() || !cfg["nbd_ro"].is_null())
                 flags |= NBD_FLAG_READ_ONLY;
@@ -655,7 +666,7 @@ help:
             if (!cfg["dev_num"].is_null())
             {
                 int r;
-                uint64_t flags = NBD_FLAG_SEND_FLUSH | NBD_FLAG_SEND_TRIM;
+                uint64_t flags = NBD_FLAG_SEND_FLUSH | NBD_FLAG_SEND_TRIM | NBD_FLAG_SEND_WRITE_ZEROES;
                 if (!cfg["readonly"].is_null())
                     flags |= NBD_FLAG_READ_ONLY;
                 dev_num = cfg["dev_num"].int64_value();
@@ -677,7 +688,7 @@ help:
                         i++;
                         continue;
                     }
-                    int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH | NBD_FLAG_SEND_TRIM, nbd_timeout, bg);
+                    int r = run_nbd(sockfd, i, device_size, NBD_FLAG_SEND_FLUSH | NBD_FLAG_SEND_TRIM | NBD_FLAG_SEND_WRITE_ZEROES, nbd_timeout, bg);
                     if (r == 0)
                     {
                         printf("/dev/nbd%d\n", i);
@@ -1202,7 +1213,9 @@ protected:
     {
         if (read_state == CL_READ_HDR)
         {
-            int req_type = be32toh(cur_req.type);
+            // The upper 16 bits of `type` carry command flags (NBD_CMD_FLAG_*)
+            uint32_t req_flags = be32toh(cur_req.type) & 0xffff0000;
+            int req_type = be32toh(cur_req.type) & 0xffff;
             if (be32toh(cur_req.magic) == NBD_REQUEST_MAGIC && req_type == NBD_CMD_DISC)
             {
                 // Disconnect
@@ -1212,7 +1225,8 @@ protected:
             }
             if (be32toh(cur_req.magic) != NBD_REQUEST_MAGIC ||
                 req_type != NBD_CMD_READ && req_type != NBD_CMD_WRITE &&
-                req_type != NBD_CMD_FLUSH && req_type != NBD_CMD_TRIM)
+                req_type != NBD_CMD_FLUSH && req_type != NBD_CMD_TRIM &&
+                req_type != NBD_CMD_WRITE_ZEROES)
             {
                 printf("Unexpected request: magic=%x type=%x, terminating\n", cur_req.magic, req_type);
                 exit(1);
@@ -1232,9 +1246,13 @@ protected:
                 buf = malloc_or_die(sizeof(nbd_reply) + op->len);
                 op->iov.push_back((uint8_t*)buf + sizeof(nbd_reply), op->len);
             }
-            else if (req_type == NBD_CMD_TRIM)
+            else if (req_type == NBD_CMD_TRIM || req_type == NBD_CMD_WRITE_ZEROES)
             {
-                op->opcode = OSD_OP_TRIM;
+                op->opcode = req_type == NBD_CMD_TRIM ? OSD_OP_TRIM : OSD_OP_WRITE_ZEROES;
+                if (req_type == NBD_CMD_WRITE_ZEROES && (req_flags & NBD_CMD_FLAG_NO_HOLE))
+                {
+                    op->flags |= OSD_OP_NO_UNMAP;
+                }
                 op->inode = inode ? inode : watch->cfg.num;
                 op->offset = be64toh(cur_req.from);
                 op->len = be32toh(cur_req.len);
@@ -1276,7 +1294,8 @@ protected:
                 cur_buf = &cur_req;
                 cur_left = sizeof(nbd_request);
                 read_state = CL_READ_HDR;
-                if (op->opcode == OSD_OP_TRIM && !inode && watch->cfg.readonly)
+                if ((op->opcode == OSD_OP_TRIM || op->opcode == OSD_OP_WRITE_ZEROES) &&
+                    !inode && watch->cfg.readonly)
                 {
                     op->retval = -EROFS;
                     std::function<void(cluster_op_t*)>(op->callback)(op);

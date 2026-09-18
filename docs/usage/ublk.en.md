@@ -15,7 +15,9 @@ ublk also allows to recover devices even if the server (vitastor-ublk process) d
 
 vitastor-ublk supports TRIM (discard): running `blkdiscard` or `fstrim` on the mapped
 device deletes Vitastor objects fully covered by the trimmed range and frees their
-space in the pool. See [TRIM notes](qemu.en.md#trimdiscard) for semantics details.
+space in the pool. Zero-writes (`blkdiscard -z`) are also supported and free space
+the same way when the image has no parent layers, while guaranteeing that reads
+return zeroes. See [TRIM notes](qemu.en.md#trimdiscard) for semantics details.
 
 ## Example performance comparison
 

@@ -7,7 +7,7 @@
 #define VITASTOR_QEMU_PROXY_H
 
 // C API wrapper version
-#define VITASTOR_C_API_VERSION 6
+#define VITASTOR_C_API_VERSION 7
 
 #ifndef POOL_ID_BITS
 #define POOL_ID_BITS 16
@@ -73,6 +73,13 @@ void vitastor_c_delete(vitastor_c *client, uint64_t inode, uint64_t offset, uint
 // Callback retval is the number of bytes covered by deleted objects (>= 0) or a negative error
 void vitastor_c_trim(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
     VitastorIOHandler cb, void *opaque);
+// WRITE_ZEROES: guarantees that subsequent reads of the range return zeroes.
+// Requires only bitmap_granularity (4 KB by default) alignment. With may_unmap != 0,
+// whole objects fully covered by the range are deleted (freed) when the image has
+// no parent layers, otherwise zeroes are physically written. Callback retval is
+// len on success or a negative error number
+void vitastor_c_write_zeroes(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
+    int may_unmap, VitastorIOHandler cb, void *opaque);
 void vitastor_c_read_bitmap(vitastor_c *client, uint64_t inode, uint64_t offset, uint64_t len,
     int with_parents, VitastorReadBitmapHandler cb, void *opaque);
 void vitastor_c_sync(vitastor_c *client, VitastorIOHandler cb, void *opaque);

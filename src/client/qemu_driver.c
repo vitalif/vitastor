@@ -754,6 +754,12 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     /* When extending regular files, we get zeros from the OS */
     bs->supported_truncate_flags = BDRV_REQ_ZERO_WRITE;
 #endif
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 7
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 7
+    /* Vitastor can free whole objects covered by write-zeroes requests */
+    bs->supported_zero_flags = BDRV_REQ_MAY_UNMAP;
+#endif
+#endif
     //client->aio_context = bdrv_get_aio_context(bs);
     qdict_del(options, "use-rdma");
     qdict_del(options, "rdma-mtu");
@@ -1001,6 +1007,16 @@ static int vitastor_refresh_limits(BlockDriverState *bs)
             bs->bl.max_pdiscard = (1 << 30) < discard_alignment
                 ? discard_alignment : (1 << 30) / discard_alignment * discard_alignment;
         }
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 7
+        // Write-zeroes only requires bitmap granularity (4k) alignment
+        uint32_t zero_alignment = vitastor_c_inode_get_bitmap_granularity(client->proxy, inode);
+        if (zero_alignment)
+        {
+            bs->bl.pwrite_zeroes_alignment = zero_alignment;
+            // Cap at 32 MB per request to bound client-side memory usage
+            bs->bl.max_pwrite_zeroes = (32 << 20) / zero_alignment * zero_alignment;
+        }
+#endif
     }
 #endif
 #endif
@@ -1364,6 +1380,46 @@ static int coroutine_fn vitastor_co_pdiscard(BlockDriverState *bs,
 #endif
 #endif
 
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 7
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 7
+static int coroutine_fn vitastor_co_pwrite_zeroes(BlockDriverState *bs,
+#if QEMU_VERSION_MAJOR >= 7 || QEMU_VERSION_MAJOR == 6 && QEMU_VERSION_MINOR >= 2
+    int64_t offset, int64_t bytes, BdrvRequestFlags flags
+#else
+    int64_t offset, int bytes, BdrvRequestFlags flags
+#endif
+)
+{
+    VitastorClient *client = bs->opaque;
+    VitastorRPC task;
+    vitastor_co_pin_to_bs_ctx(bs);
+    vitastor_co_init_task(bs, &task);
+
+    if (client->last_bitmap)
+    {
+        // Invalidate last bitmap on write
+        free(client->last_bitmap);
+        client->last_bitmap = NULL;
+    }
+
+    uint64_t inode = client->watch ? vitastor_c_inode_get_num(client->watch) : client->inode;
+    qemu_mutex_lock(&client->mutex);
+    vitastor_c_write_zeroes(client->proxy, inode, offset, bytes,
+        (flags & BDRV_REQ_MAY_UNMAP) ? 1 : 0, vitastor_co_generic_cb, &task);
+    if (!client->auto_loop)
+        vitastor_schedule_uring_handler(client);
+    qemu_mutex_unlock(&client->mutex);
+
+    while (!task.complete)
+    {
+        qemu_coroutine_yield();
+    }
+
+    return task.ret < 0 ? task.ret : 0;
+}
+#endif
+#endif
+
 #if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR > 0
 static QemuOptsList vitastor_create_opts = {
     .name = "vitastor-create-opts",
@@ -1482,6 +1538,13 @@ static BlockDriver bdrv_vitastor = {
     // TRIM/discard support (requires the "discard": "unmap" blockdev option to be
     // actually used, deletes and frees whole objects covered by the request)
     .bdrv_co_pdiscard               = vitastor_co_pdiscard,
+#endif
+#endif
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 7
+#if QEMU_VERSION_MAJOR >= 3 || QEMU_VERSION_MAJOR == 2 && QEMU_VERSION_MINOR >= 7
+    // Efficient write-zeroes: also frees whole objects when BDRV_REQ_MAY_UNMAP
+    // is set and the image has no parent layers (used by detect-zeroes=unmap)
+    .bdrv_co_pwrite_zeroes          = vitastor_co_pwrite_zeroes,
 #endif
 #endif
 

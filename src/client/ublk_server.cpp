@@ -677,7 +677,9 @@ protected:
                 // Cap single discards at ~1 GB, aligned to the granularity
                 .max_discard_sectors = discard_granularity
                     ? (uint32_t)((((uint64_t)1<<30) / discard_granularity * discard_granularity) >> 9) : 0,
-                .max_write_zeroes_sectors = 0,
+                // Write-zeroes only requires bitmap granularity (= logical sector) alignment.
+                // Capped at 32 MB per request to bound client-side memory usage
+                .max_write_zeroes_sectors = discard_granularity ? (uint32_t)(((uint64_t)32<<20) >> 9) : 0,
                 .max_discard_segments = discard_granularity ? (uint16_t)1 : (uint16_t)0,
             },
         };
@@ -892,7 +894,20 @@ protected:
         }
         else if (opcode == UBLK_IO_OP_WRITE_ZEROES)
         {
-            submit_request(new_opcodes ? UBLK_U_IO_COMMIT_AND_FETCH_REQ : UBLK_IO_COMMIT_AND_FETCH_REQ, i, -EINVAL);
+            cluster_op_t *op = new cluster_op_t;
+            op->opcode = OSD_OP_WRITE_ZEROES;
+            op->flags = (iod->op_flags & UBLK_IO_F_NOUNMAP) ? OSD_OP_NO_UNMAP : 0;
+            op->inode = inode ? inode : watch->cfg.num;
+            op->offset = iod->start_sector * 512;
+            op->len = (uint64_t)iod->nr_sectors * 512;
+            int req_len = (int)((uint64_t)iod->nr_sectors * 512);
+            op->callback = [this, i, req_len](cluster_op_t *op)
+            {
+                submit_request(new_opcodes ? UBLK_U_IO_COMMIT_AND_FETCH_REQ : UBLK_IO_COMMIT_AND_FETCH_REQ,
+                    i, op->retval < 0 ? op->retval : req_len);
+                delete op;
+            };
+            cli->execute(op);
         }
         else if (opcode == UBLK_IO_OP_READ || opcode == UBLK_IO_OP_WRITE)
         {

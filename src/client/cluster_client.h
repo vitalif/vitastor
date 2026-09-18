@@ -22,10 +22,19 @@
 // Internally the operation is converted to OSD_OP_DELETE (op->opcode is rewritten!)
 // with object-aligned offset/len, so it doesn't require any OSD-side support.
 #define OSD_OP_TRIM 0x103
+// Client-level WRITE_ZEROES. Guarantees that subsequent reads of the given range
+// return zeroes. Emulated as a compound operation: zeroes are written with normal
+// writes, but if the image has no parent layer(s), whole objects fully covered by
+// the range are deleted instead, which frees their space (pass OSD_OP_NO_UNMAP to
+// forbid freeing space). Requires only bitmap_granularity alignment.
+#define OSD_OP_WRITE_ZEROES 0x104
 
 #define OSD_OP_IGNORE_READONLY 0x08
 #define OSD_OP_WAIT_UP_TIMEOUT 0x10
 #define OSD_OP_IGNORE_WRITEBACK 0x20
+// Only for OSD_OP_WRITE_ZEROES: write zeroes even into whole objects instead of
+// deleting them (don't free space, only guarantee zeroes)
+#define OSD_OP_NO_UNMAP 0x40
 
 struct cluster_op_t;
 
@@ -58,6 +67,7 @@ struct __attribute__((visibility("default"))) cluster_op_t
     // write and read return len on success
     // sync and delete return 0 on success
     // trim returns the number of bytes actually covered by whole deleted objects (may be 0)
+    // write_zeroes returns len on success
     // read_bitmap and read_chain_bitmap return the length of bitmap in bits(!)
     int retval;
     osd_op_buf_list_t iov;
@@ -154,6 +164,8 @@ class __attribute__((visibility("default"))) cluster_client_t
 
     int retry_timeout_id = -1;
     int retry_timeout_duration = 0;
+    // Shared zero-filled buffer for write_zeroes emulation
+    void *zero_buf = NULL;
     std::vector<cluster_op_t*> offline_ops;
     std::vector<cluster_op_t*> key_wait_ops;
     cluster_op_t *op_queue_head = NULL, *op_queue_tail = NULL;
@@ -231,6 +243,7 @@ protected:
     void on_change_inode_hook(uint64_t inode, bool removed);
 
     void execute_internal(cluster_op_t *op);
+    void execute_write_zeroes(cluster_op_t *op);
     void execute_cas(cluster_op_t *op, bool nosync = false);
     void unshift_op(cluster_op_t *op);
     int continue_rw(cluster_op_t *op);

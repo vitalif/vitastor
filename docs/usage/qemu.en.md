@@ -66,6 +66,15 @@ a clone, old data from parent snapshot(s) may become visible in the trimmed area
 instead of zeroes, which is allowed by TRIM semantics because the content of trimmed
 blocks is undefined until the next write.
 
+The driver also supports efficient WRITE_ZEROES requests, used, for example, by the
+`detect-zeroes=unmap` drive option and by guests zeroing blocks explicitly. Zero-writes
+only require [bitmap_granularity](../config/layout-cluster.en.md#bitmap_granularity)
+(4 KB by default) alignment. When the image has no parent snapshots or layers, whole
+objects fully covered by a zero-write request are deleted, which frees their space.
+The rest of the range is zeroed with normal writes. Unlike TRIM, reads of the range
+are always guaranteed to return zeroes afterwards, so zero-writes are also safe for
+clones - parent data is masked with physically written zeroes there.
+
 ## qemu-img
 
 For qemu-img, you should use `vitastor:image=<IMAGE>[:etcd_host=<HOST>]` as filename.

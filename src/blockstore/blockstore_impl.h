@@ -216,6 +216,8 @@ public:
     // Submission
     void enqueue_op(blockstore_op_t *op);
 
+    bool supports_zero_writes();
+
     // Simplified synchronous operation: get object bitmap & current version
     int read_bitmap(object_id oid, uint64_t target_version, void *bitmap, uint64_t *result_version = NULL);
 

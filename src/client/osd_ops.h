@@ -38,6 +38,13 @@
 #define OSD_OP_RECOVERY_RELATED     (uint32_t)1
 #define OSD_OP_IGNORE_PG_LOCK       (uint32_t)2
 #define OSD_OP_RETURN_CHAIN         (uint32_t)4
+// Zero-write: WRITE/SEC_WRITE carries no data payload, the specified range must
+// read as zeroes afterwards. The external bitmap attribute is sent as usual.
+// Only send it to OSDs advertising the "zero_writes" feature in SHOW_CONFIG!
+#define OSD_RW_ZERO                 (uint32_t)8
+// Modifier for OSD_RW_ZERO on primary writes: clear external bitmap bits over the
+// range ("punch a hole" exposing parent data) instead of setting them
+#define OSD_RW_ZERO_PUNCH           (uint32_t)16
 
 // Memory alignment for direct I/O (usually 512 bytes)
 #ifndef DIRECT_IO_ALIGNMENT
