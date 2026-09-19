@@ -144,6 +144,20 @@ void test_replicated_write()
     printf("test_replicated_write passed\n");
 }
 
+// Find the object's current pg_osd_set_state_t in whatever "not clean" index
+// the PG keeps it in. NULL means the object is considered clean.
+static pg_osd_set_state_t *find_object_state(pg_t & pg, object_id oid)
+{
+    for (auto *idx: { &pg.inconsistent_objects, &pg.incomplete_objects,
+        &pg.degraded_objects, &pg.misplaced_objects })
+    {
+        auto it = idx->find(oid);
+        if (it != idx->end())
+            return it->second;
+    }
+    return NULL;
+}
+
 // Regression test for a bug where a second scrub on a still-failing replica
 // (already marked LOC_CORRUPTED) would clear the corruption flag.
 void test_scrub_corruption_persists()
@@ -2035,6 +2049,113 @@ void test_ec42_inconsistent_read()
     printf("test_ec42_inconsistent_read passed\n");
 }
 
+// Regression test for a bug where a repeated partially failed write to the same
+// object didn't clear LOC_OUTDATED from the replicas that succeeded this time —
+// so a copy stayed marked outdated even though it had just received the newest
+// version, and every failing write only ever added outdated copies.
+//
+// Layout: pool 1, replicated x3, primary = OSD 1 (us), secondaries = OSD 2 and 3.
+//
+// Write 1 fails with ENOSPC on OSD 3     -> OSD 3 is marked outdated.
+// Write 2 fails with ENOSPC on OSD 1 (us) but succeeds on OSD 2 and OSD 3
+//   -> OSD 1 must become outdated AND OSD 3 must stop being outdated.
+void test_repeated_partial_write_unmarks_outdated()
+{
+    printf("test_repeated_partial_write_unmarks_outdated\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 3, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2, 3 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.connect_peer(3);
+    f.complete_peering_empty();
+    assert(f.pg(1, 1).state & PG_ACTIVE);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    object_id oid = { .inode = inode, .stripe = 0 };
+
+    // Is the copy on <osd_num> marked outdated? A copy that vanished from the
+    // set entirely counts as outdated, too.
+    auto outdated_on = [&](osd_num_t osd_num)
+    {
+        auto *st = find_object_state(f.pg(1, 1), oid);
+        assert(st);
+        for (auto & chunk: st->osd_set)
+            if (chunk.osd_num == osd_num)
+                return (chunk.loc_bad & LOC_OUTDATED) != 0;
+        return true;
+    };
+
+    // ============ WRITE 1 — ENOSPC on OSD 3 ============
+
+    // Full-block writes on purpose: a sub-block write to a degraded object
+    // would turn into a read-modify-write and only obscure what's tested here.
+    auto *write1 = make_write_op(inode, 0, 131072, 0xab);
+    int retval1 = -1;
+    write1->callback = [&retval1](osd_op_t *op) { retval1 = op->reply.hdr.retval; };
+    f.exec(write1);
+
+    // Zero-length read resolving the (not yet existing) object version
+    f.bs_zero_read_ok(0);
+
+    // One local write + one write per peer
+    assert(f.bs->queued.size() == 1);
+    f.bs_write_ok(BS_OP_WRITE_STABLE, 1);
+    f.peer_write_ok(2, OSD_OP_SEC_WRITE_STABLE, 1);
+    auto *peer3_w1 = f.peer_take(3, OSD_OP_SEC_WRITE_STABLE);
+    assert(retval1 == -1); // still waiting for OSD 3
+    f.peer_complete(peer3_w1, -ENOSPC);
+
+    assert(retval1 == -ENOSPC);
+    assert(f.pg(1, 1).state & PG_HAS_DEGRADED);
+    assert(!outdated_on(1));
+    assert(!outdated_on(2));
+    assert(outdated_on(3));
+    printf("test_repeated_partial_write_unmarks_outdated: write 1 -> OSD 3 outdated\n");
+    delete write1;
+
+    // ============ WRITE 2 — ENOSPC locally, OK on both peers ============
+
+    auto *write2 = make_write_op(inode, 0, 131072, 0xcd);
+    int retval2 = -1;
+    write2->callback = [&retval2](osd_op_t *op) { retval2 = op->reply.hdr.retval; };
+    f.exec(write2);
+
+    // The object exists at version 1 now
+    f.bs_zero_read_ok(1);
+
+    assert(f.bs->queued.size() == 1);
+    auto *local_w2 = f.bs->take(BS_OP_WRITE_STABLE);
+    assert(local_w2->version == 2);
+    local_w2->retval = -ENOSPC;
+    local_w2->callback(local_w2);
+    f.peer_write_ok(2, OSD_OP_SEC_WRITE_STABLE, 2);
+    f.peer_write_ok(3, OSD_OP_SEC_WRITE_STABLE, 2);
+
+    assert(retval2 == -ENOSPC);
+
+    // THE KEY ASSERTION — OSD 3 took the new version, it isn't outdated anymore
+    if (outdated_on(3))
+        printf("BUG: OSD 3 is still marked outdated after successfully taking the new version\n");
+    assert(!outdated_on(3));
+    // ... and the OSD that missed this write is
+    assert(outdated_on(1));
+    assert(!outdated_on(2));
+
+    assert(f.pg(1, 1).inflight == 0);
+    assert(f.pg(1, 1).write_queue.empty());
+
+    delete write2;
+    printf("test_repeated_partial_write_unmarks_outdated passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -2058,5 +2179,6 @@ int main(int narg, char *args[])
     test_no_new_write_on_non_active_pg();
     test_pg_epoch_bump_blocks_write_until_reported();
     test_ec42_inconsistent_read();
+    test_repeated_partial_write_unmarks_outdated();
     return 0;
 }

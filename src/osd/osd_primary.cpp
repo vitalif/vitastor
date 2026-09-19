@@ -485,23 +485,25 @@ pg_osd_set_state_t *osd_t::mark_partial_write(pg_t & pg, osd_op_t *cur_op)
         int changes = 0;
         for (auto & chunk: new_set)
         {
-            if (chunk.loc_bad != LOC_OUTDATED)
+            bool success = false;
+            for (int i = 0; i < op_data->n_subops; i++)
             {
-                bool success = false;
-                for (int i = 0; i < op_data->n_subops; i++)
+                if (op_data->subops[i].osd_num == chunk.osd_num &&
+                    op_data->subops[i].reply.hdr.retval == op_data->subops[i].req.sec_rw.len)
                 {
-                    if (op_data->subops[i].osd_num == chunk.osd_num &&
-                        op_data->subops[i].reply.hdr.retval == op_data->subops[i].req.sec_rw.len)
-                    {
-                        success = true;
-                        break;
-                    }
+                    success = true;
+                    break;
                 }
-                if (!success)
-                {
-                    changes++;
-                    chunk.loc_bad = LOC_OUTDATED;
-                }
+            }
+            if (!success && !(chunk.loc_bad & LOC_OUTDATED))
+            {
+                changes++;
+                chunk.loc_bad = LOC_OUTDATED;
+            }
+            else if (success && (chunk.loc_bad & LOC_OUTDATED))
+            {
+                changes++;
+                chunk.loc_bad &= ~LOC_OUTDATED;
             }
         }
         return changes;
