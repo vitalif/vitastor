@@ -370,7 +370,6 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
     if (req_json["features"]["check_sequencing"].bool_value())
     {
         cl->check_sequencing = true;
-        cl->read_op_id = cur_op->req.hdr.id + 1;
     }
     auto features = json11::Json::object{ { "pg_locks", true } };
     if (msgr.use_proto_checksums)

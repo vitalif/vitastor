@@ -700,15 +700,13 @@ bool osd_messenger_t::handle_hdr(osd_client_t *cl)
     }
     else if (cl->read_op->req.hdr.magic == SECONDARY_OSD_OP_MAGIC)
     {
-        if (cl->check_sequencing)
+        if (cl->check_sequencing && cl->read_op->req.hdr.id != cl->read_op_id)
         {
-            if (cl->read_op->req.hdr.id != cl->read_op_id)
-            {
-                fprintf(stderr, "Warning: operation sequencing is broken on client %d: expected num %ju, got %ju, stopping client\n", cl->peer_fd, cl->read_op_id, cl->read_op->req.hdr.id);
-                return false;
-            }
-            cl->read_op_id++;
+            fprintf(stderr, "Warning: operation sequencing is broken on client %d: expected num %ju, got %ju, stopping client\n", cl->peer_fd, cl->read_op_id, cl->read_op->req.hdr.id);
+            return false;
         }
+        // Track expected op_ids before check_sequencing to not break if a PING sneaks before SHOW_CONFIG reply
+        cl->read_op_id = cl->read_op->req.hdr.id + 1;
         if (!allocate_op_buffers(cl))
         {
             return false;
