@@ -702,7 +702,7 @@ bool osd_messenger_t::handle_hdr(osd_client_t *cl)
     {
         if (cl->check_sequencing && cl->read_op->req.hdr.id != cl->read_op_id)
         {
-            fprintf(stderr, "Warning: operation sequencing is broken on client %d: expected num %ju, got %ju, stopping client\n", cl->peer_fd, cl->read_op_id, cl->read_op->req.hdr.id);
+            fprintf(stderr, "Warning: operation sequencing is broken on client %ju: expected num %ju, got %ju, stopping client\n", cl->client_id, cl->read_op_id, cl->read_op->req.hdr.id);
             return false;
         }
         // Track expected op_ids before check_sequencing to not break if a PING sneaks before SHOW_CONFIG reply
@@ -773,7 +773,7 @@ bool osd_messenger_t::allocate_op_buffers(osd_client_t *cl)
             {
                 if (log_level > 1)
                 {
-                    fprintf(stderr, "Error: peer %ju stabilize request size too large (%lu > %u bytes), stopping\n", cl->client_id,
+                    fprintf(stderr, "Error: peer %ju stabilize request size too large (%ju > %u bytes), stopping\n", cl->client_id,
                         cur_op->req.sec_stab.len, MAX_SIMPLE_PAYLOAD_SIZE);
                 }
                 return false;
@@ -790,7 +790,7 @@ bool osd_messenger_t::allocate_op_buffers(osd_client_t *cl)
             {
                 if (log_level > 1)
                 {
-                    fprintf(stderr, "Error: peer %ju sec_read_bmp request size too large (%lu > %u bytes), stopping\n", cl->client_id,
+                    fprintf(stderr, "Error: peer %ju sec_read_bmp request size too large (%ju > %u bytes), stopping\n", cl->client_id,
                         cur_op->req.sec_read_bmp.len, MAX_SIMPLE_PAYLOAD_SIZE);
                 }
                 return false;
@@ -824,7 +824,7 @@ bool osd_messenger_t::allocate_op_buffers(osd_client_t *cl)
             {
                 if (log_level > 1)
                 {
-                    fprintf(stderr, "Error: peer %ju show_config request length too large (%lu > %u bytes), stopping\n", cl->client_id,
+                    fprintf(stderr, "Error: peer %ju show_config request length too large (%ju > %u bytes), stopping\n", cl->client_id,
                         cur_op->req.show_conf.json_len, MAX_SIMPLE_PAYLOAD_SIZE);
                 }
                 return false;

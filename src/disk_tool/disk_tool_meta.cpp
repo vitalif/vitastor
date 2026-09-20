@@ -184,7 +184,7 @@ csum_unknown:
                             uint32_t *entry_csum = (uint32_t*)((uint8_t*)entry + dsk.clean_entry_size - 4);
                             if (*entry_csum != crc32c(0, entry, dsk.clean_entry_size - 4))
                             {
-                                fprintf(stderr, "Metadata entry %lu is corrupt (checksum mismatch), skipping\n", block_num);
+                                fprintf(stderr, "Metadata entry %ju is corrupt (checksum mismatch), skipping\n", block_num);
                                 continue;
                             }
                         }

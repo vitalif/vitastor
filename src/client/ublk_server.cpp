@@ -706,7 +706,7 @@ protected:
         {
             if (data->res != 0)
             {
-                fprintf(stderr, "Failed to update size of /dev/ublkb%d to %lu bytes: %s (code %d)\n", ublk_dev.dev_id, size, strerror(-data->res), data->res);
+                fprintf(stderr, "Failed to update size of /dev/ublkb%d to %ju bytes: %s (code %d)\n", ublk_dev.dev_id, size, strerror(-data->res), data->res);
             }
         };
     }

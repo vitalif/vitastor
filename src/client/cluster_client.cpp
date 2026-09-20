@@ -48,7 +48,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     msgr.exec_op = [this](osd_op_t *op)
     {
         // Garbage in
-        fprintf(stderr, "Can't handle incoming operation from client %lu\n", op->client_id);
+        fprintf(stderr, "Can't handle incoming operation from client %ju\n", op->client_id);
         msgr.stop_client(op->client_id);
         delete op;
     };
@@ -591,7 +591,7 @@ void cluster_client_t::on_change_pool_config_hook()
         {
             if (log_level > 2 && pg_counts[pool_item.first])
             {
-                fprintf(stderr, "Pool %u (%s) PG count changed from %lu to %lu\n", pool_item.first, pool_item.second.name.c_str(),
+                fprintf(stderr, "Pool %u (%s) PG count changed from %ju to %ju\n", pool_item.first, pool_item.second.name.c_str(),
                     pg_counts[pool_item.first], pool_item.second.real_pg_count);
             }
             // At this point, all pool operations should have been suspended

@@ -422,7 +422,7 @@ corrupted_object:
             if ((wr->type() == BS_HEAP_BIG_INTENT || wr->type() == BS_HEAP_BIG_WRITE) &&
                 wr->big().block_num >= dsk->block_count)
             {
-                fprintf(stderr, "Error: big_write or big_intent entry %jx:%jx v%ju block_num is too large: %u > %lu. Metadata is incompatible with current parameters. ",
+                fprintf(stderr, "Error: big_write or big_intent entry %jx:%jx v%ju block_num is too large: %u > %ju. Metadata is incompatible with current parameters. ",
                     wr->inode, wr->stripe, wr->version, wr->big_intent().block_num, dsk->block_count);
                 goto corrupted_object;
             }
