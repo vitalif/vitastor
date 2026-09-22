@@ -583,7 +583,7 @@ struct snap_merger_t
                 if (use_cas && subop->retval == -EINTR)
                 {
                     // CAS failure - reread and repeat optimistically
-                    assert(rwo->todo == 1); // initial refcount from read_and_write
+                    assert(!rwo->todo);
                     rwo->error_code = -EINTR;
                     rwo->start = rwo->end = 0;
                     rwo->op.version = 0;

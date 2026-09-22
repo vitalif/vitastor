@@ -72,4 +72,19 @@ qemu-img convert -S 4096 -f qcow2 ./testdata/layer1.qcow2 -O raw ./testdata/bin/
 
 cmp ./testdata/bin/layer1.bin ./testdata/bin/rebased.bin
 
+# Test CAS merge
+
+$VITASTOR_CLI create -s 1M microimg
+
+$VITASTOR_FIO -bs=1M -direct=1 -iodepth=1 -rw=write -image=microimg
+
+$VITASTOR_CLI snap-create microimg@0
+
+$VITASTOR_FIO -bs=16k -direct=1 -iodepth=1 -rw=randwrite -image=microimg -size=16k -loops=1000000 -runtime=10 &
+FIO_PID=$!
+
+sleep 5
+$VITASTOR_CLI rm microimg@0
+wait $FIO_PID
+
 format_green OK
