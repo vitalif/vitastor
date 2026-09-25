@@ -167,6 +167,15 @@ uint32_t blockstore_impl_t::prepare_read(std::vector<copy_buffer_t> & read_vec, 
     {
         return prepare_read_zero(read_vec, start, end);
     }
+    if (wr->is_zero_write())
+    {
+        // Zero write - its range reads as zeroes
+        if (wr->small().offset >= end || wr->small().offset+wr->small().len <= start)
+            return 0;
+        start = start < wr->small().offset ? wr->small().offset : start;
+        end = end > wr->small().offset+wr->small().len ? wr->small().offset+wr->small().len : end;
+        return prepare_read_zero(read_vec, start, end);
+    }
     return prepare_read_simple(read_vec, obj, wr, start, end, skip_csum);
 }
 

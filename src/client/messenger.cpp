@@ -729,6 +729,7 @@ void osd_messenger_t::check_peer_config(osd_client_t *cl)
             delete op;
             return;
         }
+        cl->enable_zero_writes = config["features"]["zero_writes"].bool_value();
 #ifdef WITH_RDMA
         if (!use_rdmacm && cl->rdma_conn && config["rdma_address"].is_string())
         {

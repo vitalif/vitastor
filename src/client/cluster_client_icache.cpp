@@ -60,9 +60,12 @@ void cluster_client_t::on_change_inode_hook(uint64_t inode, bool removed)
         if (it != inode_cache.end())
         {
             auto icache = it->second;
-            for (auto & parent: icache->chain)
+            if (icache)
             {
-                inode_cache_children.erase(std::make_pair(parent, inode));
+                for (auto & parent: icache->chain)
+                {
+                    inode_cache_children.erase(std::make_pair(parent, inode));
+                }
             }
             inode_cache.erase(it);
         }

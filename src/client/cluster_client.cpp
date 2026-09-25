@@ -96,6 +96,11 @@ cluster_client_t::~cluster_client_t()
     }
     delete wb;
     wb = NULL;
+    if (zero_buf)
+    {
+        free(zero_buf);
+        zero_buf = NULL;
+    }
 }
 
 cluster_op_t::~cluster_op_t()
@@ -740,7 +745,8 @@ void cluster_client_t::execute(cluster_op_t *op)
 {
     if (op->opcode != OSD_OP_SYNC && op->opcode != OSD_OP_READ &&
         op->opcode != OSD_OP_READ_BITMAP && op->opcode != OSD_OP_READ_CHAIN_BITMAP &&
-        op->opcode != OSD_OP_WRITE && op->opcode != OSD_OP_DELETE)
+        op->opcode != OSD_OP_WRITE && op->opcode != OSD_OP_DELETE && op->opcode != OSD_OP_TRIM &&
+        op->opcode != OSD_OP_WRITE_ZEROES)
     {
         op->retval = -EINVAL;
         auto cb = std::move(op->callback);
@@ -752,8 +758,131 @@ void cluster_client_t::execute(cluster_op_t *op)
         offline_ops.push_back(op);
         return;
     }
-    op->flags = op->flags & (OSD_OP_IGNORE_READONLY | OSD_OP_WAIT_UP_TIMEOUT | OSD_OP_IGNORE_WRITEBACK); // allowed client flags
+    op->flags = op->flags & (OSD_OP_IGNORE_READONLY | OSD_OP_WAIT_UP_TIMEOUT | OSD_OP_IGNORE_WRITEBACK | OSD_OP_NO_UNMAP); // allowed client flags
+    if (op->opcode == OSD_OP_WRITE_ZEROES)
+    {
+        execute_write_zeroes(op);
+        return;
+    }
     execute_internal(op);
+}
+
+#define WRITE_ZEROES_BUF_SIZE 1048576
+// Maximum size of a single zero-write sub-operation
+#define WRITE_ZEROES_MAX_WRITE (32*1048576)
+
+void cluster_client_t::execute_write_zeroes(cluster_op_t *op)
+{
+    // WRITE_ZEROES is a compound operation: zeroes are written with normal writes,
+    // but if the image has no parent layer(s), whole objects fully covered by the
+    // range are deleted instead of being written, which frees their space.
+    // Unlike TRIM, reads of the range are guaranteed to return zeroes afterwards,
+    // that's why images with parents are always handled with real zero writes -
+    // deleting their objects would expose parent data again
+    auto pool_it = st_cli->pool_config.find(INODE_POOL(op->inode));
+    if (pool_it == st_cli->pool_config.end() || !pool_it->second.real_pg_count ||
+        // CAS writes are not supported for WRITE_ZEROES
+        op->version != 0 ||
+        op->offset % pool_it->second.bitmap_granularity || op->len % pool_it->second.bitmap_granularity)
+    {
+        op->retval = -EINVAL;
+        auto cb = std::move(op->callback);
+        cb(op);
+        return;
+    }
+    if (!op->len)
+    {
+        op->retval = 0;
+        auto cb = std::move(op->callback);
+        cb(op);
+        return;
+    }
+    auto & pool_cfg = pool_it->second;
+    uint64_t pg_block_size = pool_cfg.data_block_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED
+        ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+    auto ino_it = st_cli->inode_config.find(op->inode);
+    bool has_parent = ino_it != st_cli->inode_config.end() && ino_it->second.parent_id != 0;
+    uint64_t mid_begin = ((op->offset + pg_block_size-1) / pg_block_size) * pg_block_size;
+    uint64_t mid_end = ((op->offset + op->len) / pg_block_size) * pg_block_size;
+    bool unmap = !has_parent && !(op->flags & OSD_OP_NO_UNMAP) && mid_end > mid_begin;
+    if (!zero_buf)
+    {
+        zero_buf = calloc_or_die(1, WRITE_ZEROES_BUF_SIZE);
+    }
+    // Split into sub-operations: [zero write(s)], [delete], [zero write(s)].
+    // Zero writes are limited in size to bound the memory used by the writeback
+    // cache and replay records (zero write data itself is a shared buffer)
+    struct wz_state_t
+    {
+        int inflight = 0;
+        int errcode = 0;
+    };
+    wz_state_t *st = new wz_state_t;
+    std::vector<cluster_op_t*> subs;
+    auto add_sub = [this, op, &subs](uint64_t opcode, uint64_t offset, uint64_t len)
+    {
+        while (len > 0)
+        {
+            uint64_t cur_len = opcode == OSD_OP_WRITE && len > WRITE_ZEROES_MAX_WRITE ? WRITE_ZEROES_MAX_WRITE : len;
+            cluster_op_t *sub = new cluster_op_t;
+            sub->opcode = opcode;
+            sub->inode = op->inode;
+            sub->offset = offset;
+            sub->len = cur_len;
+            sub->flags = op->flags & (OSD_OP_IGNORE_READONLY | OSD_OP_WAIT_UP_TIMEOUT | OSD_OP_IGNORE_WRITEBACK);
+            if (opcode == OSD_OP_WRITE)
+            {
+                // Zero-write: OSDs supporting it will get a data-less operation,
+                // others will get these zero buffers as normal write data
+                sub->flags = sub->flags | OP_ZERO_WRITE;
+                for (uint64_t left = cur_len; left > 0; )
+                {
+                    uint64_t cur = left > WRITE_ZEROES_BUF_SIZE ? WRITE_ZEROES_BUF_SIZE : left;
+                    sub->iov.push_back(zero_buf, cur);
+                    left -= cur;
+                }
+            }
+            subs.push_back(sub);
+            offset += cur_len;
+            len -= cur_len;
+        }
+    };
+    if (!unmap)
+    {
+        add_sub(OSD_OP_WRITE, op->offset, op->len);
+    }
+    else
+    {
+        if (mid_begin > op->offset)
+            add_sub(OSD_OP_WRITE, op->offset, mid_begin-op->offset);
+        add_sub(OSD_OP_DELETE, mid_begin, mid_end-mid_begin);
+        if (op->offset+op->len > mid_end)
+            add_sub(OSD_OP_WRITE, mid_end, op->offset+op->len-mid_end);
+    }
+    st->inflight = subs.size();
+    for (auto sub: subs)
+    {
+        sub->callback = [this, st, op](cluster_op_t *sub)
+        {
+            // Both writes and deletes with len > 0 return len on success
+            if (sub->retval != (int64_t)sub->len && !st->errcode)
+            {
+                st->errcode = sub->retval < 0 ? sub->retval : -EIO;
+            }
+            delete sub;
+            if (--st->inflight == 0)
+            {
+                op->retval = st->errcode ? st->errcode : op->len;
+                delete st;
+                auto cb = std::move(op->callback);
+                cb(op);
+            }
+        };
+    }
+    for (auto sub: subs)
+    {
+        execute_internal(sub);
+    }
 }
 
 void cluster_client_t::execute_internal(cluster_op_t *op)
@@ -972,6 +1101,30 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
         auto cb = std::move(op->callback);
         cb(op);
         return false;
+    }
+    if (op->opcode == OSD_OP_TRIM)
+    {
+        // TRIM is advisory: clip the range inwards to object (stripe) boundaries
+        // and delete all objects fully covered by it. Note that if the inode has
+        // a parent, parent data will become visible in the deleted area again,
+        // which is allowed because reads after TRIM return undefined data
+        auto & pool_cfg = pool_it->second;
+        uint64_t pg_block_size = pool_cfg.data_block_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED
+            ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+        uint64_t trim_begin = ((op->offset + pg_block_size-1) / pg_block_size) * pg_block_size;
+        uint64_t trim_end = ((op->offset + op->len) / pg_block_size) * pg_block_size;
+        if (trim_end <= trim_begin)
+        {
+            // No whole objects are covered by the range - nothing to do
+            op->retval = 0;
+            auto cb = std::move(op->callback);
+            cb(op);
+            return false;
+        }
+        // Convert TRIM to an object-aligned DELETE
+        op->opcode = OSD_OP_DELETE;
+        op->offset = trim_begin;
+        op->len = trim_end - trim_begin;
     }
     // Check alignment
     if (!op->len && (op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP || op->opcode == OSD_OP_WRITE) ||
@@ -1513,6 +1666,9 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
         if (peer_it != msgr.osd_peers.end())
         {
             osd_client_t *cl = peer_it->second;
+            // Zero writes are sent without data to OSDs supporting them,
+            // and with attached zero buffers to OSDs that don't
+            bool zero_wr = op->opcode == OSD_OP_WRITE && (op->flags & OP_ZERO_WRITE) && cl->enable_zero_writes;
             part->flags |= PART_SENT|PART_VALID;
             op->inflight_count++;
             uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
@@ -1539,7 +1695,8 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
                     .inode = op->cur_inode,
                     .offset = part->offset,
                     .len = part->len,
-                    .flags = op->opcode == OSD_OP_READ && op->enc && !op->deoptimise_snapshot ? OSD_OP_RETURN_CHAIN : 0,
+                    .flags = (op->opcode == OSD_OP_READ && op->enc && !op->deoptimise_snapshot ? OSD_OP_RETURN_CHAIN : 0) |
+                        (zero_wr ? OSD_RW_ZERO | ((op->flags & OP_ZERO_PUNCH) ? OSD_RW_ZERO_PUNCH : 0) : 0),
                     .meta_revision = meta_rev,
                     .version = op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE ? op->version : 0,
                 } },
@@ -1553,7 +1710,10 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
                     handle_op_part(part);
                 },
             };
-            part->op.iov = part->iov;
+            if (!zero_wr)
+            {
+                part->op.iov = part->iov;
+            }
             msgr.outbox_push(&part->op);
             return TRY_SEND_OK;
         }

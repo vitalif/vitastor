@@ -305,6 +305,13 @@ void blockstore_impl_t::check_wait(blockstore_op_t *op)
     }
 }
 
+bool blockstore_impl_t::supports_zero_writes()
+{
+    // FIXME: Support zero writes with csum_block_size > bitmap_granularity too
+    // (requires RMW of checksum blocks during compaction of zero entries)
+    return dsk.csum_block_size <= dsk.bitmap_granularity;
+}
+
 void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
 {
     if (op->opcode < BS_OP_MIN || op->opcode > BS_OP_MAX ||
@@ -313,6 +320,10 @@ void blockstore_impl_t::enqueue_op(blockstore_op_t *op)
             op->len > dsk.data_block_size-op->offset ||
             (op->offset % dsk.bitmap_granularity) ||
             (op->len % dsk.bitmap_granularity)
+        )) ||
+        ((op->flags & BS_WRITE_ZERO) && (
+            op->opcode != BS_OP_WRITE && op->opcode != BS_OP_WRITE_STABLE ||
+            !op->len || op->buf
         )) ||
         readonly && op->opcode != BS_OP_READ && op->opcode != BS_OP_LIST)
     {

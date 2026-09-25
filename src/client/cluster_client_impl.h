@@ -16,6 +16,15 @@
 #define CACHE_REPEATING 4
 #define OP_FLUSH_BUFFER 0x02
 #define OP_IMMEDIATE_COMMIT 0x04
+// Internal flags for OSD_OP_WRITE sub-operations created by OSD_OP_WRITE_ZEROES/OSD_OP_TRIM:
+// the write is a zero-write. Zero iovs are always attached so that the writeback cache and
+// replay work as usual, but when the peer OSD supports the "zero_writes" feature, the
+// operation is sent as a data-less OSD_RW_ZERO write and applied as a metadata-only
+// operation by the OSDs (freeing the data transfer and, for clean replicated objects,
+// avoiding space allocation)
+#define OP_ZERO_WRITE 0x400
+// Clear external bitmap bits (expose parent data) instead of setting them
+#define OP_ZERO_PUNCH 0x800
 
 #define VAULT_KEY_NOT_LOADED 0
 #define VAULT_KEY_LOADING 1

@@ -51,6 +51,30 @@ qemu-system-x86_64 -enable-kvm -m 1024 \
 
 You can also specify inode ID, pool and size manually instead of `:image=<IMAGE>` option: `:pool=<POOL>:inode=<INODE>:size=<SIZE>`.
 
+## TRIM/DISCARD
+
+The Vitastor QEMU driver supports TRIM (discard). To enable it, add `"discard":"unmap"`
+to the blockdev options (as in the examples above) and use `discard=unmap` in the guest
+disk device options. With it, `fstrim` inside the guest frees space in the Vitastor pool
+and reduces the Used size of the image.
+
+TRIM in Vitastor is advisory and object-granular: only objects (blocks of pool
+[block_size](../config/layout-cluster.en.md#block_size) multiplied by the number of data
+chunks for EC pools, 128 KB by default) fully covered by the trimmed range are deleted,
+smaller or unaligned fragments of the range are ignored. Also note that if the image is
+a clone, old data from parent snapshot(s) may become visible in the trimmed area again
+instead of zeroes, which is allowed by TRIM semantics because the content of trimmed
+blocks is undefined until the next write.
+
+The driver also supports efficient WRITE_ZEROES requests, used, for example, by the
+`detect-zeroes=unmap` drive option and by guests zeroing blocks explicitly. Zero-writes
+only require [bitmap_granularity](../config/layout-cluster.en.md#bitmap_granularity)
+(4 KB by default) alignment. When the image has no parent snapshots or layers, whole
+objects fully covered by a zero-write request are deleted, which frees their space.
+The rest of the range is zeroed with normal writes. Unlike TRIM, reads of the range
+are always guaranteed to return zeroes afterwards, so zero-writes are also safe for
+clones - parent data is masked with physically written zeroes there.
+
 ## qemu-img
 
 For qemu-img, you should use `vitastor:image=<IMAGE>[:etcd_host=<HOST>]` as filename.

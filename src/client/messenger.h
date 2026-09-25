@@ -132,6 +132,8 @@ struct osd_client_t
     uint64_t read_op_id = 1;
     bool check_sequencing = false;
     bool enable_pg_locks = false;
+    // Peer supports the OSD_RW_ZERO flag (data-less zero writes)
+    bool enable_zero_writes = false;
     op_aes_xts_decrypt_t *xts_dec_ctx = NULL;
     size_t read_op_inline_decrypt_pos = 0;
     size_t read_op_inline_decrypt_in = 0;

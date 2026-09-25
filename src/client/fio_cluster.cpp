@@ -378,13 +378,20 @@ static void io_callback(void *opaque, long retval)
     if (bsd->trace)
     {
         printf("--- %s 0x%jx retval=%jd\n", io->ddir == DDIR_READ ? "READ" :
-            (io->ddir == DDIR_WRITE ? "WRITE" : "SYNC"), (uint64_t)io, retval);
+            (io->ddir == DDIR_WRITE ? "WRITE" : (io->ddir == DDIR_TRIM ? "TRIM" : "SYNC")), (uint64_t)io, retval);
     }
 }
 
 static void read_callback(void *opaque, long retval, uint64_t version)
 {
     io_callback(opaque, retval);
+}
+
+static void trim_callback(void *opaque, long retval)
+{
+    // TRIM returns the number of freed bytes which may be less than the requested
+    // length (or 0) because it only deletes whole objects. It's still a success
+    io_callback(opaque, retval < 0 ? retval : 0);
 }
 
 /* Begin read or write request. */
@@ -441,6 +448,15 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         vitastor_c_write(bsd->cli, inode, io->offset, io->xfer_buflen, 0, &iov, 1, io_callback, io);
         bsd->last_sync = false;
         break;
+    case DDIR_TRIM:
+        if (opt->image && vitastor_c_inode_get_readonly(bsd->watch))
+        {
+            io->error = EROFS;
+            return FIO_Q_COMPLETED;
+        }
+        vitastor_c_trim(bsd->cli, inode, io->offset, io->xfer_buflen, trim_callback, io);
+        bsd->last_sync = false;
+        break;
     case DDIR_SYNC:
         vitastor_c_sync(bsd->cli, io_callback, io);
         bsd->last_sync = true;
@@ -459,7 +475,7 @@ static enum fio_q_status sec_queue(struct thread_data *td, struct io_u *io)
         else
         {
             printf("+++ %s 0x%jx 0x%llx+%jx\n",
-                io->ddir == DDIR_READ ? "READ" : "WRITE",
+                io->ddir == DDIR_READ ? "READ" : (io->ddir == DDIR_TRIM ? "TRIM" : "WRITE"),
                 (uint64_t)io, io->offset, (uint64_t)io->xfer_buflen);
         }
     }

@@ -146,6 +146,32 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
         PRIV(op)->op_state = 5;
         write_iodepth++;
     }
+    else if (op->flags & BS_WRITE_ZERO)
+    {
+        // Metadata-only "zero write": adds a data-less version which makes
+        // the range read as zeroes and replaces the external bitmap
+        if (!obj || obj->type() == BS_HEAP_DELETE || !supports_zero_writes())
+        {
+            // The caller should fall back to a normal write with a zero-filled buffer
+            op->retval = -ENOTSUP;
+            FINISH_OP(op);
+            return 2;
+        }
+        PRIV(op)->write_type = BS_HEAP_SMALL_WRITE;
+        BS_SUBMIT_CHECK_SQES(1);
+        int res = heap->add_small_write(op->oid, &obj,
+            (BS_HEAP_SMALL_WRITE | BS_HEAP_ZERO | (op->opcode == BS_OP_WRITE_STABLE ? BS_HEAP_STABLE : 0)),
+            op->version, op->offset, op->len, 0, op->bitmap, NULL, &PRIV(op)->modified_block);
+        BS_SUBMIT_CHECK_PLACEMENT(res, obj->lsn);
+        if (res == ENOSPC)
+            goto enospc;
+        assert(res == 0);
+        PRIV(op)->lsn = obj->lsn;
+        prepare_meta_block_write(PRIV(op)->modified_block);
+        PRIV(op)->pending_ops++;
+        PRIV(op)->op_state = 5;
+        write_iodepth++;
+    }
     // FIXME: Allow to do initial writes as buffered, not redirected
     // FIXME: Allow to do direct writes over holes
     else if (!obj || obj->type() == BS_HEAP_DELETE || op->offset == 0 && op->len == dsk.data_block_size)

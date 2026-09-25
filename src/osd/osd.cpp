@@ -132,6 +132,7 @@ void osd_t::init_blockstore(std::function<void()> on_init)
     {
         auto bs_cfg = json_to_string_map(this->config);
         this->bs = bs_factory(bs_cfg);
+        this->bs_supports_zero_writes = this->bs->supports_zero_writes();
         // Pre-configure pool PG shards
         for (auto & pool_item: st_cli->pool_config)
         {
@@ -518,7 +519,9 @@ void osd_t::exec_op(osd_op_t *cur_op)
             cur_op->req.hdr.opcode == OSD_OP_DELETE) &&
             (cur_op->req.rw.len > OSD_RW_MAX ||
             cur_op->req.rw.len % bs_bitmap_granularity ||
-            cur_op->req.rw.offset % bs_bitmap_granularity)))
+            cur_op->req.rw.offset % bs_bitmap_granularity)) ||
+        (cur_op->req.hdr.opcode == OSD_OP_WRITE &&
+            (cur_op->req.rw.flags & OSD_RW_ZERO) && !cur_op->req.rw.len))
     {
         // Bad command
         finish_op(cur_op, -EINVAL);

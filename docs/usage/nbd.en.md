@@ -15,6 +15,12 @@ See also [VDUSE](qemu.en.md#vduse) as a better alternative to NBD.
 
 Vitastor Kubernetes CSI driver uses NBD when VDUSE is unavailable.
 
+vitastor-nbd supports TRIM (discard): running `blkdiscard` or `fstrim` on the mapped
+device deletes Vitastor objects fully covered by the trimmed range and frees their
+space in the pool. Zero-writes (`blkdiscard -z`) are also supported and free space
+the same way when the image has no parent layers, while guaranteeing that reads
+return zeroes. See [TRIM notes](qemu.en.md#trimdiscard) for semantics details.
+
 Supports the following commands:
 
 - [map](#map)
