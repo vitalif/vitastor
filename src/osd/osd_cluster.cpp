@@ -548,6 +548,8 @@ void osd_t::acquire_lease()
         }
         etcd_lease_id = data["ID"].string_value();
         create_osd_state();
+        // Flush PG state reports that were held back until the lease existed
+        report_pg_states();
     });
     printf(
         "[OSD %ju] reporting to etcd at %s every %d seconds (statistics every %d seconds)\n", this->osd_num,
@@ -1041,7 +1043,11 @@ struct reporting_pg_t
 
 void osd_t::report_pg_states()
 {
-    if (etcd_reporting_pg_state || !this->pg_state_dirty.size() || !st_cli->address_count())
+    // The lease is part of the state, so there's nothing to report before it's
+    // acquired. PG init may complete before acquire_lease() when blockstore init
+    // is asynchronous; reporting early would write lease 0 and then the lease
+    // check of every subsequent CAS on the state key would fail forever
+    if (etcd_lease_id == "" || etcd_reporting_pg_state || !this->pg_state_dirty.size() || !st_cli->address_count())
     {
         return;
     }
