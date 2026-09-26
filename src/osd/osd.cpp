@@ -109,6 +109,15 @@ osd_t::~osd_t()
     }
     ringloop->unregister_consumer(&consumer);
     ringloop->unregister_consumer(&init_consumer);
+    // Tear down clients first: destroying a client cancels its operations and the
+    // cancellation callbacks (continue_primary_*) still use the blockstore and the
+    // PGs. The messenger is a member, so its own destructor would otherwise cancel
+    // any still-bound operations after this body already cleared pgs. Destroy the
+    // clients directly rather than through stop_client(): the stop protocol would
+    // fire repeer and PG-report hooks on the way out of a dying OSD
+    in_destruction = true;
+    while (!msgr.clients.empty())
+        msgr.destroy_client(msgr.clients.begin()->second);
     if (bs)
         delete bs;
 #ifdef WITH_RDMACM

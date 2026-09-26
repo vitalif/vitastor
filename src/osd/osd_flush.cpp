@@ -67,6 +67,11 @@ void osd_t::submit_pg_flush_ops(pg_t & pg)
 
 void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t *fb, osd_num_t peer_osd, int retval)
 {
+    if (in_destruction)
+    {
+        // Teardown: don't complete flush batches (and never repeer) on a dying OSD
+        return;
+    }
     if (log_level > 2)
     {
         printf("[PG %u/%u] flush batch %jx completed on OSD %ju with result %d\n",

@@ -354,6 +354,14 @@ void osd_t::add_bs_subop_stats(osd_op_t *subop, bool recovery_related)
 
 void osd_t::handle_primary_subop(osd_op_t *subop, osd_op_t *cur_op)
 {
+    if (in_destruction)
+    {
+        // The OSD is being destroyed (a crash or shutdown cancelled this subop).
+        // Leave the whole op graph alone: some subops are still in flight in the
+        // blockstore, the primary state machine must not run on internals that are
+        // already half-gone, and all of this memory is going away with the OSD
+        return;
+    }
     uint64_t opcode = subop->req.hdr.opcode;
     int retval = subop->reply.hdr.retval;
     int expected;

@@ -326,6 +326,11 @@ void osd_t::start_pg_peering(pg_t & pg)
 
 bool osd_t::continue_pg_peering(pg_t & pg)
 {
+    if (in_destruction)
+    {
+        // Teardown: cancelled peering subops must not resume the peering machine
+        return false;
+    }
     if (pg.peering_state->locked)
     {
         pg.peering_state->lists_done = true;

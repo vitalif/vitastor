@@ -169,6 +169,9 @@ class osd_t
     std::set<pool_pg_num_t> pg_state_dirty;
     bool etcd_global_config_loaded = false;
     bool pg_config_applied = false;
+    // Set in ~osd_t before clients start dying: cancellation callbacks of unfinished
+    // operations must not drive the state machines on half-destroyed internals
+    bool in_destruction = false;
     bool etcd_reporting_pg_state = false;
     bool etcd_reporting_stats = false;
     int print_stats_timer_id = -1, slow_log_timer_id = -1;
