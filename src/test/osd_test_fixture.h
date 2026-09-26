@@ -193,6 +193,15 @@ struct osd_test_fixture_t
     void connect_peer(osd_num_t osd_num)
     {
         auto *msgr = &osd->msgr;
+        // A reconnect replaces the client behind osd_peers[osd_num]; stop the old
+        // one explicitly so a fresh session always starts with an empty queue
+        auto old = msgr->osd_peers.find(osd_num);
+        if (old != msgr->osd_peers.end())
+        {
+            uint64_t old_cid = old->second->client_id;
+            msgr->osd_peers.erase(old);
+            msgr->stop_client(old_cid);
+        }
         auto *cl = new osd_client_t();
         cl->client_id = msgr->next_client_id++;
         cl->osd_num = osd_num;
@@ -206,7 +215,18 @@ struct osd_test_fixture_t
 
     void disconnect_peer(osd_num_t osd_num)
     {
-        osd->msgr.stop_client(osd->msgr.osd_peers.at(osd_num)->client_id);
+        // stop_client() leaves the (now PEER_STOPPED) entry in osd_peers. Erase it:
+        // submit_to_osd looks peers up by osd_num, so the OSD can't push new subops
+        // into a dead session, and a reconnect can't silently re-adopt the dead
+        // client with its undelivered sent_ops queue (bytes of a closed socket
+        // don't get delivered to the new one)
+        auto it = osd->msgr.osd_peers.find(osd_num);
+        if (it != osd->msgr.osd_peers.end())
+        {
+            uint64_t cid = it->second->client_id;
+            osd->msgr.osd_peers.erase(it);
+            osd->msgr.stop_client(cid);
+        }
     }
 
     // Complete every outstanding peering LIST op (local BS_OP_LIST + peer
@@ -376,7 +396,8 @@ struct osd_test_fixture_t
 
     osd_client_t *peer(osd_num_t osd_num)
     {
-        return osd->msgr.osd_peers.at(osd_num);
+        auto *cl = osd->msgr.osd_peers.at(osd_num);
+        return cl->peer_state == PEER_STOPPED ? NULL : cl;
     }
 
     // Create a regular (non-OSD) incoming client with no real socket. Replies

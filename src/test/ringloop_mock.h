@@ -147,6 +147,10 @@ class io_sim_t
 public:
     uint64_t now_us = 0;
     std::mt19937 rnd;
+    // Called at the end of every step(), so harnesses can deliver what the mocked
+    // messenger buffered this step (replies only complete a client-side wait
+    // after delivery, so every pump path needs it)
+    std::function<void()> after_step;
     // How far to move the clock when nothing is in flight and only timers can make progress
     uint64_t idle_tick = 1000;
 

@@ -45,6 +45,25 @@ target_link_libraries(osd_test
 add_test(NAME osd_test COMMAND osd_test)
 add_dependencies(build_tests osd_test)
 
+# test_pg_chaos
+add_executable(test_pg_chaos
+	EXCLUDE_FROM_ALL
+	../test/test_pg_chaos.cpp
+	../client/etcd_state_client_mock.cpp
+	../test/mock/messenger.cpp
+	../test/ringloop_mock.cpp
+)
+target_link_libraries(test_pg_chaos
+	osd
+	vitastor_blk
+	vitastor_common
+	Jerasure
+	${ISAL_LIBRARIES}
+	${LIBURING_LIBRARIES}
+)
+add_test(NAME test_pg_chaos COMMAND test_pg_chaos)
+add_dependencies(build_tests test_pg_chaos)
+
 # osd_rmw_test
 add_executable(osd_rmw_test EXCLUDE_FROM_ALL osd_rmw_test.cpp)
 target_link_libraries(osd_rmw_test Jerasure ${ISAL_LIBRARIES} util)

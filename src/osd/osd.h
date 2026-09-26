@@ -110,6 +110,7 @@ struct osd_test_fixture_t;
 class osd_t
 {
     friend struct osd_test_fixture_t;
+    friend struct chaos_t;
 
     // config
 

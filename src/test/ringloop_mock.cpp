@@ -193,20 +193,40 @@ disk_mock_t::disk_mock_t(const std::string & name, size_t size, bool buffered)
     memset(this->data, 0, size);
 }
 
+// A process or OSD torn down without a power loss is a clean shutdown: the device's
+// volatile write cache has to reach the platter, exactly like the fsync a real disk
+// would get. After power_loss() the cache is already empty (it applied, discarded or
+// committed everything), so committing unconditionally is right in both cases.
 disk_mock_t::~disk_mock_t()
 {
-    discard_buffers(true, 0);
+    commit_buffers();
     free(data);
 }
 
-// Store a buffer covering [end-len, end). Frees whatever was registered under the same
-// key before, so that callers can't silently drop a buffer by overwriting the entry
+// Store a buffer covering [end-len, end). Entries are keyed by their end, so a different
+// range that happens to end at the same offset must not silently consume the existing
+// entry's bytes: a zero-length write carries nothing at all, and a shorter one must
+// leave the prefix of the longer entry it collides with as its own buffer.
 void disk_mock_t::set_buffer(uint64_t end, uint8_t *buf, uint64_t len)
 {
+    if (len == 0)
+    {
+        free(buf);
+        return;
+    }
     auto it = buffers.find(end);
     if (it != buffers.end())
     {
-        free(it->second.iov_base);
+        if (it->second.iov_len > len)
+        {
+            // The old entry reaches further down than the new one; keep the prefix
+            uint8_t *cs = (uint8_t*)realloc(it->second.iov_base, it->second.iov_len - len);
+            if (!cs)
+                throw std::bad_alloc();
+            buffers[end - len] = (iovec){ .iov_base = cs, .iov_len = it->second.iov_len - len };
+        }
+        else if (it->second.iov_len < len)
+            free(it->second.iov_base);
         it->second = (iovec){ .iov_base = buf, .iov_len = len };
     }
     else
@@ -677,9 +697,13 @@ bool io_sim_t::step()
     {
         // Nothing in flight, only timers can move things forward
         advance(idle_tick);
+        if (after_step)
+            after_step();
         return false;
     }
     advance(next > now_us ? next - now_us : 0);
+    if (after_step)
+        after_step();
     for (auto disk: disks)
         disk->complete_due(now_us);
     return true;
