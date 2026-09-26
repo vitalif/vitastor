@@ -231,20 +231,20 @@ class osd_t
     ring_consumer_t init_consumer;
 
     // op statistics
-    osd_op_stats_t prev_stats, prev_report_stats;
-    timespec report_stats_ts;
+    osd_op_stats_t prev_stats = {}, prev_report_stats = {};
+    timespec report_stats_ts = {};
     std::map<uint64_t, inode_stats_t> inode_stats;
     std::map<uint64_t, timespec> vanishing_inodes;
     const char* recovery_stat_names[2] = { "degraded", "misplaced" };
-    recovery_stat_t recovery_stat[2];
-    recovery_stat_t recovery_print_prev[2];
-    recovery_stat_t recovery_report_prev[2];
+    recovery_stat_t recovery_stat[2] = {};
+    recovery_stat_t recovery_print_prev[2] = {};
+    recovery_stat_t recovery_report_prev[2] = {};
 
     // recovery auto-tuning
     int rtune_timer_id = -1;
     uint64_t rtune_avg_lat = 0;
     double rtune_client_util = 0, rtune_target_util = 1;
-    osd_op_stats_t rtune_prev_stats, rtune_prev_recovery_stats;
+    osd_op_stats_t rtune_prev_stats = {}, rtune_prev_recovery_stats = {};
     std::vector<uint64_t> recovery_target_sleep_items;
     uint64_t recovery_target_sleep_us = 0;
     uint64_t recovery_target_sleep_total = 0;

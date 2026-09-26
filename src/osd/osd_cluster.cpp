@@ -294,7 +294,7 @@ void osd_t::report_statistics()
     last_stat = json11::Json::object();
     last_pool = 0;
     json11::Json::object inode_ops;
-    timespec tv_now;
+    timespec tv_now = { 0, 0 };
     for (auto st_it = inode_stats.begin(); st_it != inode_stats.end(); )
     {
         auto & kv = *st_it;
