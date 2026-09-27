@@ -197,7 +197,10 @@ uint32_t *heap_entry_t::get_checksum(blockstore_heap_t *heap)
 {
     if (type() == BS_HEAP_SMALL_WRITE || type() == BS_HEAP_INTENT_WRITE)
     {
-        if (heap->dsk->csum_block_size || small().len == 0)
+        // a zero-length small_write still has a checksum slot reserved by
+        // get_small_entry_size when block checksums are off, and its entry
+        // checksum covers it - so it has to be filled with a defined value
+        if (heap->dsk->csum_block_size)
             return NULL;
         return (uint32_t*)((uint8_t*)this + sizeof(heap_small_write_t) + heap->dsk->clean_entry_bitmap_size);
     }
@@ -1263,6 +1266,12 @@ bool blockstore_heap_t::calc_checksums(heap_entry_t *wr, uint8_t *data, bool set
             len = wr->big_intent().len;
         else
             assert(0);
+        if (!len)
+        {
+            if (set)
+                *wr_csum = 0;
+            return true;
+        }
         uint32_t real_csum = 0;
         if (dsk->data_csum_type == BLOCKSTORE_CSUM_XXH3_32)
             real_csum = (uint32_t)XXH3_64bits(data, len);
