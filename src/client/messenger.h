@@ -259,6 +259,7 @@ protected:
     bool gcm_enabled = false;
     msgr_handshake_ctx_i *hs_ctx = NULL;
 
+    void fatal_error(int errcode, const std::string & error);
     void init_tls();
     void destroy_tls();
     bool init_tls_client(osd_client_t *cl);
@@ -319,6 +320,7 @@ public:
     std::function<void(osd_num_t)> break_pg_locks;
     std::function<bool(osd_client_t*, json11::Json)> check_config_hook;
     std::function<void(osd_client_t*)> handshake_hook;
+    std::function<void(int, const std::string&)> on_fatal_error_hook;
     void read_requests();
     void send_replies();
     void accept_connections(int listen_fd);
@@ -346,7 +348,8 @@ public:
     void measure_exec(osd_op_t *cur_op);
 
 protected:
-    void try_connect_peer(osd_num_t osd_num);
+    int parse_proto_checksums(const json11::Json & val, int default_value);
+    void try_connect_peer(uint64_t osd_num);
     void try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_host, int peer_port);
     void handle_peer_epoll(int peer_fd, int epoll_events);
     void handle_connect_epoll(int peer_fd);

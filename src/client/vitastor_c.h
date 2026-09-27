@@ -53,6 +53,7 @@ vitastor_c *vitastor_c_create_epoll_json(const char **options, int options_len);
 void* vitastor_c_get_internal_client(vitastor_c *client);
 void vitastor_c_destroy(vitastor_c *client);
 int vitastor_c_is_ready(vitastor_c *client);
+int vitastor_c_is_failed(vitastor_c *client, char **errstr);
 void vitastor_c_on_ready(vitastor_c *client, VitastorIOHandler cb, void *opaque);
 int vitastor_c_uring_register_eventfd(vitastor_c *client);
 void vitastor_c_uring_wait_ready(vitastor_c *client);

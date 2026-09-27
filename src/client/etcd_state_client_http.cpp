@@ -54,7 +54,11 @@ void etcd_state_client_http_t::etcd_add_watch(json11::Json watch)
 
 std::string etcd_state_client_http_t::get_username()
 {
-    return http_context_get_ssl_cn(get_http_ctx());
+    if (!get_http_ctx())
+    {
+        return "";
+    }
+    return http_context_get_ssl_cn(http_ctx);
 }
 
 http_context_t *etcd_state_client_http_t::get_http_ctx()
@@ -65,8 +69,7 @@ http_context_t *etcd_state_client_http_t::get_http_ctx()
         http_ctx = http_context_init(tfd, etcd_client_cert, etcd_client_key, etcd_ca, true, error);
         if (!http_ctx)
         {
-            fprintf(stderr, "Failed to initialize HTTP context: %s\n", error.c_str());
-            exit(1);
+            fatal_error(EINVAL, "Failed to initialize HTTP context: "+error);
         }
     }
     return http_ctx;
@@ -75,7 +78,11 @@ http_context_t *etcd_state_client_http_t::get_http_ctx()
 void etcd_state_client_http_t::etcd_call_oneshot(const std::string & etcd_url, const std::string & api, json11::Json payload,
     int timeout, std::function<void(std::string, json11::Json)> callback)
 {
-    auto http_cli = http_init(get_http_ctx());
+    if (!get_http_ctx())
+    {
+        return;
+    }
+    auto http_cli = http_init(http_ctx);
     http_json_post(http_cli, etcd_url+api, payload, "", { .timeout = timeout }, [http_cli, callback](http_message_t *response)
     {
         std::string err;
@@ -166,7 +173,11 @@ void etcd_state_client_http_t::etcd_call_selected(const std::string & api, json1
             callback(err, data);
     };
     if (!keepalive_client)
-        keepalive_client = http_init(get_http_ctx());
+    {
+        if (!get_http_ctx())
+            return;
+        keepalive_client = http_init(http_ctx);
+    }
     http_request(keepalive_client, url.addr, req, { .timeout = timeout, .keepalive = true, .ssl = url.ssl }, cb);
 }
 
@@ -179,14 +190,24 @@ void etcd_state_client_http_t::parse_config(const json11::Json & config)
         stop_ws_keepalive();
         start_ws_keepalive();
     }
+    if (!etcd_addresses.size() && !etcd_local.size())
+    {
+        fatal_error(EINVAL, "etcd_address is missing in Vitastor configuration");
+        return;
+    }
+    get_http_ctx();
 }
 
 void etcd_state_client_http_t::pick_next_etcd(std::function<void()> cb)
 {
     if (!etcd_addresses.size() && !etcd_local.size())
     {
-        fprintf(stderr, "etcd_address is missing in Vitastor configuration\n");
-        exit(1);
+        fatal_error(EINVAL, "etcd_address is missing in Vitastor configuration");
+        return;
+    }
+    if (!get_http_ctx())
+    {
+        return;
     }
     if (selected_etcd_url.addr != "")
     {
@@ -222,7 +243,7 @@ void etcd_state_client_http_t::pick_next_etcd(std::function<void()> cb)
     for (auto & url: etcd_name_urls)
     {
         resolve_count++;
-        http_resolve(get_http_ctx(), url.ssl, url.addr, [this, url](const std::string & error, const std::vector<std::string>& addresses)
+        http_resolve(http_ctx, url.ssl, url.addr, [this, url](const std::string & error, const std::vector<std::string>& addresses)
         {
             if (error != "")
                 fprintf(stderr, "Error resolving %s: %s\n", url.addr.c_str(), error.c_str());
@@ -315,7 +336,11 @@ void etcd_state_client_http_t::start_etcd_watcher_selected()
             etcd_watch_revision_config, etcd_watch_revision_osd, etcd_watch_revision_pg);
     }
     if (!etcd_watch_ws)
-        etcd_watch_ws = http_init(get_http_ctx());
+    {
+        if (!get_http_ctx())
+            return;
+        etcd_watch_ws = http_init(http_ctx);
+    }
     else
         http_close(etcd_watch_ws);
     open_websocket(etcd_watch_ws, url.addr, url.hostname, url.path+"/watch", { .timeout = etcd_slow_timeout, .ssl = url.ssl },
@@ -365,20 +390,17 @@ void etcd_state_client_http_t::start_etcd_watcher_selected()
                                 etcd_watch_revision_config = etcd_watch_revision_osd = etcd_watch_revision_pg = 0;
                                 on_reload_hook();
                             }
-                            return;
                         }
                         else
                         {
-                            fprintf(stderr, "Revisions before %ju were compacted by etcd, exiting\n",
-                                data["result"]["compact_revision"].uint64_value());
-                            exit(1);
+                            fatal_error(EIO, "Revisions before "+data["result"]["compact_revision"].as_string()+" were compacted by etcd, exiting");
                         }
                     }
                     else
                     {
-                        fprintf(stderr, "Watch canceled by etcd, reason: %s, exiting\n", data["result"]["cancel_reason"].string_value().c_str());
-                        exit(1);
+                        fatal_error(EIO, "Watch canceled by etcd, reason: "+data["result"]["cancel_reason"].string_value()+", exiting");
                     }
+                    return;
                 }
                 // Save revision only if it's present in the message - because sometimes etcd sends something without a header, like:
                 // {"error": {"grpc_code": 14, "http_code": 503, "http_status": "Service Unavailable", "message": "error reading from server: EOF"}}
@@ -534,9 +556,9 @@ void etcd_state_client_http_t::load_global_config()
     {
         if (err != "")
         {
-            fprintf(stderr, "Error reading configuration from etcd: %s\n", err.c_str());
             if (infinite_start)
             {
+                fprintf(stderr, "Failed to read configuration from etcd: %s\n", err.c_str());
                 timers.insert(tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
                 {
                     timers.erase(timer_id);
@@ -545,7 +567,7 @@ void etcd_state_client_http_t::load_global_config()
             }
             else
             {
-                exit(1);
+                fatal_error(EIO, "Failed to read configuration from etcd: "+err);
             }
         }
     });

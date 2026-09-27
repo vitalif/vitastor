@@ -597,10 +597,9 @@ void osd_messenger_t::init_tls()
         if (client_cert.empty() || client_key.empty() || osd_ca.empty() || osd_num && client_ca.empty())
         {
             if (osd_num)
-                fprintf(stderr, "Vitastor transport encryption requires osd_cert, osd_pkey, osd_ca, client_ca options for OSDs\n");
+                fatal_error(EINVAL, "Vitastor transport encryption requires osd_cert, osd_pkey, osd_ca, client_ca options for OSDs");
             else
-                fprintf(stderr, "Vitastor transport encryption requires cert, pkey and osd_ca options\n");
-            exit(1);
+                fatal_error(EINVAL, "Vitastor transport encryption requires cert, pkey and osd_ca options");
         }
         else
         {
@@ -609,8 +608,8 @@ void osd_messenger_t::init_tls()
             hs_ctx = msgr_handshake_ctx_i::create_ctx();
             if (!hs_ctx->init(client_cert, client_key, osd_ca, client_ca, admin_ca))
             {
-                fprintf(stderr, "Error: %s\n", hs_ctx->get_error().c_str());
-                exit(1);
+                gcm_enabled = false;
+                fatal_error(EINVAL, hs_ctx->get_error());
             }
 #endif
         }

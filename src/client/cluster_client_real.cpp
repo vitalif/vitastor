@@ -92,14 +92,19 @@ void cluster_client_t::vault_load_keys()
     {
         return;
     }
+    if (vault_url.empty())
+    {
+        fatal_error(EINVAL, "Vault URL is missing");
+        return;
+    }
     if (!vault_http_ctx)
     {
         std::string error;
         vault_http_ctx = http_context_init(tfd, vault_client_cert, vault_client_key, vault_ca, true, error);
         if (!vault_http_ctx)
         {
-            fprintf(stderr, "Failed to initialize HTTP context for Vault: %s\n", error.c_str());
-            exit(1);
+            fatal_error(EINVAL, "Failed to initialize HTTP context for Vault: "+error);
+            return;
         }
         vault_http_cli = http_init(vault_http_ctx);
     }

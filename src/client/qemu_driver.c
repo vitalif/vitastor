@@ -627,7 +627,8 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     VitastorRPC task;
     VitastorClient *client = bs->opaque;
     void *image = NULL;
-    int64_t ret = 0;
+    char *errstr = NULL;
+    int ret = 0;
     qemu_mutex_init(&client->mutex);
     client->config_path = g_strdup(qdict_get_try_str(options, "config-path"));
     // FIXME: Rename to etcd_address
@@ -658,6 +659,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     strarray_push_kv(&opt, "rdma_gid_index", qdict_get_try_str(options, "rdma-gid-index"));
     strarray_push_kv(&opt, "rdma_mtu", qdict_get_try_str(options, "rdma-mtu"));
     strarray_push_kv(&opt, "client_writeback_allowed", (flags & BDRV_O_NOCACHE) ? "0" : "1");
+    strarray_push_kv(&opt, "client_exit_on_error", "0");
     strarray_push_kv(&opt, "__version_check_buffer", version_buffer);
     client->proxy = vitastor_c_create_uring_json(opt.items, opt.len);
     client->auto_loop = 0;
@@ -670,7 +672,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
             fprintf(stderr, "vitastor: failed to create io_uring eventfd: %s\n", strerror(errno));
             error_setg(errp, "failed to create io_uring eventfd");
             vitastor_close(bs);
-            return -1;
+            return -EOPNOTSUPP;
         }
         universal_aio_set_fd_handler(client->ctx, client->uring_eventfd, vitastor_uring_handler, NULL, client);
         int vitastor_version[3] = { 0 };
@@ -714,6 +716,13 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
 #endif
         BDRV_POLL_WHILE(bs, !task.complete);
     }
+    if ((ret = vitastor_c_is_failed(client->proxy, &errstr)))
+    {
+        error_setg(errp, errstr);
+        free(errstr);
+        vitastor_close(bs);
+        return -ret;
+    }
     client->image = image;
     if (client->image)
     {
@@ -724,7 +733,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         {
             error_setg(errp, "image does not exist");
             vitastor_close(bs);
-            return -1;
+            return -ENOENT;
         }
         if (!client->size)
         {
@@ -747,7 +756,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     {
         error_setg(errp, "image size not specified");
         vitastor_close(bs);
-        return -1;
+        return -EINVAL;
     }
     bs->total_sectors = client->size / BDRV_SECTOR_SIZE;
 #if QEMU_VERSION_MAJOR > 5 || QEMU_VERSION_MAJOR == 5 && QEMU_VERSION_MINOR >= 1
@@ -768,7 +777,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     qdict_del(options, "pool");
     qdict_del(options, "size");
     qdict_del(options, "skip-parents");
-    return ret;
+    return 0;
 }
 
 static void vitastor_close(BlockDriverState *bs)

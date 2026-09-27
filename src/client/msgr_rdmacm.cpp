@@ -92,8 +92,8 @@ void osd_messenger_t::handle_rdmacm_events()
         {
             if (errno == EAGAIN || errno == EINTR)
                 break;
-            fprintf(stderr, "Failed to get RDMA-CM event: %s (code %d)\n", strerror(errno), errno);
-            exit(1);
+            fatal_error(EIO, std::string("Failed to get RDMA-CM event: ")+strerror(errno)+" (code "+std::to_string(errno)+")");
+            return;
         }
         // ...so we save a copy of all events EXCEPT connection requests, otherwise they sometimes fail with EVENT_DISCONNECT
         if (ev->event == RDMA_CM_EVENT_CONNECT_REQUEST)
@@ -107,8 +107,8 @@ void osd_messenger_t::handle_rdmacm_events()
         r = rdma_ack_cm_event(ev);
         if (r != 0)
         {
-            fprintf(stderr, "Failed to ack (free) RDMA-CM event: %s (code %d)\n", strerror(errno), errno);
-            exit(1);
+            fatal_error(EIO, std::string("Failed to ack (free) RDMA-CM event: ")+strerror(errno)+" (code "+std::to_string(errno)+")");
+            return;
         }
     }
     for (auto & evl: events_copy)

@@ -110,6 +110,7 @@ class __attribute__((visibility("default"))) cluster_client_t
 {
     timerfd_manager_t *tfd = NULL;
     ring_loop_t *ringloop = NULL;
+    std::function<void(int, const std::string&)> on_fatal_error_hook;
 
     // config:
 
@@ -123,6 +124,7 @@ class __attribute__((visibility("default"))) cluster_client_t
     uint64_t client_max_buffered_ops = 0;
     uint64_t client_max_writeback_iodepth = 0;
     std::string conf_hostname;
+    bool exit_on_error = false;
 
     std::string vault_url;
     std::string vault_client_cert;
@@ -178,6 +180,8 @@ class __attribute__((visibility("default"))) cluster_client_t
     std::multimap<osd_num_t, osd_op_t*> raw_ops;
     int continuing_ops = 0;
     bool msgr_initialized = false;
+    int aborted = 0;
+    std::string abort_error;
 
 public:
     std::unique_ptr<etcd_state_client_t> st_cli;
@@ -194,8 +198,10 @@ public:
     void execute(cluster_op_t *op);
     void execute_raw(osd_num_t osd_num, osd_op_t *op);
     bool is_ready();
+    int is_failed(std::string & error);
     void on_ready(std::function<void(void)> fn);
     bool flush();
+    void set_on_fatal_error_hook(std::function<void(int, const std::string&)>);
 
     bool get_immediate_commit(uint64_t inode);
 
@@ -204,6 +210,7 @@ public:
 
 protected:
     void continue_ops(int time_passed = 0);
+    void fatal_error(int errcode, const std::string & error);
 
     std::shared_ptr<inode_cache_t> inode_cache_get(inode_t ino);
     void vault_parse_config();

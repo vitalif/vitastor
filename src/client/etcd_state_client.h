@@ -144,6 +144,7 @@ protected:
     std::set<osd_num_t> seen_peers;
     bool new_pg_config = false;
 
+    void fatal_error(int errcode, const std::string & error);
     void add_etcd_url(std::string);
     void reset_pg_exists();
     void clean_nonexistent_pgs();
@@ -192,6 +193,7 @@ public:
     std::function<void()> on_reload_hook;
     std::function<void(inode_t, bool)> on_inode_change_hook;
     std::function<void(http_co_t *)> on_start_watcher_hook;
+    std::function<void(int, const std::string&)> on_fatal_error_hook;
 
     json11::Json::object serialize_inode_cfg(inode_config_t *cfg);
     inode_config_t deserialize_inode_cfg(uint64_t inode_num, json11::Json value, uint64_t mod_revision);

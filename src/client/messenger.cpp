@@ -17,6 +17,19 @@
 #include "msgr_rdma.h"
 #endif
 
+void osd_messenger_t::fatal_error(int errcode, const std::string & error)
+{
+    if (on_fatal_error_hook)
+    {
+        (std::function<void(int, const std::string&)>(on_fatal_error_hook))(errcode, error);
+    }
+    else
+    {
+        fprintf(stderr, "Error: %s\n", error.c_str());
+        exit(1);
+    }
+}
+
 void osd_messenger_t::init()
 {
     init_tls();
@@ -201,7 +214,7 @@ osd_messenger_t::~osd_messenger_t()
     destroy_tls();
 }
 
-static int parse_proto_checksums(const json11::Json & val, int default_value)
+int osd_messenger_t::parse_proto_checksums(const json11::Json & val, int default_value)
 {
     if (val.is_string())
     {
@@ -219,9 +232,9 @@ static int parse_proto_checksums(const json11::Json & val, int default_value)
     }
     else if (val.is_null())
         return default_value;
-    fprintf(stderr, "proto_checksums should be \"full\", \"payload\", \"gcm\", \"none\""
-        ", \"\" or null (default), but it is: %s\n", val.dump().c_str());
-    exit(1);
+    fatal_error(EINVAL, "proto_checksums should be \"full\", \"payload\", \"gcm\", \"none\""
+        ", \"\" or null (default), but it is: "+val.dump());
+    return default_value;
 }
 
 void osd_messenger_t::parse_config(const json11::Json & config, bool init)
@@ -813,7 +826,8 @@ void osd_messenger_t::accept_connections(int listen_fd)
     }
     if (peer_fd == -1 && errno != EAGAIN)
     {
-        throw std::runtime_error(std::string("accept: ") + strerror(errno));
+        fprintf(stderr, "Error: accept: %s (code %d), exiting\n", strerror(errno), errno);
+        exit(1);
     }
 }
 

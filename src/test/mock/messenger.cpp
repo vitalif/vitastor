@@ -8,6 +8,12 @@
 
 #include "messenger.h"
 
+void osd_messenger_t::fatal_error(int retval, const std::string & error)
+{
+    fprintf(stderr, "%s\n", error.c_str());
+    exit(1);
+}
+
 void osd_messenger_t::init()
 {
 }

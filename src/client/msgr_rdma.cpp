@@ -575,7 +575,7 @@ json11::Json osd_messenger_t::connect_rdma(uint64_t client_id, std::string rdma_
     return json11::Json();
 }
 
-static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
+static int try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
 {
     ibv_send_wr *bad_wr = NULL;
     ibv_send_wr wr = {
@@ -586,12 +586,12 @@ static void try_send_rdma_wr(osd_client_t *cl, ibv_sge *sge, int op_sge)
         .send_flags = IBV_SEND_SIGNALED,
     };
     int err = ibv_post_send(cl->rdma_conn->qp, &wr, &bad_wr);
-    if (err || bad_wr)
-    {
-        fprintf(stderr, "RDMA send failed: %s (code %d)\n", strerror(err), err);
-        exit(1);
-    }
+    if (err)
+        return err;
+    if (bad_wr)
+        return EIO;
     cl->rdma_conn->cur_send++;
+    return 0;
 }
 
 bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
@@ -605,8 +605,11 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
         rc->send_out.mr = ibv_reg_mr(rc->ctx->pd, rc->send_out.buf, rc->send_out_size, 0);
         if (!rc->send_out.mr)
         {
-            fprintf(stderr, "Failed to register RDMA memory region: %s\n", strerror(errno));
-            exit(1);
+            rc->send_out_size = 0;
+            free(rc->send_out.buf);
+            rc->send_out.buf = NULL;
+            fatal_error(EIO, std::string("Failed to register RDMA memory region: ")+strerror(errno)+" (code "+std::to_string(errno)+")");
+            return false;
         }
     }
     // Copy data into the buffer and send it
@@ -641,7 +644,12 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
                 .length = (uint32_t)copied,
                 .lkey = rc->send_out.mr->lkey,
             };
-            try_send_rdma_wr(cl, &sge, 1);
+            int err = try_send_rdma_wr(cl, &sge, 1);
+            if (err)
+            {
+                fatal_error(EIO, std::string("RDMA send failed: ")+strerror(err)+" (code "+std::to_string(err)+")");
+                return false;
+            }
             rc->send_sizes.push_back(copied);
             cl->unref_send_free(send_free_from, cl->next_send_free + cl->send_free.size()); // unref at once - everything is already copied
         }
@@ -649,7 +657,7 @@ bool osd_messenger_t::try_send_rdma(osd_client_t *cl)
     return true;
 }
 
-static void try_recv_rdma_wr(osd_client_t *cl, void *buf)
+static int try_recv_rdma_wr(osd_client_t *cl, void *buf)
 {
     ibv_sge sge = {
         .addr = (uintptr_t)buf,
@@ -663,12 +671,12 @@ static void try_recv_rdma_wr(osd_client_t *cl, void *buf)
         .num_sge = 1,
     };
     int err = ibv_post_recv(cl->rdma_conn->qp, &wr, &bad_wr);
-    if (err || bad_wr)
-    {
-        fprintf(stderr, "RDMA receive failed: %s\n", strerror(err));
-        exit(1);
-    }
+    if (err)
+        return err;
+    if (bad_wr)
+        return EIO;
     cl->rdma_conn->cur_recv++;
+    return 0;
 }
 
 bool osd_messenger_t::init_recv_rdma(osd_client_t *cl)
@@ -679,14 +687,21 @@ bool osd_messenger_t::init_recv_rdma(osd_client_t *cl)
     rc->recv_buf.mr = ibv_reg_mr(rc->ctx->pd, rc->recv_buf.buf, rc->max_msg * rc->max_recv, IBV_ACCESS_LOCAL_WRITE);
     if (!rc->recv_buf.mr)
     {
-        fprintf(stderr, "Failed to register RDMA memory region: %s\n", strerror(errno));
-        exit(1);
+        free(rc->recv_buf.buf);
+        rc->recv_buf.buf = NULL;
+        fatal_error(EIO, std::string("Failed to register RDMA memory region: ")+strerror(errno)+" (code "+std::to_string(errno)+")");
+        return false;
     }
     for (uint32_t i = 0; i < rc->max_recv; i++)
     {
         uint8_t *b = rc->recv_buf.buf + i*rc->max_msg;
         rc->recv_buffers.push_back(b);
-        try_recv_rdma_wr(cl, b);
+        int err = try_recv_rdma_wr(cl, b);
+        if (err)
+        {
+            fatal_error(EIO, std::string("RDMA receive failed: ")+strerror(err)+" (code "+std::to_string(err)+")");
+            return false;
+        }
     }
     return true;
 }
@@ -705,8 +720,8 @@ void osd_messenger_t::handle_rdma_events(msgr_rdma_context_t *rdma_context)
     }
     if (ibv_req_notify_cq(rdma_context->cq, 0) != 0)
     {
-        fprintf(stderr, "Failed to request RDMA completion notification, exiting\n");
-        exit(1);
+        fatal_error(EIO, "Failed to request RDMA completion notification");
+        return;
     }
     ibv_wc wc[RDMA_EVENTS_AT_ONCE];
     int event_count;

@@ -15,11 +15,14 @@
 cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json passed_config, std::unique_ptr<etcd_state_client_t> st_cli_ptr)
 {
     wb = new writeback_cache_t();
+    wb->parent = this;
 
     cli_config = passed_config.object_items();
     file_config = osd_messenger_t::read_config(passed_config);
     config = osd_messenger_t::merge_configs(cli_config, file_config, etcd_global_config, {});
 
+    this->exit_on_error = config.find("client_exit_on_error") == config.end()
+        ? true : config["client_exit_on_error"].bool_value();
     this->ringloop = ringloop;
     this->tfd = tfd;
 
@@ -53,6 +56,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         msgr->stop_client(op->client_id);
         delete op;
     };
+    msgr->on_fatal_error_hook = [this](int errcode, const std::string & error) { fatal_error(errcode, error); };
     msgr->parse_config(config, true);
 
     st_cli = std::move(st_cli_ptr);
@@ -65,6 +69,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     st_cli->on_load_pgs_hook = [this](bool success) { on_load_pgs_hook(success); };
     st_cli->on_reload_hook = [this]() { this->st_cli->load_global_config(); };
     st_cli->on_inode_change_hook = [this](uint64_t inode, bool removed) { on_change_inode_hook(inode, removed); };
+    st_cli->on_fatal_error_hook = msgr->on_fatal_error_hook;
 
     st_cli->parse_config(config);
     st_cli->infinite_start = false;
@@ -73,11 +78,21 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         st_cli->infinite_start = config["client_infinite_start"].bool_value();
     }
     st_cli->load_global_config();
+
+    if (ringloop)
+    {
+        ringloop->loop();
+    }
+}
+
+void cluster_client_t::set_on_fatal_error_hook(std::function<void(int, const std::string&)> cb)
+{
+    on_fatal_error_hook = cb;
 }
 
 cluster_client_t::~cluster_client_t()
 {
-    vault_destroy();
+    aborted = ECANCELED;
     if (retry_timeout_id >= 0)
     {
         tfd->clear_timer(retry_timeout_id);
@@ -95,8 +110,39 @@ cluster_client_t::~cluster_client_t()
     {
         ringloop->unregister_consumer(&consumer);
     }
+    delete msgr;
+    msgr = NULL;
+    while (op_queue_head)
+    {
+        op_queue_head->retval = -ECANCELED;
+        erase_op(op_queue_head);
+    }
     delete wb;
     wb = NULL;
+    vault_destroy();
+}
+
+void cluster_client_t::fatal_error(int errcode, const std::string & error)
+{
+    fprintf(stderr, "Error: %s%s\n", error.c_str(), exit_on_error ? ", exiting" : "");
+    if (exit_on_error)
+    {
+        // Simple old behaviour by default - stop the whole process
+        exit(1);
+    }
+    if (!pgs_loaded)
+    {
+        // Client becomes "ready" (but aborted) on error
+        for (auto fn: on_ready_hooks)
+            fn();
+        on_ready_hooks.clear();
+    }
+    if (!aborted && on_fatal_error_hook)
+    {
+        (std::function<void(int, const std::string&)>(on_fatal_error_hook))(errcode, error);
+    }
+    aborted = true;
+    abort_error = error;
 }
 
 cluster_op_t::~cluster_op_t()
@@ -151,6 +197,8 @@ std::vector<osd_num_t> cluster_op_t::get_left_on_dead()
 
 void cluster_client_t::continue_raw_ops(osd_num_t peer_osd)
 {
+    if (aborted)
+        return;
     auto it = raw_ops.find(peer_osd);
     while (it != raw_ops.end() && it->first == peer_osd)
     {
@@ -652,12 +700,21 @@ void cluster_client_t::on_change_node_placement_hook()
 
 bool cluster_client_t::is_ready()
 {
-    return pgs_loaded;
+    return pgs_loaded || aborted;
+}
+
+int cluster_client_t::is_failed(std::string & error)
+{
+    if (aborted)
+    {
+        error = abort_error;
+    }
+    return aborted;
 }
 
 void cluster_client_t::on_ready(std::function<void(void)> fn)
 {
-    if (pgs_loaded)
+    if (is_ready())
     {
         fn();
     }
@@ -856,6 +913,13 @@ void cluster_client_t::execute_internal(cluster_op_t *op)
 
 void cluster_client_t::execute_cas(cluster_op_t *op, bool nosync)
 {
+    if (aborted)
+    {
+        op->retval = -ECANCELED;
+        auto cb = std::move(op->callback);
+        cb(op);
+        return;
+    }
     if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && op->version && op->parts.size() > 1)
     {
         // Atomic writes to multiple stripes are unsupported
@@ -872,7 +936,14 @@ void cluster_client_t::execute_cas(cluster_op_t *op, bool nosync)
         sync_op->flags = 0;
         sync_op->callback = [this, op](cluster_op_t* sync_op)
         {
-            execute_cas(op, true);
+            if (sync_op->retval != 0)
+            {
+                op->retval = sync_op->retval;
+                auto cb = std::move(op->callback);
+                cb(op);
+            }
+            else
+                execute_cas(op, true);
             delete sync_op;
         };
         execute_internal(sync_op);
@@ -888,6 +959,13 @@ void cluster_client_t::execute_cas(cluster_op_t *op, bool nosync)
     op->needs_reslice = false;
     int res = try_send(op, 0, [this, op](osd_op_t *part)
     {
+        if (aborted)
+        {
+            op->retval = -ECANCELED;
+            auto cb = std::move(op->callback);
+            cb(op);
+            return;
+        }
         int expected = part->req.hdr.opcode == OSD_OP_DELETE ? 0 : part->req.rw.len;
         op->retval = part->reply.hdr.retval;
         if (op->retval != expected && op->retval >= 0)
@@ -1079,6 +1157,8 @@ void cluster_client_t::execute_raw(osd_num_t osd_num, osd_op_t *op)
 
 int cluster_client_t::continue_rw(cluster_op_t *op)
 {
+    if (aborted)
+        return 0;
     if (op->state == 0)
         goto resume_0;
     else if (op->state == 1)
@@ -1510,6 +1590,8 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
 
 int cluster_client_t::continue_sync(cluster_op_t *op)
 {
+    if (aborted)
+        return 0;
     if (op->state == 1)
         goto resume_1;
     if (!dirty_osds.size())

@@ -46,6 +46,7 @@ public:
     int writeback_queue_size = 0;
     int writebacks_active = 0;
     uint64_t last_flush_id = 0;
+    cluster_client_t *parent = NULL;
 
     std::map<object_id, cluster_buffer_t> dirty_buffers;
     std::vector<cluster_op_t*> writeback_overflow;

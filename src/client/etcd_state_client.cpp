@@ -10,6 +10,19 @@
 #include "str_util.h"
 #include "json_util.h"
 
+void etcd_state_client_t::fatal_error(int errcode, const std::string & error)
+{
+    if (on_fatal_error_hook)
+    {
+        (std::function<void(int, const std::string&)>(on_fatal_error_hook))(errcode, error);
+    }
+    else
+    {
+        fprintf(stderr, "Error: %s\n", error.c_str());
+        exit(1);
+    }
+}
+
 etcd_state_client_t::~etcd_state_client_t()
 {
     for (auto watch: watches)

@@ -336,7 +336,7 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
     {
         // Buffer flushes are always retried, regardless of the error,
         // so they should never result in an error here
-        assert(op->retval == op->len);
+        assert(op->retval == op->len || parent->aborted);
         for (auto fl_it = flushed_buffers.lower_bound(op->flush_id);
             fl_it != flushed_buffers.end() && fl_it->first == op->flush_id; )
         {

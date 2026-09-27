@@ -30,6 +30,18 @@ struct vitastor_c
 
     QEMUSetFDHandler *aio_set_fd_handler = NULL;
     void *aio_ctx = NULL;
+
+    ~vitastor_c()
+    {
+        if (cli)
+            delete cli;
+        if (epmgr)
+            delete epmgr;
+        else if (tfd)
+            delete tfd;
+        if (ringloop)
+            delete ringloop;
+    }
 };
 
 extern "C" {
@@ -217,19 +229,26 @@ void* vitastor_c_get_internal_client(vitastor_c *client)
 
 void vitastor_c_destroy(vitastor_c *client)
 {
-    delete client->cli;
-    if (client->epmgr)
-        delete client->epmgr;
-    else if (client->tfd)
-        delete client->tfd;
-    if (client->ringloop)
-        delete client->ringloop;
     delete client;
 }
 
 int vitastor_c_is_ready(vitastor_c *client)
 {
     return client->cli->is_ready();
+}
+
+int vitastor_c_is_failed(vitastor_c *client, char **errstr)
+{
+    std::string err;
+    int errcode = client->cli->is_failed(err);
+    if (errcode)
+    {
+        *errstr = (char*)malloc(err.size()+1);
+        if (*errstr)
+            memcpy(*errstr, err.c_str(), err.size()+1);
+        return errcode;
+    }
+    return 0;
 }
 
 void vitastor_c_on_ready(vitastor_c *client, VitastorIOHandler cb, void *opaque)
