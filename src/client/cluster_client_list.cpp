@@ -301,14 +301,14 @@ int cluster_client_t::start_pg_listing(inode_list_pg_t *pg)
     bool conn = true;
     for (osd_num_t peer_osd: all_peers)
     {
-        if (msgr.osd_peers.find(peer_osd) == msgr.osd_peers.end())
+        if (msgr->osd_peers.find(peer_osd) == msgr->osd_peers.end())
         {
             // Initiate connection
             if (st_cli->peer_states[peer_osd].is_null())
             {
                 return LIST_PG_WAIT_ACTIVE;
             }
-            msgr.connect_peer(peer_osd, st_cli->peer_states[peer_osd]);
+            msgr->connect_peer(peer_osd, st_cli->peer_states[peer_osd]);
             conn = false;
         }
     }
@@ -346,7 +346,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
     osd_op_t *op = new osd_op_t();
     op->op_type = OSD_OP_OUT;
     // Already checked that it exists above, but anyway
-    op->client_id = msgr.osd_peers.at(cur_list->osd_num)->client_id;
+    op->client_id = msgr->osd_peers.at(cur_list->osd_num)->client_id;
     op->req = (osd_any_op_t){
         .sec_list = {
             .header = {
@@ -425,7 +425,7 @@ void cluster_client_t::send_list(inode_list_osd_t *cur_list)
         finish_list_pg(cur_list->pg, true);
         continue_listing(cur_list->pg->lst);
     };
-    msgr.outbox_push(op);
+    msgr->outbox_push(op);
 }
 
 void cluster_client_t::finish_list_pg(inode_list_pg_t *pg, bool retry_epipe)

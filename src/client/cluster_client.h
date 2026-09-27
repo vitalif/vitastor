@@ -181,8 +181,8 @@ class __attribute__((visibility("default"))) cluster_client_t
 
 public:
     std::unique_ptr<etcd_state_client_t> st_cli;
+    osd_messenger_t* msgr = NULL;
 
-    osd_messenger_t msgr;
     void init_msgr();
 
     json11::Json::object cli_config, file_config, etcd_global_config;

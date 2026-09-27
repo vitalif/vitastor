@@ -23,12 +23,13 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
     this->ringloop = ringloop;
     this->tfd = tfd;
 
-    msgr.osd_num = 0;
-    msgr.tfd = tfd;
-    msgr.ringloop = ringloop;
-    msgr.repeer_pgs = [this](osd_num_t peer_osd)
+    msgr = new osd_messenger_t();
+    msgr->osd_num = 0;
+    msgr->tfd = tfd;
+    msgr->ringloop = ringloop;
+    msgr->repeer_pgs = [this](osd_num_t peer_osd)
     {
-        if (msgr.osd_peers.find(peer_osd) != msgr.osd_peers.end())
+        if (msgr->osd_peers.find(peer_osd) != msgr->osd_peers.end())
         {
             // peer_osd just connected
             continue_ops();
@@ -45,14 +46,14 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
             }
         }
     };
-    msgr.exec_op = [this](osd_op_t *op)
+    msgr->exec_op = [this](osd_op_t *op)
     {
         // Garbage in
         fprintf(stderr, "Can't handle incoming operation from client %ju\n", op->client_id);
-        msgr.stop_client(op->client_id);
+        msgr->stop_client(op->client_id);
         delete op;
     };
-    msgr.parse_config(config, true);
+    msgr->parse_config(config, true);
 
     st_cli = std::move(st_cli_ptr);
     st_cli->on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
@@ -89,7 +90,7 @@ cluster_client_t::~cluster_client_t()
         list_retry_timeout_id = -1;
         list_retry_time = {};
     }
-    msgr.repeer_pgs = [](osd_num_t){};
+    msgr->repeer_pgs = [](osd_num_t){};
     if (ringloop)
     {
         ringloop->unregister_consumer(&consumer);
@@ -155,8 +156,8 @@ void cluster_client_t::continue_raw_ops(osd_num_t peer_osd)
     {
         auto op = it->second;
         op->op_type = OSD_OP_OUT;
-        op->client_id = msgr.osd_peers.at(peer_osd)->client_id;
-        msgr.outbox_push(op);
+        op->client_id = msgr->osd_peers.at(peer_osd)->client_id;
+        msgr->outbox_push(op);
         raw_ops.erase(it++);
     }
 }
@@ -165,14 +166,14 @@ void cluster_client_t::init_msgr()
 {
     if (msgr_initialized)
         return;
-    msgr.init();
+    msgr->init();
     msgr_initialized = true;
     if (ringloop)
     {
         consumer.loop = [this]()
         {
-            msgr.read_requests();
-            msgr.send_replies();
+            msgr->read_requests();
+            msgr->send_replies();
             this->ringloop->submit();
         };
         ringloop->register_consumer(&consumer);
@@ -482,7 +483,7 @@ void cluster_client_t::on_load_config_hook(json11::Json::object & etcd_global_co
     }
     // vault
     vault_parse_config();
-    msgr.parse_config(config, false);
+    msgr->parse_config(config, false);
     st_cli->parse_config(config);
     st_cli->load_pgs();
 }
@@ -636,9 +637,9 @@ bool cluster_client_t::get_immediate_commit(uint64_t inode)
 void cluster_client_t::on_change_osd_state_hook(osd_num_t peer_osd)
 {
     osd_tree_metrics.erase(peer_osd);
-    if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())
+    if (msgr->wanted_peers.find(peer_osd) != msgr->wanted_peers.end())
     {
-        msgr.connect_peer(peer_osd, st_cli->peer_states[peer_osd]);
+        msgr->connect_peer(peer_osd, st_cli->peer_states[peer_osd]);
         continue_lists();
     }
 }
@@ -892,13 +893,13 @@ void cluster_client_t::execute_cas(cluster_op_t *op, bool nosync)
         if (op->retval != expected && op->retval >= 0)
             op->retval = -EIO;
         op->retval = op->retval == -EPIPE ? -EINTR : op->retval;
-        auto peer_it = msgr.osd_peers.find(op->parts[0].osd_num);
+        auto peer_it = msgr->osd_peers.find(op->parts[0].osd_num);
         if (op->retval != expected || (op->flags & OP_IMMEDIATE_COMMIT))
         {
             auto cb = std::move(op->callback);
             cb(op);
         }
-        else if (peer_it == msgr.osd_peers.end())
+        else if (peer_it == msgr->osd_peers.end())
         {
             // Care must be taken to make sure that the client doesn't reconnect to the OSD
             // before executing the previously completed operation callback (!)
@@ -930,7 +931,7 @@ void cluster_client_t::execute_cas(cluster_op_t *op, bool nosync)
                     cb(op);
                 },
             };
-            msgr.outbox_push(part);
+            msgr->outbox_push(part);
         }
     });
     if (res == TRY_SEND_CONNECTING || res == TRY_SEND_OFFLINE)
@@ -1061,17 +1062,17 @@ bool cluster_client_t::check_rw(cluster_op_t *op)
 
 void cluster_client_t::execute_raw(osd_num_t osd_num, osd_op_t *op)
 {
-    auto peer_it = msgr.osd_peers.find(osd_num);
-    if (peer_it != msgr.osd_peers.end())
+    auto peer_it = msgr->osd_peers.find(osd_num);
+    if (peer_it != msgr->osd_peers.end())
     {
         op->op_type = OSD_OP_OUT;
         op->client_id = peer_it->second->client_id;
-        msgr.outbox_push(op);
+        msgr->outbox_push(op);
     }
     else
     {
-        if (msgr.wanted_peers.find(osd_num) == msgr.wanted_peers.end())
-            msgr.connect_peer(osd_num, st_cli->peer_states[osd_num]);
+        if (msgr->wanted_peers.find(osd_num) == msgr->wanted_peers.end())
+            msgr->connect_peer(osd_num, st_cli->peer_states[osd_num]);
         raw_ops.emplace(osd_num, op);
     }
 }
@@ -1450,8 +1451,8 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
                 primary_osd = nearest_osd;
         }
         part->osd_num = primary_osd;
-        auto peer_it = msgr.osd_peers.find(primary_osd);
-        if (peer_it != msgr.osd_peers.end())
+        auto peer_it = msgr->osd_peers.find(primary_osd);
+        if (peer_it != msgr->osd_peers.end())
         {
             osd_client_t *cl = peer_it->second;
             part->flags |= PART_SENT|PART_VALID;
@@ -1495,12 +1496,12 @@ int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_o
                 },
             };
             part->op.iov = part->iov;
-            msgr.outbox_push(&part->op);
+            msgr->outbox_push(&part->op);
             return TRY_SEND_OK;
         }
-        else if (msgr.wanted_peers.find(primary_osd) == msgr.wanted_peers.end())
+        else if (msgr->wanted_peers.find(primary_osd) == msgr->wanted_peers.end())
         {
-            msgr.connect_peer(primary_osd, st_cli->peer_states[primary_osd]);
+            msgr->connect_peer(primary_osd, st_cli->peer_states[primary_osd]);
             return TRY_SEND_CONNECTING;
         }
     }
@@ -1522,8 +1523,8 @@ int cluster_client_t::continue_sync(cluster_op_t *op)
     for (auto do_it = dirty_osds.begin(); do_it != dirty_osds.end(); )
     {
         osd_num_t sync_osd = *do_it;
-        auto peer_it = msgr.osd_peers.find(sync_osd);
-        if (peer_it == msgr.osd_peers.end())
+        auto peer_it = msgr->osd_peers.find(sync_osd);
+        if (peer_it == msgr->osd_peers.end())
             dirty_osds.erase(do_it++);
         else
             do_it++;
@@ -1578,7 +1579,7 @@ resume_1:
 
 void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)
 {
-    osd_client_t *cl = msgr.osd_peers.at(part->osd_num);
+    osd_client_t *cl = msgr->osd_peers.at(part->osd_num);
     part->flags |= PART_SENT;
     op->inflight_count++;
     part->op = (osd_op_t){
@@ -1595,7 +1596,7 @@ void cluster_client_t::send_sync(cluster_op_t *op, cluster_op_part_t *part)
             handle_op_part(part);
         },
     };
-    msgr.outbox_push(&part->op);
+    msgr->outbox_push(&part->op);
 }
 
 static inline void mem_or(void *res, const void *r2, unsigned int len)
@@ -1650,7 +1651,7 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         reset_retry_timer(op->retry_after);
         if (stop_client_id)
         {
-            msgr.stop_client(stop_client_id);
+            msgr->stop_client(stop_client_id);
         }
         op->inflight_count--;
         if (op->inflight_count == 0 && !op->retry_after)

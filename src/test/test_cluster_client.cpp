@@ -168,16 +168,16 @@ void pretend_disconnected(osd_messenger_t *msgr, osd_num_t osd_num)
 
 void pretend_connected(cluster_client_t *cli, osd_num_t osd_num)
 {
-    pretend_connected(&cli->msgr, osd_num);
+    pretend_connected(cli->msgr, osd_num);
 }
 
 void pretend_disconnected(cluster_client_t *cli, osd_num_t osd_num)
 {
-    pretend_disconnected(&cli->msgr, osd_num);
+    pretend_disconnected(cli->msgr, osd_num);
 }
 
 #define check_disconnected(cli, osd_num) {\
-    if (cli->msgr.osd_peers.find(osd_num) != cli->msgr.osd_peers.end())\
+    if (cli->msgr->osd_peers.find(osd_num) != cli->msgr->osd_peers.end())\
     {\
         printf("OSD %ju not disconnected as it ought to be\n", (uint64_t)osd_num);\
         assert(0);\
@@ -185,7 +185,7 @@ void pretend_disconnected(cluster_client_t *cli, osd_num_t osd_num)
 }
 
 #define check_op_count(cli, osd_num, ops) {\
-    osd_client_t *cl = cli->msgr.osd_peers.at(osd_num);\
+    osd_client_t *cl = cli->msgr->osd_peers.at(osd_num);\
     int real_ops = cl->sent_ops.size();\
     if (real_ops != ops)\
     {\
@@ -196,7 +196,7 @@ void pretend_disconnected(cluster_client_t *cli, osd_num_t osd_num)
 
 osd_op_t *find_op(cluster_client_t *cli, osd_num_t osd_num, uint64_t opcode, uint64_t offset, uint64_t len)
 {
-    osd_client_t *cl = cli->msgr.osd_peers.at(osd_num);
+    osd_client_t *cl = cli->msgr->osd_peers.at(osd_num);
     auto op_it = cl->sent_ops.begin();
     while (op_it != cl->sent_ops.end())
     {
@@ -225,7 +225,7 @@ void pretend_op_completed(cluster_client_t *cli, osd_op_t *op, int64_t retval)
         ? "sync" : (op->req.hdr.opcode == OSD_OP_WRITE ? "write" : "read"), op->req.rw.offset, op->req.rw.len);
     uint64_t op_id = op->req.hdr.id;
     uint64_t client_id = op->client_id;
-    cli->msgr.clients[client_id]->sent_ops.erase(op_id);
+    cli->msgr->clients[client_id]->sent_ops.erase(op_id);
     op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
     op->reply.hdr.id = op->req.hdr.id;
     op->reply.hdr.opcode = op->req.hdr.opcode;
@@ -309,7 +309,7 @@ void test1()
         uint64_t replay_start = UINT64_MAX;
         uint64_t replay_end = 0;
         std::vector<osd_op_t*> replay_ops;
-        auto osd_cl = cli->msgr.osd_peers.at(1);
+        auto osd_cl = cli->msgr->osd_peers.at(1);
         for (auto & op_p: osd_cl->sent_ops)
         {
             auto op = op_p.second;
@@ -742,7 +742,7 @@ void test_deoptimize_snapshot_read()
         };
         cli->execute(op);
         check_op_count(cli, 1, 1);
-        auto cl = cli->msgr.osd_peers.at(1);
+        auto cl = cli->msgr->osd_peers.at(1);
         osd_op_t *read_op = cl->sent_ops.begin()->second;
         assert(read_op->req.hdr.opcode == OSD_OP_READ);
         assert(read_op->req.rw.inode == child_inode);
@@ -784,7 +784,7 @@ void test_deoptimize_snapshot_read()
         };
         cli->execute(op);
         check_op_count(cli, 1, 1);
-        auto cl = cli->msgr.osd_peers.at(1);
+        auto cl = cli->msgr->osd_peers.at(1);
         osd_op_t *read_op = cl->sent_ops.begin()->second;
         assert(read_op->req.hdr.opcode == OSD_OP_READ);
         assert(read_op->req.rw.inode == child_inode);
@@ -818,7 +818,7 @@ void test_deoptimize_snapshot_read()
         };
         cli->execute(op);
         check_op_count(cli, 1, 1);
-        auto cl = cli->msgr.osd_peers.at(1);
+        auto cl = cli->msgr->osd_peers.at(1);
         osd_op_t *child_read = cl->sent_ops.begin()->second;
         assert(child_read->req.hdr.opcode == OSD_OP_READ);
         assert(child_read->req.rw.inode == child_inode);
