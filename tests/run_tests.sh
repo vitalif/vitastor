@@ -66,6 +66,8 @@ OLD=1 ./test_move_reappear.sh
 
 ./test_rm_degraded.sh
 
+./test_trim.sh
+
 ./test_snapshot_chain.sh
 SCHEME=ec ./test_snapshot_chain.sh
 ENCRYPTED=1 ./test_snapshot_chain.sh

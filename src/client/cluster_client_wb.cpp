@@ -86,11 +86,13 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
     // ...or just save it for writeback if write buffering is enabled
     if (op->len == 0)
     {
-        // FIXME: OSD_OP_DELETEs are currently only sent by vitastor-cli rm/rm-data and
-        // actually have len=0, because delete is actually a delete of the full object
-        // containing the requested offset, not a "punch hole" operation. But here, writeback
-        // cache assumes it IS a "punch hole" operation. I should select one of these
-        // approaches and fix everything accordingly when I decide to implement TRIM.
+        // OSD_OP_DELETEs with len=0 are sent by vitastor-cli rm/rm-data and mean
+        // "delete the full object containing the requested offset". They aren't
+        // tracked in the cache. Deletes with len > 0 come from OSD_OP_TRIM and are
+        // always object-aligned at the time of insertion, so the "punch hole"
+        // assumption of this cache is correct for them. They may later be split
+        // by overlapping writes - flush_buffers() clips such fragments back to
+        // object boundaries before sending deletes to OSDs.
         return;
     }
     auto dirty_it = find_dirty(op->inode, op->offset);
@@ -280,7 +282,9 @@ int writeback_cache_t::repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd,
                 flush_this = flush_this && cli->affects_pg(wr_it->first.inode, wr_it->first.stripe, wr_it->second.len, pool_id, pg_num);
             if (flush_it != wr_it && (end || !flush_this ||
                 wr_it->first.inode != flush_it->first.inode ||
-                wr_it->first.stripe != last_it->first.stripe+last_it->second.len))
+                wr_it->first.stripe != last_it->first.stripe+last_it->second.len ||
+                // Don't mix writes and deletes (trims) in one flush operation
+                (wr_it->second.buf == NULL) != (last_it->second.buf == NULL)))
             {
                 repeated++;
                 flush_buffers(cli, flush_it, wr_it);
@@ -297,17 +301,56 @@ int writeback_cache_t::repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd,
     return repeated;
 }
 
+static uint64_t wb_pg_block_size(cluster_client_t *cli, uint64_t inode)
+{
+    auto pool_it = cli->st_cli->pool_config.find(INODE_POOL(inode));
+    if (pool_it == cli->st_cli->pool_config.end())
+    {
+        return 0;
+    }
+    auto & pool_cfg = pool_it->second;
+    return pool_cfg.data_block_size * (pool_cfg.scheme == POOL_SCHEME_REPLICATED
+        ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
+}
+
 void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from_it, dirty_buf_it_t to_it)
 {
     auto prev_it = to_it;
     prev_it--;
     bool is_writeback = from_it->second.state == CACHE_DIRTY;
+    bool is_del = !from_it->second.buf;
+    uint64_t flush_inode = from_it->first.inode;
+    uint64_t flush_offset = from_it->first.stripe;
+    uint64_t flush_len = prev_it->first.stripe + prev_it->second.len - from_it->first.stripe;
+    uint64_t send_offset = flush_offset, send_len = flush_len;
+    if (is_del)
+    {
+        // Deletions (from OSD_OP_TRIM) are inserted object-aligned, but may be
+        // split by later overlapping writes. OSDs can only delete whole objects,
+        // so clip the range inwards to object boundaries and just drop the
+        // remainder - TRIM is advisory and losing a part of it is allowed
+        uint64_t pg_block_size = wb_pg_block_size(cli, flush_inode);
+        uint64_t del_begin = pg_block_size ? ((send_offset + pg_block_size-1) / pg_block_size) * pg_block_size : 0;
+        uint64_t del_end = pg_block_size ? ((send_offset + send_len) / pg_block_size) * pg_block_size : 0;
+        if (del_end <= del_begin)
+        {
+            // No whole objects are covered anymore - just drop the delete buffers
+            for (auto it = from_it; it != to_it; )
+            {
+                assert(!it->second.buf);
+                dirty_buffers.erase(it++);
+            }
+            return;
+        }
+        send_offset = del_begin;
+        send_len = del_end-del_begin;
+    }
     cluster_op_t *op = new cluster_op_t;
     op->flags = OSD_OP_IGNORE_READONLY|OP_FLUSH_BUFFER;
-    op->opcode = from_it->second.buf ? OSD_OP_WRITE : OSD_OP_DELETE;
-    op->cur_inode = op->inode = from_it->first.inode;
-    op->offset = from_it->first.stripe;
-    op->len = prev_it->first.stripe + prev_it->second.len - from_it->first.stripe;
+    op->opcode = is_del ? OSD_OP_DELETE : OSD_OP_WRITE;
+    op->cur_inode = op->inode = flush_inode;
+    op->offset = send_offset;
+    op->len = send_len;
     uint32_t calc_len = 0;
     uint64_t flush_id = ++last_flush_id;
     for (auto it = from_it; it != to_it; it++)
@@ -322,9 +365,9 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
         }
         calc_len += it->second.len;
     }
-    assert(calc_len == op->len);
+    assert(calc_len == flush_len);
     writebacks_active++;
-    op->callback = [this, flush_id](cluster_op_t* op)
+    op->callback = [this, flush_id, flush_inode, flush_offset, flush_len](cluster_op_t* op)
     {
         // Buffer flushes are always retried, regardless of the error,
         // so they should never result in an error here
@@ -338,13 +381,15 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
             }
             flushed_buffers.erase(fl_it++);
         }
+        // Use the original (unclipped) buffer range, the operation itself
+        // may cover a smaller range if it's a delete clipped to object boundaries
         if (op->flags & OP_IMMEDIATE_COMMIT)
         {
-            delete_flush(op->inode, op->offset, op->len, flush_id);
+            delete_flush(flush_inode, flush_offset, flush_len, flush_id);
         }
         else
         {
-            mark_flush_written(op->inode, op->offset, op->len, flush_id);
+            mark_flush_written(flush_inode, flush_offset, flush_len, flush_id);
         }
         delete op;
         writebacks_active--;

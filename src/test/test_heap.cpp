@@ -384,7 +384,7 @@ void test_defrag_block()
     heap.finish_recheck();
 
     uint32_t big_write_size = heap.get_big_entry_size();
-    uint32_t small_write_size = heap.get_small_entry_size(0, 4096);
+    uint32_t small_write_size = heap.get_small_entry_size(BS_HEAP_SMALL_WRITE, 0, 4096);
     assert(big_write_size == 180);
     assert(small_write_size == 64);
     uint32_t nwr = 0;
@@ -2737,7 +2737,7 @@ void test_full_alloc()
     assert(heap.get_meta_total_space() == 4*4096);
 
     uint32_t big_write_size = heap.get_big_entry_size();
-    uint32_t small_write_size = heap.get_small_entry_size(0, 4096);
+    uint32_t small_write_size = heap.get_small_entry_size(BS_HEAP_SMALL_WRITE, 0, 4096);
     assert(big_write_size == 180);
     assert(small_write_size == 64);
     uint32_t epb = dsk.meta_block_size/big_write_size;
@@ -3367,7 +3367,7 @@ void test_postpone_load()
         wr1->checksum = wr1->calc_checksum(&heap);
         total_size += wr1->size;
 
-        uint32_t small_size = heap.get_small_entry_size(0, 4096);
+        uint32_t small_size = heap.get_small_entry_size(BS_HEAP_SMALL_WRITE, 0, 4096);
         auto add_small = [&](uint64_t lsn)
         {
             assert(total_size+small_size <= dsk.meta_block_size);
@@ -3519,7 +3519,7 @@ void test_start_double_claim_reuse()
     heap.finish_recheck();
 
     const uint32_t big_write_size = heap.get_big_entry_size();
-    const uint32_t small_write_size = heap.get_small_entry_size(0, 4096);
+    const uint32_t small_write_size = heap.get_small_entry_size(BS_HEAP_SMALL_WRITE, 0, 4096);
     const uint32_t del_size = heap.get_simple_entry_size();
     assert(big_write_size == 180);
     assert(small_write_size == 64);

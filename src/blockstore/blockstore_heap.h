@@ -30,6 +30,13 @@ struct pool_shard_settings_t
 #define BS_HEAP_DELETE 5
 #define BS_HEAP_COMMIT 6
 #define BS_HEAP_ROLLBACK 7
+// Modifier for BS_HEAP_SMALL_WRITE: a metadata-only "zero write". The entry has
+// offset/len, but no data (location is unused and must be 0) and no checksums.
+// Its range reads as zeroes and overrides older writes; compaction clears the
+// corresponding internal bitmap bits of the resulting big_write.
+// NOTE: metadata containing such entries can't be read by Vitastor versions
+// without zero-write support (they will report the entries as corrupted).
+#define BS_HEAP_ZERO 0x08
 #define BS_HEAP_STABLE 0x40
 #define BS_HEAP_GARBAGE 0x80
 
@@ -54,6 +61,7 @@ struct __attribute__((__packed__)) heap_entry_t
     // uint32_t[] checksums
 
     inline uint8_t type() const { return (entry_type & BS_HEAP_TYPE); }
+    inline bool is_zero_write() const { return (entry_type & BS_HEAP_ZERO) && (entry_type & BS_HEAP_TYPE) == BS_HEAP_SMALL_WRITE; }
     inline heap_small_write_t& small() { return *(heap_small_write_t*)this; }
     inline heap_big_write_t& big() { return *(heap_big_write_t*)this; }
     inline heap_big_intent_t& big_intent() { return *(heap_big_intent_t*)this; }
@@ -392,7 +400,7 @@ public:
     uint32_t get_simple_entry_size();
     uint32_t get_big_entry_size();
     uint32_t get_big_intent_entry_size();
-    uint32_t get_small_entry_size(uint32_t offset, uint32_t len);
+    uint32_t get_small_entry_size(uint32_t entry_type, uint32_t offset, uint32_t len);
     uint32_t get_csum_size(heap_entry_t *wr);
     uint32_t get_csum_size(uint32_t entry_type, uint32_t offset = 0, uint32_t len = 0);
 };

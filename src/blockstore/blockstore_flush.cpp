@@ -23,9 +23,10 @@ journal_flusher_t::journal_flusher_t(blockstore_impl_t *bs)
     {
         co[i].co_id = i;
         co[i].bs = bs;
-        co[i].new_bmp = (uint8_t*)malloc_or_die(3*bs->dsk.clean_entry_bitmap_size);
+        co[i].new_bmp = (uint8_t*)malloc_or_die(4*bs->dsk.clean_entry_bitmap_size);
         co[i].new_ext_bmp = co[i].new_bmp + bs->dsk.clean_entry_bitmap_size;
         co[i].punch_bmp = co[i].new_bmp + 2*bs->dsk.clean_entry_bitmap_size;
+        co[i].zero_bmp = co[i].new_bmp + 3*bs->dsk.clean_entry_bitmap_size;
         if (bs->dsk.csum_block_size > 0)
         {
             co[i].new_csums = (uint8_t*)malloc_or_die(bs->dsk.data_block_size / bs->dsk.csum_block_size * (bs->dsk.data_csum_type & 0xFF));
@@ -72,6 +73,7 @@ journal_flusher_co::~journal_flusher_co()
     }
     new_ext_bmp = NULL;
     punch_bmp = NULL;
+    zero_bmp = NULL;
     free_buffers();
 }
 
@@ -282,6 +284,11 @@ resume_1:
     fsynced_lsn = bs->heap->get_fsynced_lsn();
     bitmap_copied = false;
     memset(new_bmp, 0, bs->dsk.clean_entry_bitmap_size);
+    // <zero_bmp> tracks the ranges "punched" by newer zero writes: their internal
+    // bitmap bits must be cleared in the compacted entry unless an even newer
+    // small write set them again (entries are iterated from newest to oldest,
+    // so a bit is decided by the newest entry covering it)
+    memset(zero_bmp, 0, bs->dsk.clean_entry_bitmap_size);
     csum_copy.clear();
     compact_info = bs->heap->iterate_compaction(cur_obj, fsynced_lsn, flusher->force_start, [&](heap_entry_t *wr)
     {
@@ -290,7 +297,27 @@ resume_1:
             memcpy(new_ext_bmp, wr->get_ext_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
             bitmap_copied = true;
         }
-        bitmap_set(new_bmp, wr->small().offset, wr->small().len, bs->dsk.bitmap_granularity);
+        if (wr->is_zero_write())
+        {
+            // Remember zeroed bits not overwritten by newer small writes
+            for (uint32_t pos = wr->small().offset/bs->dsk.bitmap_granularity;
+                pos < (wr->small().offset+wr->small().len)/bs->dsk.bitmap_granularity; pos++)
+            {
+                if (!(new_bmp[pos>>3] & (1 << (pos & 7))))
+                    zero_bmp[pos>>3] |= (1 << (pos & 7));
+            }
+            // prepare_read() inserts a zero range which also prevents older
+            // small writes from claiming the same range in <read_vec>
+            bs->prepare_read(read_vec, cur_obj, wr, 0, bs->dsk.data_block_size, 0);
+            return;
+        }
+        // Set bits not zeroed by newer zero writes
+        for (uint32_t pos = wr->small().offset/bs->dsk.bitmap_granularity;
+            pos < (wr->small().offset+wr->small().len)/bs->dsk.bitmap_granularity; pos++)
+        {
+            if (!(zero_bmp[pos>>3] & (1 << (pos & 7))))
+                new_bmp[pos>>3] |= (1 << (pos & 7));
+        }
         if (bs->dsk.csum_block_size && bs->dsk.csum_block_size <= bs->dsk.bitmap_granularity)
         {
             csum_copy.push_back(wr);
@@ -357,7 +384,14 @@ resume_28:
                 compact_info.clean_wr->version, compact_info.compact_version,
                 compact_info.clean_wr->lsn, compact_info.compact_lsn, copy_count);
         }
-        mem_or(new_bmp, compact_info.clean_wr->get_int_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);
+        {
+            // Merge the base big_write bitmap, except the bits zeroed by newer zero writes
+            uint8_t *clean_int_bmp = compact_info.clean_wr->get_int_bitmap(bs->heap);
+            for (uint32_t b = 0; b < bs->dsk.clean_entry_bitmap_size; b++)
+            {
+                new_bmp[b] |= (clean_int_bmp[b] & ~zero_bmp[b]);
+            }
+        }
         if (!bitmap_copied)
         {
             memcpy(new_ext_bmp, compact_info.clean_wr->get_ext_bitmap(bs->heap), bs->dsk.clean_entry_bitmap_size);

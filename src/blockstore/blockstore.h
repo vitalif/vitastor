@@ -172,9 +172,20 @@ struct __attribute__ ((visibility("default"))) blockstore_op_t
     uint8_t *buf = NULL;
     uint8_t *bitmap = NULL;
     int64_t retval = 0;
+    // BS_WRITE_ZERO for writes; other bits are reserved
+    uint32_t flags = 0;
 
     uint8_t private_data[BS_OP_PRIVATE_DATA_SIZE];
 };
+
+// Flag for BS_OP_WRITE / BS_OP_WRITE_STABLE: a metadata-only "zero write".
+// <buf> must be NULL and <len> must be greater than 0. The resulting version reads
+// as zeroes in [offset, offset+len) without storing any data. The external bitmap
+// is applied from <bitmap> as with a normal write. Only supported when the
+// blockstore reports supports_zero_writes() and the object already exists,
+// -ENOTSUP is returned otherwise and the caller should fall back to a normal
+// write with a zero-filled buffer.
+#define BS_WRITE_ZERO 1
 
 typedef std::map<std::string, std::string> blockstore_config_t;
 
@@ -210,6 +221,9 @@ public:
 
     // Submission
     virtual void enqueue_op(blockstore_op_t *op) = 0;
+
+    // Returns true when writes with the BS_WRITE_ZERO flag are supported
+    virtual bool supports_zero_writes() { return false; }
 
     // Simplified synchronous operation: get object bitmap & current version
     virtual int read_bitmap(object_id oid, uint64_t target_version, void *bitmap, uint64_t *result_version = NULL) = 0;

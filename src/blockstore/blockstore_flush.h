@@ -49,6 +49,7 @@ class journal_flusher_co
     uint8_t *new_bmp = NULL;
     uint8_t *punch_bmp = NULL;
     uint8_t *new_ext_bmp = NULL;
+    uint8_t *zero_bmp = NULL;
 
     std::function<void(ring_data_t*)> simple_callback_r, simple_callback_w;
 

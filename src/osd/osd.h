@@ -214,6 +214,7 @@ class osd_t
     bool stopping = false;
     int inflight_ops = 0;
     blockstore_i *bs = NULL;
+    bool bs_supports_zero_writes = false;
     void *zero_buffer = NULL;
     uint64_t zero_buffer_size = 0;
     uint32_t bs_block_size, bs_bitmap_granularity, clean_entry_bitmap_size;

@@ -76,6 +76,21 @@ resume_1:
         op_data->object_state->ref_count++;
     }
 retry_1:
+    if (cur_op->req.rw.flags & OSD_RW_ZERO)
+    {
+        // Data-less zero write. The "fast path" (a metadata-only zero write on all
+        // replicas) is only possible for clean objects in replicated pools when the
+        // local blockstore supports zero writes. In all other cases (EC/XOR pools
+        // which need real data to calculate parity, degraded/misplaced objects,
+        // old-format blockstores) fall back to writing an actual zero-filled buffer
+        if (pg.scheme != POOL_SCHEME_REPLICATED || op_data->object_state || !bs_supports_zero_writes)
+        {
+            assert(!cur_op->buf);
+            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.rw.len);
+            memset(cur_op->buf, 0, cur_op->req.rw.len);
+            cur_op->req.rw.flags &= ~(OSD_RW_ZERO | OSD_RW_ZERO_PUNCH);
+        }
+    }
     if (pg.scheme == POOL_SCHEME_REPLICATED)
     {
         // Simplified algorithm
@@ -162,9 +177,23 @@ resume_3:
     }
     if (pg.scheme == POOL_SCHEME_REPLICATED)
     {
-        // Set bitmap bits
-        bitmap_set(op_data->stripes[0].bmp_buf, op_data->stripes[0].write_start,
-            op_data->stripes[0].write_end-op_data->stripes[0].write_start, bs_bitmap_granularity);
+        if ((cur_op->req.rw.flags & OSD_RW_ZERO) && !op_data->fact_ver)
+        {
+            // The object doesn't exist yet, so a metadata-only zero write is
+            // impossible - fall back to writing an actual zero-filled buffer
+            assert(!cur_op->buf);
+            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.rw.len);
+            memset(cur_op->buf, 0, cur_op->req.rw.len);
+            cur_op->req.rw.flags &= ~(OSD_RW_ZERO | OSD_RW_ZERO_PUNCH);
+            op_data->stripes[0].write_buf = cur_op->buf;
+        }
+        // Set bitmap bits (or clear them for TRIM-like "punching" zero writes)
+        if (cur_op->req.rw.flags & OSD_RW_ZERO_PUNCH)
+            bitmap_clear(op_data->stripes[0].bmp_buf, op_data->stripes[0].write_start,
+                op_data->stripes[0].write_end-op_data->stripes[0].write_start, bs_bitmap_granularity);
+        else
+            bitmap_set(op_data->stripes[0].bmp_buf, op_data->stripes[0].write_start,
+                op_data->stripes[0].write_end-op_data->stripes[0].write_start, bs_bitmap_granularity);
         // Possibly copy new data from the request into the recovery buffer
         if (pg.cur_set.data() != op_data->prev_set && (op_data->stripes[0].write_start != 0 ||
             op_data->stripes[0].write_end != bs_block_size))

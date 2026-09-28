@@ -174,6 +174,8 @@ int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t o
 void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
     osd_rmw_stripe_t *si, bool wr, inode_t inode, uint64_t op_version)
 {
+    // Data-less zero write (only reaches subops for clean objects in replicated pools)
+    bool zero_wr = wr && cur_op->req.hdr.opcode == OSD_OP_WRITE && (cur_op->req.rw.flags & OSD_RW_ZERO);
     uint32_t subop_len = wr
         ? si->write_end - si->write_start
         : si->read_end - si->read_start;
@@ -217,6 +219,10 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
             .buf = (uint8_t*)(wr ? si->write_buf : si->read_buf),
             .bitmap = (uint8_t*)subop->bitmap,
         });
+        if (zero_wr)
+        {
+            subop->bs_op->flags |= BS_WRITE_ZERO;
+        }
 #ifdef OSD_DEBUG
         printf(
             "Submit %s to local: %jx:%jx v%ju %u-%u bmp %08x\n", wr ? "write" : "read",
@@ -242,7 +248,8 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
             .offset = wr ? si->write_start : si->read_start,
             .len = subop_len,
             .attr_len = !wr || subop_len ? clean_entry_bitmap_size : 0,
-            .flags = cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0,
+            .flags = (cur_op->client_id == SELF_CLIENT && cur_op->req.hdr.opcode != OSD_OP_SCRUB ? OSD_OP_RECOVERY_RELATED : 0) |
+                (zero_wr ? OSD_RW_ZERO : 0),
         };
 #ifdef OSD_DEBUG
         printf(
@@ -253,7 +260,7 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
 #endif
         if (wr)
         {
-            if (si->write_end > si->write_start)
+            if (!zero_wr && si->write_end > si->write_start)
             {
                 subop->iov.push_back(si->write_buf, si->write_end - si->write_start);
             }

@@ -749,20 +749,22 @@ bool osd_messenger_t::allocate_op_buffers(osd_client_t *cl)
             else
                 cur_op->bitmap = &cur_op->bmp_data;
         }
-        if (cur_op->req.sec_rw.len > 0)
+        // Zero writes (OSD_RW_ZERO) carry no data payload
+        uint32_t sec_data_len = (cur_op->req.sec_rw.flags & OSD_RW_ZERO) ? 0 : cur_op->req.sec_rw.len;
+        if (sec_data_len > 0)
         {
-            if (cur_op->req.sec_rw.len > bs_block_size)
+            if (sec_data_len > bs_block_size)
             {
                 if (log_level > 1)
                 {
                     fprintf(stderr, "Error: peer %ju secondary write request size too large (%u > %u bytes), stopping\n", cl->client_id,
-                        cur_op->req.sec_rw.len, bs_block_size);
+                        sec_data_len, bs_block_size);
                 }
                 return false;
             }
-            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
+            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, sec_data_len);
         }
-        cl->read_op_size = cur_op->req.sec_rw.len + cur_op->req.sec_rw.attr_len;
+        cl->read_op_size = sec_data_len + cur_op->req.sec_rw.attr_len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SEC_STABILIZE ||
         cur_op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK)
@@ -801,20 +803,22 @@ bool osd_messenger_t::allocate_op_buffers(osd_client_t *cl)
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_WRITE)
     {
-        if (cur_op->req.rw.len > 0)
+        // Zero writes (OSD_RW_ZERO) carry no data payload
+        uint32_t rw_data_len = (cur_op->req.rw.flags & OSD_RW_ZERO) ? 0 : cur_op->req.rw.len;
+        if (rw_data_len > 0)
         {
-            if (cur_op->req.rw.len > max_write_request_size)
+            if (rw_data_len > max_write_request_size)
             {
                 if (log_level > 1)
                 {
                     fprintf(stderr, "Error: peer %ju write request size too large (%u > %u bytes), stopping\n", cl->client_id,
-                        cur_op->req.rw.len, max_write_request_size);
+                        rw_data_len, max_write_request_size);
                 }
                 return false;
             }
-            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.rw.len);
+            cur_op->buf = memalign_or_die(MEM_ALIGNMENT, rw_data_len);
         }
-        cl->read_op_size = cur_op->req.rw.len;
+        cl->read_op_size = rw_data_len;
     }
     else if (cur_op->req.hdr.opcode == OSD_OP_SHOW_CONFIG)
     {

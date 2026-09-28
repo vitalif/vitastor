@@ -186,6 +186,29 @@ void osd_t::exec_secondary_real(osd_op_t *cur_op)
             if (cur_op->req.sec_rw.len > 0)
                 cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
         }
+        if ((cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE || cur_op->req.hdr.opcode == OSD_OP_SEC_WRITE_STABLE) &&
+            (cur_op->req.sec_rw.flags & OSD_RW_ZERO))
+        {
+            // Data-less zero write. The blockstore can only apply it as a metadata-only
+            // operation when it supports zero writes and the object already exists,
+            // otherwise fall back to writing an actual zero-filled buffer
+            bool zero_ok = bs->supports_zero_writes() && cur_op->req.sec_rw.len > 0;
+            if (zero_ok)
+            {
+                std::vector<uint8_t> tmp_bmp(clean_entry_bitmap_size);
+                zero_ok = bs->read_bitmap(cur_op->req.sec_rw.oid, UINT64_MAX, tmp_bmp.data(), NULL) == 0;
+            }
+            if (zero_ok)
+            {
+                cur_op->bs_op->flags |= BS_WRITE_ZERO;
+            }
+            else if (cur_op->req.sec_rw.len > 0)
+            {
+                assert(!cur_op->buf);
+                cur_op->buf = memalign_or_die(MEM_ALIGNMENT, cur_op->req.sec_rw.len);
+                memset(cur_op->buf, 0, cur_op->req.sec_rw.len);
+            }
+        }
         cur_op->bs_op->oid = cur_op->req.sec_rw.oid;
         cur_op->bs_op->version = cur_op->req.sec_rw.version;
         cur_op->bs_op->offset = cur_op->req.sec_rw.offset;
@@ -371,7 +394,7 @@ void osd_t::exec_show_config(osd_op_t *cur_op)
     {
         cl->check_sequencing = true;
     }
-    auto features = json11::Json::object{ { "pg_locks", true } };
+    auto features = json11::Json::object{ { "pg_locks", true }, { "zero_writes", true } };
     if (msgr.use_proto_checksums)
     {
         auto peer_csums = req_json["features"]["proto_checksums"].uint64_value();
