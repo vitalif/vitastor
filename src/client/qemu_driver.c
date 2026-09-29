@@ -1160,7 +1160,7 @@ static void vitastor_co_read_bitmap_cb(void *opaque, long retval, uint8_t *bitma
 }
 
 static int coroutine_fn vitastor_co_block_status(BlockDriverState *bs,
-#if QEMU_VERSION_MAJOR > 10 || QEMU_VERSION_MAJOR == 10 && QEMU_VERSION_MINOR >= 1
+#if QEMU_VERSION_MAJOR > 10 || QEMU_VERSION_MAJOR == 10 && QEMU_VERSION_MINOR >= 1 || defined BDRV_WANT_PRECISE
     unsigned int mode,
 #else
     bool want_zero,
@@ -1171,7 +1171,7 @@ static int coroutine_fn vitastor_co_block_status(BlockDriverState *bs,
     // Not allocated => return 0
     // Error => return -errno
     // Set pnum to length of the extent, `*map` = `offset`, `*file` = `bs`
-#if QEMU_VERSION_MAJOR > 10 || QEMU_VERSION_MAJOR == 10 && QEMU_VERSION_MINOR >= 1
+#if QEMU_VERSION_MAJOR > 10 || QEMU_VERSION_MAJOR == 10 && QEMU_VERSION_MINOR >= 1 || defined BDRV_WANT_PRECISE
     int want_zero = (mode == BDRV_WANT_PRECISE);
 #endif
     VitastorRPC task;
