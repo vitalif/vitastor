@@ -205,6 +205,8 @@ bool msgr_handshake_ctx_t::init(const std::string & pem_cert, const std::string 
         return on_error("EVP_KDF_fetch: ");
     kdf_ctx = EVP_KDF_CTX_new(kdf);
     EVP_KDF_free(kdf);
+    if (!kdf_ctx)
+        return on_error("EVP_KDF_CTX_new: ");
     return true;
 }
 
@@ -408,14 +410,20 @@ bool msgr_handshake_t::verify(const uint8_t *signature, size_t signature_len)
     if (EVP_DigestVerifyUpdate(md_ctx.get(), full_handshake.data(), full_handshake.size()) <= 0)
         return on_error("EVP_DigestVerifyUpdate: ");
     if (EVP_DigestVerifyFinal(md_ctx.get(), signature, signature_len) <= 0)
+    {
+        // Clear errors of the invalid signature, otherwise the next on_error() would report them
+        ERR_clear_error();
+        error = "Handshake signature verification failed";
+        state = MSGR_HS_ERROR;
         return false;
+    }
     return true;
 }
 
 bool msgr_handshake_t::encrypt(const uint8_t* src, size_t len, uint8_t* dest)
 {
     std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)> enc_ctx(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free);
-    if (!ctx)
+    if (!enc_ctx)
         return on_error("EVP_CIPHER_CTX_new: ");
     if (EVP_EncryptInit_ex(enc_ctx.get(), EVP_aes_256_gcm(), NULL, hs_key.data(), hs_key.data() + AES_256_GCM_KEY_SIZE) <= 0)
         return on_error("EVP_EncryptInit AES-256-GCM: ");
@@ -441,7 +449,7 @@ bool msgr_handshake_t::decrypt(const uint8_t *src, size_t & len, uint8_t* dest)
         return false;
     }
     std::unique_ptr<EVP_CIPHER_CTX, decltype(&EVP_CIPHER_CTX_free)> dec_ctx(EVP_CIPHER_CTX_new(), EVP_CIPHER_CTX_free);
-    if (!ctx)
+    if (!dec_ctx)
         return on_error("EVP_CIPHER_CTX_new: ");
     if (EVP_DecryptInit_ex(dec_ctx.get(), EVP_aes_256_gcm(), NULL, peer_hs_key.data(), peer_hs_key.data() + AES_256_GCM_KEY_SIZE) <= 0)
         return on_error("EVP_DecryptInit AES-256-GCM: ");
