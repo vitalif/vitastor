@@ -99,6 +99,12 @@ struct osd_pg_lock_t
     uint64_t state = 0;
 };
 
+struct osd_stab_ref_t
+{
+    uint32_t refs = 0;
+    osd_op_t *waiting_op = NULL;
+};
+
 struct osd_test_fixture_t;
 
 class osd_t
@@ -211,6 +217,13 @@ class osd_t
     uint64_t unstable_write_count = 0;
     std::map<osd_object_id_t, uint64_t> unstable_writes;
     std::deque<osd_op_t*> syncs_in_progress;
+    std::vector<osd_op_t*> delete_wakeups;
+    // Objects covered by stabilize snapshots of SYNCs that are already dispatched, with a
+    // refcount. A delete of a covered object waits until the SYNC finishes
+    robin_hood::unordered_map<object_id, osd_stab_ref_t> stabilize_refs;
+    void add_stabilize_refs(obj_ver_id *unstable_writes, int count);
+    void remove_stabilize_refs(obj_ver_id *unstable_writes, int count);
+    bool delete_purge_unstable(osd_op_t *cur_op);
 
     // client & peer I/O
 

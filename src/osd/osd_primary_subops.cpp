@@ -556,7 +556,14 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, osd_num_t *cur_set, uint
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     bool rep = op_data->pg->scheme == POOL_SCHEME_REPLICATED;
-    obj_ver_osd_t extra_chunks[loc_set.size()];
+    // A primary delete (cur_set == NULL) also has to clear copies the object state
+    // doesn't know about: peering drops copies of a *current* role owner that lag
+    // behind target, so they are invisible to object_state, never deleted, and they
+    // resurrect old bytes under a recreated object (blockstore read-merge walks every
+    // version below the newest one).  Deleting from every live member is safe: a
+    // delete of an absent copy is a 0 no-op.
+    int n_extra_roles = cur_set || !op_data->pg ? 0 : op_data->pg->pg_size;
+    obj_ver_osd_t extra_chunks[loc_set.size() + (size_t)n_extra_roles];
     int chunks_to_del = 0;
     for (auto & chunk: loc_set)
     {
@@ -574,6 +581,38 @@ void osd_t::submit_primary_del_subops(osd_op_t *cur_op, osd_num_t *cur_set, uint
                 // Same version as write
                 .version = op_data->fact_ver,
             };
+        }
+    }
+    if (!cur_set && op_data->pg)
+    {
+        pg_t & pg = *op_data->pg;
+        for (int role = 0; role < (int)pg.cur_set.size(); role++)
+        {
+            if (pg.cur_set[role] == 0)
+            {
+                continue;
+            }
+            object_id role_oid = {
+                .inode = op_data->oid.inode,
+                .stripe = op_data->oid.stripe | (rep ? 0 : (uint64_t)role),
+            };
+            int j;
+            for (j = 0; j < chunks_to_del; j++)
+            {
+                if (extra_chunks[j].osd_num == pg.cur_set[role] &&
+                    extra_chunks[j].oid == role_oid)
+                {
+                    break;
+                }
+            }
+            if (j >= chunks_to_del)
+            {
+                extra_chunks[chunks_to_del++] = (obj_ver_osd_t){
+                    .osd_num = pg.cur_set[role],
+                    .oid = role_oid,
+                    .version = op_data->fact_ver,
+                };
+            }
         }
     }
     submit_primary_del_batch(cur_op, extra_chunks, chunks_to_del);

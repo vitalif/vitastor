@@ -406,6 +406,17 @@ struct osd_test_fixture_t
         }
     }
 
+    bool peer_has_sent_op(osd_num_t osd_num, uint64_t opcode)
+    {
+        auto *cl = osd->msgr.osd_peers.at(osd_num);
+        for (auto & kv: cl->sent_ops)
+        {
+            if (kv.second->req.hdr.opcode == opcode)
+                return true;
+        }
+        return false;
+    }
+
     bool has_pg(pool_id_t pool, pg_num_t num)
     {
         return osd->pgs.count({ .pool_id = pool, .pg_num = num }) > 0;
@@ -426,14 +437,30 @@ struct osd_test_fixture_t
         return osd->syncs_in_progress.size();
     }
 
-    bool peer_has_sent_op(osd_num_t osd_num, uint64_t opcode)
+    size_t unstable_write_count_entries()
     {
-        auto *cl = osd->msgr.osd_peers.at(osd_num);
-        for (auto & kv: cl->sent_ops)
+        return osd->unstable_writes.size();
+    }
+
+    size_t stabilize_ref_count()
+    {
+        return osd->stabilize_refs.size();
+    }
+
+    uint32_t stabilize_ref_of(const object_id & oid)
+    {
+        auto it = osd->stabilize_refs.find(oid);
+        return it == osd->stabilize_refs.end() ? 0 : it->second.refs;
+    }
+
+    size_t dels_awaiting_sync_count()
+    {
+        size_t n = 0;
+        for (auto & ref: osd->stabilize_refs)
         {
-            if (kv.second->req.hdr.opcode == opcode)
-                return true;
+            if (ref.second.waiting_op)
+                n++;
         }
-        return false;
+        return n;
     }
 };

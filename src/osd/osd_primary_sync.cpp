@@ -155,6 +155,8 @@ resume_2:
                 .oid = it->first.oid,
                 .version = it->second,
             };
+            // Deletes of these objects must wait while this snapshot is in flight
+            add_stabilize_refs(&(op_data->unstable_writes[last_end]), 1);
             last_end++;
         }
         if (last_osd != 0)
@@ -303,6 +305,11 @@ finish:
     }
     if (op_data->unstable_writes)
     {
+        // Releases the delete waits held by this snapshot
+        for (auto & run: *(op_data->unstable_write_osds))
+        {
+            remove_stabilize_refs(op_data->unstable_writes + run.start, run.len);
+        }
         delete op_data->unstable_write_osds;
         delete[] op_data->unstable_writes;
         op_data->unstable_writes = NULL;
@@ -316,6 +323,12 @@ finish:
     finish_op(cur_op, op_data->errcode);
     assert(syncs_in_progress.front() == cur_op);
     syncs_in_progress.pop_front();
+    std::vector<osd_op_t*> delete_wakeups_local;
+    delete_wakeups_local.swap(delete_wakeups);
+    for (osd_op_t *op: delete_wakeups_local)
+    {
+        continue_primary_del(op);
+    }
     if (syncs_in_progress.size() > 0)
     {
         cur_op = syncs_in_progress.front();

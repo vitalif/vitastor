@@ -2741,6 +2741,235 @@ void test_pg_epoch_bump_above_reported_epoch()
     printf("test_pg_epoch_bump_above_reported_epoch passed\n");
 }
 
+// A dispatched SYNC holds its stabilize snapshot; a delete of a covered object must
+// wait after its fact read while the snapshot is in flight (SEC_STABILIZE of a version
+// the delete removes would answer -ENOENT) and must resume when the SYNC finishes.
+// Replicated pools have no unstable versions, so this is an EC-only race
+void test_delete_waits_for_stabilize_snapshot()
+{
+    printf("test_delete_waits_for_stabilize_snapshot\n");
+
+    osd_test_fixture_t f;
+    // EC 2+1, single PG on OSDs 1,2,3, OSD 1 is the primary
+    f.configure_ec_pool(/*data_chunks*/ 2, /*parity_chunks*/ 1, /*primary_osd*/ 1);
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.connect_peer(3);
+    f.complete_peering_empty();
+    assert(f.pg(1, 1).state == PG_ACTIVE);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    uint64_t client_id = f.connect_client();
+
+    // One full-stripe lazy write: v1 is unstable on all three members
+    auto *wr = make_write_op(inode, 0, 256*1024, 0xab);
+    wr->client_id = client_id;
+    wr->req.hdr.id = 1;
+    f.exec(wr);
+    f.bs_zero_read_ok(0);
+    f.bs_write_ok(BS_OP_WRITE, 1);
+    {
+        auto *pw2 = f.peer_take(2, OSD_OP_SEC_WRITE);
+        pw2->reply.sec_rw.version = 1;
+        f.peer_complete(pw2, pw2->req.sec_rw.len);
+        auto *pw3 = f.peer_take(3, OSD_OP_SEC_WRITE);
+        pw3->reply.sec_rw.version = 1;
+        f.peer_complete(pw3, pw3->req.sec_rw.len);
+    }
+    assert(f.unstable_write_count_entries() == 3);
+
+    // Dispatch a SYNC; it takes its snapshot and waits for subop replies
+    auto *sync = new osd_op_t();
+    sync->op_type = OSD_OP_IN;
+    sync->client_id = client_id;
+    sync->req.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    sync->req.hdr.id = 43;
+    sync->req.hdr.opcode = OSD_OP_SYNC;
+    f.exec(sync);
+    // The snapshot covers the object's base stripe with all three role copies
+    assert(f.stabilize_ref_count() == 1);
+    assert(f.stabilize_ref_of((object_id){ .inode = inode, .stripe = 0 }) == 3);
+    assert(f.unstable_write_count_entries() == 0);
+
+    // The delete dispatches its fact read at once, but must park after the read is
+    // answered: purge+wait sit between the CAS check and the SEC_DELETE dispatch
+    int delete_retval = -1;
+    auto *del = new osd_op_t();
+    del->op_type = OSD_OP_IN;
+    del->client_id = 0;
+    del->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    del->req.rw.header.id = 2;
+    del->req.rw.header.opcode = OSD_OP_DELETE;
+    del->req.rw.inode = inode;
+    del->req.rw.offset = 0;
+    del->req.rw.len = 0;
+    del->callback = [&delete_retval](osd_op_t *op) { delete_retval = op->reply.hdr.retval; };
+    f.exec(del);
+    f.pump();   // flush handle_peers so the assertions below are meaningful
+    assert(delete_retval == -1);
+    assert(f.pg(1, 1).write_queue.size() == 1);
+    // The fact read is in flight, no delete went anywhere yet
+    // (the SYNC's own local BS_OP_SYNC and peer SEC_SYNCs are still pending, of course)
+    assert(f.bs->take(BS_OP_DELETE, false) == NULL);
+    assert(!f.peer_has_sent_op(2, OSD_OP_SEC_DELETE) && !f.peer_has_sent_op(3, OSD_OP_SEC_DELETE));
+    // Answer the local fact read: v1 (the peer SEC_READs are answered by the mock)
+    f.bs_zero_read_ok(1);
+    assert(f.dels_awaiting_sync_count() == 1);
+    assert(f.bs->take(BS_OP_DELETE, false) == NULL);
+    assert(!f.peer_has_sent_op(2, OSD_OP_SEC_DELETE) && !f.peer_has_sent_op(3, OSD_OP_SEC_DELETE));
+
+    // Finish the SYNC: SYNC subops, then STABILIZE subops
+    {
+        auto *local = f.bs->take(BS_OP_SYNC);
+        local->retval = 0;
+        local->callback(local);
+        for (osd_num_t p = 2; p <= 3; p++)
+        {
+            auto *ps = f.peer_take(p, OSD_OP_SEC_SYNC);
+            f.peer_complete(ps, 0);
+        }
+        auto *local_st = f.bs->take(BS_OP_STABLE);
+        local_st->retval = 0;
+        local_st->callback(local_st);
+        for (osd_num_t p = 2; p <= 3; p++)
+        {
+            auto *pst = f.peer_take(p, OSD_OP_SEC_STABILIZE);
+            f.peer_complete(pst, 0);
+        }
+    }
+    assert(sync->reply.hdr.retval == 0);
+    // The snapshot released its refs and woke the waiting delete, which dispatched
+    // its deletes now that no snapshot covers the object
+    assert(f.stabilize_ref_count() == 0);
+    assert(f.dels_awaiting_sync_count() == 0);
+    assert(delete_retval == -1);
+    {
+        auto *bd = f.bs->take(BS_OP_DELETE);
+        bd->version = 2;
+        bd->retval = 0;
+        bd->callback(bd);
+        f.peer_write_ok(2, OSD_OP_SEC_DELETE, 2);
+        f.peer_write_ok(3, OSD_OP_SEC_DELETE, 2);
+    }
+    assert(delete_retval == 0);
+    delete del;
+}
+
+// A delete must only wait for objects that are actually covered: a fresh unstable
+// object written after the SYNC took its snapshot must delete without waiting
+void test_delete_waits_only_for_covered_objects()
+{
+    printf("test_delete_waits_only_for_covered_objects\n");
+
+    osd_test_fixture_t f;
+    f.configure_ec_pool(/*data_chunks*/ 2, /*parity_chunks*/ 1, /*primary_osd*/ 1);
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.connect_peer(3);
+    f.complete_peering_empty();
+    assert(f.pg(1, 1).state == PG_ACTIVE);
+
+    uint64_t client_id = f.connect_client();
+    uint64_t op_id = 1;
+    auto ec_write = [&](inode_t inode)
+    {
+        auto *wr = make_write_op(inode, 0, 256*1024, 0xab);
+        wr->client_id = client_id;
+        wr->req.hdr.id = ++op_id;
+        f.exec(wr);
+        f.bs_zero_read_ok(0);
+        f.bs_write_ok(BS_OP_WRITE, 1);
+        for (osd_num_t p = 2; p <= 3; p++)
+        {
+            auto *pw = f.peer_take(p, OSD_OP_SEC_WRITE);
+            pw->reply.sec_rw.version = 1;
+            f.peer_complete(pw, pw->req.sec_rw.len);
+        }
+    };
+    ec_write(INODE_WITH_POOL(1, 1));
+    assert(f.unstable_write_count_entries() == 3);
+
+    auto *sync = new osd_op_t();
+    sync->op_type = OSD_OP_IN;
+    sync->client_id = client_id;
+    sync->req.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    sync->req.hdr.id = ++op_id;
+    sync->req.hdr.opcode = OSD_OP_SYNC;
+    f.exec(sync);
+    assert(f.stabilize_ref_count() == 1);
+
+    // A new write while the SYNC is in flight - its version isn't in the snapshot
+    ec_write(INODE_WITH_POOL(1, 2));
+    assert(f.unstable_write_count_entries() == 3);
+
+    // Delete of the fresh object must not wait: purge removes its entries, refs don't cover it
+    int delete_retval = -1;
+    auto *del = new osd_op_t();
+    del->op_type = OSD_OP_IN;
+    del->client_id = 0;
+    del->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    del->req.rw.header.id = ++op_id;
+    del->req.rw.header.opcode = OSD_OP_DELETE;
+    del->req.rw.inode = INODE_WITH_POOL(1, 2);
+    del->req.rw.offset = 0;
+    del->req.rw.len = 0;
+    del->callback = [&delete_retval](osd_op_t *op) { delete_retval = op->reply.hdr.retval; };
+    f.exec(del);
+    f.pump();
+    // It wasn't blocked: answer the local fact read and it moves on with no wait
+    // record (the peer SEC_READs are answered by the mock)
+    f.bs_zero_read_ok(1);
+    assert(f.dels_awaiting_sync_count() == 0);
+    // Its unstable entries were purged and, unlike a covered delete, it moved on
+    assert(f.unstable_write_count_entries() == 0);
+    {
+        auto *bd = f.bs->take(BS_OP_DELETE);
+        bd->version = 2;
+        bd->retval = 0;
+        bd->callback(bd);
+        f.peer_write_ok(2, OSD_OP_SEC_DELETE, 2);
+        f.peer_write_ok(3, OSD_OP_SEC_DELETE, 2);
+    }
+    assert(delete_retval == 0);
+    delete del;
+
+    // Finish the SYNC - it stabilizes only the first object
+    {
+        auto *local = f.bs->take(BS_OP_SYNC);
+        local->retval = 0;
+        local->callback(local);
+        for (osd_num_t p = 2; p <= 3; p++)
+        {
+            auto *ps = f.peer_take(p, OSD_OP_SEC_SYNC);
+            f.peer_complete(ps, 0);
+        }
+        auto *local_st = f.bs->take(BS_OP_STABLE);
+        local_st->retval = 0;
+        local_st->callback(local_st);
+        for (osd_num_t p = 2; p <= 3; p++)
+        {
+            auto *pst = f.peer_take(p, OSD_OP_SEC_STABILIZE);
+            f.peer_complete(pst, 0);
+        }
+    }
+    assert(sync->reply.hdr.retval == 0);
+    assert(f.stabilize_ref_count() == 0);
+
+    printf("test_delete_waits_only_for_covered_objects passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -2773,5 +3002,7 @@ int main(int narg, char *args[])
     test_pg_epoch_base_is_reported_epoch();
     test_pg_epoch_bump_above_reported_epoch();
     test_chained_read_large_chain_info();
+    test_delete_waits_for_stabilize_snapshot();
+    test_delete_waits_only_for_covered_objects();
     return 0;
 }

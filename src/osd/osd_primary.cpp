@@ -809,6 +809,75 @@ void osd_t::deref_object_state(pg_t & pg, pg_osd_set_state_t **object_state, boo
     }
 }
 
+// A SYNC counts every entry of its stabilize snapshot so that deletes of those objects
+// wait while it's in flight; counts are removed when it finishes. Entries are keyed by
+// object with role bits stripped, so a count is just bumped per entry and released per
+// entry over the same array
+void osd_t::add_stabilize_refs(obj_ver_id *unstable_writes, int count)
+{
+    for (int i = 0; i < count; i++)
+    {
+        stabilize_refs[(object_id){
+            .inode = unstable_writes[i].oid.inode,
+            .stripe = unstable_writes[i].oid.stripe & ~STRIPE_MASK,
+        }].refs++;
+    }
+}
+
+void osd_t::remove_stabilize_refs(obj_ver_id *unstable_writes, int count)
+{
+    for (int i = 0; i < count; i++)
+    {
+        auto it = stabilize_refs.find((object_id){
+            .inode = unstable_writes[i].oid.inode,
+            .stripe = unstable_writes[i].oid.stripe & ~STRIPE_MASK,
+        });
+        assert(it != stabilize_refs.end());
+        if (--it->second.refs == 0)
+        {
+            if (it->second.waiting_op)
+                delete_wakeups.push_back(it->second.waiting_op);
+            stabilize_refs.erase(it);
+        }
+    }
+}
+
+// Delete supersedes the whole version chain below it. Forget the object in the global
+// unstable write set, then wait while some dispatched SYNC still has it in its snapshot.
+// Forgotten entries are not restored on a failed delete: failures repeer the PG.
+bool osd_t::delete_purge_unstable(osd_op_t *cur_op)
+{
+    osd_primary_op_data_t *op_data = cur_op->op_data;
+    uint64_t base_stripe = op_data->oid.stripe & ~STRIPE_MASK;
+    // A delete can't be the head of the write queue without a PG
+    pg_t & pg = *op_data->pg;
+    for (auto & chunk: pg.cur_loc_set)
+    {
+        object_id chunk_oid = {
+            .inode = op_data->oid.inode,
+            .stripe = base_stripe | (pg.scheme != POOL_SCHEME_REPLICATED ? (uint64_t)chunk.role : 0),
+        };
+        auto it = unstable_writes.find((osd_object_id_t){ .osd_num = chunk.osd_num, .oid = chunk_oid });
+        if (it == unstable_writes.end())
+            continue;
+        unstable_writes.erase(it);
+    }
+    object_id ref_key = {
+        .inode = op_data->oid.inode,
+        .stripe = op_data->oid.stripe & ~STRIPE_MASK,
+    };
+    auto stab_it = stabilize_refs.find(ref_key);
+    if (stab_it != stabilize_refs.end())
+    {
+        // A SYNC may be about to stabilize this object (SEC_STABILIZE can be requeued by the
+        // blockstore on EBUSY and overtake SEC_DELETE), so wait until the object leaves the
+        // snapshot. Deletes are serialized in write_queue, the wait is bounded
+        stab_it->second.waiting_op = cur_op;
+        return false;
+    }
+    return true;
+}
+
 void osd_t::continue_primary_del(osd_op_t *cur_op)
 {
     if (!cur_op->op_data && !prepare_primary_rw(cur_op))
@@ -873,8 +942,15 @@ resume_3:
     // If not already deleted:
     if (op_data->fact_ver)
     {
-        // Save version override for parallel reads
-        pg.ver_override[op_data->oid] = op_data->fact_ver;
+        // Forget unstable writes of this object so that no next SYNC picks them up,
+        // then wait while some running SYNC still has the object in its stabilize
+        // snapshot. Purge and wait must stay atomic and must precede the SEC_DELETE
+        // dispatch: a SEC_STABILIZE requeued by the blockstore on EBUSY could
+        // otherwise overtake the delete and stabilize a version it removes
+        if (!delete_purge_unstable(cur_op))
+        {
+            return;
+        }
         // Submit deletes
         op_data->fact_ver++;
         submit_primary_del_subops(cur_op, NULL, 0, op_data->object_state ? op_data->object_state->osd_set : pg.cur_loc_set);
