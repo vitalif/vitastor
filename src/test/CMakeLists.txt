@@ -88,3 +88,9 @@ add_test(NAME test_blockstore_chaos COMMAND test_blockstore_chaos)
 # test_atomic
 add_executable(test_atomic test_atomic.cpp)
 target_link_libraries(test_atomic util)
+
+# test_msgr_kdf
+add_executable(test_msgr_kdf EXCLUDE_FROM_ALL test_msgr_kdf.cpp)
+target_link_libraries(test_msgr_kdf vitastor_common)
+add_dependencies(build_tests test_msgr_kdf)
+add_test(NAME test_msgr_kdf COMMAND test_msgr_kdf)

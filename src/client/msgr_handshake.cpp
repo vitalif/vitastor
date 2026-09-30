@@ -245,6 +245,9 @@ bool msgr_handshake_ctx_t::on_error(const std::string & prefix)
 bool msgr_handshake_ctx_t::derive_kdf(const uint8_t* insecret, size_t insecret_len,
     const uint8_t* salt, size_t salt_len, const char *label, uint8_t *outsecret, size_t outsize)
 {
+    // Some OpenSSL versions (for example 3.0.13, 3.3.3, 3.5.0) ignore empty salt,
+    // so without reset the salt from the previous call (key rotation) would be used
+    EVP_KDF_CTX_reset(kdf_ctx);
     OSSL_PARAM params[5];
     int n = 0;
     params[n++] = OSSL_PARAM_construct_utf8_string("digest", (char*)"sha384", (size_t)7);
