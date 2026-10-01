@@ -2156,6 +2156,193 @@ void test_repeated_partial_write_unmarks_outdated()
     printf("test_repeated_partial_write_unmarks_outdated passed\n");
 }
 
+// A partially failed write to a misplaced object must record the OSDs that
+// took the new version, even if the object wasn't on them before.
+//
+// Layout: pool 1, replicated x3, PG target set 1, 2, 3, primary = OSD 1 (us).
+// The object is still on OSD 1, 2 and 4 from the previous set, so the write
+// goes to OSD 1, 2 and 3, and OSD 3 isn't in the object's location set yet.
+void test_partial_write_to_misplaced_object()
+{
+    printf("test_partial_write_to_misplaced_object\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 3, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2, 3 } });
+    // OSD 4 is in the PG history, so peering lists it, too
+    f.st_cli->set("/vitastor/pg/history/1/1", json11::Json::object {
+        { "osd_sets", json11::Json::array {
+            json11::Json::array{ 1, 2, 4 },
+        } },
+    });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+        // Don't let rebalance move the object before the test writes to it
+        { "no_rebalance", true },
+        { "no_recovery", true },
+    });
+    f.connect_peer(2);
+    f.connect_peer(3);
+    f.connect_peer(4);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    object_id oid = { .inode = inode, .stripe = 0 };
+
+    // v1 is on OSD 1, 2 and 4, OSD 3 doesn't have the object yet
+    f.reply_local_list({ { oid, 1 } }, 1);
+    f.reply_peer_list(2, { { oid, 1 } }, 1);
+    f.reply_peer_list(3, {}, 0);
+    f.reply_peer_list(4, { { oid, 1 } }, 1);
+    f.pump();
+    assert(f.pg(1, 1).state == (PG_ACTIVE|PG_HAS_MISPLACED));
+    assert(f.pg(1, 1).misplaced_objects.count(oid));
+
+    // Does the object's location set have a current copy on <osd_num>?
+    auto current_on = [&](osd_num_t osd_num)
+    {
+        auto *st = find_object_state(f.pg(1, 1), oid);
+        assert(st);
+        for (auto & chunk: st->osd_set)
+            if (chunk.osd_num == osd_num)
+                return !(chunk.loc_bad & LOC_OUTDATED);
+        return false;
+    };
+
+    // ============ WRITE — ENOSPC on OSD 1 and 2, OK on OSD 3 ============
+
+    // Full-block write, so there's no read-modify-write
+    auto *write = make_write_op(inode, 0, 131072, 0xab);
+    int write_retval = -1;
+    write->callback = [&write_retval](osd_op_t *op) { write_retval = op->reply.hdr.retval; };
+    f.exec(write);
+
+    // Zero-length read resolving the object version
+    f.bs_zero_read_ok(1);
+
+    // The write goes to the target set, not to OSD 4
+    auto *local_w = f.bs->take(BS_OP_WRITE_STABLE);
+    // The new version includes the PG epoch, which the PG history has bumped
+    uint64_t new_ver = local_w->version;
+    assert(new_ver > 1);
+    local_w->retval = -ENOSPC;
+    local_w->callback(local_w);
+    f.peer_complete(f.peer_take(2, OSD_OP_SEC_WRITE_STABLE), -ENOSPC);
+    f.peer_write_ok(3, OSD_OP_SEC_WRITE_STABLE, new_ver);
+    assert(f.peer(4)->sent_ops.empty());
+    assert(write_retval == -ENOSPC);
+
+    // THE KEY ASSERTION — OSD 3 has the new version, so it's a current copy.
+    // Otherwise no current copy is left and the object becomes incomplete.
+    if (!current_on(3))
+        printf("BUG: OSD 3 took the new version, but isn't recorded as a current copy\n");
+    assert(current_on(3));
+    assert(!current_on(1));
+    assert(!current_on(2));
+    assert(!current_on(4));
+    assert(!(f.pg(1, 1).state & PG_HAS_INCOMPLETE));
+
+    // ============ READ — served by OSD 3 instead of failing with EIO ============
+
+    auto *read = make_self_rw(OSD_OP_READ, inode, 0, 4096);
+    int read_retval = -1;
+    read->callback = [&read_retval](osd_op_t *op) { read_retval = op->reply.hdr.retval; };
+    f.exec(read);
+    assert(read_retval == -1);
+    auto *peer3_read = f.peer_take(3, OSD_OP_SEC_READ);
+    assert(peer3_read->req.sec_rw.len == 4096);
+    peer3_read->reply.sec_rw.version = new_ver;
+    f.peer_complete(peer3_read, 4096);
+    assert(read_retval == 4096);
+
+    assert(f.pg(1, 1).inflight == 0);
+    assert(f.pg(1, 1).write_queue.empty());
+
+    delete read;
+    delete write;
+    printf("test_partial_write_to_misplaced_object passed\n");
+}
+
+// Regression test: continue_primary_write() ignored the object state returned by
+// mark_partial_write(). It leaked a reference to the new state and released the old
+// state twice, which is a use-after-free when mark_object() has already freed it
+void test_partial_write_object_state_refs()
+{
+    printf("test_partial_write_object_state_refs\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 3, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2, 3 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+        { "no_recovery", true },
+    });
+    f.connect_peer(2);
+    f.connect_peer(3);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    object_id oid = { .inode = inode, .stripe = 0 };
+
+    // OSD 1 and 2 have the object, OSD 3 doesn't -> degraded after peering
+    f.reply_local_list({ { oid, 1 } }, 1);
+    f.reply_peer_list(2, { { oid, 1 } }, 1);
+    f.reply_peer_list(3, {}, 0);
+    f.ringloop->loop();
+    assert(f.pg(1, 1).state == (PG_ACTIVE|PG_HAS_DEGRADED));
+    auto *st = find_object_state(f.pg(1, 1), oid);
+    assert(st && st->object_count == 1 && st->ref_count == 0);
+
+    // ENOSPC locally, OK on OSD 2 and 3
+    auto *write = make_write_op(inode, 0, 131072, 0xcd);
+    int retval = -1;
+    write->callback = [&retval](osd_op_t *op) { retval = op->reply.hdr.retval; };
+    f.exec(write);
+    f.bs_zero_read_ok(1);
+    auto *local_w = f.bs->take(BS_OP_WRITE_STABLE);
+    uint64_t version = local_w->version;
+    local_w->retval = -ENOSPC;
+    local_w->callback(local_w);
+    f.peer_write_ok(2, OSD_OP_SEC_WRITE_STABLE, version);
+    f.peer_write_ok(3, OSD_OP_SEC_WRITE_STABLE, version);
+    assert(retval == -ENOSPC);
+    assert(f.pg(1, 1).inflight == 0);
+
+    // No operation is in flight, so nothing may hold a reference to the new state
+    st = find_object_state(f.pg(1, 1), oid);
+    assert(st && st->object_count == 1);
+    assert(st->ref_count == 0);
+    delete write;
+
+    // The same for a partially failed write to a clean object: ENOSPC on OSD 3 only
+    object_id oid2 = { .inode = inode, .stripe = 131072 };
+    auto *write2 = make_write_op(inode, 131072, 131072, 0xef);
+    int retval2 = -1;
+    write2->callback = [&retval2](osd_op_t *op) { retval2 = op->reply.hdr.retval; };
+    f.exec(write2);
+    f.bs_zero_read_ok(0);
+    auto *local_w2 = f.bs->take(BS_OP_WRITE_STABLE);
+    uint64_t version2 = local_w2->version;
+    local_w2->retval = local_w2->len;
+    local_w2->callback(local_w2);
+    f.peer_write_ok(2, OSD_OP_SEC_WRITE_STABLE, version2);
+    f.peer_complete(f.peer_take(3, OSD_OP_SEC_WRITE_STABLE), -ENOSPC);
+    assert(retval2 == -ENOSPC);
+    assert(f.pg(1, 1).inflight == 0);
+    st = find_object_state(f.pg(1, 1), oid2);
+    assert(st && st->object_count == 1);
+    assert(st->ref_count == 0);
+    delete write2;
+
+    printf("test_partial_write_object_state_refs passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -2180,5 +2367,7 @@ int main(int narg, char *args[])
     test_pg_epoch_bump_blocks_write_until_reported();
     test_ec42_inconsistent_read();
     test_repeated_partial_write_unmarks_outdated();
+    test_partial_write_to_misplaced_object();
+    test_partial_write_object_state_refs();
     return 0;
 }

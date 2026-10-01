@@ -304,7 +304,7 @@ resume_12:
             else
             {
                 pg.ver_override.erase(op_data->oid);
-                mark_partial_write(pg, cur_op);
+                op_data->object_state = mark_partial_write(pg, cur_op);
             }
         }
         if (op_data->subops)

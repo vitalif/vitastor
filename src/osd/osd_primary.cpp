@@ -506,6 +506,32 @@ pg_osd_set_state_t *osd_t::mark_partial_write(pg_t & pg, osd_op_t *cur_op)
                 chunk.loc_bad &= ~LOC_OUTDATED;
             }
         }
+        // Add OSDs which took the new version, but weren't in the set (new locations of a misplaced object)
+        for (int i = 0; i < op_data->n_subops; i++)
+        {
+            if (op_data->subops[i].reply.hdr.retval != op_data->subops[i].req.sec_rw.len)
+            {
+                continue;
+            }
+            bool found = false;
+            for (auto & chunk: new_set)
+            {
+                if (chunk.osd_num == op_data->subops[i].osd_num)
+                {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                changes++;
+                new_set.push_back((pg_obj_loc_t){
+                    .role = 0,
+                    .osd_num = op_data->subops[i].osd_num,
+                    .loc_bad = 0,
+                });
+            }
+        }
         return changes;
     });
 }
