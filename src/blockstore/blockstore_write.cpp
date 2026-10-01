@@ -127,7 +127,8 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     if (op->opcode == BS_OP_DELETE)
     {
         // Delete
-        if (!obj || obj->type() == BS_HEAP_DELETE)
+        // An absent chain (deleted or fully rolled back) is already "not there"
+        if (!obj || heap->is_absent(obj))
         {
             // Already deleted
             op->retval = 0;
@@ -148,7 +149,7 @@ int blockstore_impl_t::dequeue_write(blockstore_op_t *op)
     }
     // FIXME: Allow to do initial writes as buffered, not redirected
     // FIXME: Allow to do direct writes over holes
-    else if (!obj || obj->type() == BS_HEAP_DELETE || op->offset == 0 && op->len == dsk.data_block_size)
+    else if (!obj || heap->is_absent(obj) || op->offset == 0 && op->len == dsk.data_block_size)
     {
         // Big (redirect) write
         PRIV(op)->write_type = dsk.disable_data_fsync || op->opcode != BS_OP_WRITE_STABLE ? BS_HEAP_BIG_WRITE : _REDIRECT_INTENT;

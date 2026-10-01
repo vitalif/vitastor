@@ -2804,6 +2804,90 @@ static void test_sync_waits_for_delete_taking_over_unsynced()
     free(buf);
 }
 
+// The same scenario as test_zero_write_over_rollback_to_zero in the new store tests:
+// a chain rolled back to version 0 is absent, and the next write (a zero-length EC
+// "version marker") must behave like a write over a new object and read back as zeros.
+static void test_zero_write_over_rollback_to_zero()
+{
+    printf("\n-- test_zero_write_over_rollback_to_zero\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint32_t block_size = test.dsk().data_block_size;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+
+    printf("write v1 (unstable) and sync it\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = block_size;
+    memset(buf, 0xAA, block_size);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    op.opcode = BS_OP_SYNC;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    printf("roll back to v0\n");
+    blockstore_op_t rb;
+    rb.opcode = BS_OP_ROLLBACK;
+    rb.len = 1;
+    rb.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, sizeof(obj_ver_id));
+    *((obj_ver_id*)rb.buf) = (obj_ver_id){ .oid = oid, .version = 0 };
+    test.exec_op(&rb);
+    assert(rb.retval == 0);
+    free(rb.buf);
+
+    printf("the object must be gone\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = block_size;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == -ENOENT);
+
+    printf("zero-length marker write v2 over the rolled back chain\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 2;
+    op.offset = 0;
+    op.len = 0;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+
+    printf("stabilize v2\n");
+    blockstore_op_t st;
+    st.opcode = BS_OP_STABLE;
+    st.len = 1;
+    st.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, sizeof(obj_ver_id));
+    *((obj_ver_id*)st.buf) = (obj_ver_id){ .oid = oid, .version = 2 };
+    test.exec_op(&st);
+    assert(st.retval == 0);
+    free(st.buf);
+
+    printf("v2 must be readable and contain zeros\n");
+    rd.version = UINT64_MAX;
+    memset(rd.buf, 0xCC, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(rd.version == 2);
+    assert(memcheck(rd.buf, 0, rd.len));
+
+    free(rd.buf);
+    free(buf);
+}
+
 int main(int narg, char *args[])
 {
     test_preserve_corruption();
@@ -2836,5 +2920,6 @@ int main(int narg, char *args[])
     test_recovered_state_is_made_durable();
     test_rollback_over_stable_write();
     test_sync_waits_for_delete_taking_over_unsynced();
+    test_zero_write_over_rollback_to_zero();
     return 0;
 }

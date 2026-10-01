@@ -1714,6 +1714,94 @@ static void test_compact_over_rolled_back_big_write()
     free(buf);
 }
 
+// A write over a chain rolled back to 0 must behave like a write over a new object.
+static void test_zero_write_over_rollback_to_zero()
+{
+    printf("\n-- test_zero_write_over_rollback_to_zero\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["immediate_commit"] = "none";
+    test.init();
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint32_t block_size = test.bs->dsk.data_block_size;
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, block_size);
+
+    auto stabilize = [&](object_id o, uint64_t version, bool rollback)
+    {
+        blockstore_op_t s;
+        s.opcode = rollback ? BS_OP_ROLLBACK : BS_OP_STABLE;
+        s.len = 1;
+        s.buf = (uint8_t*)malloc_or_die(sizeof(obj_ver_id));
+        *((obj_ver_id*)s.buf) = (obj_ver_id){ .oid = o, .version = version };
+        test.exec_op(&s);
+        assert(s.retval == 0);
+        free(s.buf);
+    };
+
+    printf("write v1 (big, unstable) and roll it back to 0\n");
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+    op.opcode = BS_OP_WRITE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = block_size;
+    memset(buf, 0xAA, block_size);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    stabilize(oid, 0, true);
+
+    printf("the rolled back object must read as ENOENT\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = block_size;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == -ENOENT);
+
+    printf("zero-length marker write v2 over the rolled back chain\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 2;
+    op.offset = 0;
+    op.len = 0;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    stabilize(oid, 2, false);
+
+    printf("v2 must be readable and contain zeros\n");
+    memset(rd.buf, 0xCC, rd.len);
+    rd.version = UINT64_MAX;
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(rd.version == 2);
+    assert(memcheck(rd.buf, 0, rd.len));
+
+    printf("a partial write over the marker must merge into the materialized block\n");
+    op.opcode = BS_OP_WRITE;
+    op.version = 3;
+    op.offset = 8192;
+    op.len = 4096;
+    memset(buf, 0xBB, 4096);
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    memset(rd.buf, 0xCC, rd.len);
+    rd.version = UINT64_MAX;
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(rd.version == 3);
+    assert(memcheck(rd.buf, 0, 8192));
+    assert(memcheck(rd.buf + 8192, 0xBB, 4096));
+    assert(memcheck(rd.buf + 12288, 0, rd.len - 12288));
+
+    free(rd.buf);
+    free(buf);
+}
+
 // With a checksum block larger than the write granularity, compaction puts the intent writes it
 // merges into read_vec as well - not to write them (their data is already in place inside the
 // data block) but because recalculating the checksum of a block they only partially cover needs
@@ -1942,6 +2030,7 @@ int main(int narg, char *args[])
     test_compact_big_intent_survives_crash(0);
     test_recheck_under_commit();
     test_compact_over_rolled_back_big_write();
+    test_zero_write_over_rollback_to_zero();
     test_compact_intent_write_in_partial_csum_block();
     test_no_intent_over_unwritten_compaction();
     return 0;

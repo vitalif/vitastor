@@ -294,6 +294,9 @@ public:
     heap_entry_t *lock_and_read_entry(object_id oid);
     // read an object entry without locking it
     heap_entry_t *read_entry(object_id oid);
+    // true if a read of the chain would return ENOENT: the head is a DELETE entry
+    // or all entries are cut off by a ROLLBACK to version 0
+    bool is_absent(heap_entry_t *obj);
     // unlock an entry
     bool unlock_entry(object_id oid);
     // set or verify checksums in a write request

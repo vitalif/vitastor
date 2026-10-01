@@ -2343,6 +2343,17 @@ int blockstore_heap_t::get_next_compact(object_id & oid)
     return 0;
 }
 
+bool blockstore_heap_t::is_absent(heap_entry_t *obj)
+{
+    bool present = false;
+    iterate_with_stable(obj, UINT64_MAX, [&](heap_entry_t *wr, bool stable)
+    {
+        present = (wr->type() != BS_HEAP_DELETE);
+        return false;
+    });
+    return !present;
+}
+
 void blockstore_heap_t::iterate_with_stable(heap_entry_t *obj, uint64_t max_lsn, std::function<bool(heap_entry_t*, bool)> cb)
 {
     auto old_wr = obj;
