@@ -2343,6 +2343,80 @@ void test_partial_write_object_state_refs()
     printf("test_partial_write_object_state_refs passed\n");
 }
 
+// A repeated delete of an already deleted object must succeed as a no-op.
+// The fact-version read of the repeat sees ENOENT - that must resolve to
+// "nothing to delete", not to an error.
+void test_repeated_delete_is_noop()
+{
+    printf("test_repeated_delete_is_noop\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 2, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    object_id oid = { .inode = inode, .stripe = 0 };
+    // v1 is present on both members
+    f.reply_local_list({ { oid, 1 } }, 1);
+    f.reply_peer_list(2, { { oid, 1 } }, 1);
+    f.pump();
+    assert(f.pg(1, 1).state == PG_ACTIVE);
+
+    auto make_delete_op = [&]()
+    {
+        auto *op = new osd_op_t();
+        op->op_type = OSD_OP_IN;
+        op->client_id = 0;
+        op->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+        op->req.rw.header.id = 1;
+        op->req.rw.header.opcode = OSD_OP_DELETE;
+        op->req.rw.inode = inode;
+        op->req.rw.offset = 0;
+        op->req.rw.len = 0;
+        return op;
+    };
+
+    // First delete: removes the chain locally and on the peer
+    int delete_retval = -1;
+    auto *del1 = make_delete_op();
+    del1->callback = [&delete_retval](osd_op_t *op) { delete_retval = op->reply.hdr.retval; };
+    f.exec(del1);
+    f.bs_zero_read_ok(1);
+    {
+        auto *bd = f.bs->take(BS_OP_DELETE);
+        bd->version = 1;
+        bd->retval = 0;
+        bd->callback(bd);
+    }
+    f.peer_write_ok(2, OSD_OP_SEC_DELETE, 1);
+    assert(delete_retval == 0);
+    delete del1;
+
+    // Repeated delete: nothing left anywhere, must ack cleanly
+    delete_retval = -1;
+    auto *del2 = make_delete_op();
+    del2->callback = [&delete_retval](osd_op_t *op) { delete_retval = op->reply.hdr.retval; };
+    f.exec(del2);
+    // The local chain is gone: the fact read answers ENOENT
+    f.bs_zero_read_ok(0);
+    f.pump();
+    // THE KEY ASSERTION - the repeat is a no-op success, not an error
+    assert(delete_retval == 0);
+    // And it really deleted nothing: no subops went out
+    assert(f.peer(2)->sent_ops.empty());
+    delete del2;
+
+    printf("test_repeated_delete_is_noop passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -2369,5 +2443,6 @@ int main(int narg, char *args[])
     test_repeated_partial_write_unmarks_outdated();
     test_partial_write_to_misplaced_object();
     test_partial_write_object_state_refs();
+    test_repeated_delete_is_noop();
     return 0;
 }

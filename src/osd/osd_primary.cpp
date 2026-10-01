@@ -821,7 +821,11 @@ resume_1:
     {
         op_data->object_state->ref_count++;
     }
-    // Submit 1 read to determine the actual version number
+    // Submit 1 read to determine the actual version number. ENOENT is a legal answer:
+    // the object may be already deleted (a repeated delete - the client's remedy for a
+    // delete that reported left_on_dead). fact_ver 0 then makes the delete a no-op
+    // success instead of failing the repeated delete forever
+    op_data->flags |= OP_DATA_ENOENT_OK;
     submit_primary_subops(SUBMIT_RMW_READ, UINT64_MAX, op_data->prev_set, cur_op);
     op_data->prev_set = NULL;
 resume_2:
@@ -830,6 +834,7 @@ resume_2:
         op_data->st = 2;
         return;
     }
+    op_data->flags &= ~OP_DATA_ENOENT_OK;
 resume_3:
     if (op_data->errors > 0)
     {
