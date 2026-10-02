@@ -1348,6 +1348,162 @@ void test_iterate_compaction()
     printf("OK test_iterate_compaction\n");
 }
 
+// Test for compaction with incorrect on-disk chains with COMMIT over nothing,
+// or for a COMMIT over no BIG_WRITE.
+void test_iterate_compaction_commit_over_nothing()
+{
+    printf("test_iterate_compaction_commit_over_nothing\n");
+    blockstore_disk_t dsk;
+    _test_init(dsk, false);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    std::vector<uint8_t> tmp(dsk.meta_block_size);
+
+    auto add_big = [&](blockstore_heap_t & heap, size_t & total_size, uint64_t lsn, uint64_t version)
+    {
+        auto wr1 = (heap_entry_t*)(tmp.data() + total_size);
+        wr1->size = heap.get_big_entry_size();
+        wr1->entry_type = BS_HEAP_BIG_WRITE;
+        wr1->lsn = lsn;
+        wr1->inode = INODE_WITH_POOL(1, 1);
+        wr1->stripe = 0;
+        wr1->version = version;
+        wr1->set_big_location(&heap, 0);
+        memset(wr1->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
+        wr1->checksum = wr1->calc_checksum(&heap);
+        total_size += wr1->size;
+    };
+    auto add_small = [&](blockstore_heap_t & heap, size_t & total_size, uint64_t lsn, uint64_t version)
+    {
+        auto wr1 = (heap_entry_t*)(tmp.data() + total_size);
+        wr1->size = heap.get_small_entry_size(0, 4096);
+        wr1->entry_type = BS_HEAP_SMALL_WRITE;
+        wr1->lsn = lsn;
+        wr1->inode = INODE_WITH_POOL(1, 1);
+        wr1->stripe = 0;
+        wr1->version = version;
+        wr1->small().offset = 0;
+        wr1->small().len = 4096;
+        wr1->small().location = 0;
+        memset(wr1->get_ext_bitmap(&heap), 0xff, dsk.clean_entry_bitmap_size);
+        *((uint32_t*)wr1->get_checksum(&heap)) = crc32c(0, buffer_area.data(), 4096);
+        wr1->checksum = wr1->calc_checksum(&heap);
+        total_size += wr1->size;
+    };
+    auto add_simple = [&](blockstore_heap_t & heap, size_t & total_size, uint64_t type, uint64_t lsn, uint64_t version)
+    {
+        auto wr3 = (heap_entry_t*)(tmp.data() + total_size);
+        wr3->size = heap.get_simple_entry_size();
+        wr3->entry_type = type;
+        wr3->lsn = lsn;
+        wr3->inode = INODE_WITH_POOL(1, 1);
+        wr3->stripe = 0;
+        wr3->version = version;
+        wr3->checksum = wr3->calc_checksum(&heap);
+        total_size += wr3->size;
+    };
+    auto load = [&](blockstore_heap_t & heap, size_t & total_size)
+    {
+        *(uint16_t*)(tmp.data() + total_size) = dsk.meta_block_size - total_size;
+        *(uint16_t*)(tmp.data() + total_size + 2) = BS_HEAP_FREE_SPACE;
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
+        assert(done);
+        heap.finish_recheck();
+        auto mod = heap.get_recheck_modified_blocks();
+        assert(mod.size() == 0);
+    };
+
+    object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+
+    // Scenario A: commit over a rollback that erased everything
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data(), 10);
+
+        size_t total_size = 0;
+        add_big(heap, total_size, 1, 1);
+        add_simple(heap, total_size, BS_HEAP_ROLLBACK, 2, 0);
+        add_simple(heap, total_size, BS_HEAP_COMMIT, 3, 1);
+        load(heap, total_size);
+
+        auto obj = heap.read_entry(oid);
+        assert(obj && obj->type() == BS_HEAP_COMMIT);
+        int small_writes = 0;
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr)
+        {
+            small_writes++;
+        });
+        // Nothing survived: the compaction is a delete, stamped at the commit's lsn
+        assert(compact_info.compact_lsn == 3);
+        assert(compact_info.compact_version == 0);
+        assert(compact_info.clean_wr == NULL);
+        assert(compact_info.do_delete);
+        assert(small_writes == 0);
+        // Apply the compaction the way the journal flusher would: the DELETE entry
+        // lands over the commit and the object is gone
+        uint32_t mblock = 999999;
+        int res = heap.add_compact(obj, compact_info.compact_version, compact_info.compact_lsn,
+            0, true, &mblock, NULL, NULL, NULL);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+        obj = heap.read_entry(oid);
+        assert(obj->type() == BS_HEAP_DELETE && obj->version == 0 && obj->lsn == 3);
+        compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr) {});
+        assert(compact_info.compact_lsn == 0);  // nothing left to compact
+    }
+
+    // Scenario B: commit over a rolled-back delete
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data(), 10);
+
+        size_t total_size = 0;
+        add_simple(heap, total_size, BS_HEAP_DELETE|BS_HEAP_STABLE, 1, 0);
+        add_big(heap, total_size, 2, 2);
+        add_simple(heap, total_size, BS_HEAP_ROLLBACK, 3, 1);
+        add_simple(heap, total_size, BS_HEAP_COMMIT, 4, 2);
+        load(heap, total_size);
+
+        auto obj = heap.read_entry(oid);
+        assert(obj && obj->type() == BS_HEAP_COMMIT);
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr) {});
+        assert(compact_info.compact_lsn == 4);
+        assert(compact_info.compact_version == 0);
+        assert(compact_info.clean_wr == NULL);
+        assert(compact_info.do_delete);
+        uint32_t mblock = 999999;
+        assert(heap.add_compact(obj, compact_info.compact_version, compact_info.compact_lsn,
+            0, true, &mblock, NULL, NULL, NULL) == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+        obj = heap.read_entry(oid);
+        assert(obj->type() == BS_HEAP_DELETE && obj->version == 0 && obj->lsn == 4);
+        compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr) {});
+        assert(compact_info.compact_lsn == 0);
+    }
+
+    // Scenario C: commit over a dangling small_write without a big_write
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data(), 10);
+
+        size_t total_size = 0;
+        add_small(heap, total_size, 1, 1);
+        add_simple(heap, total_size, BS_HEAP_COMMIT, 2, 2);
+        load(heap, total_size);
+
+        auto obj = heap.read_entry(oid);
+        assert(obj && obj->type() == BS_HEAP_COMMIT);
+        auto compact_info = heap.iterate_compaction(obj, heap.get_fsynced_lsn(), false, [&](heap_entry_t *wr) {});
+        assert(compact_info.compact_lsn == 0);
+        assert(compact_info.compact_version == 0);
+        assert(compact_info.clean_wr == NULL);
+        assert(!compact_info.do_delete);
+    }
+
+    printf("test_iterate_compaction_commit_over_nothing passed\n");
+}
+
 void test_modify_bitmap()
 {
     blockstore_disk_t dsk;
@@ -3617,6 +3773,7 @@ int main(int narg, char *args[])
     test_compact(false, true);
     test_compact(false, false);
     test_iterate_compaction();
+    test_iterate_compaction_commit_over_nothing();
     test_modify_bitmap();
     test_recheck(false, true);
     test_recheck(false, false);

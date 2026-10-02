@@ -311,7 +311,8 @@ resume_1:
     }
     flusher->flushing[cur_oid] = compact_info.compact_lsn;
     flusher->active_flushers++;
-    if (!compact_info.do_delete && compact_info.clean_wr->type() == BS_HEAP_BIG_INTENT &&
+    if (!compact_info.do_delete && compact_info.clean_wr &&
+        compact_info.clean_wr->type() == BS_HEAP_BIG_INTENT &&
         (!bs->dsk.csum_block_size || bs->dsk.csum_block_size > bs->dsk.bitmap_granularity))
     {
         // Compaction merges newer writes into the data block in place, which changes bytes that
@@ -347,7 +348,13 @@ resume_28:
         {
             printf("Compacting %jx:%jx up to l%ju (delete)\n", cur_oid.inode, cur_oid.stripe, compact_info.compact_lsn);
         }
+        // Delete discards everything, so reset to the empty state
         clean_loc = UINT64_MAX;
+        read_vec.clear();
+        csum_copy.clear();
+        copy_count = 0;
+        memset(new_bmp, 0, bs->dsk.clean_entry_bitmap_size);
+        memset(new_ext_bmp, 0, bs->dsk.clean_entry_bitmap_size);
     }
     else
     {

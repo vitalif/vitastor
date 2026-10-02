@@ -2484,6 +2484,13 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
         {
             // Object is deleted
             assert(!has_small && stable); // unstable deletes are not supported
+            if (!res.do_delete && res.compact_lsn)
+            {
+                // A COMMIT above the delete reset do_delete, but all writes between
+                // them are lost (incorrect chain / no fsync). Restore do_delete.
+                res.do_delete = true;
+                res.compact_version = 0;
+            }
             return res;
         }
         assert(wr->type() == BS_HEAP_SMALL_WRITE || wr->type() == BS_HEAP_INTENT_WRITE);
@@ -2498,6 +2505,23 @@ heap_compact_t blockstore_heap_t::iterate_compaction(heap_entry_t *obj, uint64_t
         res.do_delete = false;
         has_small = true;
         small_wr_cb(wr);
+    }
+    if (!res.clean_wr && !res.do_delete && res.compact_lsn)
+    {
+        if (has_small)
+        {
+            // The chain holds no big entry surviving the rollbacks and no executed
+            // delete: neither a merge nor a delete is possible. The chain is invalid
+            // but we can't just remove it, so abort compaction and leave it as is.
+            res.compact_lsn = 0;
+        }
+        else
+        {
+            // Otherwise it means that there are no entries: it's either a bare COMMIT
+            // or a COMMIT over a ROLLBACK which masks all previous entries. Remove everything.
+            res.do_delete = true;
+        }
+        res.compact_version = 0;
     }
     return res;
 }
