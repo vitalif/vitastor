@@ -294,7 +294,12 @@ void pg_obj_state_check_t::finish_object()
             int j;
             for (j = 0; j < osd_set.size(); j++)
             {
-                if (osd_set[j].osd_num == list[i].osd_num)
+                // Only the same role at the same OSD subsumes this copy: an older
+                // version of the same piece on the same OSD is behind the target.
+                // The same OSD holding this piece at another role is a stale copy
+                // it must not be forgotten - deletes and cleanup have to reach it
+                if (osd_set[j].osd_num == list[i].osd_num &&
+                    osd_set[j].role == (list[i].oid.stripe & STRIPE_MASK))
                 {
                     break;
                 }

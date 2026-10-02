@@ -2417,6 +2417,99 @@ void test_repeated_delete_is_noop()
     printf("test_repeated_delete_is_noop passed\n");
 }
 
+// Peering must not forget an outdated copy just because its OSD already holds
+// the object at another role. A stale piece kept by a set member after a set
+// change looks, by OSD number alone, like a copy that the target set already
+// covers - but the target version at that role is held by a different OSD, so
+// the stale copy has to land in the object's OSD set as LOC_OUTDATED, or
+// deletes and cleanup would never reach it.
+//
+// Layout: EC 2+2 pool, PG 1/1, cur_set = role 0..3 => OSD 1..4. Object
+// INODE_WITH_POOL(1,1) is fully present at version 2 (role R at OSD R+1), and
+// OSD 2 additionally keeps the role-3 piece of the older version 1.
+void test_peering_outdated_copy_other_role()
+{
+    printf("test_peering_outdated_copy_other_role\n");
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+
+    // One pg_t per scenario; the peer LIST results are fed straight into
+    // calc_object_states, the way peering hands them over. calc_object_states
+    // frees the buffers, so they are malloc'ed
+    auto make_pg = []()
+    {
+        pg_t *pg = new pg_t();
+        pg->pool_id = 1;
+        pg->pg_num = 1;
+        pg->scheme = POOL_SCHEME_EC;
+        pg->pg_size = 4;
+        pg->pg_cursize = 4;
+        pg->pg_minsize = 2;
+        pg->pg_data_size = 2;
+        pg->target_set = { 1, 2, 3, 4 };
+        pg->cur_set = { 1, 2, 3, 4 };
+        pg->all_peers = { 1, 2, 3, 4 };
+        pg->cur_peers = { 1, 2, 3, 4 };
+        pg->peering_state = new pg_peering_state_t();
+        return pg;
+    };
+    // A peer list of (stripe, version) entries, all stable
+    auto add_list = [](pg_t *pg, osd_num_t osd_num, std::vector<std::pair<uint64_t, uint64_t>> items)
+    {
+        obj_ver_id *buf = (obj_ver_id*)malloc(sizeof(obj_ver_id)*items.size());
+        for (int i = 0; i < items.size(); i++)
+            buf[i] = { .oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = items[i].first }, .version = items[i].second };
+        pg->peering_state->list_results[osd_num] = (pg_list_result_t){
+            .buf = buf, .total_count = items.size(), .stable_count = items.size(),
+        };
+    };
+
+    // ============ A: stale role-3 copy on OSD 2, which holds role 1 at target ============
+
+    pg_t *pg = make_pg();
+    add_list(pg, 1, { { 0, 2 } });
+    add_list(pg, 2, { { 1, 2 }, { 3, 1 } });
+    add_list(pg, 3, { { 2, 2 } });
+    add_list(pg, 4, { { 3, 2 } });
+    pg->calc_object_states(0);
+
+    object_id oid = { .inode = inode, .stripe = 0 };
+    assert(pg->state & PG_HAS_MISPLACED);
+    assert(pg->total_count == 1 && pg->clean_count == 0);
+    pg_osd_set_state_t *st = find_object_state(*pg, oid);
+    if (!st)
+        printf("BUG: the stale copy on OSD 2 was forgotten by peering\n");
+    assert(st);
+    bool outdated = false;
+    for (auto & chunk: st->osd_set)
+        if (chunk.role == 3 && chunk.osd_num == 2)
+            outdated = (chunk.loc_bad & LOC_OUTDATED) != 0;
+    assert(outdated);
+    // Reads must still target the good copy, not the outdated one
+    assert(st->read_target.size() == 4 && st->read_target[3] == 4);
+    delete pg->peering_state;
+    delete pg;
+    printf("test_peering_outdated_copy_other_role: stale copy on OSD 2 marked outdated\n");
+
+    // ============ B: the same role on the same OSD stays subsumed ============
+
+    // The OSD's own history: an older version of the very piece it holds at the
+    // target version is not a stray copy - it must not appear as outdated
+    pg = make_pg();
+    add_list(pg, 1, { { 0, 2 } });
+    add_list(pg, 2, { { 1, 2 }, { 1, 1 } });
+    add_list(pg, 3, { { 2, 2 } });
+    add_list(pg, 4, { { 3, 2 } });
+    pg->calc_object_states(0);
+    assert(!(pg->state & PG_HAS_MISPLACED));
+    assert(pg->total_count == 1 && pg->clean_count == 1);
+    assert(!find_object_state(*pg, oid));
+    delete pg->peering_state;
+    delete pg;
+
+    printf("test_peering_outdated_copy_other_role passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -2444,5 +2537,6 @@ int main(int narg, char *args[])
     test_partial_write_to_misplaced_object();
     test_partial_write_object_state_refs();
     test_repeated_delete_is_noop();
+    test_peering_outdated_copy_other_role();
     return 0;
 }
