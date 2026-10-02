@@ -6,82 +6,57 @@
 #include "etcd_state_client_mock.h"
 #include "str_util.h"
 
-etcd_state_client_mock_t::etcd_state_client_mock_t()
+etcd_mock_t::etcd_mock_t()
 {
     timespec tv;
     clock_gettime(CLOCK_REALTIME, &tv);
     srand48(tv.tv_sec*1000000000 + tv.tv_nsec);
 }
 
-void etcd_state_client_mock_t::etcd_add_watch(json11::Json watch)
+void etcd_mock_t::register_client(etcd_state_client_mock_t *client)
 {
+    clients.push_back(client);
 }
 
-std::string etcd_state_client_mock_t::get_username()
+void etcd_mock_t::unregister_client(etcd_state_client_mock_t *client)
 {
-    return username;
-}
-
-void etcd_state_client_mock_t::etcd_call_oneshot(const std::string & etcd_address, const std::string & api, json11::Json payload,
-    int timeout, std::function<void(std::string, json11::Json)> callback)
-{
-}
-
-void etcd_state_client_mock_t::pause()
-{
-    paused = true;
-}
-
-void etcd_state_client_mock_t::resume(size_t n)
-{
-    std::vector<etcd_mock_request_t> ran;
-    if (!n)
+    for (size_t i = 0; i < clients.size(); i++)
     {
-        paused = false;
-        ran = std::move(queue);
-    }
-    else if (n >= queue.size())
-        ran = std::move(queue);
-    else
-    {
-        for (size_t i = 0; i < n; i++)
-            queue.push_back(std::move(queue[i]));
-        queue.erase(queue.begin(), queue.begin() + n);
-    }
-    for (auto& req: ran)
-    {
-        etcd_call_nopause(req.api, req.payload, req.timeout, req.retries, req.interval, req.callback);
+        if (clients[i] == client)
+        {
+            clients.erase(clients.begin() + i);
+            break;
+        }
     }
 }
 
-void etcd_state_client_mock_t::set(const std::string& key, json11::Json data, uint64_t mod_revision, uint64_t lease_id)
+void etcd_mock_t::notify(std::map<std::string, etcd_kv_t> & changes)
+{
+    auto clients_copy = clients;
+    for (auto & client: clients_copy)
+    {
+        client->mock_apply_changes(changes);
+    }
+}
+
+void etcd_mock_t::set(const std::string& key, const std::string& value, uint64_t mod_revision, uint64_t lease_id)
 {
     if (!mod_revision)
         mod_revision = ++this->mod_revision;
-    this->data[key] = (etcd_mock_key_data_t){ .value = data.dump(), .mod_revision = mod_revision, .lease_id = lease_id };
-    etcd_kv_t kv = (etcd_kv_t){ .key = key, .value = data, .mod_revision = mod_revision };
-    parse_state(kv);
-    if (on_change_hook != NULL)
+    this->data[key] = (etcd_mock_key_data_t){ .value = value, .mod_revision = mod_revision, .lease_id = lease_id };
+    std::string err;
+    json11::Json json_value = json11::Json::parse(value, err);
+    if (err != "")
     {
-        std::map<std::string, etcd_kv_t> changes;
-        changes[key] = std::move(kv);
-        on_change_hook(changes);
+        fprintf(stderr, "Invalid JSON in etcd key %s during test: %s\n", key.c_str(), value.c_str());
+        exit(1);
     }
+    std::map<std::string, etcd_kv_t> changes;
+    changes[key] = { .key = key, .value = json_value, .mod_revision = mod_revision };
+    notify(changes);
 }
 
-void etcd_state_client_mock_t::etcd_call(const std::string & api, json11::Json payload, int timeout,
-    int retries, int interval, std::function<void(std::string, json11::Json)> callback)
-{
-    if (paused)
-    {
-        queue.push_back({ api, payload, timeout, retries, interval, callback });
-        return;
-    }
-    etcd_call_nopause(api, payload, timeout, retries, interval, callback);
-}
-
-void etcd_state_client_mock_t::etcd_call_nopause(std::string api, json11::Json payload, int timeout,
-    int retries, int interval, std::function<void(std::string, json11::Json)> callback)
+void etcd_mock_t::etcd_call(const std::string & api, json11::Json payload, std::function<void(std::string, json11::Json)> callback, etcd_state_client_mock_t *from)
 {
     printf("+ etcd: %s\n", api.c_str());
     if (api == "/kv/txn")
@@ -207,14 +182,25 @@ void etcd_state_client_mock_t::etcd_call_nopause(std::string api, json11::Json p
             { "succeeded", ok },
             { "responses", responses }
         });
-        // Push changes to watcher
+        // Deliver changes to the other clients' views, like an etcd watch
         if (changes.size())
+            notify(changes);
+    }
+    else if (api == "/kv/lease/revoke")
+    {
+        // An OSD going down takes its keys with it, like in real etcd
+        uint64_t lease_id = strtoull(payload["ID"].string_value().c_str(), NULL, 10);
+        for (auto it = data.begin(); it != data.end(); )
         {
-            for (auto & kv: changes)
-                parse_state(kv.second);
-            if (on_change_hook != NULL)
-                on_change_hook(changes);
+            if (it->second.lease_id == lease_id)
+                data.erase(it++);
+            else
+                it++;
         }
+        leases.erase(lease_id);
+        callback("", json11::Json::object{
+            { "header", json11::Json::object{ { "revision", mod_revision } } }
+        });
     }
     else if (api == "/lease/grant")
     {
@@ -222,8 +208,100 @@ void etcd_state_client_mock_t::etcd_call_nopause(std::string api, json11::Json p
         leases[lease_id] = payload["TTL"].uint64_value();
         callback("", json11::Json::object{ { "ID", std::to_string(lease_id) } });
     }
+    else if (api == "/lease/keepalive")
+    {
+        // A lease never expires in the mock; a TTL of 0 would kill the OSD
+        uint64_t lease_id = payload["ID"].uint64_value();
+        std::string lid = payload["ID"].string_value();
+        if (lid != "")
+            lease_id = strtoull(lid.c_str(), NULL, 10);
+        uint64_t ttl = leases.find(lease_id) != leases.end() ? leases[lease_id] : 0;
+        callback("", json11::Json::object{ { "result", json11::Json::object{ { "TTL", (double)ttl } } } });
+    }
     else
         callback("Unsupported", json11::Json());
+}
+
+etcd_state_client_mock_t::etcd_state_client_mock_t(etcd_mock_t & store)
+{
+    this->store = &store;
+    store.register_client(this);
+}
+
+etcd_state_client_mock_t::~etcd_state_client_mock_t()
+{
+    store->unregister_client(this);
+}
+
+void etcd_state_client_mock_t::etcd_add_watch(json11::Json watch)
+{
+}
+
+std::string etcd_state_client_mock_t::get_username()
+{
+    return username;
+}
+
+void etcd_state_client_mock_t::etcd_call_oneshot(const std::string & etcd_address, const std::string & api, json11::Json payload,
+    int timeout, std::function<void(std::string, json11::Json)> callback)
+{
+}
+
+void etcd_state_client_mock_t::pause()
+{
+    paused = true;
+}
+
+void etcd_state_client_mock_t::resume(size_t n)
+{
+    std::vector<etcd_mock_request_t> ran;
+    if (!n)
+    {
+        paused = false;
+        ran = std::move(queue);
+    }
+    else if (n >= queue.size())
+        ran = std::move(queue);
+    else
+    {
+        for (size_t i = 0; i < n; i++)
+            ran.push_back(std::move(queue[i]));
+        queue.erase(queue.begin(), queue.begin() + n);
+    }
+    for (auto& req: ran)
+    {
+        etcd_call_nopause(req.api, req.payload, req.timeout, req.retries, req.interval, req.callback);
+    }
+}
+
+void etcd_state_client_mock_t::set(const std::string& key, json11::Json data, uint64_t mod_revision, uint64_t lease_id)
+{
+    store->set(key, data.dump(), mod_revision, lease_id);
+}
+
+void etcd_state_client_mock_t::etcd_call(const std::string & api, json11::Json payload, int timeout,
+    int retries, int interval, std::function<void(std::string, json11::Json)> callback)
+{
+    if (paused)
+    {
+        queue.push_back({ api, payload, timeout, retries, interval, callback });
+        return;
+    }
+    etcd_call_nopause(api, payload, timeout, retries, interval, callback);
+}
+
+void etcd_state_client_mock_t::etcd_call_nopause(std::string api, json11::Json payload, int timeout,
+    int retries, int interval, std::function<void(std::string, json11::Json)> callback)
+{
+    store->etcd_call(api, payload, callback, this);
+}
+
+void etcd_state_client_mock_t::mock_apply_changes(std::map<std::string, etcd_kv_t> & changes)
+{
+    for (auto & kv: changes)
+        parse_state(kv.second);
+    if (on_change_hook != NULL)
+        on_change_hook(changes);
 }
 
 void etcd_state_client_mock_t::load_global_config()

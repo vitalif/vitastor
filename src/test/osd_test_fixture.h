@@ -73,6 +73,9 @@ struct osd_test_fixture_t
 {
     timerfd_manager_t *tfd = nullptr;
     ring_loop_mock_t *ringloop = nullptr;
+    // The etcd data outlives clients: tests may recreate clients (simulated
+    // restarts) or run several of them against one "etcd"
+    etcd_mock_t etcd_store;
     etcd_state_client_mock_t *st_cli = nullptr; // owned by osd_t after start()
     osd_t *osd = nullptr;
     capturing_bs_t *bs = nullptr;
@@ -81,7 +84,7 @@ struct osd_test_fixture_t
     {
         tfd = new timerfd_manager_t([](int, bool, std::function<void(int, int)>) {});
         ringloop = new ring_loop_mock_t(RINGLOOP_DEFAULT_SIZE, [](io_uring_sqe *) {});
-        st_cli = new etcd_state_client_mock_t();
+        st_cli = new etcd_state_client_mock_t(etcd_store);
     }
 
     ~osd_test_fixture_t()

@@ -238,7 +238,8 @@ void test1()
 {
     json11::Json config;
     timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
-    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    etcd_mock_t etcd_store;
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t(etcd_store);
     mock->pause();
     cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
 
@@ -453,7 +454,8 @@ void test_writeback()
         { "client_max_dirty_ops", 2 },
     };
     timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
-    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    etcd_mock_t etcd_store;
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t(etcd_store);
     mock->pause();
     cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
 
@@ -694,7 +696,8 @@ void test_deoptimize_snapshot_read()
         { "client_max_dirty_ops", 4 },
     };
     timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
-    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    etcd_mock_t etcd_store;
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t(etcd_store);
     mock->pause();
     cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
 
@@ -1013,7 +1016,8 @@ void cluster_client_test_t::test_vault()
     json11::Json::object config;
     config["vault_url"] = "http://vault";
     timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
-    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    etcd_mock_t etcd_store;
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t(etcd_store);
     mock->pause();
     cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
 
@@ -1073,7 +1077,8 @@ void test_pg_config_disappears()
 {
     json11::Json config;
     timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
-    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    etcd_mock_t etcd_store;
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t(etcd_store);
     mock->pause();
     cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
 
@@ -1098,7 +1103,8 @@ void test_snapshot_over_nonexistent_pool()
 {
     json11::Json config;
     timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
-    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t();
+    etcd_mock_t etcd_store;
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t(etcd_store);
     mock->pause();
     cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
 
