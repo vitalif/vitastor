@@ -2067,7 +2067,7 @@ int blockstore_heap_t::add_commit(heap_entry_t *obj, uint64_t version, uint32_t 
         {
             auto rollback_version = wr->version;
             wr = prev(wr);
-            while (wr->version > rollback_version)
+            while (wr && wr->version > rollback_version)
             {
                 assert(!(wr->entry_type & BS_HEAP_STABLE));
                 wr = prev(wr);

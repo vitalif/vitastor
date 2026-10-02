@@ -869,6 +869,26 @@ void test_iterate_compaction()
         blockstore_heap_t heap(&dsk, buffer_area.data());
         heap.finish_recheck();
 
+        // Case: BIG_UNSTABLE(v1 l1) ROLLBACK(v0 l2): a delayed commit of the
+        // rolled back version must return ENOENT, not crash - the rollback
+        // covers the whole chain, there is no entry with version <= 0 to
+        // stop the skip loop on
+        uint32_t mblock = 0;
+        _test_big_write(heap, dsk, 1, 0, 1, 0, false, 0, 4096, buffer_area.data());
+        object_id oid = { .inode = INODE_WITH_POOL(1, 1), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        res = heap.add_rollback(obj, 0, &mblock);
+        assert(res == 0);
+        heap.start_block_write(mblock);
+        heap.complete_block_write(mblock);
+        obj = heap.read_entry(oid);
+        assert(heap.add_commit(obj, 1, &mblock) == ENOENT);
+    }
+
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_recheck();
+
         // Case: BIG_STABLE(v1 l1) SMALL(v2 l2) SMALL(v3 l3) ROLLBACK(v2 l4) SMALL(v3 l5) COMMIT(v3 l6)
         // -> compact by adding BIG_STABLE(v3 l6) and skip l3
         uint32_t mblock = 0;
