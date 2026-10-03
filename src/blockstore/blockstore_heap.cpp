@@ -303,6 +303,14 @@ blockstore_heap_t::~blockstore_heap_t()
 void blockstore_heap_t::start_load(uint64_t completed_lsn)
 {
     this->completed_lsn = completed_lsn;
+    // The persisted completed_lsn may be larger than the lsn of the last entry which survived:
+    // entries above it were still in flight when the power went away. New entries must never
+    // reuse an lsn which is at or below completed_lsn, or on the next load they'd look already
+    // fsynced and escape the rollback of unfinished writes
+    if (completed_lsn > next_lsn)
+    {
+        next_lsn = completed_lsn;
+    }
 }
 
 int blockstore_heap_t::read_blocks(uint64_t disk_offset, uint64_t disk_size, uint8_t *buf, bool allow_corrupted,

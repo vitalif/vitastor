@@ -2222,6 +2222,54 @@ void test_recheck_shadow_of_dropped_entry(bool reverse)
     printf("OK test_recheck_shadow_of_dropped_entry\n");
 }
 
+// The persisted completed_lsn may be larger than the lsn of the last entry which survived:
+// the entries above it were already covered by an fsynced journal record, but their metadata
+// never reached the disk. A new entry must never reuse such an lsn - on the next start it
+// would look already fsynced and escape the rollback of unfinished writes
+void test_start_lsn_below_completed()
+{
+    printf("test_start_lsn_below_completed\n");
+
+    blockstore_disk_t dsk;
+    _test_init(dsk, false);
+    std::vector<uint8_t> buffer_area(dsk.journal_device_size);
+    std::vector<uint8_t> tmp;
+
+    // Two stable big writes. The store then fsynced two more journal records (lsns up to 7)
+    // whose entries were lost
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.finish_recheck();
+        _test_big_write(heap, dsk, 1, 0, 1, 0, true, 0, 8192, buffer_area.data());
+        _test_big_write(heap, dsk, 2, 0, 1, 0x20000, true, 0, 8192, buffer_area.data());
+        tmp.resize(dsk.meta_block_size);
+        heap.get_meta_block(0, tmp.data());
+    }
+
+    // Reload the way blockstore_init does it: start_load first, then read the meta blocks
+    {
+        blockstore_heap_t heap(&dsk, buffer_area.data());
+        heap.start_load(7);
+        uint64_t entries_loaded;
+        heap.load_blocks(0, dsk.meta_block_size, tmp.data(), false, entries_loaded);
+        heap.finish_load();
+        bool done = heap.recheck_small_writes([&](bool, uint64_t, uint64_t, std::function<void(uint8_t*)> cb) {}, 1);
+        assert(done);
+        heap.finish_recheck();
+        // Finish of the recheck must not roll completed_lsn back to the last surviving entry
+        assert(heap.get_completed_lsn() == 7);
+
+        // A new entry has to land above completed_lsn, otherwise it would look fsynced
+        _test_big_write(heap, dsk, 3, 0, 1, 0x40000, true, 0, 8192, buffer_area.data());
+        object_id oid = { .inode = INODE_WITH_POOL(1, 3), .stripe = 0 };
+        auto obj = heap.read_entry(oid);
+        assert(obj);
+        assert(obj->lsn == 8);
+    }
+
+    printf("...OK\n");
+}
+
 void test_corruption()
 {
     blockstore_disk_t dsk;
@@ -3789,6 +3837,7 @@ int main(int narg, char *args[])
     test_recheck_shadow_of_dropped_entry(true);
     test_recheck_under_dropped_intent(false);
     test_recheck_under_dropped_intent(true);
+    test_start_lsn_below_completed();
     test_entry_placement_contract();
     test_corruption();
     test_full_overwrite(true);
