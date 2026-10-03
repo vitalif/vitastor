@@ -1124,6 +1124,99 @@ void test_chained_read_eio_retry()
     printf("test_chained_read_eio_retry passed\n");
 }
 
+// A degraded EC read may leave its parity read ranges behind when the object state
+// changes under the operation (recovery brings a chunk back while subops are in flight)
+// and a failed subop retries the whole read. The retry then takes the fast path, which
+// only assigns buffers for data stripes - a parity subop sent on a leftover range would
+// write its reply into a freed buffer. The retry has to reset the read ranges.
+void test_ec_degraded_read_retry_resets_parity()
+{
+    printf("test_ec_degraded_read_retry_resets_parity\n");
+
+    osd_test_fixture_t f;
+    // EC 2+2, set {1,2,3,4}, primary = OSD 2. OSD 1 (role 0) holds nothing, so the
+    // object is degraded: it only exists at roles 1(local), 2 and 3
+    f.configure_ec_pool(2, 2, /*primary_osd*/ 2);
+    f.st_cli->set("/vitastor/pg/history/1/1", json11::Json::object {
+        { "osd_sets", json11::Json::array {
+            json11::Json::array{ 1, 2, 3, 4 },
+        } },
+    });
+    f.start(json11::Json::object {
+        { "osd_num", 2 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+        { "no_recovery", true },
+    });
+    inode_t inode = INODE_WITH_POOL(1, 1);
+
+    f.connect_peer(1);
+    f.connect_peer(3);
+    f.connect_peer(4);
+    // OSD 1 holds nothing -> the object is missing at role 0
+    f.reply_peer_list(1, {}, 0);
+    f.reply_peer_list(3, { { { inode, 2 }, 1 } }, 1);
+    f.reply_peer_list(4, { { { inode, 3 }, 1 } }, 1);
+    f.reply_local_list({ { { inode, 1 }, 1 } }, 1);
+    f.ringloop->loop();
+    assert(f.pg(1, 1).state == (PG_ACTIVE|PG_HAS_DEGRADED));
+
+    // Read 0..32k. It lies in role 0, which is missing, so the attempt is degraded:
+    // extend_missing_stripes() moves the read to role 1 (local) + role 2 (parity, OSD 3)
+    auto *read_op = new osd_op_t();
+    read_op->op_type = OSD_OP_IN;
+    read_op->client_id = 0;
+    read_op->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    read_op->req.rw.header.id = 1;
+    read_op->req.rw.header.opcode = OSD_OP_READ;
+    read_op->req.rw.inode = inode;
+    read_op->req.rw.offset = 0;
+    read_op->req.rw.len = 32768;
+    int read_retval = -1;
+    read_op->callback = [&](osd_op_t *op) { read_retval = op->reply.hdr.retval; };
+    f.exec(read_op);
+
+    // Attempt 1: local read of role 1 and a parity read from OSD 3
+    auto *local_read = f.bs->take(BS_OP_READ);
+    assert(local_read->offset == 0 && local_read->len == 32768);
+    auto *parity_read = f.peer_take(3, OSD_OP_SEC_READ);
+    assert(parity_read->req.sec_rw.oid.stripe == 2);
+    assert(parity_read->req.sec_rw.offset == 0 && parity_read->req.sec_rw.len == 32768);
+
+    // While the subops are in flight a peering round recomputes the object state
+    // and finds it complete again: the PG goes to exactly PG_ACTIVE and the parity
+    // range of the degraded attempt becomes stale. Peering itself won't run while
+    // an op is inflight, but the object state can be replaced under a running op
+    // by any parallel event - drive the resulting state directly
+    f.pg(1, 1).state = PG_ACTIVE;
+
+    // The local read completes, then the parity read fails with -EIO. The error
+    // handler sees that the object state changed under the op and retries the read
+    local_read->version = 1;
+    local_read->retval = local_read->len;
+    local_read->callback(local_read);
+    f.peer_complete(parity_read, -EIO);
+
+    // The retry takes the fast path now. It must not re-send the leftover parity
+    // range - there is no read buffer for it anymore
+    assert(!f.peer_has_sent_op(3, OSD_OP_SEC_READ));
+    assert(!f.peer_has_sent_op(4, OSD_OP_SEC_READ));
+
+    // The retry reads the recovered chunk normally and the op completes.
+    // role 1 is not read this time - it was only pulled in to reconstruct role 0
+    auto *recovered_read = f.peer_take(1, OSD_OP_SEC_READ);
+    assert(recovered_read->req.sec_rw.oid.stripe == 0);
+    assert(recovered_read->req.sec_rw.len == 32768);
+    recovered_read->reply.sec_rw.version = 1;
+    f.peer_complete(recovered_read, 32768);
+    assert(read_retval == 32768);
+
+    delete read_op;
+    printf("test_ec_degraded_read_retry_resets_parity passed\n");
+}
+
 // Regression test for the bug in osd_flush.cpp where a remote
 // stabilize/rollback failure permanently hangs the PG in PG_REPEERING.
 bool test_flush_error_pg_repeer(int ctr)
@@ -2521,6 +2614,7 @@ int main(int narg, char *args[])
     test_ec42_write_parityless();
     test_ec33_chain_read_phantom_bitmap_source();
     test_chained_read_eio_retry();
+    test_ec_degraded_read_retry_resets_parity();
     for (int i = 0; test_flush_error_pg_repeer(i); i++) {}
     test_sync_nothing_to_sync();
     test_sync_happy_path_replicated();

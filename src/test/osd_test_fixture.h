@@ -425,4 +425,15 @@ struct osd_test_fixture_t
     {
         return osd->syncs_in_progress.size();
     }
+
+    bool peer_has_sent_op(osd_num_t osd_num, uint64_t opcode)
+    {
+        auto *cl = osd->msgr.osd_peers.at(osd_num);
+        for (auto & kv: cl->sent_ops)
+        {
+            if (kv.second->req.hdr.opcode == opcode)
+                return true;
+        }
+        return false;
+    }
 };

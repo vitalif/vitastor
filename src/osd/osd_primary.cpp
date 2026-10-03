@@ -268,6 +268,19 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
 resume_0:
     cur_op->reply.rw.bitmap_len = 0;
     {
+        // Reset read ranges. On a retry we can come here with read ranges left on
+        // parity stripes by extend_missing_stripes() of the previous attempt -
+        // submit_primary_subops() would then send subops for them while
+        // alloc_read_buffer() only assigns buffers for ranges set below,
+        // making those subops write into a freed buffer.
+        for (int role = 0; role < op_data->stripe_count; role++)
+        {
+            op_data->stripes[role].read_start = 0;
+            op_data->stripes[role].read_end = 0;
+            op_data->stripes[role].missing = false;
+        }
+        // OP_DATA_DEGRADED may be left from a previous degraded attempt
+        op_data->flags &= ~(uint32_t)OP_DATA_DEGRADED;
         if (cur_op->req.rw.len == 0)
         {
             // len=0 => bitmap read
