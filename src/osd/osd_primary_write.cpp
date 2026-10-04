@@ -531,6 +531,7 @@ bool osd_t::remember_unstable_write(osd_op_t *cur_op, pg_t & pg, pg_osd_set_t & 
     {
         goto resume_7;
     }
+    assert(pg.state & PG_ACTIVE);
     if (immediate_commit == IMMEDIATE_ALL)
     {
 immediate:
@@ -562,7 +563,7 @@ immediate:
 resume_6:
             if (op_data->n_subops > 0)
             {
-                op_data->st = 6;
+                op_data->st = base_state;
                 return false;
             }
 resume_7:

@@ -444,7 +444,9 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
     {
         clock_gettime(CLOCK_REALTIME, &cur_op->tv_begin);
         cur_op->req.hdr.id = ++cl->send_op_id;
-        cl->sent_ops[cur_op->req.hdr.id] = cur_op;
+        auto & sent_op = cl->sent_ops[cur_op->req.hdr.id];
+        assert(!sent_op);
+        sent_op = cur_op;
     }
     else
     {

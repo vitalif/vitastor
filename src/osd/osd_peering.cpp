@@ -157,13 +157,11 @@ void osd_t::reset_pg(pg_t & pg)
     pg.flush_batch = NULL;
     // Protected by inflight - reset_pg is impossible with active inflight operations
     assert(!pg.write_queue.size());
-    for (auto it = unstable_writes.begin(); it != unstable_writes.end(); )
+    // Just check that unstable_writes are cleared on stop/repeer and not re-added
+    for (auto uw: unstable_writes)
     {
-        // Forget this PG's unstable writes
-        if (INODE_POOL(it->first.oid.inode) == pg.pool_id && map_to_pg(it->first.oid) == pg.pg_num)
-            unstable_writes.erase(it++);
-        else
-            it++;
+        bool this_pg = INODE_POOL(uw.first.oid.inode) == pg.pool_id && map_to_pg(uw.first.oid) == pg.pg_num;
+        assert(!this_pg);
     }
 }
 
@@ -172,6 +170,15 @@ void osd_t::drop_dirty_pg_connections(pool_pg_num_t pg)
 {
     if (immediate_commit != IMMEDIATE_ALL)
     {
+        // Forget this PG's unstable_writes
+        // If we don't do that we may create a race with STABILIZE after LIST
+        for (auto it = unstable_writes.begin(); it != unstable_writes.end();)
+        {
+            if (INODE_POOL(it->first.oid.inode) == pg.pool_id && map_to_pg(it->first.oid) == pg.pg_num)
+                unstable_writes.erase(it++);
+            else
+                it++;
+        }
         std::vector<uint64_t> to_stop;
         for (auto & cp: msgr.clients)
         {

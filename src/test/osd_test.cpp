@@ -3029,6 +3029,165 @@ void test_delete_waits_for_stabilize_snapshot()
     delete del;
 }
 
+// A repeer or stop must remove the PG's versions from unstable_writes: that map is what a
+// client SYNC snapshot stabilizes, and a SYNC issued after the repeer would commit
+// versions the new peering round is about to re-decide (and roll back)
+void test_repeer_forgets_unstable_writes(bool stop_pg)
+{
+    printf("test_repeer_forgets_unstable_writes (stop_pg=%d)\n", stop_pg);
+    osd_test_fixture_t f;
+    // EC 2+1, single PG on OSDs 1,2,3, OSD 1 is the primary
+    f.configure_ec_pool(/*data_chunks*/ 2, /*parity_chunks*/ 1, /*primary_osd*/ 1);
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.complete_peering_empty();
+    f.connect_peer(3);
+    f.complete_peering_empty();
+    assert(f.pg(1, 1).state == PG_ACTIVE);
+    uint64_t client_id = f.connect_client();
+
+    // A full lazy EC write makes one object unstable on all three role copies, and a
+    // SYNC from its writer covers it: the snapshot holds 3 stabilize refs and the
+    // SYNC waits for its subop answers with the PG inflight
+    inode_t inode_a = INODE_WITH_POOL(1, 1);
+    {
+        auto *wr = make_write_op(inode_a, 0, 256*1024, 0xab);
+        wr->client_id = client_id;
+        wr->req.hdr.id = 1;
+        f.exec(wr);
+        f.bs_zero_read_ok(0);
+        f.bs_write_ok(BS_OP_WRITE, 1);
+        auto *pw2 = f.peer_take(2, OSD_OP_SEC_WRITE);
+        pw2->reply.sec_rw.version = 1;
+        f.peer_complete(pw2, pw2->req.sec_rw.len);
+        auto *pw3 = f.peer_take(3, OSD_OP_SEC_WRITE);
+        pw3->reply.sec_rw.version = 1;
+        f.peer_complete(pw3, pw3->req.sec_rw.len);
+    }
+    assert(f.unstable_write_count_entries() == 3);
+    auto *sync1 = new osd_op_t();
+    sync1->op_type = OSD_OP_IN;
+    sync1->client_id = client_id;
+    sync1->req.hdr.magic = SECONDARY_OSD_OP_MAGIC;
+    sync1->req.hdr.id = 43;
+    sync1->req.hdr.opcode = OSD_OP_SYNC;
+    f.exec(sync1);
+    assert(f.stabilize_ref_of((object_id){ .inode = inode_a, .stripe = 0 }) == 3);
+    assert(f.unstable_write_count_entries() == 0);
+
+    // A second full lazy write while the SYNC is in flight: the SYNC snapshot does
+    // not cover it, so 3 new unstable versions are left pending the next SYNC
+    inode_t inode_b = INODE_WITH_POOL(1, 2);
+    {
+        auto *wr = make_write_op(inode_b, 0, 256*1024, 0xab);
+        wr->client_id = client_id;
+        wr->req.hdr.id = 2;
+        f.exec(wr);
+        f.bs_zero_read_ok(0);
+        f.bs_write_ok(BS_OP_WRITE, 1);
+        auto *pw2 = f.peer_take(2, OSD_OP_SEC_WRITE);
+        pw2->reply.sec_rw.version = 1;
+        f.peer_complete(pw2, pw2->req.sec_rw.len);
+        auto *pw3 = f.peer_take(3, OSD_OP_SEC_WRITE);
+        pw3->reply.sec_rw.version = 1;
+        f.peer_complete(pw3, pw3->req.sec_rw.len);
+    }
+    assert(f.unstable_write_count_entries() == 3);
+
+    if (!stop_pg)
+    {
+        // Drop a peer to repeer the PG. The in-flight SYNC keeps the PG busy, so it goes to REPEERING
+        f.fail_peer_connection(2);
+        assert(f.pg(1, 1).state & PG_REPEERING);
+    }
+    else
+    {
+        // Stop the PG like the monitor does it
+        f.st_cli->set("/vitastor/pg/config", json11::Json::object {
+            { "items", json11::Json::object{
+                { "1", json11::Json::object {
+                    { "1", json11::Json::object {
+                        { "osd_set", json11::Json::array { 1, 2, 3 } },
+                        { "primary", 2 },
+                    } },
+                } }
+            } },
+        });
+        f.ringloop->loop();
+        assert(f.pg(1, 1).state & PG_STOPPING);
+    }
+
+    // repeer_pg must forget the PG's unstable writes before anything else: a SYNC
+    // racing the re-peering would otherwise snapshot versions that the new peering
+    // round is about to re-decide (and possibly roll back)
+    assert(f.unstable_write_count_entries() == 0);
+    assert(!f.has_dirty_pg(1, 1));
+    assert(!f.has_client(client_id));
+
+    // Drain the SYNC: its subops now answer normally (the peers stay connected,
+    // only the writer's session died). The SYNC finishes with EPIPE, releases the
+    // snapshot refs and the PG inflight, and continue_pg completes the stop - the
+    // reset_pg inside finish_stop_pg also asserts that no unstable write survived
+    while (true)
+    {
+        auto *local = f.bs->take(BS_OP_SYNC, false);
+        if (local)
+        {
+            local->retval = 0;
+            local->callback(local);
+            continue;
+        }
+        bool advanced = false;
+        for (osd_num_t peer : { (osd_num_t)2, (osd_num_t)3 })
+        {
+            auto *ps = f.peer_take_opt(peer, OSD_OP_SEC_SYNC);
+            if (ps)
+            {
+                f.peer_complete(ps, 0);
+                advanced = true;
+                break;
+            }
+            auto *pst = f.peer_take_opt(peer, OSD_OP_SEC_STABILIZE);
+            if (pst)
+            {
+                f.peer_complete(pst, 0);
+                advanced = true;
+                break;
+            }
+        }
+        if (advanced)
+            continue;
+        auto *local_st = f.bs->take(BS_OP_STABLE, false);
+        if (local_st)
+        {
+            local_st->retval = 0;
+            local_st->callback(local_st);
+            continue;
+        }
+        break;
+    }
+    f.pump();
+    assert(f.stabilize_ref_count() == 0);
+
+    // The stop completed: the PG is OFFLINE (possibly already erased). Note that a
+    // SYNC racing the stop must not re-add the forgotten versions on its error
+    // path - that would defeat the forget and stabilize rolled-back data later
+    assert(f.unstable_write_count_entries() == 0);
+    if (f.has_pg(1, 1))
+        assert(!(f.pg(1, 1).state & PG_STOPPING));
+
+    // FIXME: Make this test pass without leaks without the following line:
+    f.complete_peering_empty();
+
+    printf("test_repeer_forgets_unstable_writes (stop_pg=%d) passed\n", stop_pg);
+}
+
 // A delete must only wait for objects that are actually covered: a fresh unstable
 // object written after the SYNC took its snapshot must delete without waiting
 void test_delete_waits_only_for_covered_objects()
@@ -3150,6 +3309,8 @@ int main(int narg, char *args[])
     test_ec33_chain_read_phantom_bitmap_source();
     test_chained_read_eio_retry();
     test_ec_degraded_read_retry_resets_parity();
+    test_repeer_forgets_unstable_writes(false);
+    test_repeer_forgets_unstable_writes(true);
     for (int i = 0; test_flush_error_pg_repeer(i); i++) {}
     test_sync_nothing_to_sync();
     test_sync_happy_path_replicated();

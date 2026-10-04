@@ -31,7 +31,9 @@ void osd_messenger_t::outbox_push(osd_op_t *cur_op)
     auto cl = cl_it->second;
     if (cur_op->op_type == OSD_OP_OUT)
         cur_op->req.hdr.id = ++cl->send_op_id;
-    cl->sent_ops[cur_op->req.hdr.id] = cur_op;
+    auto & sent_op = cl->sent_ops[cur_op->req.hdr.id];
+    assert(!sent_op);
+    sent_op = cur_op;
 }
 
 void osd_messenger_t::parse_config(const json11::Json & config, bool init)

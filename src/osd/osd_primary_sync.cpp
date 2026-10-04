@@ -138,6 +138,13 @@ resume_2:
         int last_start = 0, last_end = 0;
         for (auto it = this->unstable_writes.begin(); it != this->unstable_writes.end(); it++)
         {
+            pool_pg_num_t wpg = {
+                .pool_id = INODE_POOL(it->first.oid.inode),
+                .pg_num = map_to_pg(it->first.oid),
+            };
+            // Should already be protected by dirty_pgs - any object in unstable_writes
+            // should also be represented by an entry in dirty_pgs
+            assert(pgs.at(wpg).state & PG_ACTIVE);
             if (last_osd != it->first.osd_num)
             {
                 if (last_osd != 0)

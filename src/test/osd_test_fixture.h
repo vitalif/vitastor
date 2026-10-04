@@ -28,6 +28,7 @@ public:
         queued.push_back(op);
     }
 
+    // Pop the first queued op
     blockstore_op_t *take()
     {
         assert(!queued.empty());
@@ -262,8 +263,9 @@ struct osd_test_fixture_t
         return buf;
     }
 
-    // Pop the first BS_OP_LIST from bs->queued and reply with the given
-    // object list. The peering callback consumes (and later frees) op->buf.
+    // Complete the self LIST of the peering round with the given object list. The
+    // peering callback frees the bs_op it was given, so pop it and only invoke the
+    // callback - the real blockstore owns and frees ops on completion
     void reply_local_list(const std::vector<obj_ver_id> & objects, uint64_t stable_count)
     {
         auto *op = bs->take(BS_OP_LIST);
@@ -319,8 +321,40 @@ struct osd_test_fixture_t
     {
         auto *cl = osd->msgr.clients.at(op->client_id);
         cl->sent_ops.erase(op->req.hdr.id);
+        op->reply.hdr.magic = SECONDARY_OSD_REPLY_MAGIC;
+        op->reply.hdr.id = op->req.hdr.id;
+        op->reply.hdr.opcode = op->req.hdr.opcode;
         op->reply.hdr.retval = retval;
-        op->callback(op);
+        std::function<void(osd_op_t*)>(op->callback)(op);
+    }
+
+    void repeer_pgs(osd_num_t osd_num)
+    {
+        osd->repeer_pgs(osd_num);
+    }
+
+    // peer_take, but NULL instead of abort when the op (or the peer) isn't there
+    osd_op_t *peer_take_opt(osd_num_t osd_num, uint64_t opcode)
+    {
+        auto it = osd->msgr.osd_peers.find(osd_num);
+        if (it == osd->msgr.osd_peers.end())
+            return NULL;
+        for (auto & kv: it->second->sent_ops)
+        {
+            if (kv.second->req.hdr.opcode == opcode)
+                return kv.second;
+        }
+        return NULL;
+    }
+
+    // Simulate a peer connection death exactly like the real messenger does when a
+    // socket closes: stop_client repeers PGs first and only then destroys the client,
+    // which completes its in-flight ops with -EPIPE
+    void fail_peer_connection(osd_num_t osd_num)
+    {
+        auto *cl = osd->msgr.osd_peers.at(osd_num);
+        uint64_t client_id = cl->client_id;
+        osd->msgr.stop_client(client_id);
     }
 
     // Drive ringloop to flush handle_peers and any pending lambdas.
