@@ -110,9 +110,12 @@ void pg_obj_state_check_t::start_object()
 
 void pg_obj_state_check_t::handle_version()
 {
-    if (!target_ver && last_ver != list[list_pos].version && (n_stable > 0 || n_roles >= pg->pg_data_size))
+    // A version becomes target only if it's stable (successfully written to the previous set)
+    // or unstable but full. We could target any recoverable version, but in this case some
+    // client's writes written to OSD set A may actually land on a smaller subset of A.
+    // And then client can't be sure that the pg_minsize guarantee actually holds.
+    if (!target_ver && last_ver != list[list_pos].version && (n_stable > 0 || n_roles >= pg->pg_size))
     {
-        // Version is either stable or recoverable
         target_ver = last_ver;
         ver_end = list_pos;
     }
@@ -175,9 +178,9 @@ void pg_obj_state_check_t::handle_version()
 
 void pg_obj_state_check_t::finish_object()
 {
-    if (!target_ver && (n_stable > 0 || n_roles >= pg->pg_data_size))
+    if (!target_ver && (n_stable > 0 || n_roles >= pg->pg_size))
     {
-        // Version is either stable or recoverable
+        // Stable (possibly acked) or fully materialized unstable - see handle_version()
         target_ver = last_ver;
         ver_end = list_pos;
     }

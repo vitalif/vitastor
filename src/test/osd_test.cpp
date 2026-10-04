@@ -2909,6 +2909,146 @@ void test_pg_epoch_bump_above_reported_epoch()
     printf("test_pg_epoch_bump_above_reported_epoch passed\n");
 }
 
+// A partial unstable chain left by a failed/rejected EC write must not become the
+// committed version even when it holds pg_data_size pieces: that would turn a
+// possibly-nonexistent write into committed data with zero redundancy. Peering must
+// fall back to the older stable version and roll the fragments back. A stable
+// fragment, on the other hand, is possibly-acked - the OSD can never know otherwise
+// - so it stays the target and is never rolled back, incomplete or not.
+// A partial chain of pg_data_size pieces is not committed either, even when a
+// degraded set holds a fragment per member: an EC 2+2 pair on the two data roles
+// of a 2-member set still cannot decode (subcase D: refused-write fragments of a
+// fresh object - peering must delete them, not commit).
+//
+// Layout: EC 2+2, PG 1/1, cur_set = role 0..3 => OSD 1..4. Object INODE_WITH_POOL(1,1)
+// is stable at v1 on all roles; a rejected write left v2 unstable on role 0 (OSD 1)
+// and role 2 (OSD 3) only. Peer lists put stable entries first (stable_count prefix).
+void test_peering_partial_unstable_ec_rolls_back()
+{
+    printf("test_peering_partial_unstable_ec_rolls_back\n");
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    object_id oid = { .inode = inode, .stripe = 0 };
+
+    auto make_pg = []()
+    {
+        pg_t *pg = new pg_t();
+        pg->pool_id = 1;
+        pg->pg_num = 1;
+        pg->scheme = POOL_SCHEME_EC;
+        pg->pg_size = 4;
+        pg->pg_cursize = 4;
+        pg->pg_minsize = 2;
+        pg->pg_data_size = 2;
+        pg->target_set = { 1, 2, 3, 4 };
+        pg->cur_set = { 1, 2, 3, 4 };
+        pg->all_peers = { 1, 2, 3, 4 };
+        pg->cur_peers = { 1, 2, 3, 4 };
+        pg->peering_state = new pg_peering_state_t();
+        return pg;
+    };
+    // Peer list of (stripe, version) entries; the first `nstable` are stable
+    auto add_list = [&](pg_t *pg, osd_num_t osd_num, std::vector<std::pair<uint64_t, uint64_t>> items,
+        uint64_t nstable)
+    {
+        obj_ver_id *buf = (obj_ver_id*)malloc(sizeof(obj_ver_id)*items.size());
+        for (int i = 0; i < items.size(); i++)
+            buf[i] = { .oid = { .inode = inode, .stripe = items[i].first }, .version = items[i].second };
+        pg->peering_state->list_results[osd_num] = (pg_list_result_t){
+            .buf = buf, .total_count = items.size(), .stable_count = nstable,
+        };
+    };
+
+    // ============ A: partial unstable v2 falls back to stable v1 ============
+
+    pg_t *pg = make_pg();
+    add_list(pg, 1, { { 0, 1 }, { 0, 2 } }, 1);
+    add_list(pg, 2, { { 1, 1 } }, 1);
+    add_list(pg, 3, { { 2, 1 }, { 2, 2 } }, 1);
+    add_list(pg, 4, { { 3, 1 } }, 1);
+    pg->calc_object_states(0);
+
+    // v1 is the target: the object is clean at v1, reads see v1, fragments roll back
+    assert(pg->total_count == 1 && pg->clean_count == 1);
+    assert(!(pg->state & (PG_HAS_INCOMPLETE|PG_HAS_DEGRADED)));
+    assert(pg->state & PG_HAS_UNCLEAN);
+    assert(!find_object_state(*pg, oid));
+    assert(pg->ver_override.count(oid) && pg->ver_override[oid] == 1);
+    assert(pg->flush_actions.size() == 2);
+    for (auto & fa: pg->flush_actions)
+    {
+        assert(fa.second.rollback && !fa.second.make_stable && fa.second.rollback_to == 1);
+        assert((fa.first.oid.stripe & STRIPE_MASK) == (fa.first.osd_num == 1 ? 0u : 2u));
+    }
+    delete pg->peering_state;
+    delete pg;
+
+    // ============ B: fully materialized unstable v2 is committed as before ============
+
+    pg = make_pg();
+    add_list(pg, 1, { { 0, 1 }, { 0, 2 } }, 1);
+    add_list(pg, 2, { { 1, 1 }, { 1, 2 } }, 1);
+    add_list(pg, 3, { { 2, 1 }, { 2, 2 } }, 1);
+    add_list(pg, 4, { { 3, 1 }, { 3, 2 } }, 1);
+    pg->calc_object_states(0);
+
+    assert(pg->total_count == 1 && pg->clean_count == 1);
+    assert(pg->state & PG_HAS_UNCLEAN);
+    assert(!pg->ver_override.count(oid));
+    assert(pg->flush_actions.size() == 4);
+    for (auto & fa: pg->flush_actions)
+        assert(fa.second.make_stable && !fa.second.rollback && fa.second.stable_to == 2);
+    delete pg->peering_state;
+    delete pg;
+
+    // ============ C: a stable fragment is possibly-acked: target, never rolled back ============
+
+    pg = make_pg();
+    add_list(pg, 1, { { 0, 1 }, { 0, 2 } }, 2);
+    add_list(pg, 2, { { 1, 1 } }, 1);
+    add_list(pg, 3, { { 2, 1 }, { 2, 2 } }, 2);
+    add_list(pg, 4, { { 3, 1 } }, 1);
+    pg->calc_object_states(0);
+
+    // v2 (2 of 4 roles, stable) is degraded, not incomplete, and nothing is rolled back
+    assert(pg->state & PG_HAS_DEGRADED);
+    assert(!(pg->state & PG_HAS_INCOMPLETE));
+    assert(pg->flush_actions.empty());
+    delete pg->peering_state;
+    delete pg;
+
+    // ============ D: an unstable chain that was never whole. v2 exists on roles 0 and 1
+    // only - pg_data_size pieces, but EC 2+2 needs all 4 to decode, and the object never
+    // existed at any stable version: this is what a refused write to a fresh object
+    // leaves behind (seed 1996). The old rule (n_roles >= pg_data_size) targeted such a
+    // chain and peering-flush committed it; the new rule must refuse v2 and delete the
+    // fragments entirely ============
+
+    pg = make_pg();
+    pg->pg_cursize = 2;
+    pg->cur_set = { 1, 2 };
+    pg->cur_peers = { 1, 2 };
+    add_list(pg, 1, { { 0, 2 } }, 0);
+    add_list(pg, 2, { { 1, 2 } }, 0);
+    pg->calc_object_states(0);
+
+    // Nothing is committed: the object stays absent, both fragments are deleted
+    assert(pg->total_count == 0 && pg->clean_count == 0);
+    assert(pg->state & PG_HAS_UNCLEAN);
+    assert(!(pg->state & PG_HAS_INCOMPLETE));
+    assert(!pg->ver_override.count(oid));
+    assert(pg->flush_actions.size() == 2);
+    for (auto & fa: pg->flush_actions)
+    {
+        assert(fa.second.rollback && !fa.second.make_stable && fa.second.rollback_to == 0);
+        assert((fa.first.oid.stripe & STRIPE_MASK) == (fa.first.osd_num == 1 ? 0u : 1u));
+    }
+    delete pg->peering_state;
+    delete pg;
+
+    printf("test_peering_partial_unstable_ec_rolls_back passed\n");
+}
+
 // A dispatched SYNC holds its stabilize snapshot; a delete of a covered object must
 // wait after its fact read while the snapshot is in flight (SEC_STABILIZE of a version
 // the delete removes would answer -ENOENT) and must resume when the SYNC finishes.
@@ -3333,6 +3473,7 @@ int main(int narg, char *args[])
     test_pg_epoch_base_is_reported_epoch();
     test_pg_epoch_bump_above_reported_epoch();
     test_chained_read_large_chain_info();
+    test_peering_partial_unstable_ec_rolls_back();
     test_delete_waits_for_stabilize_snapshot();
     test_delete_waits_only_for_covered_objects();
     return 0;
