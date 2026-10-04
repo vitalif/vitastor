@@ -154,7 +154,7 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
         }
         for (osd_op_t *op: continue_ops)
         {
-            continue_primary_write(op);
+            pg_continue_queued_op(op);
         }
         continue_pg(pg);
     }

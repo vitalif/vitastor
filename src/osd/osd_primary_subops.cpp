@@ -901,3 +901,16 @@ void osd_t::pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, 
         }
     }
 }
+
+// Continue the next queued operation of an object. The queue holds writes and
+// deletes, and reads that hit a raw ENOENT from an op racing them, so the
+// drained operation has to be dispatched by its opcode
+void osd_t::pg_continue_queued_op(osd_op_t *next_op)
+{
+    if (next_op->req.hdr.opcode == OSD_OP_READ)
+        continue_primary_read(next_op);
+    else if (next_op->req.hdr.opcode == OSD_OP_WRITE)
+        continue_primary_write(next_op);
+    else
+        continue_primary_del(next_op);
+}

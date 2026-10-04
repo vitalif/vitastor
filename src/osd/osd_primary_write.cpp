@@ -76,6 +76,17 @@ resume_1:
         op_data->object_state->ref_count++;
     }
 retry_1:
+    // A retry of a mark-corrupted round must not carry the marks and counters of
+    // the failed one: a stale not_exists would erase a chunk that answers fine now
+    for (int role = 0; role < op_data->stripe_count; role++)
+    {
+        op_data->stripes[role].read_error = false;
+        op_data->stripes[role].not_exists = false;
+        op_data->stripes[role].osd_num = 0;
+    }
+    op_data->done = op_data->errors = op_data->drops = op_data->errcode = 0;
+    op_data->fact_ver = 0;
+    op_data->flags &= ~(uint32_t)OP_DATA_ENOENT_OK;
     if (pg.scheme == POOL_SCHEME_REPLICATED)
     {
         // Simplified algorithm
@@ -460,14 +471,8 @@ continue_others:
     }
     if (next_op)
     {
-        // Continue next write to the same object
-        if (next_op->req.hdr.opcode == OSD_OP_WRITE)
-            continue_primary_write(next_op);
-        else
-        {
-            assert(next_op->req.hdr.opcode == OSD_OP_DELETE);
-            continue_primary_del(next_op);
-        }
+        // Continue next operation on the same object
+        pg_continue_queued_op(next_op);
     }
 }
 

@@ -380,6 +380,8 @@ class osd_t
     void handle_primary_bs_subop(osd_op_t *subop);
     void add_bs_subop_stats(osd_op_t *subop, bool recovery_related = false);
     void pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval);
+    void pg_continue_queued_op(osd_op_t *next_op);
+    void finish_read_op(osd_op_t *cur_op, int64_t retval);
 
     void submit_primary_subops(int submit_type, uint64_t op_version, const uint64_t* osd_set, osd_op_t *cur_op);
     int submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t op_version,

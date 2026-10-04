@@ -248,6 +248,29 @@ uint64_t* osd_t::get_object_osd_set(pg_t &pg, object_id &oid, pg_osd_set_state_t
     return pg.cur_set.data();
 }
 
+// Finish a read and continue the operation queued behind it. A read that hit a
+// raw ENOENT from a racing write/delete joins the write_queue and keeps its
+// entry as the queue head while it retries, so its finish must drain the queue
+// the same way a write or a delete does
+void osd_t::finish_read_op(osd_op_t *cur_op, int64_t retval)
+{
+    osd_primary_op_data_t *op_data = cur_op->op_data;
+    osd_op_t *next_op = NULL;
+    if (op_data && op_data->pg)
+    {
+        auto next_it = op_data->pg->write_queue.find(op_data->oid);
+        if (next_it != op_data->pg->write_queue.end() && next_it->second == cur_op)
+        {
+            op_data->pg->write_queue.erase(next_it++);
+            if (next_it != op_data->pg->write_queue.end() && next_it->first == op_data->oid)
+                next_op = next_it->second;
+        }
+    }
+    finish_op(cur_op, retval);
+    if (next_op)
+        pg_continue_queued_op(next_op);
+}
+
 void osd_t::continue_primary_read(osd_op_t *cur_op)
 {
     if (!cur_op->op_data && !prepare_primary_rw(cur_op))
@@ -265,6 +288,8 @@ void osd_t::continue_primary_read(osd_op_t *cur_op)
         goto resume_1;
     else if (op_data->st == 2)
         goto resume_2;
+    else if (op_data->st == 3)
+        goto resume_3;
 resume_0:
     cur_op->reply.rw.bitmap_len = 0;
     {
@@ -278,9 +303,18 @@ resume_0:
             op_data->stripes[role].read_start = 0;
             op_data->stripes[role].read_end = 0;
             op_data->stripes[role].missing = false;
+            // A retry must not carry error marks of the previous attempt: a stale
+            // not_exists would erase a chunk from the object set that answered fine now
+            op_data->stripes[role].read_error = false;
+            op_data->stripes[role].not_exists = false;
+            op_data->stripes[role].osd_num = 0;
         }
-        // OP_DATA_DEGRADED may be left from a previous degraded attempt
-        op_data->flags &= ~(uint32_t)OP_DATA_DEGRADED;
+        // OP_DATA_DEGRADED may be left from a previous degraded attempt, and
+        // OP_DATA_ENOENT_OK is decided again below from the current object state
+        op_data->flags &= ~(uint32_t)(OP_DATA_DEGRADED | OP_DATA_ENOENT_OK);
+        // Counters of the previous attempt must not leak into the retry verdict
+        op_data->done = op_data->errors = op_data->drops = op_data->errcode = 0;
+        op_data->fact_ver = 0;
         if (cur_op->req.rw.len == 0)
         {
             // len=0 => bitmap read
@@ -321,7 +355,7 @@ resume_0:
             if (pg && pg->scheme == POOL_SCHEME_REPLICATED &&
                 op_data->object_state && (op_data->object_state->state & OBJ_INCOMPLETE))
             {
-                finish_op(cur_op, -EIO);
+                finish_read_op(cur_op, -EIO);
                 return;
             }
             assert(!cur_op->buf);
@@ -332,7 +366,7 @@ resume_0:
         {
             if (extend_missing_stripes(op_data->stripes, op_data->prev_set, pg->pg_data_size, pg->pg_size) < 0)
             {
-                finish_op(cur_op, -EIO);
+                finish_read_op(cur_op, -EIO);
                 return;
             }
             // Submit reads
@@ -353,6 +387,30 @@ resume_2:
     {
         if (pg && (op_data->errcode == -EIO || op_data->errcode == -EDOM))
         {
+            // A raw -ENOENT behind the -EIO means a copy was removed while the read
+            // was in flight - a delete or a cleanup beat it. A read racing a delete
+            // legally sees both "before" and "after", so this is not corruption: join
+            // the write_queue behind the running write/delete to this object and
+            // retry when it's done. The queue holds the in-flight head operation, so
+            // a queue entry that isn't this read is exactly "an op is running here"
+            int enoent = 0;
+            for (int role = 0; role < op_data->stripe_count; role++)
+            {
+                if (op_data->stripes[role].not_exists)
+                {
+                    enoent = 1;
+                    break;
+                }
+            }
+            auto wq_it = pg->write_queue.find(op_data->oid);
+            if (enoent && wq_it != pg->write_queue.end() && wq_it->second != cur_op)
+            {
+                free(cur_op->buf);
+                cur_op->buf = NULL;
+                op_data->st = 3;
+                pg->write_queue.emplace(op_data->oid, cur_op);
+                return;
+            }
             // I/O or checksum error
             // FIXME: ref = true ideally... because new_state != state is not necessarily true if it's freed and recreated
             auto new_object_state = mark_object_corrupted(*pg, op_data->oid, op_data->object_state, op_data->stripes, false);
@@ -363,7 +421,7 @@ resume_2:
                 goto resume_0;
             }
         }
-        finish_op(cur_op, op_data->errcode);
+        finish_read_op(cur_op, op_data->errcode);
         return;
     }
     cur_op->reply.rw.version = op_data->fact_ver;
@@ -397,7 +455,12 @@ resume_2:
     {
         cur_op->iov.push_back(cur_op->buf, cur_op->req.rw.len);
     }
-    finish_op(cur_op, cur_op->req.rw.len);
+    finish_read_op(cur_op, cur_op->req.rw.len);
+    return;
+resume_3:
+    // The write/delete this read hit an ENOENT from is done and drained the queue
+    // to us; our entry is the head now and the read keeps it until it finishes
+    goto resume_0;
 }
 
 pg_osd_set_state_t *osd_t::mark_object(pg_t & pg, object_id oid, pg_osd_set_state_t *prev_object_state, bool ref,
@@ -1036,13 +1099,7 @@ continue_others:
     finish_op(cur_op, cur_op->reply.hdr.retval);
     if (next_op)
     {
-        // Continue next write to the same object
-        if (next_op->req.hdr.opcode == OSD_OP_WRITE)
-            continue_primary_write(next_op);
-        else
-        {
-            assert(next_op->req.hdr.opcode == OSD_OP_DELETE);
-            continue_primary_del(next_op);
-        }
+        // Continue next operation on the same object
+        pg_continue_queued_op(next_op);
     }
 }

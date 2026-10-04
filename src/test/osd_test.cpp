@@ -2575,6 +2575,174 @@ void test_repeated_delete_is_noop()
     printf("test_repeated_delete_is_noop passed\n");
 }
 
+// A read whose copies were removed by a delete applied mid-flight is not
+// corruption: a read racing a delete legally sees both "before" and "after".
+// Such a read joins the write_queue behind the running delete and retries when
+// it's done - it may neither fail with -EIO nor leave the object marked
+// INCOMPLETE, because a concurrent write may be legitimately in flight too
+//
+// Layout: pool 1 replicated x2, PG set 1,2, primary = OSD 1 (us). Object v1
+// is on both members. A delete runs (applied locally, waiting for the peer),
+// a read races it and both its subops answer raw -ENOENT
+void test_read_enoent_waits_behind_running_delete()
+{
+    printf("test_read_enoent_waits_behind_running_delete\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 2, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "no_recovery", true },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    object_id oid = { .inode = inode, .stripe = 0 };
+    f.reply_local_list({ { oid, 1 } }, 1);
+    // OSD 2 has nothing: the object is DEGRADED on OSD 1 alone, exactly the
+    // seed-5 shape where a raw ENOENT is not excused by OP_DATA_ENOENT_OK
+    f.reply_peer_list(2, {}, 0);
+    f.pump();
+    assert(f.pg(1, 1).state == (PG_ACTIVE|PG_HAS_DEGRADED));
+
+    // Delete v1: fact read, then local delete + peer SEC_DELETE. Hold both
+    int delete_retval = -1;
+    auto *del = new osd_op_t();
+    del->op_type = OSD_OP_IN;
+    del->client_id = 0;
+    del->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    del->req.rw.header.id = 1;
+    del->req.rw.header.opcode = OSD_OP_DELETE;
+    del->req.rw.inode = inode;
+    del->req.rw.offset = 0;
+    del->req.rw.len = 0;
+    del->callback = [&delete_retval](osd_op_t *op) { delete_retval = op->reply.hdr.retval; };
+    f.exec(del);
+    f.bs_zero_read_ok(1);
+    assert(f.pg(1, 1).write_queue.count(oid) == 1);
+
+    // A read races the delete
+    int read_retval = -1;
+    uint64_t read_ver = 1;
+    auto *read = new osd_op_t();
+    read->op_type = OSD_OP_IN;
+    read->client_id = 0;
+    read->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    read->req.rw.header.id = 2;
+    read->req.rw.header.opcode = OSD_OP_READ;
+    read->req.rw.inode = inode;
+    read->req.rw.offset = 0;
+    read->req.rw.len = 4096;
+    read->callback = [&read_retval, &read_ver](osd_op_t *op)
+    {
+        read_retval = op->reply.hdr.retval;
+        read_ver = op->reply.rw.version;
+    };
+    f.exec(read);
+
+    // The copy this read reads from is already deleted - the subop answers
+    // raw -ENOENT
+    auto *local_read = f.bs->take(BS_OP_READ);
+    assert(local_read->len == 4096);
+    local_read->retval = -ENOENT;
+    local_read->callback(local_read);
+
+    // THE KEY ASSERTION: the read neither fails nor rewrites the object set -
+    // it waits in the write_queue behind the running delete. Pre-fix it would
+    // have marked OSD 1 corrupted (falsely degrading the object) and retried
+    // against OSD 2
+    assert(read_retval == -1);
+    assert(f.pg(1, 1).state == (PG_ACTIVE|PG_HAS_DEGRADED));
+    assert(f.pg(1, 1).write_queue.count(oid) == 2);
+
+    // The delete lands; the queue drains to the read
+    auto *bd = f.bs->take(BS_OP_DELETE);
+    bd->version = 1;
+    bd->retval = 0;
+    bd->callback(bd);
+    f.peer_write_ok(2, OSD_OP_SEC_DELETE, 1);
+    assert(delete_retval == 0);
+
+    // The retry subops arrive. The object is really gone now, so the read has
+    // to resolve as non-existent: zeros with version 0
+    local_read = f.bs->take(BS_OP_READ);
+    assert(local_read->len == 4096);
+    local_read->retval = -ENOENT;
+    local_read->callback(local_read);
+
+    assert(read_retval == 4096);
+    assert(read_ver == 0);
+    assert(f.pg(1, 1).state == PG_ACTIVE);
+    assert(f.pg(1, 1).write_queue.count(oid) == 0);
+
+    delete del;
+    delete read;
+    printf("test_read_enoent_waits_behind_running_delete passed\n");
+}
+
+// The other side of the same branch: copies answering -ENOENT while NO
+// write/delete runs on the object is genuine data loss. It must still fail
+// with -EIO and mark the object INCOMPLETE - the ENOENT requeue must not
+// swallow it
+void test_read_enoent_without_racing_op_marks_corrupted()
+{
+    printf("test_read_enoent_without_racing_op_marks_corrupted\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 2, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+        { "no_recovery", true },
+    });
+
+    f.connect_peer(2);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    object_id oid = { .inode = inode, .stripe = 0 };
+    f.reply_local_list({ { oid, 1 } }, 1);
+    // DEGRADED object (only OSD 1 has it): ENOENT is not excused, see above
+    f.reply_peer_list(2, {}, 0);
+    f.pump();
+    assert(f.pg(1, 1).state == (PG_ACTIVE|PG_HAS_DEGRADED));
+
+    int read_retval = 0;
+    auto *read = new osd_op_t();
+    read->op_type = OSD_OP_IN;
+    read->client_id = 0;
+    read->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    read->req.rw.header.id = 2;
+    read->req.rw.header.opcode = OSD_OP_READ;
+    read->req.rw.inode = inode;
+    read->req.rw.offset = 0;
+    read->req.rw.len = 4096;
+    read->callback = [&read_retval](osd_op_t *op) { read_retval = op->reply.hdr.retval; };
+    f.exec(read);
+
+    auto *local_read = f.bs->take(BS_OP_READ);
+    assert(local_read->len == 4096);
+    local_read->retval = -ENOENT;
+    local_read->callback(local_read);
+    // (no peer subop: a replicated read goes to the one member holding the object)
+
+    // Nobody was running on the object - this is corruption, not a race
+    assert(read_retval == -EIO);
+    assert(f.pg(1, 1).state & PG_HAS_INCOMPLETE);
+    assert(f.pg(1, 1).write_queue.count(oid) == 0);
+
+    delete read;
+    printf("test_read_enoent_without_racing_op_marks_corrupted passed\n");
+}
+
 // Peering must not forget an outdated copy just because its OSD already holds
 // the object at another role. A stale piece kept by a set member after a set
 // change looks, by OSD number alone, like a copy that the target set already
@@ -2998,6 +3166,8 @@ int main(int narg, char *args[])
     test_partial_write_to_misplaced_object();
     test_partial_write_object_state_refs();
     test_repeated_delete_is_noop();
+    test_read_enoent_waits_behind_running_delete();
+    test_read_enoent_without_racing_op_marks_corrupted();
     test_peering_outdated_copy_other_role();
     test_pg_epoch_base_is_reported_epoch();
     test_pg_epoch_bump_above_reported_epoch();
