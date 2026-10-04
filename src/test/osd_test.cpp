@@ -2603,6 +2603,79 @@ void test_peering_outdated_copy_other_role()
     printf("test_peering_outdated_copy_other_role passed\n");
 }
 
+// PG epoch must be based on the value persisted in etcd, not on the version
+// epochs of LIST copies. Copies of the epoch-7 chain may be fully deleted while
+// etcd still remembers epoch 7; if peering recomputed the epoch from surviving
+// older copies it would regress, and writes to recreated objects would reuse
+// version numbers that copies missed by a delete may still hold - peering would
+// then treat those stale copies as up-to-date.
+void test_pg_epoch_base_is_reported_epoch()
+{
+    printf("test_pg_epoch_base_is_reported_epoch\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 2, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2 } });
+    // etcd persisted epoch 7; the LIST will only contain epoch-4 copies
+    f.st_cli->set("/vitastor/pg/history/1/1", json11::Json::object {
+        { "osd_sets", json11::Json::array { json11::Json::array { 1, 2 } } },
+        { "all_peers", json11::Json::array { 1, 2 } },
+        { "epoch", 7 },
+    });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+        { "no_recovery", true },
+    });
+    assert(f.st_cli->pool_config[1].pg_config[1].epoch == 7);
+    f.connect_peer(2);
+    f.reply_local_list({ { { INODE_WITH_POOL(1, 1), 0 }, 0x40001 } }, 1);
+    f.reply_peer_list(2, { { { INODE_WITH_POOL(1, 1), 0 }, 0x40001 } }, 1);
+    f.ringloop->loop();
+    // A clean activation must not bump the epoch, but it also must not drag it
+    // down to the 4 seen in copies
+    assert(f.pg(1, 1).state == PG_ACTIVE);
+    assert(f.pg(1, 1).epoch == 7);
+
+    printf("test_pg_epoch_base_is_reported_epoch passed\n");
+}
+
+// A non-clean activation must bump the epoch above the persisted base, not above
+// the version epochs of surviving copies
+void test_pg_epoch_bump_above_reported_epoch()
+{
+    printf("test_pg_epoch_bump_above_reported_epoch\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 2, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2 } });
+    f.st_cli->set("/vitastor/pg/history/1/1", json11::Json::object {
+        { "osd_sets", json11::Json::array { json11::Json::array { 1, 2 } } },
+        { "all_peers", json11::Json::array { 1, 2 } },
+        { "epoch", 7 },
+    });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+        { "no_recovery", true },
+    });
+    f.connect_peer(2);
+    // Only one copy comes back -> the PG is not purely ACTIVE
+    f.reply_local_list({ { { INODE_WITH_POOL(1, 1), 0 }, 0x40001 } }, 1);
+    f.reply_peer_list(2, {}, 0);
+    f.ringloop->loop();
+    assert(f.pg(1, 1).state != PG_ACTIVE);
+    assert(f.pg(1, 1).epoch == 8);
+
+    printf("test_pg_epoch_bump_above_reported_epoch passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -2632,5 +2705,7 @@ int main(int narg, char *args[])
     test_partial_write_object_state_refs();
     test_repeated_delete_is_noop();
     test_peering_outdated_copy_other_role();
+    test_pg_epoch_base_is_reported_epoch();
+    test_pg_epoch_bump_above_reported_epoch();
     return 0;
 }

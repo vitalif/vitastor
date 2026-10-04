@@ -417,7 +417,10 @@ void pg_t::calc_object_states(int log_level)
     st.pg = this;
     st.replicated = (this->scheme == POOL_SCHEME_REPLICATED);
     auto ps = peering_state;
-    epoch = 0;
+    // Epoch must never go back: base it on the last epoch persisted in etcd, not on 0.
+    // Bumped epochs are reported to etcd before any write with a higher version starts,
+    // so a recreated object can never allocate versions below its own history
+    epoch = reported_epoch;
     for (auto it: ps->list_results)
     {
         auto nstab = it.second.stable_count;
