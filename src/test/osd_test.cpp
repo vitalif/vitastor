@@ -455,7 +455,7 @@ void test_ec33_scrub_only_first_part()
         for (int i = 0; i < 6; i++)
             stripes[i].bmp_buf = bmp_buf.data() + i*4;
         split_stripes(3, 128*1024, 0, 128*1024, stripes);
-        void *rmw_buf = calc_rmw(data_buf.data(), stripes, fake_osd_set, 6, 3, 6, fake_osd_set, 128*1024, 4);
+        uint8_t *rmw_buf = (uint8_t*)calc_rmw(data_buf.data(), stripes, fake_osd_set, 6, 3, 6, fake_osd_set, 128*1024, 4);
         assert(rmw_buf);
         calc_rmw_parity_ec(stripes, 6, 3, fake_osd_set, fake_osd_set, 128*1024, 4);
         use_ec(6, 3, false);
@@ -1123,6 +1123,71 @@ void test_chained_read_eio_retry()
     delete read_op;
     printf("test_chained_read_eio_retry passed\n");
 }
+
+void test_chained_read_large_chain_info()
+{
+    printf("test_chained_read_large_chain_info\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(1, 2, 1, 1, { { 1, 2 } });
+
+    // Build 300-layer snapshot chain in pool 1:
+    // Inode 1 (root) <- Inode 2 <- ... <- Inode 300 (leaf)
+    const int NUM_SNAPS = 300;
+    for (int i = 1; i <= NUM_SNAPS; i++)
+    {
+        json11::Json::object obj;
+        if (i > 1)
+            obj["parent_id"] = i - 1;
+        f.st_cli->set("/vitastor/config/inode/1/" + std::to_string(i), obj);
+    }
+
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "none" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(2);
+    f.complete_peering_empty();
+    assert(f.pg(1, 1).state == PG_ACTIVE);
+
+    uint64_t client_id = f.connect_client();
+
+    inode_t leaf_inode = INODE_WITH_POOL(1, NUM_SNAPS);
+    uint64_t meta_rev = f.st_cli->inode_config.at(leaf_inode).mod_revision;
+
+    auto *read_op = new osd_op_t();
+    read_op->op_type = OSD_OP_IN;
+    read_op->client_id = client_id;
+    read_op->req.rw.header.magic = SECONDARY_OSD_OP_MAGIC;
+    read_op->req.rw.header.id = 1;
+    read_op->req.rw.header.opcode = OSD_OP_READ;
+    read_op->req.rw.inode = leaf_inode;
+    read_op->req.rw.offset = 0;
+    read_op->req.rw.len = 128 * 1024;
+    read_op->req.rw.meta_revision = meta_rev;
+    read_op->req.rw.flags = OSD_OP_RETURN_CHAIN;
+
+    f.exec(read_op);
+
+    // Verify op completed and replied to client
+    assert(f.client(client_id)->sent_ops.count(read_op->req.hdr.id) == 1);
+    auto *reply_op = f.client(client_id)->sent_ops.at(read_op->req.hdr.id);
+    assert(reply_op == read_op);
+    assert(reply_op->reply.hdr.retval == (int64_t)read_op->req.rw.len);
+
+    // Replicated pool clean_entry_bitmap_size = 131072 / 4096 / 8 = 4 bytes
+    // For chain_size = 300, key_index_bytes = osd_op_rw_t::chain_info_bytes(300) = 2
+    // 32 blocks (128k / 4k) * 2 bytes = 64 bytes of chain_info
+    // Total bitmap_len must be 4 + 64 = 68 bytes.
+    // If osd_primary_chain.cpp missed multiplying key_index_bytes, bitmap_len would be 4 + 32 = 36.
+    assert(reply_op->reply.rw.bitmap_len == 68);
+
+    printf("test_chained_read_large_chain_info passed\n");
+}
+
 
 // A degraded EC read may leave its parity read ranges behind when the object state
 // changes under the operation (recovery brings a chunk back while subops are in flight)
@@ -2707,5 +2772,6 @@ int main(int narg, char *args[])
     test_peering_outdated_copy_other_role();
     test_pg_epoch_base_is_reported_epoch();
     test_pg_epoch_bump_above_reported_epoch();
+    test_chained_read_large_chain_info();
     return 0;
 }

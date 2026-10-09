@@ -586,9 +586,10 @@ void osd_t::send_chained_read_results(pg_t *pg, osd_op_t *cur_op)
     // Send bitmap
     cur_op->bitmap = op_data->stripes[0].bmp_buf;
     cur_op->reply.rw.bitmap_len = (pg ? pg->pg_data_size : 1) * clean_entry_bitmap_size;
+    size_t key_index_bytes = osd_op_rw_t::chain_info_bytes(op_data->chain_size);
     if (cur_op->req.rw.flags & OSD_OP_RETURN_CHAIN)
     {
-        cur_op->reply.rw.bitmap_len += (cur_op->req.rw.len / bs_bitmap_granularity);
+        cur_op->reply.rw.bitmap_len += key_index_bytes * (cur_op->req.rw.len / bs_bitmap_granularity);
     }
     // And finally compose the result
     uint64_t sent = 0;
@@ -597,7 +598,6 @@ void osd_t::send_chained_read_results(pg_t *pg, osd_op_t *cur_op)
     int prev = (cur_op->req.rw.offset - op_data->oid.stripe) / bs_bitmap_granularity;
     int end = prev + cur_op->req.rw.len/bs_bitmap_granularity;
     int cur = prev;
-    size_t key_index_bytes = osd_op_rw_t::chain_info_bytes(op_data->chain_size);
     while (cur <= end)
     {
         bool has_bit = false;
