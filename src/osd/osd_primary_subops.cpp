@@ -885,8 +885,8 @@ void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const osd_num_t* os
 
 void osd_t::pg_cancel_write_queue(pg_t & pg, osd_op_t *first_op, object_id oid, int retval)
 {
-    auto st_it = pg.write_queue.find(oid), it = st_it;
-    if (it == pg.write_queue.end() || it->second != first_op)
+    auto st_it = pg.write_queue.lower_bound(oid), it = st_it;
+    if (it == pg.write_queue.end() || it->first != oid || it->second != first_op)
     {
         // Write queue doesn't match the first operation.
         // first_op is a leftover operation from the previous peering of the same PG.
