@@ -317,7 +317,7 @@ void kv_fs_defrag_all_t::run(int st)
     else if (st == 6)
         goto resume_6;
     clock_gettime(CLOCK_REALTIME, &now);
-    list_shared = proxy->db->list_start("shared");
+    list_shared = proxy->db->list_start("shared", kv_prefix_end("shared"));
     proxy->db->list_next(list_shared, [this](int res, const std::string & key, const std::string & value)
     {
         if (res == -ENOENT || key.substr(0, 6) != "shared")
@@ -482,7 +482,7 @@ void kv_fs_state_t::upgrade_db(std::function<void(int)> cb)
             return;
         }
         // Create missing shared inode index keys
-        auto list_inodes = proxy->db->list_start("i");
+        auto list_inodes = proxy->db->list_start("i", kv_prefix_end("i"));
         proxy->db->list_next(list_inodes, [=](int res, const std::string & key, const std::string & value)
         {
             if (res == -ENOENT || key.substr(0, 1) != "i" || key == "id")

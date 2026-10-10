@@ -130,6 +130,8 @@ int kv_map_type(const std::string & type);
 fattr3 get_kv_attributes(nfs_proxy_t *proxy, uint64_t ino, json11::Json attrs);
 std::string kv_direntry_key(uint64_t dir_ino, const std::string & filename);
 std::string kv_direntry_filename(const std::string & key);
+// The first key after all keys starting with prefix, to stop a listing at the end of the prefix
+std::string kv_prefix_end(const std::string & prefix);
 std::string kv_inode_prefix_key(uint64_t ino, const char *prefix);
 std::string kv_inode_key(uint64_t ino);
 uint64_t kv_key_inode(const std::string & key, int prefix_len = 1);

@@ -138,7 +138,7 @@ resume_2:
         {
             // Check that the destination directory is empty
             st->new_dir_prefix = kv_direntry_key(st->new_direntry["ino"].uint64_value(), "");
-            st->list_handle = st->self->parent->db->list_start(st->new_dir_prefix);
+            st->list_handle = st->self->parent->db->list_start(st->new_dir_prefix, kv_prefix_end(st->new_dir_prefix));
             st->self->parent->db->list_next(st->list_handle, [st](int res, const std::string & key, const std::string & value)
             {
                 st->res = res;

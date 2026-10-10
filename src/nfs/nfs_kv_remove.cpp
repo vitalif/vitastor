@@ -181,7 +181,7 @@ resume_3:
     if (st->is_rmdir)
     {
         // (4) Check if the directory actually is not empty
-        st->list_handle = st->self->parent->db->list_start(kv_direntry_key(st->ino, ""));
+        st->list_handle = st->self->parent->db->list_start(kv_direntry_key(st->ino, ""), kv_prefix_end(kv_direntry_key(st->ino, "")));
         st->self->parent->db->list_next(st->list_handle, [st](int res, const std::string & key, const std::string & value)
         {
             st->res = res;

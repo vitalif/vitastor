@@ -110,6 +110,16 @@ std::string kv_direntry_key(uint64_t dir_ino, const std::string & filename)
     return (char*)key + filename;
 }
 
+std::string kv_prefix_end(const std::string & prefix)
+{
+    std::string end = prefix;
+    while (end.size() && (uint8_t)end.back() == 0xff)
+        end.pop_back();
+    if (end.size())
+        end.back()++;
+    return end;
+}
+
 std::string kv_direntry_filename(const std::string & key)
 {
     // decode as: d <length> <hex dir_ino> / <filename>

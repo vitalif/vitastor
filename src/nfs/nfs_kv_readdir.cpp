@@ -241,7 +241,7 @@ resume_2:
         st->cookieverf = ((uint64_t)lrand48() | ((uint64_t)lrand48() << 31) | ((uint64_t)lrand48() << 62));
     }
     st->getattr_cur = st->entries.size();
-    st->list_handle = st->self->parent->db->list_start(st->start);
+    st->list_handle = st->self->parent->db->list_start(st->start, kv_prefix_end(st->prefix));
     st->self->parent->db->list_next(st->list_handle, [=](int res, const std::string & key, const std::string & value)
     {
         st->res = res;
