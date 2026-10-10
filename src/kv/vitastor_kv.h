@@ -40,6 +40,8 @@ struct __attribute__((visibility("default"))) vitastorkv_dbw_t
         std::function<bool(int res, const std::string & value)> cas_compare = NULL);
 
     void* list_start(const std::string & start);
+    // list keys >= start and < end (all keys >= start if end is empty)
+    void* list_start(const std::string & start, const std::string & end);
     void list_next(void *handle, std::function<void(int res, const std::string & key, const std::string & value)> cb);
     void list_close(void *handle);
 

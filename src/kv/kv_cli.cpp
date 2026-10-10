@@ -664,7 +664,7 @@ void kv_cli_t::handle_cmd(const std::vector<std::string> & cmd, std::function<vo
         kv_cli_list_t *lst = new kv_cli_list_t;
         std::string start = cmd.size() >= 2 ? cmd[1] : "";
         std::string end = cmd.size() >= 3 ? cmd[2] : "";
-        lst->handle = db->list_start(start);
+        lst->handle = db->list_start(start, end);
         lst->db = db;
         lst->format = opname == "dump" ? 1 : (opname == "dumpjson" ? 2 : 0);
         lst->cb = std::move(cb);

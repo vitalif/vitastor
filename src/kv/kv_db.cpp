@@ -190,6 +190,8 @@ struct kv_op_t
     kv_db_t *db;
     int opcode;
     std::string key, value;
+    // for list: stop before the first key >= list_end, unless list_end is empty
+    std::string list_end;
     int res;
     bool in_next = false;
     bool next_retry_pending = false;
@@ -2021,6 +2023,12 @@ void kv_op_t::next_get()
     }
     if (kv_it != blk->data.end())
     {
+        if (list_end != "" && kv_it->first >= list_end)
+        {
+            // End of the listing range
+            finish(-ENOENT);
+            return;
+        }
         // Send this item
         assert(blk->type == KV_LEAF || blk->type == KV_LEAF_SPLIT);
         this->res = 0;
@@ -2032,6 +2040,12 @@ void kv_op_t::next_get()
     // Find next block
     else if (blk->type == KV_LEAF_SPLIT)
     {
+        if (list_end != "" && blk->right_half >= list_end)
+        {
+            // The right half is beyond the listing range
+            finish(-ENOENT);
+            return;
+        }
         // Left half finished, go to the right
         recheck_policy = KV_RECHECK_LEAF;
         key = blk->right_half;
@@ -2062,6 +2076,12 @@ void kv_op_t::next_go_up()
         {
             // Block can be updated and key_lt may be lower. Don't rewind it
             key = blk->key_lt;
+        }
+        if (list_end != "" && key >= list_end)
+        {
+            // Next keys are beyond the listing range, don't read the next block
+            finish(-ENOENT);
+            return;
         }
         skip_equal = false;
         path.pop_back();
@@ -2195,12 +2215,18 @@ void vitastorkv_dbw_t::del(const std::string & key, std::function<void(int res)>
 
 void* vitastorkv_dbw_t::list_start(const std::string & start)
 {
+    return list_start(start, "");
+}
+
+void* vitastorkv_dbw_t::list_start(const std::string & start, const std::string & end)
+{
     if (!db->inode_id || db->closing)
         return NULL;
     auto *op = new kv_op_t;
     op->db = db;
     op->opcode = KV_LIST;
     op->key = start;
+    op->list_end = end;
     op->callback = [](kv_op_t *){};
     op->exec();
     return op;
