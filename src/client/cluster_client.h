@@ -210,9 +210,6 @@ protected:
     void vault_destroy();
     void vault_parse_secret(const std::string & key_id, const std::string & err, json11::Json data);
 
-    bool affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd);
-    bool affects_pg(uint64_t inode, uint64_t offset, uint64_t len, pool_id_t pool_id, pg_num_t pg_num);
-
     void on_load_config_hook(json11::Json::object & config);
     void on_load_pgs_hook(bool success);
     void on_change_pool_config_hook();

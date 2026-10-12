@@ -93,6 +93,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
         // approaches and fix everything accordingly when I decide to implement TRIM.
         return;
     }
+    small_vector_t<osd_num_t, 4> was_written_to;
     auto dirty_it = find_dirty(op->inode, op->offset);
     auto new_end = op->offset + op->len;
     while (dirty_it != dirty_buffers.end() &&
@@ -100,6 +101,11 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
         dirty_it->first.stripe < op->offset+op->len)
     {
         assert(dirty_it->first.stripe + dirty_it->second.len > op->offset);
+        for (auto osd_num: dirty_it->second.written_to_osd)
+        {
+            if (std::find(was_written_to.begin(), was_written_to.end(), osd_num) == was_written_to.end())
+                was_written_to.push_back(osd_num);
+        }
         // Remove overlapping part(s) of buffers
         auto old_end = dirty_it->first.stripe + dirty_it->second.len;
         if (dirty_it->first.stripe < op->offset)
@@ -117,6 +123,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                     .state = dirty_it->second.state,
                     .flush_id = dirty_it->second.flush_id,
                     .refcnt = dirty_it->second.refcnt,
+                    .written_to_osd = dirty_it->second.written_to_osd,
                 });
                 if (dirty_it->second.buf)
                 {
@@ -175,6 +182,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
                 .state = dirty_it->second.state,
                 .flush_id = dirty_it->second.flush_id,
                 .refcnt = dirty_it->second.refcnt,
+                .written_to_osd = dirty_it->second.written_to_osd,
             });
             dirty_buffers.erase(dirty_it);
             dirty_it = new_dirty_it;
@@ -225,6 +233,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
         .state = state,
         .flush_id = new_flush_id,
         .refcnt = refcnt,
+        .written_to_osd = std::move(was_written_to),
     });
     if (state == CACHE_DIRTY)
     {
@@ -263,7 +272,7 @@ void writeback_cache_t::copy_write(cluster_op_t *op, int state, uint64_t new_flu
     }
 }
 
-int writeback_cache_t::repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd, pool_id_t pool_id, pg_num_t pg_num)
+int writeback_cache_t::repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd)
 {
     int repeated = 0;
     if (dirty_buffers.size())
@@ -273,11 +282,10 @@ int writeback_cache_t::repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd,
         for (auto wr_it = dirty_buffers.begin(), flush_it = wr_it, last_it = wr_it; ; )
         {
             bool end = wr_it == dirty_buffers.end();
-            bool flush_this = !end && wr_it->second.state != CACHE_REPEATING && wr_it->second.state != CACHE_DIRTY;
-            if (peer_osd)
-                flush_this = flush_this && cli->affects_osd(wr_it->first.inode, wr_it->first.stripe, wr_it->second.len, peer_osd);
-            if (pool_id && pg_num)
-                flush_this = flush_this && cli->affects_pg(wr_it->first.inode, wr_it->first.stripe, wr_it->second.len, pool_id, pg_num);
+            auto & wr_to = wr_it->second.written_to_osd;
+            bool flush_this = std::find(wr_to.begin(), wr_to.end(), peer_osd) != wr_to.end();
+            if (flush_this)
+                wr_to.clear();
             if (flush_it != wr_it && (end || !flush_this ||
                 wr_it->first.inode != flush_it->first.inode ||
                 wr_it->first.stripe != last_it->first.stripe+last_it->second.len))
@@ -309,28 +317,28 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
     op->offset = from_it->first.stripe;
     op->len = prev_it->first.stripe + prev_it->second.len - from_it->first.stripe;
     uint32_t calc_len = 0;
-    uint64_t flush_id = ++last_flush_id;
+    op->flush_id = ++last_flush_id;
     for (auto it = from_it; it != to_it; it++)
     {
         it->second.state = CACHE_REPEATING;
-        it->second.flush_id = flush_id;
+        it->second.flush_id = op->flush_id;
         if (it->second.buf)
         {
             (*it->second.refcnt)++;
-            flushed_buffers.emplace(flush_id, it->second.refcnt);
+            flushed_buffers.emplace(op->flush_id, it->second.refcnt);
             op->iov.push_back(it->second.buf, it->second.len);
         }
         calc_len += it->second.len;
     }
     assert(calc_len == op->len);
     writebacks_active++;
-    op->callback = [this, flush_id](cluster_op_t* op)
+    op->callback = [this](cluster_op_t* op)
     {
         // Buffer flushes are always retried, regardless of the error,
         // so they should never result in an error here
         assert(op->retval == op->len);
-        for (auto fl_it = flushed_buffers.find(flush_id);
-            fl_it != flushed_buffers.end() && fl_it->first == flush_id; )
+        for (auto fl_it = flushed_buffers.lower_bound(op->flush_id);
+            fl_it != flushed_buffers.end() && fl_it->first == op->flush_id; )
         {
             if (!--(*fl_it->second)) // refcnt
             {
@@ -340,11 +348,7 @@ void writeback_cache_t::flush_buffers(cluster_client_t *cli, dirty_buf_it_t from
         }
         if (op->flags & OP_IMMEDIATE_COMMIT)
         {
-            delete_flush(op->inode, op->offset, op->len, flush_id);
-        }
-        else
-        {
-            mark_flush_written(op->inode, op->offset, op->len, flush_id);
+            delete_flush(op->inode, op->offset, op->len, op->flush_id);
         }
         delete op;
         writebacks_active--;
@@ -392,6 +396,21 @@ void writeback_cache_t::mark_flush_written(uint64_t inode, uint64_t offset, uint
         {
             dirty_it->second.flush_id = 0;
             dirty_it->second.state = CACHE_WRITTEN;
+        }
+    }
+}
+
+void writeback_cache_t::mark_flush_written_to(uint64_t inode, uint64_t offset, uint64_t len, uint64_t flush_id, osd_num_t osd_num)
+{
+    for (auto dirty_it = find_dirty(inode, offset);
+        dirty_it != dirty_buffers.end() && dirty_it->first.inode == inode &&
+        dirty_it->first.stripe < offset+len; dirty_it++)
+    {
+        if (dirty_it->second.flush_id == flush_id && dirty_it->second.state == CACHE_REPEATING)
+        {
+            auto & wr_to = dirty_it->second.written_to_osd;
+            if (std::find(wr_to.begin(), wr_to.end(), osd_num) == wr_to.end())
+                wr_to.push_back(osd_num);
         }
     }
 }

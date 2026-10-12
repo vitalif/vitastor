@@ -31,7 +31,9 @@ OSD_TLS=${OSD_TLS:-1}
 RDMA=${RDMA:-0}
 
 RAMDISK=/run/user/$(id -u)
-findmnt $RAMDISK >/dev/null || (sudo mkdir -p $RAMDISK && sudo mount -t tmpfs tmpfs $RAMDISK)
+findmnt $RAMDISK >/dev/null || \
+    findmnt /run >/dev/null && [[ -d $RAMDISK && -w $RAMDISK ]] >/dev/null || \
+    (sudo mkdir -p $RAMDISK && sudo mount -t tmpfs tmpfs $RAMDISK)
 
 if [[ -z "$KEEP_DATA" ]]; then
     rm -rf ./testdata

@@ -58,7 +58,7 @@ qemu-img convert -S 4096 -p \
     -O raw ./testdata/bin/read.bin
 
 if ! diff -q ./testdata/bin/read.bin ./testdata/bin/mirror.bin; then
-    build/src/test/bindiff ./testdata/bin/read.bin ./testdata/bin/mirror.bin
+    build/src/test/bindiff ./testdata/bin/read.bin ./testdata/bin/mirror.bin > ./testdata/bindiff.log
     format_error Data lost during self-heal
 fi
 

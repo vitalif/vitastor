@@ -4,6 +4,7 @@
 #pragma once
 
 #include "cluster_client.h"
+#include "small_vector.h"
 
 #define PART_SENT 1
 #define PART_DONE 2
@@ -29,6 +30,11 @@ struct cluster_buffer_t
     int state;
     uint64_t flush_id;
     uint64_t *refcnt;
+    // Funny thing is that a buffer may be CACHE_REPEATING or even CACHE_DIRTY
+    // which means it's NOT written yet and have written_to_osd at the same time,
+    // because it may be left from the PREVIOUS write attempt which we MUST remember
+    // to correctly handle OSD failure retries.
+    small_vector_t<osd_num_t, 4> written_to_osd;
 };
 
 typedef std::map<object_id, cluster_buffer_t>::iterator dirty_buf_it_t;
@@ -52,11 +58,12 @@ public:
     bool is_left_merged(dirty_buf_it_t dirty_it);
     bool is_right_merged(dirty_buf_it_t dirty_it);
     void copy_write(cluster_op_t *op, int state, uint64_t new_flush_id = 0);
-    int repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd, pool_id_t pool_id, pg_num_t pg_num);
+    int repeat_ops_for(cluster_client_t *cli, osd_num_t peer_osd);
     void start_writebacks(cluster_client_t *cli, int count);
     bool read_from_cache(cluster_op_t *op, uint32_t bitmap_granularity);
     void flush_buffers(cluster_client_t *cli, dirty_buf_it_t from_it, dirty_buf_it_t to_it);
     void mark_flush_written(uint64_t inode, uint64_t offset, uint64_t len, uint64_t flush_id);
+    void mark_flush_written_to(uint64_t inode, uint64_t offset, uint64_t len, uint64_t flush_id, osd_num_t osd_num);
     void delete_flush(uint64_t inode, uint64_t offset, uint64_t len, uint64_t flush_id);
     void fsync_start();
     void fsync_error();

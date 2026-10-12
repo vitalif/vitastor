@@ -336,9 +336,9 @@ void test1()
             assert(offset == op->req.rw.offset+op->req.rw.len);
             replay_ops.push_back(op);
         }
-        if (replay_start != 0 || replay_end != 0x10000)
+        if (replay_start != 0 || replay_end != 0x14000)
         {
-            printf("Write replay: range mismatch: 0x%jx-0x%jx (expected 0-0x10000)\n", replay_start, replay_end);
+            printf("Write replay: range mismatch: 0x%jx-0x%jx (expected 0-0x14000)\n", replay_start, replay_end);
             assert(0);
         }
         for (auto op: replay_ops)
@@ -1128,6 +1128,167 @@ void test_snapshot_over_nonexistent_pool()
     printf("[ok] test_snapshot_over_nonexistent_pool\n");
 }
 
+// Data loss reproduction: dirty buffer re-flush after PG primary change.
+//
+// A write buffer is acknowledged by OSD 2 while OSD 2 is the PG primary.
+// Then the primary moves back to OSD 1 and OSD 2 goes down.  The only copy
+// of the data acknowledged by the client was on OSD 2, so the client must
+// re-flush the buffer to the current primary (OSD 1) before SYNC is allowed
+// to report success.
+//
+// Before the fix the repeat logic used affects_osd() which compares the
+// crashed OSD against the *current* pg_config.cur_primary.  Since the primary
+// has already moved back to OSD 1, affects_osd(2) returns false, the buffer
+// is never re-flushed, and SYNC completes with 0 without ever writing the
+// data to a live OSD - silent data loss.
+void test_primary_change_flush_loss()
+{
+    json11::Json config;
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    etcd_mock_t etcd_store;
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t(etcd_store);
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
+
+    // Pool: replicated, OSDs [1, 2], primary OSD 1
+    configure_single_pg_pool(mock);
+    mock->resume();
+    pretend_connected(cli, 1);
+    pretend_connected(cli, 2);
+    cluster_client_test_t::continue_ops(cli);
+
+    // First PG primary change: 1 -> 2 (before any write, so the change itself
+    // must not post anything to any OSD)
+    mock->set("/vitastor/pg/state/1/1", json11::Json::object {
+        { "peers", json11::Json::array { 1, 2 } },
+        { "primary", 2 },
+        { "state", json11::Json::array { "active" } },
+    });
+    cluster_client_test_t::continue_ops(cli);
+    check_op_count(cli, 1, 0);
+    check_op_count(cli, 2, 0);
+
+    // Post a write while OSD 2 is primary - it becomes a REPEATING flush to OSD 2
+    int *r1 = test_write(cli, 0x2000, 0x1000, 0x56);
+    can_complete(r1);
+    cluster_client_test_t::continue_ops(cli);
+    osd_op_t *flush_op = find_op(cli, 2, OSD_OP_WRITE, 0x2000, 0x1000);
+    assert(flush_op != NULL);
+
+    // Second PG primary change: 2 -> 1.
+    // The buffer is still REPEATING (in-flight), so repeat logic skips it -
+    // nothing is re-queued and the in-flight op stays pointed at OSD 2
+    mock->set("/vitastor/pg/state/1/1", json11::Json::object {
+        { "peers", json11::Json::array { 1, 2 } },
+        { "primary", 1 },
+        { "state", json11::Json::array { "active" } },
+    });
+    cluster_client_test_t::continue_ops(cli);
+    check_op_count(cli, 1, 0);
+    check_op_count(cli, 2, 1);
+
+    // OSD 2 acknowledges the flush.  Now the only copy of the acknowledged
+    // data exists on OSD 2, which is no longer the primary
+    pretend_op_completed(cli, flush_op, 0);
+    check_completed(r1);
+
+    // OSD 2 crashes and restarts.  repeer_pgs(2) fires the repeat logic
+    pretend_disconnected(cli, 2);
+    pretend_connected(cli, 2);
+    cluster_client_test_t::continue_ops(cli);
+
+    // Data safety invariant: the data whose last successful write went to
+    // the now-dead OSD 2 must be re-flushed to the current primary OSD 1.
+    // The pre-fix affects_osd(2) check sees cur_primary == 1 and skips it.
+    osd_op_t *reflush_op = find_op(cli, 1, OSD_OP_WRITE, 0x2000, 0x1000);
+    if (reflush_op == NULL)
+    {
+        printf("error: the buffer acknowledged by crashed OSD 2 was not re-flushed to the new primary OSD 1;\n"
+            "SYNC would complete with no live OSD holding the data\n");
+    }
+    assert(reflush_op != NULL);
+    pretend_op_completed(cli, reflush_op, 0);
+
+    // Only now SYNC may legitimately complete
+    int *r2 = test_sync(cli);
+    can_complete(r2);
+    cluster_client_test_t::continue_ops(cli);
+    osd_op_t *sync_op1 = find_op(cli, 1, OSD_OP_SYNC, 0, 0);
+    assert(sync_op1 != NULL);
+    osd_op_t *sync_op2 = find_op(cli, 2, OSD_OP_SYNC, 0, 0);
+    assert(sync_op2 != NULL);
+    pretend_op_completed(cli, sync_op1, 0);
+    pretend_op_completed(cli, sync_op2, 0);
+    check_completed(r2);
+
+    delete cli;
+    delete tfd;
+    printf("[ok] primary change flush loss test\n");
+}
+
+// Data loss reproduction: SYNC failure must keep dirty state.
+//
+// SYNC is posted to the dirty OSD, then fails with -EIO.  The client must
+// re-post the SYNC and only then complete the user operation.  Before the fix
+// dirty_osds was cleared when posting the SYNC and never restored on failure,
+// so the retry concluded "sync is not required", completed the user SYNC with
+// 0 without any OSD ever being synced, and every subsequent SYNC became a
+// silent no-op too.
+void test_sync_fail_dirty_state_loss()
+{
+    // Retry immediately on -EIO
+    json11::Json config = json11::Json::object {
+        { "client_eio_retry_interval", 0 },
+    };
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    etcd_mock_t etcd_store;
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t(etcd_store);
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
+
+    configure_single_pg_pool(mock);
+    mock->resume();
+    pretend_connected(cli, 1);
+    cluster_client_test_t::continue_ops(cli);
+
+    // Write + complete on OSD 1 -> buffer is CACHE_WRITTEN, dirty_osds = {1}
+    int *r1 = test_write(cli, 0x1000, 0x1000, 0x55);
+    can_complete(r1);
+    cluster_client_test_t::continue_ops(cli);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0x1000, 0x1000), 0);
+    check_completed(r1);
+
+    // Post SYNC; it goes to OSD 1 and fails with -EIO
+    int *r2 = test_sync(cli);
+    can_complete(r2);
+    cluster_client_test_t::continue_ops(cli);
+    osd_op_t *sync_op = find_op(cli, 1, OSD_OP_SYNC, 0, 0);
+    assert(sync_op != NULL);
+    pretend_op_completed(cli, sync_op, -EIO);
+    cluster_client_test_t::continue_ops(cli);
+
+    // Data safety invariant: the failed SYNC must be re-posted to OSD 1 and
+    // the user SYNC must not complete until a real SYNC succeeds
+    if (*r2 != -1001)
+    {
+        printf("error: SYNC completed successfully even though OSD 1 never acknowledged a sync\n");
+    }
+    assert(*r2 == -1001);
+    osd_op_t *sync_op2 = find_op(cli, 1, OSD_OP_SYNC, 0, 0);
+    if (sync_op2 == NULL)
+    {
+        printf("error: failed SYNC was not re-posted to OSD 1 (dirty_osds was lost)\n");
+    }
+    assert(sync_op2 != NULL);
+    pretend_op_completed(cli, sync_op2, 0);
+    check_completed(r2);
+
+    delete cli;
+    delete tfd;
+    printf("[ok] sync fail dirty state loss test\n");
+}
+
+
 int main(int narg, char *args[])
 {
     test1();
@@ -1138,6 +1299,8 @@ int main(int narg, char *args[])
     test_deoptimize_snapshot_read();
     test_msgr_encrypt();
     test_msgr_decrypt_chain();
+    test_primary_change_flush_loss();
+    test_sync_fail_dirty_state_loss();
     cluster_client_test_t::test_vault();
     test_pg_config_disappears();
     test_snapshot_over_nonexistent_pool();

@@ -39,7 +39,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
         {
             // peer_osd just dropped connection
             // determine WHICH dirty_buffers are now obsolete and repeat them
-            if (wb->repeat_ops_for(this, peer_osd, 0, 0) > 0)
+            if (wb->repeat_ops_for(this, peer_osd) > 0)
             {
                 continue_ops();
             }
@@ -616,12 +616,6 @@ void cluster_client_t::on_change_pool_config_hook()
 
 void cluster_client_t::on_change_pg_state_hook(pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary)
 {
-    auto & pg_cfg = st_cli->pool_config[pool_id].pg_config[pg_num];
-    if (pg_cfg.cur_primary != prev_primary)
-    {
-        // Repeat this PG operations because an OSD which stopped being primary may not fsync operations
-        wb->repeat_ops_for(this, 0, pool_id, pg_num);
-    }
     // Always continue to resume operations hung because of lack of the primary OSD
     continue_ops();
     continue_lists();
@@ -1426,58 +1420,6 @@ bool cluster_client_t::slice_rw(cluster_op_t *op)
     return true;
 }
 
-bool cluster_client_t::affects_pg(uint64_t inode, uint64_t offset, uint64_t len, pool_id_t pool_id, pg_num_t pg_num)
-{
-    if (INODE_POOL(inode) != pool_id)
-    {
-        return false;
-    }
-    auto pool_it = st_cli->pool_config.find(INODE_POOL(inode));
-    if (pool_it == st_cli->pool_config.end())
-    {
-        return false;
-    }
-    auto & pool_cfg = pool_it->second;
-    uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
-    uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
-    uint64_t first_stripe = (offset / pg_block_size) * pg_block_size;
-    uint64_t last_stripe = len > 0 ? ((offset + len - 1) / pg_block_size) * pg_block_size : first_stripe;
-    if ((last_stripe/pool_cfg.pg_stripe_size) - (first_stripe/pool_cfg.pg_stripe_size) + 1 >= pool_cfg.real_pg_count)
-    {
-        // All PGs are affected
-        return true;
-    }
-    pg_num_t first_pg_num = (first_stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1; // like map_to_pg()
-    pg_num_t last_pg_num = (last_stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1; // like map_to_pg()
-    return (first_pg_num <= last_pg_num
-        ? (pg_num >= first_pg_num && pg_num <= last_pg_num)
-        : (pg_num >= first_pg_num || pg_num <= last_pg_num));
-}
-
-bool cluster_client_t::affects_osd(uint64_t inode, uint64_t offset, uint64_t len, osd_num_t osd)
-{
-    auto pool_it = st_cli->pool_config.find(INODE_POOL(inode));
-    if (pool_it == st_cli->pool_config.end())
-    {
-        return false;
-    }
-    auto & pool_cfg = pool_it->second;
-    uint32_t pg_data_size = (pool_cfg.scheme == POOL_SCHEME_REPLICATED ? 1 : pool_cfg.pg_size-pool_cfg.parity_chunks);
-    uint64_t pg_block_size = pool_cfg.data_block_size * pg_data_size;
-    uint64_t first_stripe = (offset / pg_block_size) * pg_block_size;
-    uint64_t last_stripe = len > 0 ? ((offset + len - 1) / pg_block_size) * pg_block_size : first_stripe;
-    for (uint64_t stripe = first_stripe; stripe <= last_stripe; stripe += pg_block_size)
-    {
-        pg_num_t pg_num = (stripe/pool_cfg.pg_stripe_size) % pool_cfg.real_pg_count + 1; // like map_to_pg()
-        auto pg_it = pool_cfg.pg_config.find(pg_num);
-        if (pg_it != pool_cfg.pg_config.end() && pg_it->second.cur_primary == osd)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 int cluster_client_t::try_send(cluster_op_t *op, int i, std::function<void(osd_op_t *op_part)> cb)
 {
     if (!msgr_initialized)
@@ -1613,6 +1555,8 @@ resume_1:
     }
     if (op->retval != 0)
     {
+        for (int i = 0; i < op->parts.size(); i++)
+            dirty_osds.insert(op->parts[i].osd_num);
         wb->fsync_error();
         if (op->retval == -EPIPE || op->retval == -EAGAIN || op->retval == -EIO || op->retval == -ENOSPC)
         {
@@ -1723,7 +1667,10 @@ void cluster_client_t::handle_op_part(cluster_op_part_t *part)
         // OK
         op->inflight_count--;
         if ((op->opcode == OSD_OP_WRITE || op->opcode == OSD_OP_DELETE) && !(op->flags & OP_IMMEDIATE_COMMIT))
+        {
+            wb->mark_flush_written_to(op->inode, part->op.req.rw.offset, part->op.req.rw.len, op->flush_id, part->osd_num);
             dirty_osds.insert(part->osd_num);
+        }
         part->flags |= PART_DONE;
         op->done_count++;
         if ((op->opcode == OSD_OP_READ || op->opcode == OSD_OP_READ_BITMAP || op->opcode == OSD_OP_READ_CHAIN_BITMAP)
