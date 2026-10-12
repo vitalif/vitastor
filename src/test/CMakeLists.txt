@@ -81,10 +81,6 @@ add_dependencies(build_tests test_blockstore_chaos)
 target_link_libraries(test_blockstore_chaos vitastor_blk vitastor_common)
 add_test(NAME test_blockstore_chaos COMMAND test_blockstore_chaos)
 
-## test_shit
-#add_executable(test_shit test_shit.cpp osd_peering_pg.cpp)
-#target_link_libraries(test_shit ${LIBURING_LIBRARIES} m)
-
 # test_atomic
 add_executable(test_atomic test_atomic.cpp)
 target_link_libraries(test_atomic util)
