@@ -18,7 +18,7 @@ struct rm_osd_t
     bool dry_run, force_warning, force_dataloss, allow_up;
     uint64_t etcd_tx_retry_ms = 500;
     uint64_t etcd_tx_retries = 10000;
-    std::vector<uint64_t> osd_ids;
+    std::vector<osd_num_t> osd_ids;
 
     int state = 0;
     cli_result_t result;

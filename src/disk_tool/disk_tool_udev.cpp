@@ -429,7 +429,7 @@ int disk_tool_t::clear_osd_superblock(const std::string & dev)
 
 int disk_tool_t::purge_devices(const std::vector<std::string> & devices)
 {
-    std::set<uint64_t> osd_numbers;
+    std::set<osd_num_t> osd_numbers;
     json11::Json::array superblocks;
     for (auto & device: devices)
     {

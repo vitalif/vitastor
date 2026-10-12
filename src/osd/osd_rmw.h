@@ -38,11 +38,11 @@ int extend_missing_stripes(osd_rmw_stripe_t *stripes, osd_num_t *osd_set, int pg
 
 void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t add_size);
 
-void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_set,
-    uint64_t pg_size, uint64_t pg_minsize, uint64_t pg_cursize, uint64_t *write_osd_set,
+void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, osd_num_t *read_osd_set,
+    uint64_t pg_size, uint64_t pg_minsize, uint64_t pg_cursize, osd_num_t *write_osd_set,
     uint64_t chunk_size, uint32_t bitmap_size);
 
-void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_osd_set, uint64_t *write_osd_set,
+void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, osd_num_t *read_osd_set, osd_num_t *write_osd_set,
     uint32_t chunk_size, uint32_t bitmap_size);
 
 void use_ec(int pg_size, int pg_minsize, bool use);
@@ -50,7 +50,7 @@ void use_ec(int pg_size, int pg_minsize, bool use);
 void reconstruct_stripes_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize, uint32_t bitmap_size);
 
 void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
-    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_size);
+    osd_num_t *read_osd_set, osd_num_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_size);
 
 std::vector<int> ec_find_good(osd_rmw_stripe_t *stripes, int stripe_count, int pg_size, int pg_minsize, bool is_xor,
     uint32_t chunk_size, uint32_t bitmap_size, uint64_t max_bruteforce, bool find_best);

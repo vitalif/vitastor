@@ -12,7 +12,7 @@ struct osd_changer_t
 {
     cli_tool_t *parent;
 
-    uint64_t osd_num = 0;
+    osd_num_t osd_num = 0;
     bool set_tags = false;
     std::vector<std::string> new_tags;
     bool set_reweight = false;

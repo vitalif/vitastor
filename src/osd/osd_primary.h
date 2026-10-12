@@ -33,7 +33,7 @@ struct osd_primary_op_data_t
     osd_rmw_stripe_t *stripes = NULL;
     pg_t *pg = NULL;
     osd_op_t *subops = NULL;
-    uint64_t *prev_set = NULL;
+    osd_num_t *prev_set = NULL;
     pg_osd_set_state_t *object_state = NULL;
 
     union

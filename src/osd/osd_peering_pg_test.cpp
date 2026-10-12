@@ -35,7 +35,7 @@ int main(int argc, char *argv[])
         .cur_set = { 1, 2, 3 },
         .peering_state = new pg_peering_state_t(),
     };
-    for (uint64_t osd_num = 1; osd_num <= 3; osd_num++)
+    for (osd_num_t osd_num = 1; osd_num <= 3; osd_num++)
     {
         pg_list_result_t r = {
             .buf = (obj_ver_id*)malloc_or_die(sizeof(obj_ver_id) * 1024*1024*8),

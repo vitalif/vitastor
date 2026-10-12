@@ -18,7 +18,7 @@ struct cli_raw_ls_t
     pg_num_t pg_num = 0;
     pg_num_t pg_count = 0;
     uint32_t pg_stripe_size = 0;
-    std::set<uint64_t> osds;
+    std::set<osd_num_t> osds;
     std::vector<osd_num_t> osd_list;
     uint64_t min_inode = 0, max_inode = 0, min_offset = 0, max_offset = 0;
     bool offset_set = false;

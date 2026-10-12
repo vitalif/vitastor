@@ -291,7 +291,7 @@ public:
     uint32_t bs_block_size = 0;
     uint32_t max_write_request_size = 0;
     robin_hood::unordered_flat_map<uint64_t, osd_client_t*> clients;
-    robin_hood::unordered_flat_map<uint64_t, osd_client_t*> osd_peers;
+    robin_hood::unordered_flat_map<osd_num_t, osd_client_t*> osd_peers;
     robin_hood::unordered_flat_map<int, osd_client_t*> clients_by_fd;
     robin_hood::unordered_flat_map<osd_num_t, osd_wanted_peer_t> wanted_peers;
     std::vector<std::string> osd_networks;
@@ -308,7 +308,7 @@ public:
     void init();
     void init_iothreads();
     void parse_config(const json11::Json & config, bool init);
-    void connect_peer(uint64_t osd_num, json11::Json peer_state);
+    void connect_peer(osd_num_t osd_num, json11::Json peer_state);
     void stop_client(uint64_t client_id, bool force_delete = false);
     void destroy_client(osd_client_t *cl);
     void outbox_push(osd_op_t *cur_op);
@@ -344,7 +344,7 @@ public:
     void measure_exec(osd_op_t *cur_op);
 
 protected:
-    void try_connect_peer(uint64_t osd_num);
+    void try_connect_peer(osd_num_t osd_num);
     void try_connect_peer_tcp(osd_num_t peer_osd, const char *peer_host, int peer_port);
     void handle_peer_epoll(int peer_fd, int epoll_events);
     void handle_connect_epoll(int peer_fd);
@@ -392,7 +392,7 @@ protected:
     msgr_rdma_context_t* rdmacm_get_context(ibv_context *verbs);
     msgr_rdma_context_t* rdmacm_create_qp(rdma_cm_id *cmid);
     void rdmacm_accept(rdma_cm_event *ev);
-    void rdmacm_try_connect_peer(uint64_t peer_osd, const std::string & addr, int rdmacm_port, int fallback_tcp_port);
+    void rdmacm_try_connect_peer(osd_num_t peer_osd, const std::string & addr, int rdmacm_port, int fallback_tcp_port);
     void rdmacm_set_conn_timeout(rdmacm_connecting_t *conn);
     void rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res);
     void rdmacm_address_resolved(rdma_cm_event *ev);

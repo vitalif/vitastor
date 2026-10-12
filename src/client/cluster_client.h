@@ -217,7 +217,7 @@ protected:
     void on_load_pgs_hook(bool success);
     void on_change_pool_config_hook();
     void on_change_pg_state_hook(pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary);
-    void on_change_osd_state_hook(uint64_t peer_osd);
+    void on_change_osd_state_hook(osd_num_t peer_osd);
     void on_change_node_placement_hook();
     void on_change_inode_hook(uint64_t inode, bool removed);
 

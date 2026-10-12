@@ -8,7 +8,7 @@ struct obj_ver_role
 {
     object_id oid;
     uint64_t version;
-    uint64_t osd_num;
+    osd_num_t osd_num;
     bool is_stable;
 };
 

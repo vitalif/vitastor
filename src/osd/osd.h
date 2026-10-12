@@ -383,19 +383,19 @@ class osd_t
     void pg_continue_queued_op(osd_op_t *next_op);
     void finish_read_op(osd_op_t *cur_op, int64_t retval);
 
-    void submit_primary_subops(int submit_type, uint64_t op_version, const uint64_t* osd_set, osd_op_t *cur_op);
+    void submit_primary_subops(int submit_type, uint64_t op_version, const osd_num_t* osd_set, osd_op_t *cur_op);
     int submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t op_version,
-        osd_rmw_stripe_t *stripes, const uint64_t* osd_set, osd_op_t *cur_op, int subop_idx, int zero_read);
+        osd_rmw_stripe_t *stripes, const osd_num_t* osd_set, osd_op_t *cur_op, int subop_idx, int zero_read);
     void submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
         osd_rmw_stripe_t *si, bool wr, inode_t inode, uint64_t op_version);
     bool submit_to_osd(osd_op_t *subop, osd_num_t osd_num);
-    void submit_primary_del_subops(osd_op_t *cur_op, uint64_t *cur_set, uint64_t set_size, pg_osd_set_t & loc_set);
+    void submit_primary_del_subops(osd_op_t *cur_op, osd_num_t *cur_set, uint64_t set_size, pg_osd_set_t & loc_set);
     void submit_primary_del_batch(osd_op_t *cur_op, obj_ver_osd_t *chunks_to_delete, int chunks_to_delete_count);
     void submit_primary_sync_subops(osd_op_t *cur_op);
     void submit_primary_stab_subops(osd_op_t *cur_op);
-    void submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd_set);
+    void submit_primary_rollback_subops(osd_op_t *cur_op, const osd_num_t* osd_set);
 
-    uint64_t* get_object_osd_set(pg_t &pg, object_id &oid, pg_osd_set_state_t **object_state);
+    osd_num_t* get_object_osd_set(pg_t &pg, object_id &oid, pg_osd_set_state_t **object_state);
 
     void continue_chained_read(osd_op_t *cur_op);
     int submit_chained_read_requests(pg_t *pg, osd_op_t *cur_op);

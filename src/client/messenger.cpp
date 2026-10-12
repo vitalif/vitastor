@@ -338,7 +338,7 @@ void osd_messenger_t::parse_config(const json11::Json & config, bool init)
     }
 }
 
-void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
+void osd_messenger_t::connect_peer(osd_num_t peer_osd, json11::Json peer_state)
 {
     if (wanted_peers[peer_osd].raw_address_list != peer_state["addresses"])
     {
@@ -385,7 +385,7 @@ void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
     try_connect_peer(peer_osd);
 }
 
-void osd_messenger_t::try_connect_peer(uint64_t peer_osd)
+void osd_messenger_t::try_connect_peer(osd_num_t peer_osd)
 {
     auto wp_it = wanted_peers.find(peer_osd);
     if (wp_it == wanted_peers.end() || wp_it->second.connecting ||

@@ -323,7 +323,7 @@ struct __attribute__((__packed__)) osd_reply_describe_item_t
     uint64_t stripe;
     uint32_t role;      // part number: 0 for replicas, 0..pg_size-1 for EC
     uint32_t loc_bad;   // LOC_OUTDATED / LOC_CORRUPTED / LOC_INCONSISTENT
-    osd_num_t osd_num;  // OSD number
+    uint64_t osd_num;  // OSD number (wire)
 };
 
 // lock/unlock PG for use by a primary OSD

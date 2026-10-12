@@ -627,8 +627,8 @@ void* alloc_read_buffer(osd_rmw_stripe_t *stripes, int read_pg_size, uint64_t ad
     return buf;
 }
 
-void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, uint64_t *read_osd_set,
-    uint64_t pg_size, uint64_t pg_minsize, uint64_t pg_cursize, uint64_t *write_osd_set,
+void* calc_rmw(void *request_buf, osd_rmw_stripe_t *stripes, osd_num_t *read_osd_set,
+    uint64_t pg_size, uint64_t pg_minsize, uint64_t pg_cursize, osd_num_t *write_osd_set,
     uint64_t chunk_size, uint32_t bitmap_size)
 {
     // Generic parity modification (read-modify-write) algorithm
@@ -839,7 +839,7 @@ static void xor_multiple_buffers(buf_len_t *xor1, int n1, buf_len_t *xor2, int n
 }
 
 static void calc_rmw_parity_copy_mod(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
-    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_granularity,
+    osd_num_t *read_osd_set, osd_num_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_granularity,
     uint32_t &start, uint32_t &end)
 {
     bool required = false;
@@ -904,7 +904,7 @@ static void calc_rmw_parity_copy_mod(osd_rmw_stripe_t *stripes, int pg_size, int
 }
 
 static void calc_rmw_parity_copy_parity(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
-    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t start, uint32_t end)
+    osd_num_t *read_osd_set, osd_num_t *write_osd_set, uint32_t chunk_size, uint32_t start, uint32_t end)
 {
     if (write_osd_set != read_osd_set && end != 0)
     {
@@ -942,7 +942,7 @@ static void calc_rmw_parity_copy_parity(osd_rmw_stripe_t *stripes, int pg_size, 
 #endif
 }
 
-void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_osd_set, uint64_t *write_osd_set,
+void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, osd_num_t *read_osd_set, osd_num_t *write_osd_set,
     uint32_t chunk_size, uint32_t bitmap_size)
 {
     uint32_t bitmap_granularity = bitmap_size > 0 ? chunk_size / bitmap_size / 8 : 0;
@@ -984,7 +984,7 @@ void calc_rmw_parity_xor(osd_rmw_stripe_t *stripes, int pg_size, uint64_t *read_
 }
 
 void calc_rmw_parity_ec(osd_rmw_stripe_t *stripes, int pg_size, int pg_minsize,
-    uint64_t *read_osd_set, uint64_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_size)
+    osd_num_t *read_osd_set, osd_num_t *write_osd_set, uint32_t chunk_size, uint32_t bitmap_size)
 {
     uint32_t bitmap_granularity = bitmap_size > 0 ? chunk_size / bitmap_size / 8 : 0;
     reed_sol_matrix_t *matrix = get_ec_matrix(pg_size, pg_minsize);

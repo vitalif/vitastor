@@ -159,7 +159,7 @@ public:
     uint32_t global_bitmap_granularity = DEFAULT_BITMAP_GRANULARITY;
     uint32_t global_immediate_commit = IMMEDIATE_NONE;
 
-    uint64_t osd_num = 0;
+    osd_num_t osd_num = 0;
     std::string etcd_prefix;
     std::string etcd_client_cert;
     std::string etcd_client_key;

@@ -187,7 +187,7 @@ struct cli_fix_t
                             (part == -1 || items[i].role == part))
                         {
                             // Remove
-                            uint64_t rm_osd_num = items[i].osd_num;
+                            osd_num_t rm_osd_num = items[i].osd_num;
                             osd_op_t *rm_op = new osd_op_t;
                             rm_op->req = (osd_any_op_t){
                                 .sec_del = {

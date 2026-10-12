@@ -168,7 +168,7 @@ int osd_t::collect_bitmap_requests(osd_op_t *cur_op, pg_t *pg, std::vector<bitma
         object_id cur_oid = { .inode = op_data->read_chain[chain_num], .stripe = op_data->oid.stripe };
         auto vo_it = pg->ver_override.find(cur_oid);
         uint64_t target_version = vo_it != pg->ver_override.end() ? vo_it->second : UINT64_MAX;
-        uint64_t* cur_set = get_object_osd_set(*pg, cur_oid, &op_data->chain_states[chain_num]);
+        osd_num_t* cur_set = get_object_osd_set(*pg, cur_oid, &op_data->chain_states[chain_num]);
         if (pg->scheme == POOL_SCHEME_REPLICATED)
         {
             osd_num_t read_target = 0;
@@ -433,7 +433,7 @@ int osd_t::submit_chained_read_requests(pg_t *pg, osd_op_t *cur_op)
             stripes[role].read_start = stripes[role].req_start;
             stripes[role].read_end = stripes[role].req_end;
         }
-        uint64_t *cur_set = pg ? pg->cur_set.data() : &this->osd_num;
+        osd_num_t *cur_set = pg ? pg->cur_set.data() : &this->osd_num;
         if (pg && pg->state != PG_ACTIVE)
         {
             cur_set = get_object_osd_set(*pg, cur_oid, &op_data->chain_states[chain_reads[cri].chain_pos]);
@@ -517,7 +517,7 @@ int osd_t::submit_chained_read_requests(pg_t *pg, osd_op_t *cur_op)
             target_ver = vo_it != pg->ver_override.end() ? vo_it->second : UINT64_MAX;
         }
         auto cur_state = op_data->chain_states[chain_reads[cri].chain_pos];
-        uint64_t *cur_set = (!pg ? &this->osd_num : (pg->state != PG_ACTIVE && cur_state ? cur_state->read_target.data() : pg->cur_set.data()));
+        osd_num_t *cur_set = (!pg ? &this->osd_num : (pg->state != PG_ACTIVE && cur_state ? cur_state->read_target.data() : pg->cur_set.data()));
         int zero_read = -1;
         if (!pg || pg->scheme == POOL_SCHEME_REPLICATED)
         {

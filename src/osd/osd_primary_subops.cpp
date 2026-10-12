@@ -105,7 +105,7 @@ void osd_t::finish_op(osd_op_t *cur_op, int retval)
     }
 }
 
-void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const uint64_t* osd_set, osd_op_t *cur_op)
+void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const osd_num_t* osd_set, osd_op_t *cur_op)
 {
     bool wr = submit_type == SUBMIT_WRITE;
     osd_primary_op_data_t *op_data = cur_op->op_data;
@@ -140,7 +140,7 @@ void osd_t::submit_primary_subops(int submit_type, uint64_t op_version, const ui
 }
 
 int osd_t::submit_primary_subop_batch(int submit_type, inode_t inode, uint64_t op_version,
-    osd_rmw_stripe_t *stripes, const uint64_t* osd_set, osd_op_t *cur_op, int subop_idx, int zero_read)
+    osd_rmw_stripe_t *stripes, const osd_num_t* osd_set, osd_op_t *cur_op, int subop_idx, int zero_read)
 {
     bool rep = !cur_op->op_data->pg || cur_op->op_data->pg->scheme == POOL_SCHEME_REPLICATED;
     bool wr = submit_type == SUBMIT_WRITE;
@@ -682,7 +682,7 @@ void osd_t::submit_primary_sync_subops(osd_op_t *cur_op)
     }
     osd_op_t *subops = new osd_op_t[n_osds];
     op_data->subops = subops;
-    robin_hood::unordered_flat_map<uint64_t, osd_client_t*>::iterator peer_it;
+    robin_hood::unordered_flat_map<osd_num_t, osd_client_t*>::iterator peer_it;
     int subop_idx = 0;
     for (int i = 0; i < n_osds; i++)
     {
@@ -784,7 +784,7 @@ void osd_t::submit_primary_stab_subops(osd_op_t *cur_op)
     }
 }
 
-void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const uint64_t* osd_set)
+void osd_t::submit_primary_rollback_subops(osd_op_t *cur_op, const osd_num_t* osd_set)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
     osd_rmw_stripe_t *stripes = op_data->stripes;

@@ -354,7 +354,7 @@ void osd_messenger_t::rdmacm_on_connect_peer_error(rdma_cm_id *cmid, int res)
     }
 }
 
-void osd_messenger_t::rdmacm_try_connect_peer(uint64_t peer_osd, const std::string & addr, int rdmacm_port, int fallback_tcp_port)
+void osd_messenger_t::rdmacm_try_connect_peer(osd_num_t peer_osd, const std::string & addr, int rdmacm_port, int fallback_tcp_port)
 {
     struct sockaddr_storage sa = {};
     if (!string_to_addr(addr, false, rdmacm_port, &sa))

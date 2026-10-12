@@ -56,7 +56,7 @@ cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd
 
     st_cli = std::move(st_cli_ptr);
     st_cli->on_load_config_hook = [this](json11::Json::object & cfg) { on_load_config_hook(cfg); };
-    st_cli->on_change_osd_state_hook = [this](uint64_t peer_osd) { on_change_osd_state_hook(peer_osd); };
+    st_cli->on_change_osd_state_hook = [this](osd_num_t peer_osd) { on_change_osd_state_hook(peer_osd); };
     st_cli->on_change_pool_config_hook = [this]() { on_change_pool_config_hook(); };
     st_cli->on_change_pg_config_hook = [this]() { on_change_pool_config_hook(); };
     st_cli->on_change_pg_state_hook = [this](pool_id_t pool_id, pg_num_t pg_num, osd_num_t prev_primary) { on_change_pg_state_hook(pool_id, pg_num, prev_primary); };
@@ -640,7 +640,7 @@ bool cluster_client_t::get_immediate_commit(uint64_t inode)
     return pool_it->second.immediate_commit == IMMEDIATE_ALL;
 }
 
-void cluster_client_t::on_change_osd_state_hook(uint64_t peer_osd)
+void cluster_client_t::on_change_osd_state_hook(osd_num_t peer_osd)
 {
     osd_tree_metrics.erase(peer_osd);
     if (msgr.wanted_peers.find(peer_osd) != msgr.wanted_peers.end())

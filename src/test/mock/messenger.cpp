@@ -40,7 +40,7 @@ void osd_messenger_t::parse_config(const json11::Json & config, bool init)
 {
 }
 
-void osd_messenger_t::connect_peer(uint64_t peer_osd, json11::Json peer_state)
+void osd_messenger_t::connect_peer(osd_num_t peer_osd, json11::Json peer_state)
 {
     wanted_peers[peer_osd] = (osd_wanted_peer_t){
         .port = 1,

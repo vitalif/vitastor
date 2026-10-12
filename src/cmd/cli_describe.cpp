@@ -38,7 +38,7 @@ struct cli_describe_t
     uint64_t object_state = 0;
     pool_id_t only_pool = 0;
     pg_num_t only_pg = 0;
-    std::vector<uint64_t> only_osds;
+    std::vector<osd_num_t> only_osds;
     uint64_t min_inode = 0, max_inode = 0;
     uint64_t min_offset = 0, max_offset = 0;
 

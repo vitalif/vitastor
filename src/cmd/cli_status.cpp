@@ -136,7 +136,7 @@ resume_2:
         }
         int osd_count = 0, osd_up = 0;
         uint64_t total_raw = 0, free_raw = 0, free_down_raw = 0, down_raw = 0;
-        std::vector<uint64_t> slow_op_primary_osds, slow_op_secondary_osds;
+        std::vector<osd_num_t> slow_op_primary_osds, slow_op_secondary_osds;
         parent->iterate_kvs_1(osd_stats, "/osd/stats/", [&](uint64_t stat_osd_num, json11::Json value)
         {
             osd_count++;

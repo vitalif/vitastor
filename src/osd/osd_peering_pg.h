@@ -57,11 +57,12 @@ struct pg_peering_state_t
 struct obj_piece_id_t
 {
     object_id oid;
-    uint64_t osd_num;
+    osd_num_t osd_num;
 };
 
 struct obj_ver_osd_t
 {
+    // crosses the wire (SEC_DELETE payload) - keep uint64
     uint64_t osd_num;
     object_id oid;
     uint64_t version;
@@ -106,7 +107,7 @@ struct pg_t
     // target_set is the "correct" peer OSD set for this PG
     std::vector<osd_num_t> target_set;
     // cur_set is the current set of connected peer OSDs for this PG
-    // cur_set = (role => osd_num or UINT64_MAX if missing). role numbers begin with zero
+    // cur_set = (role => osd_num or 0 if missing). role numbers begin with zero
     std::vector<osd_num_t> cur_set;
     // locked peer list => pg state reported to the peer
     std::map<osd_num_t, uint64_t> lock_peers;
