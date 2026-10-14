@@ -102,7 +102,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
 {
     // Check or assign version number
     bool found = false, deleted = false, unsynced = false, is_del = (op->opcode == BS_OP_DELETE);
-    bool wait_big = false, wait_del = false;
+    bool wait_big = false, wait_del = false, in_open_sector = false;
     void *dyn = NULL;
     uint8_t *dyn_ptr = NULL;
     if (is_del)
@@ -148,6 +148,7 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             wait_big = (dirty_it->second.state & BS_ST_TYPE_MASK) == BS_ST_BIG_WRITE
                 ? !IS_SYNCED(dirty_it->second.state)
                 : ((dirty_it->second.state & BS_ST_WORKFLOW_MASK) == BS_ST_WAIT_BIG);
+            in_open_sector = dirty_it->second.journal_sector == journal.sector_info[journal.cur_sector].offset;
             if (!is_del && !deleted)
             {
                 void *dyn_from = alloc_dyn_data
@@ -198,6 +199,26 @@ bool blockstore_impl_t::enqueue_write(blockstore_op_t *op)
             wait_del = true;
             PRIV(op)->real_version = op->version;
             op->version = version;
+            if (!unsynced && in_open_sector &&
+                journal.sector_info[journal.cur_sector].flush_count == 0)
+            {
+                // In exotic configurations without no_same_sector_overwrites, the deletion may reside
+                // in the current sector. In that case nothing advances dirty_start and the deletion
+                // becomes unflushable... Example is test_blockstore_chaos --seed 10901878
+                if (!journal.sector_info[journal.cur_sector].dirty)
+                {
+                    // If it's unmodified we can just move to the next sector
+                    // Probably unreachable currently due to "Forcibly move to the next sector" logic below
+                    journal.in_sector_pos = journal.block_size;
+                    mark_not_dirty(journal.cur_sector);
+                }
+                else
+                {
+                    // If it's modified we may add a SYNC so it writes the sector out
+                    assert(immediate_commit != IMMEDIATE_ALL);
+                    unsynced = true;
+                }
+            }
             if (unsynced)
             {
                 // Issue an additional sync so the delete reaches the journal
@@ -893,6 +914,20 @@ void blockstore_impl_t::handle_write_event(ring_data_t *data, blockstore_op_t *o
     }
 }
 
+void blockstore_impl_t::mark_not_dirty(int journal_sector)
+{
+    uint64_t new_ds = journal.sector_info[journal_sector].offset + journal.block_size;
+    if (new_ds >= journal.len)
+    {
+        new_ds = journal.block_size;
+    }
+    if ((journal.dirty_start + (journal.dirty_start >= journal.used_start ? 0 : journal.len)) <
+        (new_ds + (new_ds >= journal.used_start ? 0 : journal.len)))
+    {
+        journal.dirty_start = new_ds;
+    }
+}
+
 void blockstore_impl_t::release_journal_sectors(blockstore_op_t *op)
 {
     // Release flushed journal sectors
@@ -907,19 +942,11 @@ void blockstore_impl_t::release_journal_sectors(blockstore_op_t *op)
                 if (s == (1+journal.cur_sector))
                 {
                     // Forcibly move to the next sector and move dirty position
+                    // FIXME: This is the target behaviour, ok, but it seems to duplicate no_same_sector_overwrites...
                     journal.in_sector_pos = journal.block_size;
                 }
                 // We know for sure that we won't write into this sector anymore
-                uint64_t new_ds = journal.sector_info[s-1].offset + journal.block_size;
-                if (new_ds >= journal.len)
-                {
-                    new_ds = journal.block_size;
-                }
-                if ((journal.dirty_start + (journal.dirty_start >= journal.used_start ? 0 : journal.len)) <
-                    (new_ds + (new_ds >= journal.used_start ? 0 : journal.len)))
-                {
-                    journal.dirty_start = new_ds;
-                }
+                mark_not_dirty(s-1);
             }
             if (s == PRIV(op)->max_flushed_journal_sector)
                 break;

@@ -218,6 +218,7 @@ class blockstore_impl_t: public blockstore_i
 
     // Journaling
     void prepare_journal_sector_write(int sector, blockstore_op_t *op);
+    void mark_not_dirty(int journal_sector);
     void handle_journal_write(ring_data_t *data, uint64_t flush_id);
     void disk_error_abort(const char *op, int retval, int expected);
 
