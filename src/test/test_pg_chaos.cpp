@@ -42,6 +42,7 @@
 #include "allocator.h"
 #include "ringloop_mock.h"
 #include "blockstore_impl.h"
+#include "osd_primary.h"
 #include "osd_test_fixture.h"
 #include "etcd_state_client_mock.h"
 
@@ -641,6 +642,7 @@ struct chaos_t : chaos_model_t
     void enqueue(pending_t *p);
     pending_t *submit(pending_t *p);
     void free_op(pending_t *p);
+    void reap_op(osd_op_t *op);
     // Build an op for the model client's session; the reply is delivered through
     // op->callback when the messenger's buffering is drained
     osd_op_t *make_rw_op(uint64_t opcode, uint64_t offset, uint64_t len);
@@ -668,7 +670,7 @@ struct chaos_t : chaos_model_t
     // a legal outcome. Every object then has to come back holding at least its durable
     // version - or something newer that was actually written and autosynced.
     void do_crash();
-    void forget_inflight();
+    void forget_inflight(bool reap_unfinished = false);
     // Wait for everything in flight to complete and fold it all into the model
     void drain();
     void report_deadlock();
@@ -2037,11 +2039,17 @@ chaos_t::~chaos_t()
     destroy();
     for (auto *p: inflight)
     {
-        // Ops interrupted by a power outage were never completed by anyone and may
-        // still reference OSD-internal state; only ops that finished can be freed.
-        // Leaking them keeps the crash path simple and is bounded by max_inflight.
         if (p->done)
             free_op(p);
+        else
+        {
+            // Ops interrupted by a power outage were never completed by
+            // anyone and the instance that owned them is gone - the model
+            // still owns their memory
+            reap_op(p->op);
+            p->op = NULL;
+        }
+        delete p;
     }
     inflight.clear();
     if (sim)
@@ -2121,6 +2129,55 @@ void chaos_t::free_op(pending_t *p)
     // ~osd_op_t frees op->buf, including the one we attached to a write
     delete p->op;
     delete p;
+}
+
+// Free an op no one will ever complete: its OSD instance was destroyed under
+// it (a crash). Mirrors the ownership of the production completion path -
+// the op_data blob owns the stripes and the chain (one calloc), the subop
+// array owns per-subop bs_ops while its rmw_buf/bitmap/iov alias into op_data
+// and the op's buffers, the sync snapshot hangs off one more malloc and two
+// news, and ~osd_op_t frees buf/bitmap_buf/rmw_buf. No finish_op(): the model
+// has already accounted these ops the way a crash lands them
+void chaos_t::reap_op(osd_op_t *op)
+{
+    if (op->op_data)
+    {
+        auto od = op->op_data;
+        if (od->subops)
+        {
+            for (int i = 0; i < od->n_subops; i++)
+            {
+                delete od->subops[i].bs_op;
+                od->subops[i].bs_op = NULL;
+                // alias into the op_data blob - never owned by the subop
+                od->subops[i].rmw_buf = NULL;
+            }
+            delete[] od->subops;
+            od->subops = NULL;
+        }
+        // unstable_* / dirty_pgs and chain_reads share one anonymous union:
+        // which arm is live depends on the opcode, freeing both double-frees
+        if (op->req.hdr.opcode == OSD_OP_READ)
+        {
+            if (od->chain_reads)
+                free(od->chain_reads);
+        }
+        else
+        {
+            if (od->unstable_writes)
+            {
+                delete od->unstable_write_osds;
+                delete[] od->unstable_writes;
+            }
+            if (od->dirty_pgs)
+                free(od->dirty_pgs);
+        }
+        free(od);
+        op->op_data = NULL;
+    }
+    delete op->bs_op;
+    op->bs_op = NULL;
+    delete op;
 }
 
 osd_op_t *chaos_t::make_rw_op(uint64_t opcode, uint64_t offset, uint64_t len)
@@ -2411,7 +2468,7 @@ void chaos_t::do_crash()
     // reads below have reconciled every object
     in_crisis = true;
     destroy();
-    forget_inflight();
+    forget_inflight(true);
     start_osd();
     // Commit everything the journal replay left dirty before reconciling, so the
     // recovery reads below see the settled chain instead of a half-flushed PG
@@ -2430,13 +2487,21 @@ void chaos_t::do_crash()
     in_crisis = false;
 }
 
-void chaos_t::forget_inflight()
+void chaos_t::forget_inflight(bool reap_unfinished)
 {
     for (auto *p: inflight)
     {
         // Never let a done-but-unaccounted op cross a restart boundary
         if (p->done)
             free_op(p);
+        else if (reap_unfinished)
+        {
+            // The instance that owned them is already destroyed; nobody
+            // will ever complete them, but their memory is still ours
+            reap_op(p->op);
+            p->op = NULL;
+            delete p;
+        }
     }
     inflight.clear();
     for (int obj = 0; obj < OBJ_COUNT; obj++)
