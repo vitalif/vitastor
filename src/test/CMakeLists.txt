@@ -27,6 +27,21 @@ target_link_libraries(stub_uring_osd
 	${RDMACM_LIBRARIES}
 )
 
+# test_msgr_stop
+add_executable(test_msgr_stop
+	EXCLUDE_FROM_ALL
+	test_msgr_stop.cpp
+)
+target_link_libraries(test_msgr_stop
+	vitastor_net
+	${LIBURING_LIBRARIES}
+	${IBVERBS_LIBRARIES}
+	${RDMACM_LIBRARIES}
+)
+add_dependencies(build_tests test_msgr_stop)
+add_test(NAME test_msgr_stop COMMAND test_msgr_stop)
+set_tests_properties(test_msgr_stop PROPERTIES SKIP_RETURN_CODE 77)
+
 # test_allocator
 add_executable(test_allocator EXCLUDE_FROM_ALL test_allocator.cpp)
 target_link_libraries(test_allocator util)

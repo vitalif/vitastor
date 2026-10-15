@@ -169,6 +169,15 @@ void osd_messenger_t::stop_client(uint64_t client_id, bool force_delete)
         }
         tfd->set_fd_handler(cl->peer_fd, false, NULL);
         clients_by_fd.erase(cl->peer_fd);
+        // F*cking kernel behaviour:
+        // - close(), even with SO_LINGER(1,0) doesn't wakeup pending sends/recvs in
+        //   io_uring because they hold a reference to FD (but shutdown does)
+        // - shutdown() alone doesn't wakeup zerocopy notifications (but close does!)
+        // - close and shutdown leaves the socket object in time_wait to ack sent data
+        // So, do SO_LINGER(1,0) + shutdown() + close() to drop the connection NOW!!!
+        linger lg = { .l_onoff = 1, .l_linger = 0 };
+        setsockopt(cl->peer_fd, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg));
+        shutdown(cl->peer_fd, SHUT_RDWR);
         close(cl->peer_fd);
         cl->peer_fd = -1;
     }
