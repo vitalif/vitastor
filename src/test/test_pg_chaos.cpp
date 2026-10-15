@@ -101,6 +101,14 @@ struct chaos_probs_t
     // Chance per round to apply a delayed request-path subop (and to deliver a
     // harvested wire record), in percent
     uint32_t p_wire = 70;
+    // Percent of cluster events (crash, restart, takeover, peer changes, set
+    // change) after which the test waits for the PG to settle and runs its
+    // full post-event verification; otherwise it keeps operating against the
+    // still-settling PG. The unconditional wait serialized the timeline: ops
+    // were never in the write_queue behind flush_actions when a repeer or a
+    // stop began, so a forgotten write_queue cancellation was invisible.
+    // 100 = always wait (the old behavior)
+    uint32_t p_post = 50;
     // How many operations may be in flight at once. When the limit is reached, a step
     // waits for one of them to complete instead of submitting anything
     uint32_t max_inflight = 8;
@@ -594,6 +602,8 @@ struct chaos_t : chaos_model_t
     void write_pg_history(const std::vector<osd_num_t> & old_set);
     // Let repeering, rollback and recovery finish after an event
     void settle();
+    // settle() only with probability p_post; see the definition
+    void maybe_settle();
     // The model client: a registered msgr session (client_id != 0), fake but real.
     // dirty_pgs registration, drop_dirty_pg_connections and the sync-entry checks
     // work against it unmodified; when a repeer kills the session, the model sees
@@ -1683,6 +1693,20 @@ void chaos_t::settle()
     flush_recover_pending();
 }
 
+// Wait for the PG to settle and flush the deferred checks only with probability
+// p_post; the rest of the time keep operating against a still-settling PG. The
+// unconditional wait used to serialize the timeline: ops never overlapped a
+// settling repeer, so a write sitting in the write_queue behind flush_actions
+// at the very moment a repeer or stop began - the state a forgotten
+// write_queue cancellation hangs on - never arose. A lost cancellation now
+// shows up as ops that never complete (the step loop's deadlock detector) or
+// as a settle() timeout at the next event that does wait
+void chaos_t::maybe_settle()
+{
+    if (chance(probs.p_post))
+        settle();
+}
+
 void chaos_t::demote_unstable()
 {
     for (int obj = 0; obj < OBJ_COUNT; obj++)
@@ -1747,7 +1771,7 @@ void chaos_t::do_peer_down()
         cluster.connected.erase(n);
     }
     peer_downs++;
-    settle();
+    maybe_settle();
     // Demotion happens only where the client can OBSERVE it: a peer crash
     // repeers the PG, the repeer kills the dirty client sessions (V_ACKED in
     // volatile mode means exactly a dirty client), and session_died() demotes.
@@ -1780,7 +1804,7 @@ void chaos_t::do_peer_up()
         cluster.connected.insert(n);
     }
     peer_ups++;
-    settle();
+    maybe_settle();
     // same as in do_peer_down: the repeer a returning member starts kills any
     // dirty session it rolls back over, and session_died() handles the demotion
 }
@@ -1906,7 +1930,7 @@ void chaos_t::do_set_change()
     write_pg_config();
     write_pg_history(old_set);
     set_changes++;
-    settle();
+    maybe_settle();
 }
 
 void chaos_t::start_osd()
@@ -2473,15 +2497,26 @@ void chaos_t::do_crash()
     // Commit everything the journal replay left dirty before reconciling, so the
     // recovery reads below see the settled chain instead of a half-flushed PG
     force_sync();
-    settle();
-    for (int obj = 0; obj < OBJ_COUNT; obj++)
+    if (chance(probs.p_post))
     {
-        if (!check_recovered(obj, "a power outage"))
+        settle();
+        for (int obj = 0; obj < OBJ_COUNT; obj++)
         {
-            // The PG came back without quorum; the guarantee can only be
-            // verified once some peer is revived
-            recover_pending.insert(obj);
+            if (!check_recovered(obj, "a power outage"))
+            {
+                // The PG came back without quorum; the guarantee can only be
+                // verified once some peer is revived
+                recover_pending.insert(obj);
+            }
         }
+    }
+    else
+    {
+        // Keep operating against the settling PG: ops submitted now queue
+        // behind its flush_actions and race the repeer. The recovery reads
+        // ride over to the next settle as deferred checks
+        for (int obj = 0; obj < OBJ_COUNT; obj++)
+            recover_pending.insert(obj);
     }
     // Every object is reconciled (or parked in recover_pending with its own gate)
     in_crisis = false;
@@ -3240,7 +3275,7 @@ void chaos_t::do_takeover()
     // instance captures the unclaimed PG, peers and rolls back what peers
     // report as unstable
     write_pg_config();
-    settle();
+    maybe_settle();
 }
 
 void chaos_t::do_restart()
@@ -3250,7 +3285,8 @@ void chaos_t::do_restart()
     std::vector<std::vector<uint8_t>> before(OBJ_COUNT);
     std::vector<uint64_t> before_ver(OBJ_COUNT, 0);
     std::vector<int> before_rv(OBJ_COUNT, 0);
-    if (!use_fsync)
+    bool verify = chance(probs.p_post);
+    if (!use_fsync && verify)
     {
         for (int obj = 0; obj < OBJ_COUNT; obj++)
         {
@@ -3268,7 +3304,7 @@ void chaos_t::do_restart()
     destroy();
     forget_inflight();
     start_osd();
-    if (!use_fsync && pg_healthy())
+    if (!use_fsync && verify && pg_healthy())
     {
         for (int obj = 0; obj < OBJ_COUNT; obj++)
         {
@@ -3317,9 +3353,18 @@ void chaos_t::do_restart()
             }
         }
     }
-    for (int obj = 0; obj < OBJ_COUNT; obj++)
+    if (verify)
     {
-        if (!check_recovered(obj, "a clean restart"))
+        for (int obj = 0; obj < OBJ_COUNT; obj++)
+        {
+            if (!check_recovered(obj, "a clean restart"))
+                recover_pending.insert(obj);
+        }
+    }
+    else
+    {
+        // No wait after the restart: the model checks ride over to the next settle
+        for (int obj = 0; obj < OBJ_COUNT; obj++)
             recover_pending.insert(obj);
     }
 }
@@ -4168,6 +4213,8 @@ static const char *help_text =
     "                      reply, the response-path delay (default %u)\n"
     "  --p-wire <n>        Chance per round to apply a delayed peer request or\n"
     "                      deliver a harvested wire record (default %u)\n"
+    "  --p-post <n>        Percent of cluster events after which the test waits\n"
+    "                      for the PG to settle and verifies everything (default %u)\n"
     "\n"
     "Configurations (%d):\n";
 
@@ -4176,7 +4223,7 @@ static void print_help(int cfg_count, int default_seeds, int default_fixed, int 
     chaos_probs_t d;
     printf(help_text, default_seeds, default_fixed, default_random, default_steps, d.max_inflight,
         d.wait, d.write, d.del, d.read, d.sync, d.restart, d.takeover, d.crash,
-        d.peer_down, d.peer_up, d.set_change, d.full_read, d.p_reply, d.p_wire, cfg_count);
+        d.peer_down, d.peer_up, d.set_change, d.full_read, d.p_reply, d.p_wire, d.p_post, cfg_count);
     for (int i = 0; i < cfg_count; i++)
     {
         printf("  %2d: fsync=%d, csum_block=%s, scheme=%s\n", i, configs[i].use_fsync ? 1 : 0,
@@ -4313,6 +4360,7 @@ int main(int narg, char *args[])
         else if (!strcmp(opt, "--p-reply"))      { take(v); probs.p_reply = (uint32_t)v; }
         else if (!strcmp(opt, "--p-wire"))       { take(v); probs.p_wire = (uint32_t)v; }
         else if (!strcmp(opt, "--peer-cache-loss")) { take(v); probs.peer_cache_loss = (uint32_t)v; }
+        else if (!strcmp(opt, "--p-post"))     { take(v); probs.p_post = (uint32_t)v; }
         else
         {
             fprintf(stderr, "Unknown option %s, use -h for help\n", opt);
@@ -4332,6 +4380,11 @@ int main(int narg, char *args[])
     if (!probs.p_wire || probs.p_wire > 100)
     {
         fprintf(stderr, "--p-wire must be between 1 and 100\n");
+        exit(1);
+    }
+    if (probs.p_post > 100)
+    {
+        fprintf(stderr, "--p-post must be between 0 and 100\n");
         exit(1);
     }
     for (auto & c: configs)

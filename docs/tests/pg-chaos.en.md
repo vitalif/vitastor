@@ -106,9 +106,9 @@ Each step picks an action by weight (`--p-*`; 0 disables it):
 - **sync (30)** - flush the cache (fsync); on confirmation the versions are marked
   SYNCED (durable).
 - **restart (1)** - a CLEAN OSD restart: drain the queue (all inflight finish), wait
-  for the disk to go idle, destroy, recreate, wait for the OSD to come up, then
-  re-verify: every object byte-identical afterwards ("a clean restart that lost
-  nothing").
+  for the disk to go idle, destroy, recreate, wait for the OSD to come up, then,
+  with `--p-post` (50%) chance, read and verify all object contents ("a clean restart
+  that lost nothing").
 - **takeover (1)** - a PG handover: first stop the PG by pointing the primary at a
   fake member in the etcd stub -> stop_pg stops the PG; right after the
   `/pg/state/1/1` key disappears (meaning the OSD released the PG) -> recreate the OSD
