@@ -776,7 +776,7 @@ bool osd_t::remove_object_from_state(object_id & oid, pg_osd_set_state_t **objec
     {
         if (recheck_state)
             recheck_state->ref_count++;
-        (*object_state)->ref_count--;
+        deref_object_state(pg, object_state, true);
         *object_state = recheck_state;
         return false;
     }
