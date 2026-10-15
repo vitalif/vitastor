@@ -684,7 +684,7 @@ pg_osd_set_state_t* osd_t::add_object_to_set(pg_t & pg, const object_id oid, con
         obj_state |= OBJ_INCOMPLETE;
         pg_state_bits |= PG_HAS_INCOMPLETE;
     }
-    else if (n_roles < pg.pg_cursize)
+    else if ((pg.scheme == POOL_SCHEME_REPLICATED ? (n_copies - n_corrupted) : n_roles) < pg.pg_cursize)
     {
         this->degraded_objects++;
         obj_state |= OBJ_DEGRADED;

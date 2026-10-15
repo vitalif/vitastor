@@ -521,4 +521,10 @@ struct osd_test_fixture_t
         }
         return n;
     }
+
+    pg_osd_set_state_t* add_object_to_set(pg_t & pg, const object_id oid, const pg_osd_set_t & osd_set,
+        uint64_t old_pg_state, int log_at_level = 0)
+    {
+        return osd->add_object_to_set(pg, oid, osd_set, old_pg_state, log_at_level);
+    }
 };

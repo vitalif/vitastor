@@ -3635,6 +3635,90 @@ void test_delete_waits_only_for_covered_objects()
     printf("test_delete_waits_only_for_covered_objects passed\n");
 }
 
+// Test that add_object_to_set properly distinguishes healthy, partially corrupted,
+// and all-corrupted objects in replicated pools without false positives or false negatives.
+void test_replicated_add_object_to_set_degraded()
+{
+    printf("test_replicated_add_object_to_set_degraded\n");
+
+    osd_test_fixture_t f;
+    f.configure_replicated_pool(/*pool_id*/ 1, /*pg_size*/ 3, /*pg_minsize*/ 1, /*pg_count*/ 1,
+        { { 1, 2, 3 } });
+    f.start(json11::Json::object {
+        { "osd_num", 1 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+        { "no_recovery", true },
+    });
+    f.connect_peer(2);
+    f.connect_peer(3);
+    f.complete_peering_empty();
+
+    auto & pg = f.pg(1, 1);
+    assert(pg.state & PG_ACTIVE);
+    assert(pg.scheme == POOL_SCHEME_REPLICATED);
+    assert(pg.pg_size == 3);
+    assert(pg.pg_cursize == 3);
+
+    inode_t inode = INODE_WITH_POOL(1, 1);
+    object_id oid_clean = { .inode = inode, .stripe = 0 };
+    object_id oid_corrupted = { .inode = inode, .stripe = 4096 };
+
+    // Case 1: All 3 replicas healthy and correctly placed.
+    // Under the old bug (comparing n_roles < pg.pg_cursize), n_roles was set to 1
+    // in replicated mode so 1 < 3 evaluated to true, incorrectly marking healthy
+    // objects as OBJ_DEGRADED.
+    // With the fix, a healthy object must evaluate clean (NULL state).
+    pg_osd_set_t set_clean = {
+        { .role = 0, .osd_num = 1, .loc_bad = 0 },
+        { .role = 0, .osd_num = 2, .loc_bad = 0 },
+        { .role = 0, .osd_num = 3, .loc_bad = 0 },
+    };
+    pg_osd_set_state_t *st_clean = f.add_object_to_set(pg, oid_clean, set_clean, pg.state, 0);
+    assert(st_clean == NULL);
+    assert(pg.degraded_objects.count(oid_clean) == 0);
+    assert(!(pg.state & PG_HAS_DEGRADED));
+
+    // Case 2: 3 replicas present on OSDs 1, 2, 3, but 1 replica is LOC_CORRUPTED.
+    // If n_copies is used without subtracting n_corrupted, n_copies is 3 and
+    // 3 < 3 evaluates to false, failing to mark the object as OBJ_DEGRADED and
+    // falsely placing it in misplaced_objects instead of degraded_objects.
+    // With (n_copies - n_corrupted), 3 - 1 = 2 < 3 evaluates to true, so:
+    // - The object is marked OBJ_DEGRADED | OBJ_CORRUPTED
+    // - pg.state has PG_HAS_DEGRADED and PG_HAS_CORRUPTED
+    // - The object is tracked in pg.degraded_objects, not misplaced_objects
+    pg_osd_set_t set_corrupted = {
+        { .role = 0, .osd_num = 1, .loc_bad = 0 },
+        { .role = 0, .osd_num = 2, .loc_bad = 0 },
+        { .role = 0, .osd_num = 3, .loc_bad = LOC_CORRUPTED },
+    };
+    pg_osd_set_state_t *st_corrupted = f.add_object_to_set(pg, oid_corrupted, set_corrupted, pg.state, 0);
+    assert(st_corrupted != NULL);
+    assert(st_corrupted->state == (OBJ_DEGRADED | OBJ_CORRUPTED));
+    assert(pg.state & PG_HAS_DEGRADED);
+    assert(pg.state & PG_HAS_CORRUPTED);
+    assert(pg.degraded_objects.count(oid_corrupted) == 1);
+    assert(pg.misplaced_objects.count(oid_corrupted) == 0);
+
+    // Case 3: All 3 replicas corrupted.
+    // n_roles remains 0 < pg_data_size (1), must be marked OBJ_INCOMPLETE | OBJ_CORRUPTED.
+    object_id oid_all_corrupted = { .inode = inode, .stripe = 8192 };
+    pg_osd_set_t set_all_corrupted = {
+        { .role = 0, .osd_num = 1, .loc_bad = LOC_CORRUPTED },
+        { .role = 0, .osd_num = 2, .loc_bad = LOC_CORRUPTED },
+        { .role = 0, .osd_num = 3, .loc_bad = LOC_CORRUPTED },
+    };
+    pg_osd_set_state_t *st_all_corrupted = f.add_object_to_set(pg, oid_all_corrupted, set_all_corrupted, pg.state, 0);
+    assert(st_all_corrupted != NULL);
+    assert(st_all_corrupted->state == (OBJ_INCOMPLETE | OBJ_CORRUPTED));
+    assert(pg.state & PG_HAS_INCOMPLETE);
+    assert(pg.incomplete_objects.count(oid_all_corrupted) == 1);
+
+    printf("test_replicated_add_object_to_set_degraded passed\n");
+}
+
 int main(int narg, char *args[])
 {
     test_load_global_config();
@@ -3678,5 +3762,6 @@ int main(int narg, char *args[])
     test_peering_partial_unstable_ec_rolls_back();
     test_delete_waits_for_stabilize_snapshot();
     test_delete_waits_only_for_covered_objects();
+    test_replicated_add_object_to_set_degraded();
     return 0;
 }
