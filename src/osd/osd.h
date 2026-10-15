@@ -115,8 +115,8 @@ class osd_t
     // config
 
     json11::Json::object cli_config, file_config, etcd_global_config, etcd_osd_config, config;
-    int etcd_report_interval = 5;
-    int etcd_stats_interval = 30;
+    uint64_t etcd_report_interval = 5;
+    uint64_t etcd_stats_interval = 30;
 
     bool readonly = false;
     osd_num_t osd_num = 1; // OSD numbers start with 1
@@ -131,10 +131,10 @@ class osd_t
     bool disable_tcp = false;
     // FIXME: Implement client queue depth limit
     int client_queue_depth = 128;
-    int print_stats_interval = 3;
-    int slow_log_interval = 10;
+    uint64_t print_stats_interval = 3;
+    uint64_t slow_log_interval = 10;
     int immediate_commit = IMMEDIATE_NONE;
-    int autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // "emergency" sync every 5 seconds
+    uint64_t autosync_interval = DEFAULT_AUTOSYNC_INTERVAL; // "emergency" sync every 5 seconds
     int autosync_writes = DEFAULT_AUTOSYNC_WRITES;
     uint64_t recovery_queue_depth = 1;
     uint64_t recovery_sleep_us = 0;
@@ -142,8 +142,8 @@ class osd_t
     double recovery_tune_client_util_low = 0;
     double recovery_tune_util_high = 1.0;
     double recovery_tune_client_util_high = 0.5;
-    int recovery_tune_interval = 1;
-    int recovery_tune_agg_interval = 10;
+    uint64_t recovery_tune_interval = 1;
+    uint64_t recovery_tune_agg_interval = 10;
     int recovery_tune_sleep_min_us = 10;
     int recovery_tune_sleep_cutoff_us = 10000000;
     int recovery_pg_switch = DEFAULT_RECOVERY_PG_SWITCH;

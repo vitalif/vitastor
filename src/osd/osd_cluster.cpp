@@ -552,7 +552,7 @@ void osd_t::acquire_lease()
         report_pg_states();
     });
     printf(
-        "[OSD %ju] reporting to etcd at %s every %d seconds (statistics every %d seconds)\n", this->osd_num,
+        "[OSD %ju] reporting to etcd at %s every %ju seconds (statistics every %ju seconds)\n", this->osd_num,
         (config["etcd_address"].is_string() ? config["etcd_address"].string_value() : config["etcd_address"].dump()).c_str(),
         etcd_report_interval, etcd_stats_interval
     );
