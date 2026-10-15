@@ -118,15 +118,16 @@ void osd_t::repeer_pgs(osd_num_t peer_osd)
 void osd_t::repeer_pg(pg_t & pg)
 {
     drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
-    if (!(pg.state & (PG_ACTIVE | PG_REPEERING)) || pg.can_repeer())
+    pg.state = pg.state & ~PG_STARTING & ~PG_PEERING & ~PG_INCOMPLETE & ~PG_ACTIVE & ~PG_STOPPING & ~PG_OFFLINE | PG_REPEERING;
+    if (pg.can_repeer())
     {
         start_pg_peering(pg);
     }
     else
     {
         // Stop accepting new operations, wait for current ones to finish or fail
-        pg.state = pg.state & ~PG_ACTIVE | PG_REPEERING;
         report_pg_state(pg);
+        pg_cancel_flush_waiting_ops(pg);
     }
 }
 
@@ -685,6 +686,7 @@ bool osd_t::stop_pg(pg_t & pg)
     else
     {
         report_pg_state(pg);
+        pg_cancel_flush_waiting_ops(pg);
     }
     return true;
 }

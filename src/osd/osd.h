@@ -367,6 +367,7 @@ class osd_t
     void continue_primary_sync(osd_op_t *cur_op);
     void continue_primary_del(osd_op_t *cur_op);
     bool check_write_queue(osd_op_t *cur_op, pg_t & pg);
+    void pg_cancel_flush_waiting_ops(pg_t & pg);
     pg_osd_set_state_t* add_object_to_set(pg_t & pg, const object_id oid, const pg_osd_set_t & osd_set,
         uint64_t old_pg_state, int log_at_level);
     bool remove_object_from_state(object_id & oid, pg_osd_set_state_t **object_state, pg_t &pg, bool report = true);

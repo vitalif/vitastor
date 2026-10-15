@@ -108,7 +108,10 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
         if (errors > 0)
         {
             // Repeer the PG on errors
-            repeer_pg(pg);
+            if (pg.state & PG_ACTIVE)
+                repeer_pg(pg);
+            else
+                continue_pg(pg);
             return;
         }
         std::vector<osd_op_t*> continue_ops;

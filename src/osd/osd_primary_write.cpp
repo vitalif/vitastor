@@ -4,6 +4,17 @@
 #include "osd_primary.h"
 #include "allocator.h"
 
+static bool has_flush_actions(pg_t & pg, const object_id & oid)
+{
+    auto act_it = pg.flush_actions.lower_bound((obj_piece_id_t){
+        .oid = oid,
+        .osd_num = 0,
+    });
+    return act_it != pg.flush_actions.end() &&
+        act_it->first.oid.inode == oid.inode &&
+        (act_it->first.oid.stripe & ~STRIPE_MASK) == oid.stripe;
+}
+
 bool osd_t::check_write_queue(osd_op_t *cur_op, pg_t & pg)
 {
     osd_primary_op_data_t *op_data = cur_op->op_data;
@@ -14,20 +25,11 @@ bool osd_t::check_write_queue(osd_op_t *cur_op, pg_t & pg)
         pg_cancel_write_queue(pg, cur_op, op_data->oid, -EPIPE);
         return false;
     }
-    if (pg.state & PG_HAS_UNCLEAN)
+    // Check if actions are pending for this object
+    if ((pg.state & PG_HAS_UNCLEAN) && has_flush_actions(pg, op_data->oid))
     {
-        // Check if actions are pending for this object
-        auto act_it = pg.flush_actions.lower_bound((obj_piece_id_t){
-            .oid = op_data->oid,
-            .osd_num = 0,
-        });
-        if (act_it != pg.flush_actions.end() &&
-            act_it->first.oid.inode == op_data->oid.inode &&
-            (act_it->first.oid.stripe & ~STRIPE_MASK) == op_data->oid.stripe)
-        {
-            pg.write_queue.emplace(op_data->oid, cur_op);
-            return false;
-        }
+        pg.write_queue.emplace(op_data->oid, cur_op);
+        return false;
     }
     // Check if there are other write requests to the same object
     auto vo_it = pg.write_queue.find(op_data->oid);
@@ -38,6 +40,28 @@ bool osd_t::check_write_queue(osd_op_t *cur_op, pg_t & pg)
     }
     pg.write_queue.emplace(op_data->oid, cur_op);
     return true;
+}
+
+// Fail operations waiting for flush_actions at the head of the write queue (see
+// check_write_queue): they are only continued by a successful flush of an active PG
+void osd_t::pg_cancel_flush_waiting_ops(pg_t & pg)
+{
+    if (!pg.flush_actions.size())
+    {
+        return;
+    }
+    std::vector<std::pair<object_id, osd_op_t*>> waiting;
+    for (auto it = pg.write_queue.begin(); it != pg.write_queue.end(); it = pg.write_queue.upper_bound(it->first))
+    {
+        if (has_flush_actions(pg, it->first))
+        {
+            waiting.push_back(*it);
+        }
+    }
+    for (auto & w: waiting)
+    {
+        pg_cancel_write_queue(pg, w.second, w.first, -EPIPE);
+    }
 }
 
 void osd_t::continue_primary_write(osd_op_t *cur_op)

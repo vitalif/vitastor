@@ -1349,6 +1349,204 @@ bool test_flush_error_pg_repeer(int ctr)
     return ctr < 1;
 }
 
+// EC 2+1 PG on OSD 2, active with one object unstable on OSDs 1 and 3:
+// PG_ACTIVE|PG_HAS_UNCLEAN with a stabilize batch to OSDs 1 and 3 in flight
+static pg_t & start_unclean_ec_pg(osd_test_fixture_t & f, inode_t ino)
+{
+    f.configure_ec_pool(2, 1);
+    f.start(json11::Json::object {
+        { "osd_num", 2 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(1);
+    f.connect_peer(3);
+    f.reply_peer_list(1, { { { ino, 0 }, 1 } }, /*stable_count*/ 0);
+    f.reply_local_list({ { { ino, 1 }, 1 } }, /*stable_count*/ 1);
+    f.reply_peer_list(3, { { { ino, 2 }, 1 } }, /*stable_count*/ 0);
+    f.pump();
+    auto & pg = f.pg(1, 1);
+    assert(pg.state == (PG_ACTIVE|PG_HAS_UNCLEAN));
+    assert(pg.flush_batch && pg.flush_batch->flush_ops == 2);
+    return pg;
+}
+
+// A client write to the unclean object waits in write_queue (st=1) for the flush
+static osd_op_t *park_write(osd_test_fixture_t & f, uint64_t client_id, inode_t ino, uint64_t offset = 0)
+{
+    auto & pg = f.pg(1, 1);
+    auto *wr = make_write_op(ino, offset, 4096, 0xab);
+    wr->client_id = client_id;
+    f.exec(wr);
+    assert(wr->op_data && wr->op_data->st == 1);
+    assert(pg.inflight == 1 && pg.write_queue.size() == 1);
+    return wr;
+}
+
+static void print_pg_state(osd_test_fixture_t & f, const char *when)
+{
+    if (!f.has_pg(1, 1))
+    {
+        printf("  %s: PG 1/1 forgotten\n", when);
+        return;
+    }
+    auto & pg = f.pg(1, 1);
+    printf("  %s: PG 1/1 state=0x%x inflight=%d write_queue=%zu flush_batch=%s\n",
+        when, pg.state, pg.inflight, pg.write_queue.size(), pg.flush_batch ? "yes" : "no");
+}
+
+// The flush fails while a write waits for it. The write must fail with EPIPE
+// (the client retries it) and the PG must peer again, not hang in REPEERING
+// forever with inflight held by the waiting write
+void test_flush_error_cancels_waiting_write()
+{
+    printf("test_flush_error_cancels_waiting_write\n");
+
+    osd_test_fixture_t f;
+    inode_t ino = INODE_WITH_POOL(1, 1);
+    auto & pg = start_unclean_ec_pg(f, ino);
+    uint64_t client_id = f.connect_client();
+    auto *wr = park_write(f, client_id, ino);
+
+    f.peer_complete(f.peer_take(1, OSD_OP_SEC_STABILIZE), 0);
+    f.peer_complete(f.peer_take(3, OSD_OP_SEC_STABILIZE), -EPIPE);
+    print_pg_state(f, "after the flush error");
+
+    assert(f.client(client_id)->sent_ops.count(wr->req.rw.header.id));
+    assert(wr->reply.hdr.retval == -EPIPE);
+    assert(pg.inflight == 0);
+    assert(pg.state == PG_PEERING);
+
+    f.complete_peering_empty();
+
+    printf("test_flush_error_cancels_waiting_write passed\n");
+}
+
+// Same, but the connection to OSD 3 dies: the PG goes to REPEERING first
+// (held by the flush batch), then the stabilize fails with EPIPE
+void test_peer_death_during_flush_cancels_waiting_write()
+{
+    printf("test_peer_death_during_flush_cancels_waiting_write\n");
+
+    osd_test_fixture_t f;
+    inode_t ino = INODE_WITH_POOL(1, 1);
+    auto & pg = start_unclean_ec_pg(f, ino);
+    uint64_t client_id = f.connect_client();
+    auto *wr = park_write(f, client_id, ino);
+
+    f.fail_peer_connection(3);
+    assert(pg.state & PG_REPEERING);
+    assert(pg.flush_batch);
+
+    f.peer_complete(f.peer_take(1, OSD_OP_SEC_STABILIZE), 0);
+    print_pg_state(f, "after the flush error");
+
+    assert(f.client(client_id)->sent_ops.count(wr->req.rw.header.id));
+    assert(wr->reply.hdr.retval == -EPIPE);
+    assert(pg.inflight == 0);
+    assert(pg.state == PG_PEERING);
+
+    f.complete_peering_empty();
+
+    printf("test_peer_death_during_flush_cancels_waiting_write passed\n");
+}
+
+// The monitor moves the primary away while the flush is in flight, so the PG
+// is STOPPING when the flush fails. The PG must finish stopping instead of
+// restarting peering over a non-empty write_queue (assert in reset_pg)
+void test_flush_error_on_stopping_pg()
+{
+    printf("test_flush_error_on_stopping_pg\n");
+
+    osd_test_fixture_t f;
+    inode_t ino = INODE_WITH_POOL(1, 1);
+    auto & pg = start_unclean_ec_pg(f, ino);
+    uint64_t client_id = f.connect_client();
+    auto *wr = park_write(f, client_id, ino);
+
+    f.st_cli->set("/vitastor/pg/config", json11::Json::object {
+        { "items", json11::Json::object{
+            { "1", json11::Json::object {
+                { "1", json11::Json::object {
+                    { "osd_set", json11::Json::array { 1, 2, 3 } },
+                    { "primary", 1 },
+                } },
+            } }
+        } },
+    });
+    assert(pg.state & PG_STOPPING);
+    assert(pg.flush_batch);
+
+    f.peer_complete(f.peer_take(1, OSD_OP_SEC_STABILIZE), 0);
+    f.peer_complete(f.peer_take(3, OSD_OP_SEC_STABILIZE), -EPIPE);
+    print_pg_state(f, "after the flush error");
+
+    assert(f.client(client_id)->sent_ops.count(wr->req.rw.header.id));
+    assert(wr->reply.hdr.retval == -EPIPE);
+    assert(!f.has_pg(1, 1) || f.pg(1, 1).state == PG_OFFLINE);
+
+    printf("test_flush_error_on_stopping_pg passed\n");
+}
+
+// No flush error at all: more unclean objects than FLUSH_BATCH, so the last
+// one waits for the second batch. The PG repeers between the batches, when no
+// batch is in flight, and nothing would ever flush that object for the write
+void test_repeer_between_flush_batches_cancels_waiting_write()
+{
+    printf("test_repeer_between_flush_batches_cancels_waiting_write\n");
+
+    osd_test_fixture_t f;
+    f.configure_ec_pool(2, 1);
+    f.start(json11::Json::object {
+        { "osd_num", 2 },
+        { "etcd_address", "127.0.0.1:2379" },
+        { "immediate_commit", "all" },
+        { "block_size", 131072 },
+        { "bitmap_granularity", 4096 },
+    });
+    f.connect_peer(1);
+    f.connect_peer(3);
+    inode_t ino = INODE_WITH_POOL(1, 1);
+    const uint64_t stripe_size = 2*131072, n_objects = 513;
+    std::vector<obj_ver_id> peer1, local, peer3;
+    for (uint64_t i = 0; i < n_objects; i++)
+    {
+        peer1.push_back({ { ino, i*stripe_size + 0 }, 1 });
+        local.push_back({ { ino, i*stripe_size + 1 }, 1 });
+        peer3.push_back({ { ino, i*stripe_size + 2 }, 1 });
+    }
+    f.reply_peer_list(1, peer1, /*stable_count*/ 0);
+    f.reply_local_list(local, /*stable_count*/ n_objects);
+    f.reply_peer_list(3, peer3, /*stable_count*/ 0);
+    f.pump();
+    auto & pg = f.pg(1, 1);
+    assert(pg.state == (PG_ACTIVE|PG_HAS_UNCLEAN));
+    assert(pg.flush_batch && pg.flush_batch->flush_ops == 2);
+
+    // The last object is not in the first batch
+    uint64_t client_id = f.connect_client();
+    auto *wr = park_write(f, client_id, ino, (n_objects-1)*stripe_size);
+
+    f.peer_complete(f.peer_take(1, OSD_OP_SEC_STABILIZE), 0);
+    f.peer_complete(f.peer_take(3, OSD_OP_SEC_STABILIZE), 0);
+    assert(pg.state == (PG_ACTIVE|PG_HAS_UNCLEAN));
+    assert(!pg.flush_batch);
+
+    f.repeer_pgs(3);
+    print_pg_state(f, "after the repeer");
+
+    assert(f.client(client_id)->sent_ops.count(wr->req.rw.header.id));
+    assert(wr->reply.hdr.retval == -EPIPE);
+    assert(pg.inflight == 0);
+    assert(pg.state == PG_PEERING);
+
+    f.complete_peering_empty();
+
+    printf("test_repeer_between_flush_batches_cancels_waiting_write passed\n");
+}
+
 // Sync/repeer invariants:
 //
 // 1. dirty_pgs / dirty_osds are populated only for PGs that were
@@ -3452,6 +3650,10 @@ int main(int narg, char *args[])
     test_repeer_forgets_unstable_writes(false);
     test_repeer_forgets_unstable_writes(true);
     for (int i = 0; test_flush_error_pg_repeer(i); i++) {}
+    test_flush_error_cancels_waiting_write();
+    test_peer_death_during_flush_cancels_waiting_write();
+    test_flush_error_on_stopping_pg();
+    test_repeer_between_flush_batches_cancels_waiting_write();
     test_sync_nothing_to_sync();
     test_sync_happy_path_replicated();
     test_pg_repeer_drops_dirty_client();
