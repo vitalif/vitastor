@@ -624,10 +624,13 @@ int blockstore_heap_t::count_recheck_entries(heap_entry_t *obj, bool & need_data
     auto newest = wr;
     for (; wr && wr->type() == BS_HEAP_SMALL_WRITE; wr = skip_commits(prev(wr)))
     {
-        count++;
+        // Zero-sized writes have nothing to read and verify
+        if (wr->small().len > 0)
+            count++;
     }
     if (wr && wr->lsn > completed_lsn &&
-        (wr->type() == BS_HEAP_BIG_INTENT || wr == newest && wr->type() == BS_HEAP_INTENT_WRITE))
+        (wr->type() == BS_HEAP_BIG_INTENT || wr == newest && wr->type() == BS_HEAP_INTENT_WRITE) &&
+        (wr->type() == BS_HEAP_BIG_INTENT ? wr->big_intent().len : wr->small().len) > 0)
     {
         count++;
         need_data = true;
@@ -1087,6 +1090,12 @@ int blockstore_heap_t::recheck_start_reads(heap_recheck_state_t *st)
             loc = wr->small().offset + prev_wr->big_location(this);
             len = wr->small().len;
             from_data = true;
+        }
+        if (!len)
+        {
+            // Zero-sized entries have nothing to read and verify
+            st->next_wr = prev(wr);
+            continue;
         }
         if (from_data && st->checked_reads < st->sent_reads)
         {
