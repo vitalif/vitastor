@@ -52,7 +52,13 @@ public:
     // Drop all queued and completed SQEs without running their callbacks and
     // return every ring_data_t to the free list, as if the process had died.
     // Callbacks point into the blockstore, so delete it before calling this.
+    // In-flight disk IO must go with it: call io_sim_t::cancel_ring_io() first,
+    // otherwise stale completions land in slots the next instance reuses
     void reset();
+    // The slot array has fixed addresses from construction; the range lets
+    // io_sim_t recognize IO belonging to this (now dead) ringloop
+    ring_data_t *slots_begin() { return ring_datas.data(); }
+    ring_data_t *slots_end() { return ring_datas.data() + ring_datas.size(); }
 };
 
 // Fault injection settings for disk_mock_t. Only used in async mode, see disk_mock_t::set_sim().
@@ -127,6 +133,9 @@ public:
     // Completion time of the earliest in-flight operation, or UINT64_MAX if idle
     uint64_t next_completion();
     void complete_due(uint64_t now_us);
+    // Drop in-flight ops whose ring_data slot lies in [lo, hi) - the owner of
+    // that slot array is gone, so the completion has nothing to complete into
+    size_t cancel_inflight(uintptr_t lo, uintptr_t hi);
     // Simulate a power outage: in-flight writes land fully, partially or not at all,
     // and most of the volatile write cache is lost.
     void power_loss(std::mt19937 & rnd);
@@ -165,6 +174,9 @@ public:
     void advance(uint64_t micros);
     // Run one event. Returns false if nothing was in flight and only the clock moved
     bool has_inflight();
+    // io_uring_cancel_all() equivalent: forget disk IO submitted through our
+    // ringloop, as the instance that owned it (and its buffers) is destroyed
+    void cancel_ring_io();
     bool step();
     // Step until cond() or until the step budget runs out. Returns cond()
     bool run_until(const std::function<bool()> & cond, uint64_t max_steps = 1000000);

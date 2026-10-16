@@ -2062,6 +2062,11 @@ void chaos_t::destroy()
     }
     bs = NULL;
     f.st_cli = NULL;
+    // Disk completions owned by the dead instance must disappear with it (the
+    // io_uring_cancel_all() a real process exit performs): the disk simulation
+    // would otherwise copy bytes into freed buffers and complete slots that the
+    // next instance has already reused - a use-after-free with the slots alive
+    sim->cancel_ring_io();
     f.ringloop->reset();
     // The blockstore and the OSD set one-shot timers capturing `this`, so the timer
     // manager can't outlive them across a simulated crash

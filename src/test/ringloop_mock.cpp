@@ -559,6 +559,23 @@ void disk_mock_t::complete_due(uint64_t now_us)
     }
 }
 
+size_t disk_mock_t::cancel_inflight(uintptr_t lo, uintptr_t hi)
+{
+    size_t n = 0;
+    for (auto it = inflight.begin(); it != inflight.end(); )
+    {
+        uintptr_t userdata = (uintptr_t)it->second.sqe.user_data;
+        if (userdata >= lo && userdata < hi)
+        {
+            it = inflight.erase(it);
+            n++;
+        }
+        else
+            it++;
+    }
+    return n;
+}
+
 void disk_mock_t::power_loss(std::mt19937 & rnd)
 {
     for (auto & p: inflight)
@@ -681,6 +698,14 @@ bool io_sim_t::has_inflight()
         if (disk->has_inflight())
             return true;
     return false;
+}
+
+void io_sim_t::cancel_ring_io()
+{
+    uintptr_t lo = (uintptr_t)ringloop->slots_begin();
+    uintptr_t hi = (uintptr_t)ringloop->slots_end();
+    for (auto disk: disks)
+        disk->cancel_inflight(lo, hi);
 }
 
 bool io_sim_t::step()
