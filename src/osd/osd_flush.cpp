@@ -166,6 +166,7 @@ void osd_t::handle_flush_op(bool rollback, pool_id_t pool_id, pg_num_t pg_num, p
 bool osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t *fb, bool rollback, osd_num_t peer_osd, int count, obj_ver_id *data)
 {
     osd_op_t *op = new osd_op_t();
+    pending_owned_ops.insert(op);
     // Copy buffer so it gets freed along with the operation
     op->buf = malloc_or_die(sizeof(obj_ver_id) * count);
     memcpy(op->buf, data, sizeof(obj_ver_id) * count);
@@ -193,6 +194,7 @@ bool osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
                 handle_flush_op(bs_op->opcode == BS_OP_ROLLBACK, pool_id, pg_num, fb, this->osd_num, bs_op->retval);
                 delete op->bs_op;
                 op->bs_op = NULL;
+                pending_owned_ops.erase(op);
                 delete op;
             },
             {
@@ -219,6 +221,7 @@ bool osd_t::submit_flush_op(pool_id_t pool_id, pg_num_t pg_num, pg_flush_batch_t
         op->callback = [this, pool_id, pg_num, fb, peer_osd](osd_op_t *op)
         {
             handle_flush_op(op->req.hdr.opcode == OSD_OP_SEC_ROLLBACK, pool_id, pg_num, fb, peer_osd, op->reply.hdr.retval);
+            pending_owned_ops.erase(op);
             delete op;
         };
         if (!submit_to_osd(op, peer_osd))

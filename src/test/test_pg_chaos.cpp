@@ -2057,6 +2057,9 @@ void chaos_t::destroy()
         // the process: the kernel delivers them. Catch the mutating subops
         // aside; the peers will apply them in their own time
         cluster.harvest_wire();
+        // ~osd_t releases whatever the dead instance still owns (recovery, autosync,
+        // peering, flush ops): the crash model resets the ringloop and purges the
+        // disk simulation, so no late completion can reference them
         delete f.osd;
         f.osd = NULL;
     }
@@ -2175,52 +2178,12 @@ void chaos_t::free_op(pending_t *p)
 }
 
 // Free an op no one will ever complete: its OSD instance was destroyed under
-// it (a crash). Mirrors the ownership of the production completion path -
-// the op_data blob owns the stripes and the chain (one calloc), the subop
-// array owns per-subop bs_ops while its rmw_buf/bitmap/iov alias into op_data
-// and the op's buffers, the sync snapshot hangs off one more malloc and two
-// news, and ~osd_op_t frees buf/bitmap_buf/rmw_buf. No finish_op(): the model
-// has already accounted these ops the way a crash lands them
+// it (a crash).  The release logic lives in the OSD (osd_t::free_abandoned_op),
+// the same teardown its own destructor uses for in-flight OSD-owned ops; no
+// finish_op(): the model has already accounted these ops the way a crash lands them
 void chaos_t::reap_op(osd_op_t *op)
 {
-    if (op->op_data)
-    {
-        auto od = op->op_data;
-        if (od->subops)
-        {
-            for (int i = 0; i < od->n_subops; i++)
-            {
-                delete od->subops[i].bs_op;
-                od->subops[i].bs_op = NULL;
-                // alias into the op_data blob - never owned by the subop
-                od->subops[i].rmw_buf = NULL;
-            }
-            delete[] od->subops;
-            od->subops = NULL;
-        }
-        // unstable_* / dirty_pgs and chain_reads share one anonymous union:
-        // which arm is live depends on the opcode, freeing both double-frees
-        if (op->req.hdr.opcode == OSD_OP_READ)
-        {
-            if (od->chain_reads)
-                free(od->chain_reads);
-        }
-        else
-        {
-            if (od->unstable_writes)
-            {
-                delete od->unstable_write_osds;
-                delete[] od->unstable_writes;
-            }
-            if (od->dirty_pgs)
-                free(od->dirty_pgs);
-        }
-        free(od);
-        op->op_data = NULL;
-    }
-    delete op->bs_op;
-    op->bs_op = NULL;
-    delete op;
+    osd_t::free_abandoned_op(op);
 }
 
 osd_op_t *chaos_t::make_rw_op(uint64_t opcode, uint64_t offset, uint64_t len)

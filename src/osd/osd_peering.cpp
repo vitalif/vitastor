@@ -313,11 +313,7 @@ void osd_t::start_pg_peering(pg_t & pg)
     }
     if (pg.state == PG_INCOMPLETE)
     {
-        if (pg.peering_state)
-        {
-            delete pg.peering_state;
-            pg.peering_state = NULL;
-        }
+        release_peering_state(pg);
         report_pg_state(pg);
         return;
     }
@@ -538,6 +534,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
     {
         // Self
         osd_op_t *op = new osd_op_t();
+        pending_owned_ops.insert(op);
         op->op_type = 0;
         op->client_id = SELF_CLIENT;
         clock_gettime(CLOCK_REALTIME, &op->tv_begin);
@@ -570,6 +567,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             ps->list_ops.erase(role_osd);
             delete op->bs_op;
             op->bs_op = NULL;
+            pending_owned_ops.erase(op);
             delete op;
         };
         ps->list_ops[role_osd] = op;
@@ -585,6 +583,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
         }
         // Peer
         osd_op_t *op = new osd_op_t();
+        pending_owned_ops.insert(op);
         op->op_type = OSD_OP_OUT;
         op->client_id = peer_it->second->client_id;
         op->req = (osd_any_op_t){
@@ -607,6 +606,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
                 printf("Failed to get object list from OSD %ju (retval=%jd), disconnecting peer\n", role_osd, op->reply.hdr.retval);
                 uint64_t fail_client_id = op->client_id;
                 ps->list_ops.erase(role_osd);
+                pending_owned_ops.erase(op);
                 delete op;
                 msgr.stop_client(fail_client_id);
                 return;
@@ -623,6 +623,7 @@ void osd_t::submit_list_subop(osd_num_t role_osd, pg_peering_state_t *ps)
             // set op->buf to NULL so it doesn't get freed
             op->buf = NULL;
             ps->list_ops.erase(role_osd);
+            pending_owned_ops.erase(op);
             delete op;
         };
         ps->list_ops[role_osd] = op;
@@ -635,45 +636,54 @@ void osd_t::discard_list_subop(osd_op_t *list_op)
     if (list_op->client_id == SELF_CLIENT)
     {
         // Self
-        list_op->bs_op->callback = [list_op](blockstore_op_t *bs_op)
+        list_op->bs_op->callback = [this, list_op](blockstore_op_t *bs_op)
         {
             if (list_op->bs_op->buf)
                 free(list_op->bs_op->buf);
             delete list_op->bs_op;
             list_op->bs_op = NULL;
+            pending_owned_ops.erase(list_op);
             delete list_op;
         };
     }
     else
     {
         // Peer
-        list_op->callback = [](osd_op_t *list_op)
+        list_op->callback = [this](osd_op_t *list_op)
         {
+            pending_owned_ops.erase(list_op);
             delete list_op;
         };
     }
 }
 
+void osd_t::release_peering_state(pg_t & pg)
+{
+    if (!pg.peering_state)
+    {
+        return;
+    }
+    // In-flight LIST subops reference this state in their callbacks, so discard
+    // them (which rewrites the callbacks to be state-independent) before freeing
+    for (auto & lo: pg.peering_state->list_ops)
+    {
+        discard_list_subop(lo.second);
+    }
+    for (auto & lr: pg.peering_state->list_results)
+    {
+        if (lr.second.buf)
+        {
+            free(lr.second.buf);
+        }
+    }
+    delete pg.peering_state;
+    pg.peering_state = NULL;
+}
+
 bool osd_t::stop_pg(pg_t & pg)
 {
     drop_dirty_pg_connections({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
-    if (pg.peering_state)
-    {
-        // Stop peering
-        for (auto it = pg.peering_state->list_ops.begin(); it != pg.peering_state->list_ops.end(); it++)
-        {
-            discard_list_subop(it->second);
-        }
-        for (auto it = pg.peering_state->list_results.begin(); it != pg.peering_state->list_results.end(); it++)
-        {
-            if (it->second.buf)
-            {
-                free(it->second.buf);
-            }
-        }
-        delete pg.peering_state;
-        pg.peering_state = NULL;
-    }
+    release_peering_state(pg);
     if (pg.state & (PG_STOPPING | PG_OFFLINE))
     {
         return false;
@@ -700,6 +710,8 @@ void osd_t::finish_stop_pg(pg_t & pg)
 
 void osd_t::report_pg_state(pg_t & pg)
 {
+    if (in_destruction)
+        return;
     pg.print_state();
     this->pg_state_dirty.insert({ .pool_id = pg.pool_id, .pg_num = pg.pg_num });
     if (pg.state & PG_ACTIVE)

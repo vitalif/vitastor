@@ -276,6 +276,16 @@ void osd_t::submit_primary_subop(osd_op_t *cur_op, osd_op_t *subop,
 bool osd_t::submit_to_osd(osd_op_t *subop, osd_num_t osd_num)
 {
     subop->osd_num = osd_num;
+    if (in_destruction)
+    {
+        // Teardown: never open connections or queue work on a dying OSD.  The
+        // immediate queue is dropped with the ringloop, so complete synchronously;
+        // callers own and free the op on false
+        subop->client_id = 0;
+        subop->reply.hdr.retval = -EPIPE;
+        std::function<void(osd_op_t*)>(subop->callback)(subop);
+        return false;
+    }
     auto peer_it = msgr.osd_peers.find(osd_num);
     if (peer_it != msgr.osd_peers.end())
     {

@@ -120,6 +120,59 @@ osd_t::~osd_t()
         msgr.destroy_client(msgr.clients.begin()->second);
     if (bs)
         delete bs;
+    // Ops still in flight after the clients are gone will never complete; their
+    // completion callbacks were the only owners.  The blockstore is already dead
+    // (it dropped private state of queued ops in its own destructor), so nothing
+    // can reference these ops anymore - release them here
+    for (auto & rp: recovery_ops)
+        if (rp.second.osd_op)
+            free_abandoned_op(rp.second.osd_op);
+    recovery_ops.clear();
+    if (autosync_op)
+    {
+        free_abandoned_op(autosync_op);
+        autosync_op = NULL;
+    }
+    for (auto & pp: pgs)
+    {
+        pg_peering_state_t *ps = pp.second.peering_state;
+        if (!ps)
+            continue;
+        for (auto & lo: ps->list_ops)
+        {
+            pending_owned_ops.erase(lo.second);
+            if (lo.second->bs_op)
+            {
+                // a self LIST's reply buffer is owned by the bs op (see
+                // discard_list_subop); list_results entries own theirs
+                free(lo.second->bs_op->buf);
+                delete lo.second->bs_op;
+                lo.second->bs_op = NULL;
+            }
+            delete lo.second;
+        }
+        for (auto & lr: ps->list_results)
+            if (lr.second.buf)
+                free(lr.second.buf);
+        delete ps;
+        pp.second.peering_state = NULL;
+    }
+    for (osd_op_t *op: pending_owned_ops)
+    {
+        // a self LIST's reply buffer is owned by its bs op (see discard_list_subop)
+        if (op->bs_op && op->bs_op->opcode == BS_OP_LIST && op->bs_op->buf)
+            free(op->bs_op->buf);
+        free_abandoned_op(op);
+    }
+    pending_owned_ops.clear();
+    for (auto & pp: pgs)
+    {
+        if (pp.second.flush_batch)
+        {
+            delete pp.second.flush_batch;
+            pp.second.flush_batch = NULL;
+        }
+    }
 #ifdef WITH_RDMACM
     for (rdma_cm_id *listener: rdmacm_listeners)
         msgr.rdmacm_destroy_listener(listener);
@@ -133,6 +186,49 @@ osd_t::~osd_t()
         if (pp.second.scheme == POOL_SCHEME_EC)
             use_ec(pp.second.pg_size, pp.second.pg_data_size, false);
     pgs.clear();
+}
+
+void osd_t::free_abandoned_op(osd_op_t *op)
+{
+    if (op->op_data)
+    {
+        auto od = op->op_data;
+        if (od->subops)
+        {
+            for (unsigned i = 0; i < od->n_subops; i++)
+            {
+                // A subop's blockstore_op_t is owned by the subop (the completion
+                // path deletes it); its rmw_buf aliases this very op_data blob
+                delete od->subops[i].bs_op;
+                od->subops[i].bs_op = NULL;
+                od->subops[i].rmw_buf = NULL;
+            }
+            delete[] od->subops;
+            od->subops = NULL;
+        }
+        // unstable_* / dirty_pgs and chain_reads share one anonymous union:
+        // which arm is live depends on the opcode, freeing both double-frees
+        if (op->req.hdr.opcode == OSD_OP_READ)
+        {
+            if (od->chain_reads)
+                free(od->chain_reads);
+        }
+        else
+        {
+            if (od->unstable_writes)
+            {
+                delete od->unstable_write_osds;
+                delete[] od->unstable_writes;
+            }
+            if (od->dirty_pgs)
+                free(od->dirty_pgs);
+        }
+        free(od);
+        op->op_data = NULL;
+    }
+    delete op->bs_op;
+    op->bs_op = NULL;
+    delete op;
 }
 
 void osd_t::init_blockstore(std::function<void()> on_init)

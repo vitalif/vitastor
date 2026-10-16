@@ -197,6 +197,10 @@ class osd_t
     uint64_t misplaced_objects = 0, degraded_objects = 0, incomplete_objects = 0, inconsistent_objects = 0, corrupted_objects = 0;
     int peering_state = 0;
     std::map<object_id, osd_recovery_op_t> recovery_ops;
+    // OSD-owned in-flight ops (flush batches, peering LIST subops): their only
+    // owners are completion callbacks, so the destructor needs a handle on them
+    // to release what a dropped callback will never free
+    robin_hood::unordered_set<osd_op_t*> pending_owned_ops;
     std::map<object_id, osd_op_t*> scrub_ops;
     bool recovery_last_degraded = true;
     pool_pg_num_t recovery_last_pg;
@@ -318,6 +322,7 @@ class osd_t
     bool stop_pg(pg_t & pg);
     void reset_pg(pg_t & pg);
     void finish_stop_pg(pg_t & pg);
+    void release_peering_state(pg_t & pg);
     void rm_inflight(pg_t & pg);
     void continue_pg(pg_t & pg);
     bool continue_pg_peering(pg_t & pg);
@@ -345,6 +350,12 @@ class osd_t
     // op execution
     void exec_op(osd_op_t *cur_op);
     void finish_op(osd_op_t *cur_op, int retval);
+    // Release an op abandoned mid-execution: its op_data (one calloc owning the
+    // union arm), the subop array if one was submitted (each subop may still own
+    // its blockstore_op_t; subop rmw_buf aliases the op_data blob and is not owned)
+    // and the op itself.  ~osd_t uses it after the messenger and the blockstore
+    // are gone; chaos uses it for crash-path user ops
+    static void free_abandoned_op(osd_op_t *op);
 
     // secondary ops
     bool sec_check_pg_lock(osd_num_t primary_osd, const object_id & oid, uint32_t flags);
