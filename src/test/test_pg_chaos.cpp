@@ -284,6 +284,9 @@ struct pending_t
     uint64_t seq_id = 0;
     osd_op_t *op = NULL;
     bool done = false;
+    // Completion facts may be booked early (session death) but memory frees
+    // later, so account() must stay idempotent per op
+    bool accounted = false;
     int obj = -1;
     // Objects this operation refers to. While it's in flight no other operation may touch
     // them, which is what keeps the model unambiguous: the base content of a write and the
@@ -680,7 +683,7 @@ struct chaos_t : chaos_model_t
     // a legal outcome. Every object then has to come back holding at least its durable
     // version - or something newer that was actually written and autosynced.
     void do_crash();
-    void forget_inflight(bool reap_unfinished = false);
+    void forget_inflight();
     // Wait for everything in flight to complete and fold it all into the model
     void drain();
     void report_deadlock();
@@ -1663,10 +1666,15 @@ void chaos_t::session_died()
             kv.second->cancel();
     }
     // Fold the acks the client really received before breaking the promise:
-    // reap accounts them as ACKED and demote_unstable() then turns exactly
-    // those into OPTIONAL - production order (the ack reached the client, THEN
-    // the connection died and the repeer rolls the version back)
-    reap();
+    // account them as ACKED and demote_unstable() then turns exactly those into
+    // OPTIONAL - production order (the ack reached the client, THEN the
+    // connection died and the repeer rolls the version back).  Account only,
+    // never erase here: predicate rounds of run_until() judge on inflight and
+    // a done op hidden from them looks like an op that never completes; the
+    // sole eraser is reap(), which runs at step() entry and drain boundaries
+    for (auto *p: inflight)
+        if (p->done)
+            account(p);
     if (use_fsync)
         demote_unstable();
     connect_session();
@@ -2498,7 +2506,7 @@ void chaos_t::do_crash()
     // reads below have reconciled every object
     in_crisis = true;
     destroy();
-    forget_inflight(true);
+    forget_inflight();
     start_osd();
     // Commit everything the journal replay left dirty before reconciling, so the
     // recovery reads below see the settled chain instead of a half-flushed PG
@@ -2528,14 +2536,14 @@ void chaos_t::do_crash()
     in_crisis = false;
 }
 
-void chaos_t::forget_inflight(bool reap_unfinished)
+void chaos_t::forget_inflight()
 {
     for (auto *p: inflight)
     {
         // Never let a done-but-unaccounted op cross a restart boundary
         if (p->done)
             free_op(p);
-        else if (reap_unfinished)
+        else
         {
             // The instance that owned them is already destroyed; nobody
             // will ever complete them, but their memory is still ours
@@ -2592,6 +2600,9 @@ void chaos_t::report_deadlock()
 
 void chaos_t::account(pending_t *p)
 {
+    if (p->accounted)
+        return;
+    p->accounted = true;
     for (int o: p->touched)
         busy[o]--;
     if (p->op->req.hdr.opcode == OSD_OP_SYNC)
@@ -3258,7 +3269,9 @@ void chaos_t::do_takeover()
     // the open window itself arms the repeat (redel_pending)
     for (auto *p: inflight)
         account(p);
-    forget_inflight();
+    // the running instance may still answer these ops until it dies, so only
+    // the accounting lands here; the memory is freed after destroy(), like
+    // on the crash and clean-restart paths
     // stop_pg dropped the session whose unsynced writes the new instance's
     // peering is about to roll back - if it did. Polling here (the key-wait
     // stopped pumping the instant the key vanished) demotes exactly the
@@ -3275,6 +3288,7 @@ void chaos_t::do_takeover()
         abort();
     }
     destroy();
+    forget_inflight();
     start_osd();
     // The config still points the primary at the fake member, which never
     // claims: the new instance ignored the PG. Point it back - the new
