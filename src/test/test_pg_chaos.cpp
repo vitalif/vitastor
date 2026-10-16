@@ -1428,6 +1428,12 @@ void chaos_t::create(uint32_t seed)
             abort();
         }
     });
+    // Etcd mock responses and watcher notifications must never run on the
+    // caller's stack: the OSD reports PG states from inside finish_op/stop_pg,
+    // and a synchronous mock reenters apply_pg_config through its own report
+    // (seed 86693710: stop_pg used a pg_t that a nested apply_pg_config freed).
+    // Delivering through the ringloop unwinds every callback to the top level.
+    f.etcd_store.ringloop = f.ringloop;
     delete f.tfd;
     f.tfd = NULL;
     // Drop the fixture's initial client; start_osd creates a fresh one over the store

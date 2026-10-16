@@ -22,6 +22,8 @@ struct etcd_mock_request_t
     std::function<void(std::string, json11::Json)> callback;
 };
 
+class ring_loop_i;
+
 struct etcd_state_client_mock_t;
 
 // Mock etcd to connect multiple etcd_state_client_mock_t's to.
@@ -31,6 +33,15 @@ struct etcd_mock_t
     std::map<uint64_t, uint64_t> leases;
     std::map<std::string, etcd_mock_key_data_t> data;
     std::vector<etcd_state_client_mock_t*> clients;
+    // When set, every response callback and watcher notification is delivered
+    // through this ringloop (set_immediate), i.e. at its top level, never on the
+    // caller's stack.  A real etcd answers over the network, so its reply and
+    // watch notifications can never reenter the code that issued the request;
+    // synchronous delivery lets report_pg_state -> etcd_txn -> apply_pg_config
+    // -> stop_pg recurse into itself and free PGs under the iterator.  The data
+    // map itself is still mutated synchronously - that is the etcd server, and
+    // tests read it directly.  NULL keeps the old synchronous behavior.
+    ring_loop_i *ringloop = NULL;
 
     etcd_mock_t();
     void register_client(etcd_state_client_mock_t *client);
@@ -39,8 +50,11 @@ struct etcd_mock_t
     void set(const std::string& key, const std::string& value, uint64_t mod_revision = 0, uint64_t lease_id = 0);
     // Execute a /kv/txn or /lease/grant request against the data
     void etcd_call(const std::string & api_name, json11::Json payload, std::function<void(std::string, json11::Json)> callback, etcd_state_client_mock_t *from = NULL);
-    // Deliver changes to all watchers
+    // Deliver changes to all watchers (now or via the ringloop, see above)
     void notify(std::map<std::string, etcd_kv_t> & changes);
+    // Run a response callback now or at the ringloop's top level
+    void deliver(std::function<void(std::string, json11::Json)> cb, std::string err, json11::Json res);
+    void notify_now(std::map<std::string, etcd_kv_t> & changes);
 };
 
 struct etcd_state_client_mock_t: public etcd_state_client_t

@@ -5,6 +5,7 @@
 #include <assert.h>
 #include "etcd_state_client_mock.h"
 #include "str_util.h"
+#include "ringloop.h"
 
 etcd_mock_t::etcd_mock_t()
 {
@@ -32,11 +33,32 @@ void etcd_mock_t::unregister_client(etcd_state_client_mock_t *client)
 
 void etcd_mock_t::notify(std::map<std::string, etcd_kv_t> & changes)
 {
+    if (ringloop)
+    {
+        // Copy: the caller's map may be gone by the time the ringloop gets here
+        ringloop->set_immediate([this, changes]() mutable { notify_now(changes); });
+    }
+    else
+        notify_now(changes);
+}
+
+void etcd_mock_t::notify_now(std::map<std::string, etcd_kv_t> & changes)
+{
     auto clients_copy = clients;
     for (auto & client: clients_copy)
     {
         client->mock_apply_changes(changes);
     }
+}
+
+void etcd_mock_t::deliver(std::function<void(std::string, json11::Json)> cb, std::string err, json11::Json res)
+{
+    if (ringloop)
+    {
+        ringloop->set_immediate([cb, err, res]() { cb(err, res); });
+    }
+    else
+        cb(err, res);
 }
 
 void etcd_mock_t::set(const std::string& key, const std::string& value, uint64_t mod_revision, uint64_t lease_id)
@@ -177,7 +199,7 @@ void etcd_mock_t::etcd_call(const std::string & api, json11::Json payload, std::
                 });
             }
         }
-        callback("", json11::Json::object{
+        deliver(callback, "", json11::Json::object{
             { "header", json11::Json::object{ { "revision", mod_revision } } },
             { "succeeded", ok },
             { "responses", responses }
@@ -198,7 +220,7 @@ void etcd_mock_t::etcd_call(const std::string & api, json11::Json payload, std::
                 it++;
         }
         leases.erase(lease_id);
-        callback("", json11::Json::object{
+        deliver(callback, "", json11::Json::object{
             { "header", json11::Json::object{ { "revision", mod_revision } } }
         });
     }
@@ -206,7 +228,7 @@ void etcd_mock_t::etcd_call(const std::string & api, json11::Json payload, std::
     {
         uint64_t lease_id = (((uint64_t)lrand48()) << 32) | lrand48();
         leases[lease_id] = payload["TTL"].uint64_value();
-        callback("", json11::Json::object{ { "ID", std::to_string(lease_id) } });
+        deliver(callback, "", json11::Json::object{ { "ID", std::to_string(lease_id) } });
     }
     else if (api == "/lease/keepalive")
     {
@@ -216,10 +238,10 @@ void etcd_mock_t::etcd_call(const std::string & api, json11::Json payload, std::
         if (lid != "")
             lease_id = strtoull(lid.c_str(), NULL, 10);
         uint64_t ttl = leases.find(lease_id) != leases.end() ? leases[lease_id] : 0;
-        callback("", json11::Json::object{ { "result", json11::Json::object{ { "TTL", (double)ttl } } } });
+        deliver(callback, "", json11::Json::object{ { "result", json11::Json::object{ { "TTL", (double)ttl } } } });
     }
     else
-        callback("Unsupported", json11::Json());
+        deliver(callback, "Unsupported", json11::Json());
 }
 
 etcd_state_client_mock_t::etcd_state_client_mock_t(etcd_mock_t & store)
