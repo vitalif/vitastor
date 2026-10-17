@@ -180,6 +180,19 @@ struct image_creator_t
         {
             return;
         }
+        if (new_parent_id)
+        {
+            auto parent_it = parent->cli->st_cli->inode_config.find(new_parent_id);
+            bool parent_exists = parent_it != parent->cli->st_cli->inode_config.end();
+            inode_config_t empty_cfg;
+            empty_cfg.num = new_parent_id;
+            if (!parent->check_image_perm(parent_exists ? parent_it->second : empty_cfg, false))
+            {
+                result = (cli_result_t){ .err = EACCES, .text = "Parent image permission denied" };
+                state = 100;
+                return;
+            }
+        }
         if (!size && !force_size)
         {
             result = (cli_result_t){ .err = EINVAL, .text = "Image size is missing" };

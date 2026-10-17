@@ -177,7 +177,7 @@ class VitastorAuthFilter
                 // Allowed to check that a key does not exist
                 if (check.target == 'VERSION' && check.version == 0)
                 {
-                    checked['M'+key] = true;
+                    checked['C'+key] = true;
                     return true;
                 }
                 else if (check.target == 'MOD')
@@ -352,6 +352,25 @@ class VitastorAuthFilter
             if (checked['M'+key])
             {
                 // Allowed to modify known images with CAS checks
+                return true;
+            }
+            if (key.substr(0, 14) == '/config/inode/' &&
+                checked['C'+key])
+            {
+                // Allowed to create an image with CAS checks and with read access
+                // to the parent image, if specified
+                const data = this._decode(put.key, put.value);
+                if (data.parent_id)
+                {
+                    const [ cur_pool_id ] = put.key.substr(14).split('/');
+                    const inode = this._get([ ...this.prefix_parts, 'config', 'inode', data.parent_pool || cur_pool_id, data.parent_id ], true);
+                    if (inode && (inode.reader_group && userInfo.groups[inode.reader_group] ||
+                        inode.owner_group && userInfo.groups[inode.owner_group] ||
+                        inode.owner === userInfo.name))
+                    {
+                        return true;
+                    }
+                }
                 return true;
             }
         }
