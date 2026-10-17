@@ -139,7 +139,7 @@ std::shared_ptr<inode_cache_t> cluster_client_t::inode_cache_get(inode_t ino)
             inode_config_t *cfg = !i ? &inode_cfg : chain_cfg[i-1];
             if (cfg && cfg->enc_key.substr(0, strlen(VAULT_KEY_PREFIX)) == VAULT_KEY_PREFIX)
             {
-                auto & ik = vault_keys[inode_cfg.enc_key];
+                auto & ik = vault_keys[cfg->enc_key];
                 if (ik.key_state == VAULT_KEY_ERROR || vault_url.empty())
                 {
                     icache->err_code = EPERM;
@@ -148,7 +148,7 @@ std::shared_ptr<inode_cache_t> cluster_client_t::inode_cache_get(inode_t ino)
                 else if (ik.key_state == VAULT_KEY_NOT_LOADED)
                 {
                     ik.key_state = VAULT_KEY_LOADING;
-                    vault_key_load_queue.push_back(inode_cfg.enc_key);
+                    vault_key_load_queue.push_back(cfg->enc_key);
                     vault_load_keys();
                     icache->err_code = EAGAIN;
                     enc_key_count = 0;
