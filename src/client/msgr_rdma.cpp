@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include "msgr_rdma.h"
 #include "messenger.h"
+#include "crc32c.h"
 
 static uint32_t ibv_mtu_to_bytes(ibv_mtu mtu)
 {
@@ -17,6 +18,17 @@ static uint32_t ibv_mtu_to_bytes(ibv_mtu mtu)
         case IBV_MTU_4096: return 4096;
     }
     return 4096;
+}
+
+// Per-connection flow label for IPv6 RoCE, symmetric in the QPN pair so that both
+// directions of a connection hash onto the same ECMP link.  RFC 6437 reserves 0,
+// 0x7ff and 0x800-0xfff; the value goes into the IPv6 header in network order
+static uint32_t derive_flow_label(uint32_t lqpn, uint32_t rqpn)
+{
+    uint32_t c1 = crc32c(crc32c(0, &lqpn, sizeof(lqpn)), &rqpn, sizeof(rqpn));
+    uint32_t c2 = crc32c(crc32c(0, &rqpn, sizeof(rqpn)), &lqpn, sizeof(lqpn));
+    uint32_t label = (c1 ^ c2) & 0xfffff;
+    return label <= 0xfff ? label + 0x1000 : label;
 }
 
 static ibv_mtu bytes_to_ibv_mtu(uint32_t mtu)
@@ -463,6 +475,15 @@ msgr_rdma_connection_t *msgr_rdma_connection_t::create(msgr_rdma_context_t *ctx,
 int msgr_rdma_connection_t::connect(msgr_rdma_address_t *dest)
 {
     auto conn = this;
+    // Flow label only makes sense with an IPv6 GID: an IPv4-mapped GID
+    // (::ffff:a.b.c.d) produces IPv4 packets which have no flow label field
+    uint32_t flow_label = 0;
+    if (conn->ctx->set_flow_label && (dest->gid.global.subnet_prefix ||
+        (dest->gid.global.interface_id & 0xffffffff00000000ULL) != 0x0000ffff00000000ULL) &&
+        (dest->gid.global.subnet_prefix || dest->gid.global.interface_id))
+    {
+        flow_label = derive_flow_label(conn->addr.qpn, dest->qpn);
+    }
     ibv_qp_attr attr = {
         .qp_state       = IBV_QPS_RTR,
         .path_mtu       = bytes_to_ibv_mtu(conn->ctx->mtu),
@@ -472,11 +493,13 @@ int msgr_rdma_connection_t::connect(msgr_rdma_address_t *dest)
         .ah_attr        = {
             .grh        = {
                 .dgid = dest->gid,
+                .flow_label = htonl(flow_label << 8),
                 .sgid_index = conn->ctx->gid_index,
                 .hop_limit = 64, // FIXME can it vary?
+                .traffic_class = conn->ctx->traffic_class,
             },
             .dlid       = dest->lid,
-            .sl         = 0, // service level
+            .sl         = conn->ctx->sl,
             .src_path_bits = 0,
             .is_global  = (uint8_t)(dest->gid.global.subnet_prefix || dest->gid.global.interface_id ? 1 : 0),
             .port_num   = conn->ctx->ib_port,

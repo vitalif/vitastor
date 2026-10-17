@@ -188,6 +188,53 @@
     Правильный rdma_gid_index для RoCEv2, как правило, 1 (IPv6) или 3 (IPv4).
 
     Опция неприменима к RDMA-CM (use_rdmacm).
+- name: rdma_traffic_class
+  type: int
+  default: 0
+  info: |
+    Full TOS byte for RDMA traffic in the IP header (RoCEv2): DSCP in the
+    higher 6 bits and ECN in the lower 2 bits. For example, 106 (0x6A) =
+    DSCP 26 + ECT(0). Works with both libibverbs and RDMA-CM modes and should
+    be set on both OSDs and clients to mark traffic in both directions.
+    Default 0 = don't mark.
+  info_ru: |
+    Полный байт TOS для RDMA-трафика в заголовке IP (RoCEv2): DSCP в старших
+    6 битах и ECN в младших 2. Например, 106 (0x6A) = DSCP 26 + ECT(0).
+    Работает в обоих режимах RDMA - и libibverbs, и RDMA-CM; должен быть задан
+    и на OSD, и на клиентах, чтобы трафик помечался в обе стороны. По умолчанию
+    0 - не помечать.
+- name: rdma_sl
+  type: int
+  default: 0
+  info: |
+    Service Level (802.1p priority analogue) for RDMA traffic, put into the
+    address vector of every connection. Only applies to the libibverbs mode:
+    in RDMA-CM mode the service level is derived from rdma_traffic_class.
+    Default 0 = as is without PFC-configured networks.
+  info_ru: |
+    Service Level (аналог приоритета 802.1p) для RDMA-трафика; попадает в
+    адресный вектор каждого соединения. Применим только к libibverbs-режиму:
+    в RDMA-CM уровень обслуживания выводится из rdma_traffic_class.
+    По умолчанию 0 = как в сетях без PFC.
+- name: rdma_set_flow_label
+  type: bool
+  default: false
+  info: |
+    Automatically derive an IPv6 Flow Label for RDMA connections from the
+    queue pair number pair, so that every connection gets its own label and
+    connections spread over ECMP links while each connection keeps a single
+    stable path.  Only applied to IPv6 GIDs: an IPv4-mapped GID
+    (::ffff:a.b.c.d) produces IPv4 packets which have no flow label.  Only
+    applies to the libibverbs mode; RDMA-CM generates flow labels on its own.
+    Default false = don't set.
+  info_ru: |
+    Автоматически выводить IPv6 Flow Label для RDMA-соединений из пары
+    номеров очередей (QPN), чтобы каждое соединение получало свою метку,
+    соединения распределялись по ECMP-каналам, но каждое соединение шло по
+    одному стабильному пути. Применяется только к IPv6-GID: IPv4-mapped GID
+    (::ffff:a.b.c.d) даёт IPv4-пакеты, где поля flow label нет. Применим
+    только к libibverbs-режиму - RDMA-CM всегда генерирует flow label сам.
+    По умолчанию false = не задавать.
 - name: rdma_mtu
   type: int
   info: |

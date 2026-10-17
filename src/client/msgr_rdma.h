@@ -42,6 +42,8 @@ struct msgr_rdma_context_t
     addr_mask_t net_mask = {};
     bool is_cm = false;
     int cm_refs = 0;
+    uint8_t traffic_class = 0, sl = 0;
+    bool set_flow_label = false;
 
     static std::vector<msgr_rdma_context_t*> create_all(const std::vector<addr_mask_t> & osd_network_masks,
         const char *sel_dev_name, int sel_port_num, int sel_gid_index, uint32_t sel_mtu, int log_level);

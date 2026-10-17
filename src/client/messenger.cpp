@@ -60,6 +60,9 @@ void osd_messenger_t::init()
             fprintf(stderr, "[OSD %ju] RDMA initialized successfully\n", osd_num);
             for (msgr_rdma_context_t* rdma_context: rdma_contexts)
             {
+                rdma_context->traffic_class = rdma_traffic_class;
+                rdma_context->sl = rdma_sl;
+                rdma_context->set_flow_label = rdma_set_flow_label;
                 fcntl(rdma_context->channel->fd, F_SETFL, fcntl(rdma_context->channel->fd, F_GETFL, 0) | O_NONBLOCK);
                 tfd->set_fd_handler(rdma_context->channel->fd, false, [this, rdma_context](int notify_fd, int epoll_events)
                 {
@@ -265,6 +268,9 @@ void osd_messenger_t::parse_config(const json11::Json & config, bool init)
     this->rdma_port_num = (uint8_t)config["rdma_port_num"].uint64_value();
     if (!config["rdma_gid_index"].is_null())
         this->rdma_gid_index = (uint8_t)config["rdma_gid_index"].uint64_value();
+    this->rdma_traffic_class = (uint8_t)config["rdma_traffic_class"].uint64_value();
+    this->rdma_sl = (uint8_t)config["rdma_sl"].uint64_value();
+    this->rdma_set_flow_label = json_is_true(config["rdma_set_flow_label"]);
     this->rdma_mtu = (uint32_t)config["rdma_mtu"].uint64_value();
     this->rdma_max_sge = config["rdma_max_sge"].uint64_value();
     if (!this->rdma_max_sge)

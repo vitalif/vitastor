@@ -246,6 +246,8 @@ protected:
     uint64_t rdma_port_num = 1;
     int rdma_mtu = 0;
     int rdma_gid_index = -1;
+    uint8_t rdma_traffic_class = 0, rdma_sl = 0;
+    bool rdma_set_flow_label = false;
     std::vector<msgr_rdma_context_t *> rdma_contexts;
     uint64_t rdma_max_sge = 0, rdma_max_send = 0, rdma_max_recv = 0;
     uint64_t rdma_max_msg = 0;

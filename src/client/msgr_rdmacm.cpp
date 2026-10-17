@@ -33,6 +33,14 @@ rdma_cm_id *osd_messenger_t::rdmacm_listen(const std::string & bind_address, int
         fprintf(stderr, "Failed to create RDMA-CM ID: %s (code %d)\n", strerror(errno), errno);
         goto fail;
     }
+    {
+        uint8_t tos = rdma_traffic_class;
+        if (tos && rdma_set_option(listener, RDMA_OPTION_ID, RDMA_OPTION_ID_TOS, &tos, sizeof(tos)) != 0)
+        {
+            // TOS is optional: the connection works without it, just unmarked
+            fprintf(stderr, "Failed to set TOS on RDMA-CM listener: %s (code %d)\n", strerror(errno), errno);
+        }
+    }
     if (!string_to_addr(bind_address, 0, rdmacm_port, &addr))
     {
         fprintf(stderr, "Server address: %s is not valid\n", bind_address.c_str());
@@ -373,6 +381,14 @@ void osd_messenger_t::rdmacm_try_connect_peer(osd_num_t peer_osd, const std::str
         else
             on_connect_peer(peer_osd, res, 0);
         return;
+    }
+    {
+        uint8_t tos = rdma_traffic_class;
+        if (tos && rdma_set_option(cmid, RDMA_OPTION_ID, RDMA_OPTION_ID_TOS, &tos, sizeof(tos)) != 0)
+        {
+            // TOS is optional: the connection works without it, just unmarked
+            fprintf(stderr, "Failed to set TOS on RDMA-CM ID: %s (code %d)\n", strerror(errno), errno);
+        }
     }
     if (log_level > 0)
         fprintf(stderr, "Trying to connect to OSD %ju at %s:%d via RDMA-CM\n", peer_osd, addr.c_str(), rdmacm_port);

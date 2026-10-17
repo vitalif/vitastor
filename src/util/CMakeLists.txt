@@ -6,7 +6,6 @@ project(vitastor)
 add_library(util STATIC
 	addr_util.cpp
 	allocator.cpp
-	crc32c.c
 	disk_util.cpp
 	epoll_manager.cpp
 	json_util.cpp
@@ -31,6 +30,7 @@ if (RDMACM_LIBRARIES)
 endif (RDMACM_LIBRARIES)
 target_compile_options(util PUBLIC -fPIC)
 target_link_libraries(util
+	crc32c
 	${LIBURING_LIBRARIES}
 	${OPENSSL_LIBRARIES}
 )
