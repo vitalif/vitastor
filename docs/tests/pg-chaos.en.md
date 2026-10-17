@@ -1,12 +1,19 @@
-# The PG chaos-test model (`src/test/test_pg_chaos.cpp`)
+[Documentation](../../README.md#documentation) → Tests → The PG chaos-test model
 
-A seed-driven stress test of the PG machinery: ONE real `osd_t` (the primary) with a
-real blockstore over a mock disk (entirely in RAM, `ringloop_mock`) owns a single PG
-(number 1, pool 1, four 128 K objects, 4 K granularity). The other PG members are
-fake secondary OSDs inside the test. The pool is either replicated x3 (members 2,3,
-spare 4) or EC 2+2 (members 2..4, spare 5, one object = one parity stripe). The seed
-uniquely determines the configuration and the whole event sequence; a failing run is
-reproduced with the same `--seed`.
+-----
+
+[Читать на русском](pg-chaos.ru.md)
+
+# The PG chaos-test model
+
+A seed-driven stress test of the PG machinery (`src/test/test_pg_chaos.cpp`): ONE
+real `osd_t` (the primary) with a real blockstore over a mock disk (entirely in
+RAM, `ringloop_mock`) owns a single PG (number 1, pool 1, four 128 K objects, 4 K
+granularity). The other PG members are fake secondary OSDs inside the test. The
+pool is either replicated x3 (members 2,3, spare 4) or EC 2+2 (members 2..4,
+spare 5, one object = one parity stripe). The seed uniquely determines the
+configuration and the whole event sequence; a failing run is reproduced with
+the same `--seed`.
 
 What it mainly verifies is the PG machinery (the subop fan-out,
 peering/LIST/rollback/stabilize, repeer daemons, stop_pg, INCOMPLETE, recovery) and

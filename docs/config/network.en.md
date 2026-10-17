@@ -17,6 +17,9 @@ between clients, OSDs and etcd.
 - [rdma_device](#rdma_device)
 - [rdma_port_num](#rdma_port_num)
 - [rdma_gid_index](#rdma_gid_index)
+- [rdma_traffic_class](#rdma_traffic_class)
+- [rdma_sl](#rdma_sl)
+- [rdma_set_flow_label](#rdma_set_flow_label)
 - [rdma_mtu](#rdma_mtu)
 - [rdma_max_sge](#rdma_max_sge)
 - [rdma_max_msg](#rdma_max_msg)
@@ -154,6 +157,40 @@ GID auto-selection is unsupported with libibverbs < v32.
 A correct rdma_gid_index for RoCEv2 is usually 1 (IPv6) or 3 (IPv4).
 
 Not relevant for RDMA-CM (use_rdmacm).
+
+## rdma_traffic_class
+
+- Type: integer
+- Default: 0
+
+Full TOS byte for RDMA traffic in the IP header (RoCEv2): DSCP in the
+higher 6 bits and ECN in the lower 2 bits. For example, 106 (0x6A) =
+DSCP 26 + ECT(0). Works with both libibverbs and RDMA-CM modes and should
+be set on both OSDs and clients to mark traffic in both directions.
+Default 0 = don't mark.
+
+## rdma_sl
+
+- Type: integer
+- Default: 0
+
+Service Level (802.1p priority analogue) for RDMA traffic, put into the
+address vector of every connection. Only applies to the libibverbs mode:
+in RDMA-CM mode the service level is derived from rdma_traffic_class.
+Default 0 = as is without PFC-configured networks.
+
+## rdma_set_flow_label
+
+- Type: boolean
+- Default: false
+
+Automatically derive an IPv6 Flow Label for RDMA connections from the
+queue pair number pair, so that every connection gets its own label and
+connections spread over ECMP links while each connection keeps a single
+stable path.  Only applied to IPv6 GIDs: an IPv4-mapped GID
+(::ffff:a.b.c.d) produces IPv4 packets which have no flow label.  Only
+applies to the libibverbs mode; RDMA-CM generates flow labels on its own.
+Default false = don't set.
 
 ## rdma_mtu
 
