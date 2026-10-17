@@ -93,6 +93,7 @@ struct inode_cache_t
     bool has_parent_loop = false;
     inode_t other_pool_parent_id = 0;
     int err_code = 0;
+    timespec err_timeout = {};
 
     ~inode_cache_t();
 };
@@ -100,6 +101,7 @@ struct inode_cache_t
 struct vault_load_key_t
 {
     int key_state = 0;
+    timespec load_time = {};
     std::string key;
 };
 

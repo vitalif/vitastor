@@ -1067,6 +1067,29 @@ void cluster_client_test_t::test_vault()
     assert(*r1 == -EPERM);
     delete r1;
 
+    // Retry after error
+
+    assert(cli->vault_keys.at("vault:key1").key_state == VAULT_KEY_ERROR);
+    cli->vault_keys.at("vault:key1").load_time.tv_sec -= cli->vault_error_timeout_sec+1;
+    cli->inode_cache.at(0x1000000000001)->err_timeout.tv_sec -= cli->vault_error_timeout_sec+1;
+
+    r1 = test_write(cli, 0, 4096, 0x55);
+    check_op_count(cli, 1, 0);
+
+    assert(cli->vault_key_load_queue == std::vector<std::string>{"vault:key1"});
+    cli->vault_key_load_queue.clear();
+
+    cli->vault_parse_secret("vault:key1", "", json11::Json::object{
+        {"data", json11::Json::object {
+            {"key", "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"}
+        }}
+    });
+
+    can_complete(r1);
+    check_op_count(cli, 1, 1);
+    pretend_op_completed(cli, find_op(cli, 1, OSD_OP_WRITE, 0, 4096), 0);
+    check_completed(r1);
+
     // Free client
     delete cli;
     delete tfd;

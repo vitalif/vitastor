@@ -74,7 +74,18 @@ std::shared_ptr<inode_cache_t> cluster_client_t::inode_cache_get(inode_t ino)
     auto icache_it = inode_cache.find(ino);
     if (icache_it != inode_cache.end())
     {
-        return icache_it->second;
+        if (icache_it->second &&
+            icache_it->second->err_code &&
+            icache_it->second->err_timeout.tv_sec)
+        {
+            timespec tv = {};
+            clock_gettime(CLOCK_REALTIME, &tv);
+            if (icache_it->second->err_timeout.tv_sec > tv.tv_sec)
+                return icache_it->second;
+            printf("%lu\n", icache_it->second ? icache_it->second->err_timeout.tv_sec : 0);
+        }
+        else
+            return icache_it->second;
     }
     // Fill inode cache
     auto ino_it = st_cli->inode_config.find(ino);
@@ -140,9 +151,18 @@ std::shared_ptr<inode_cache_t> cluster_client_t::inode_cache_get(inode_t ino)
             if (cfg && cfg->enc_key.substr(0, strlen(VAULT_KEY_PREFIX)) == VAULT_KEY_PREFIX)
             {
                 auto & ik = vault_keys[cfg->enc_key];
-                if (ik.key_state == VAULT_KEY_ERROR || vault_url.empty())
+                if (ik.key_state == VAULT_KEY_ERROR)
+                {
+                    timespec tv = {};
+                    clock_gettime(CLOCK_REALTIME, &tv);
+                    if (ik.load_time.tv_sec + vault_error_timeout_sec <= tv.tv_sec)
+                        ik.key_state = VAULT_KEY_NOT_LOADED;
+                }
+                if (vault_url.empty() || ik.key_state == VAULT_KEY_ERROR)
                 {
                     icache->err_code = EPERM;
+                    icache->err_timeout = ik.load_time;
+                    icache->err_timeout.tv_sec += vault_error_timeout_sec;
                     enc_key_count = 0;
                 }
                 else if (ik.key_state == VAULT_KEY_NOT_LOADED)
@@ -213,6 +233,7 @@ void cluster_client_t::vault_parse_secret(const std::string & key_id, const std:
 {
     vault_loading = false;
     auto & k = vault_keys[key_id];
+    clock_gettime(CLOCK_REALTIME, &k.load_time);
     if (err != "")
     {
         k.key_state = VAULT_KEY_ERROR;

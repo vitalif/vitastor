@@ -610,7 +610,6 @@ void cluster_client_t::on_change_pool_config_hook()
     }
     inode_cache.clear();
     inode_cache_children.clear();
-    vault_keys.clear();
     continue_ops();
 }
 
