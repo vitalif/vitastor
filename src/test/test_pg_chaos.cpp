@@ -480,6 +480,8 @@ struct wire_op_t
     uint8_t *attr;
 };
 
+static void free_wire_op(wire_op_t & w);
+
 // The fleet of fake secondary OSDs: who exists, who has a live messenger
 // connection and which queued op gets answered on this round. The answering
 // itself is the peers' own behavior, see fake_peer_t::answer(); ch gives the
@@ -488,6 +490,14 @@ struct fake_cluster_t
 {
     chaos_t & ch;
     explicit fake_cluster_t(chaos_t & owner) : ch(owner) {}
+    ~fake_cluster_t()
+    {
+        // Stragglers still queued when the run ends have no instance left to
+        // apply them; release their bytes
+        for (auto & w: wire)
+            free_wire_op(w);
+        wire.clear();
+    }
     // Fake replicas including the spare, by OSD number. Survive OSD restarts -
     // an OSD crash doesn't touch the peers
     std::map<osd_num_t, fake_peer_t> peers;
@@ -1590,32 +1600,83 @@ void chaos_t::write_pg_history(const std::vector<osd_num_t> & old_set)
 {
     std::vector<osd_num_t> old_sorted = old_set;
     std::sort(old_sorted.begin(), old_sorted.end());
-    auto & pg_cfg = f.st_cli->pool_config[POOL_ID].pg_config[PG_NUM];
+    // The mon has no state except etcd itself: the OSD instance's st_cli view
+    // may be empty (fresh restart, load not finished), so epoch and sets are
+    // read from the store. The OSD rewrites this key too, so - like the real
+    // mon - commit with CAS on mod_revision and retry on conflict
+    std::string hist_key = "/vitastor/pg/history/"+std::to_string(POOL_ID)+"/"+std::to_string(PG_NUM);
+    for (int attempt = 0; ; attempt++)
+    {
+        auto stored = f.etcd_store.data.find(hist_key);
+        uint64_t cur_epoch = 0, next_scrub = 0, cur_rev = 0;
+        std::vector<std::vector<osd_num_t>> hist;
+        if (stored != f.etcd_store.data.end())
+        {
+            std::string err;
+            auto hist_json = json11::Json::parse(stored->second.value, err);
+            if (err != "")
+            {
+                fprintf(stderr, "can't parse pg history in etcd: %s\n", err.c_str());
+                abort();
+            }
+            cur_epoch = hist_json["epoch"].uint64_value();
+            next_scrub = hist_json["next_scrub"].uint64_value();
+            cur_rev = stored->second.mod_revision;
+            for (auto & s: hist_json["osd_sets"].array_items())
+            {
+                std::vector<osd_num_t> hs;
+                for (auto & o: s.array_items())
+                    hs.push_back((osd_num_t)o.uint64_value());
+                hist.push_back(hs);
+            }
+        }
+        auto it = std::lower_bound(hist.begin(), hist.end(), old_sorted);
+        if (it == hist.end() || *it != old_sorted)
+            hist.insert(it, old_sorted);
+        std::set<osd_num_t> all_peers(cur_set.begin(), cur_set.end());
+        for (auto & hs: hist)
+        {
+            for (osd_num_t o: hs)
+                all_peers.insert(o);
+        }
+        json11::Json::array sets_arr;
+        for (auto & hs: hist)
+            sets_arr.push_back(json11::Json(hs));
+        json11::Json::object value = {
+            { "epoch", (double)(cur_epoch+1) },
+            { "all_peers", json11::Json(std::vector<osd_num_t>(all_peers.begin(), all_peers.end())) },
+            { "osd_sets", sets_arr },
+        };
+        if (next_scrub)
+            value["next_scrub"] = (double)next_scrub;
+        json11::Json txn = json11::Json::object {
+            { "compare", json11::Json::array { json11::Json::object {
+                { "target", "MOD" },
+                { "key", base64_encode(hist_key) },
+                { "mod_revision", (double)(cur_rev ? cur_rev : 1) },
+                { "result", cur_rev ? "" : "LESS" },
+            } } },
+            { "success", json11::Json::array { json11::Json::object {
+                { "request_put", json11::Json::object {
+                    { "key", base64_encode(hist_key) },
+                    { "value", base64_encode(json11::Json(value).dump()) },
+                } } } } },
+        };
+        // The mock mutates the store synchronously inside the call, so the
+        // revision bump of the key tells whether the CAS won
+        f.etcd_store.etcd_call("/kv/txn", txn, [](std::string, json11::Json) {});
+        auto now = f.etcd_store.data.find(hist_key);
+        if (now != f.etcd_store.data.end() && now->second.mod_revision > cur_rev)
+            break;
+        if (attempt >= 100)
+        {
+            fprintf(stderr, "pg history CAS never won\n");
+            abort();
+        }
+    }
     // Mirror what a real OSD would report first: the PG is taken by us, so
     // our own last report (with cur_primary set) is already in the store
-    pg_cfg.cur_primary = 1;
-    auto & hist = pg_cfg.target_history;
-    auto it = std::lower_bound(hist.begin(), hist.end(), old_sorted);
-    if (it == hist.end() || *it != old_sorted)
-        hist.insert(it, old_sorted);
-    std::set<osd_num_t> all_peers(cur_set.begin(), cur_set.end());
-    for (auto & hs: hist)
-    {
-        for (osd_num_t o: hs)
-            all_peers.insert(o);
-    }
-    json11::Json::array sets_arr;
-    for (auto & hs: hist)
-        sets_arr.push_back(json11::Json(hs));
-    json11::Json::object value = {
-        { "epoch", (double)(pg_cfg.epoch + 1) },
-        { "all_peers", json11::Json(std::vector<osd_num_t>(all_peers.begin(), all_peers.end())) },
-        { "osd_sets", sets_arr },
-    };
-    if (pg_cfg.next_scrub)
-        value["next_scrub"] = (double)pg_cfg.next_scrub;
-    f.st_cli->set("/vitastor/pg/history/"+std::to_string(POOL_ID)+"/"+std::to_string(PG_NUM),
-        json11::Json(value));
+    f.st_cli->pool_config[POOL_ID].pg_config[PG_NUM].cur_primary = 1;
 }
 
 void chaos_t::connect_session()
@@ -1668,10 +1729,14 @@ void chaos_t::session_died()
     // Fold the acks the client really received before breaking the promise:
     // account them as ACKED and demote_unstable() then turns exactly those into
     // OPTIONAL - production order (the ack reached the client, THEN the
-    // connection died and the repeer rolls the version back).  Account only,
-    // never erase here: predicate rounds of run_until() judge on inflight and
-    // a done op hidden from them looks like an op that never completes; the
-    // sole eraser is reap(), which runs at step() entry and drain boundaries
+    // connection died and the repeer rolls the version back).  This is the
+    // only demoting event in the model: the client reacts to its dead session,
+    // never to a server-side crash it cannot see.  With immediate_commit=all
+    // an ack is journaled durable, survives the repeer, so nothing demotes.
+    // Account only, never erase here: predicate rounds of run_until() judge on
+    // inflight and a done op hidden from them looks like an op that never
+    // completes; the sole eraser is reap(), which runs at step() entry and
+    // drain boundaries
     for (auto *p: inflight)
         if (p->done)
             account(p);
@@ -2449,26 +2514,13 @@ void chaos_t::do_crash()
     // delete lands. Its OPTIONAL version above the last clean delete is
     // itself the open window that arms the repeat (redel_pending) - there is
     // nothing to carry over
-    // Acked-uncommitted versions are at the replay's mercy only with a volatile
-    // cache: with immediate_commit=all every ack is journaled durable, a crash
-    // takes nothing that was acknowledged, and those versions keep their
-    // promise through the outage. Demote them once and for all - a later SYNC
-    // must not make a lost version forceful. If some chain still carries their
-    // bytes, world_check explains that world through the claim path; if the
-    // bytes are gone, nothing may demand them
-    if (use_fsync)
-    {
-        for (int obj = 0; obj < OBJ_COUNT; obj++)
-        {
-            for (auto & kv: objs[obj].vers)
-            {
-                if (kv.second.state == V_ACKED)
-                    kv.second.state = V_OPTIONAL;
-                // (SUBMITTED is skipped: its op hasn't landed; account()
-                // resolves it from the reply)
-            }
-        }
-    }
+    // A crash itself demotes nothing: demotion follows the client's view, not
+    // the server's misfortune.  With immediate_commit=all every ack is durable,
+    // so a crash takes nothing that was acknowledged.  With a volatile cache the
+    // crash also kills the client session, and session_died() - the only
+    // demoting event - folds the lost acks into OPTIONAL the moment the model
+    // observes the dead session; a session that somehow survives keeps its
+    // promises
     // From here on the pre-crash acks are unverifiable: a SYNC on the fresh OSD
     // session proves nothing about them, so promotions freeze until the recovery
     // reads below have reconciled every object
@@ -2864,9 +2916,10 @@ void chaos_t::observe(int obj, const std::vector<uint8_t> & got, uint64_t max_se
     static const payload_t zero = {};
     // The strict verdict: the answer is entirely ACKED/SYNCED content. A chain
     // that legitimately lags behind the acknowledged one was rolled back by a
-    // crash or a repeer, and every such event demotes the ACKED versions to
-    // OPTIONAL - so an ACKED/SYNCED la with only ACKED/SYNCED bytes shown can
-    // only come from the acknowledged chain itself: every granule la wrote
+    // crash or a repeer - which kills the sessions owning acked-unstable
+    // versions, and their death demotes the ACKED versions to OPTIONAL - so an
+    // ACKED/SYNCED la with only ACKED/SYNCED bytes shown can only come from the
+    // acknowledged chain itself: every granule la wrote
     // must show it, anything else is committed data lost. A delete
     // acknowledged after the last write excuses absence; a delete still in
     // flight may already have applied on the primary and legitimately answers
@@ -3014,10 +3067,10 @@ void chaos_t::observe(int obj, const std::vector<uint8_t> & got, uint64_t max_se
                 abort();
             }
             // An ACKED version was established by an ack or a positive
-            // observation, and only an event can undo it - and every event
-            // (a crash over the volatile cache, a repeer rollback, a session
-            // kill) demotes ACKED versions to OPTIONAL before anything reads
-            // from the re-settled chain. Covered absent over its range while
+            // observation, and only a dead client session can undo it - the
+            // crash or repeer behind the death demotes the ACKED versions to
+            // OPTIONAL through session_died() before anything reads from the
+            // re-settled chain. Covered absent over its range while
             // still ACKED means established bytes vanished with no event in
             // between: a non-repeatable read
             if (d.state == V_ACKED)

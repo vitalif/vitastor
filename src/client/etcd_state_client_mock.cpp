@@ -322,8 +322,18 @@ void etcd_state_client_mock_t::mock_apply_changes(std::map<std::string, etcd_kv_
 {
     for (auto & kv: changes)
         parse_state(kv.second);
-    if (on_change_hook != NULL)
-        on_change_hook(changes);
+    // A real client can't react to any change before its load finished: the
+    // watch starts after the range read. Stash changes until then, otherwise
+    // the OSD applies half-loaded configs (PGs start with epoch 0 and write a
+    // reset epoch back into etcd, clobbering the real one)
+    for (auto & kv: changes)
+        pending_changes[kv.first] = kv.second;
+    if (!pgs_loaded)
+        return;
+    auto pending = std::move(pending_changes);
+    pending_changes.clear();
+    if (pending.size() && on_change_hook != NULL)
+        on_change_hook(pending);
 }
 
 void etcd_state_client_mock_t::load_global_config()
@@ -333,5 +343,18 @@ void etcd_state_client_mock_t::load_global_config()
 
 void etcd_state_client_mock_t::load_pgs()
 {
-    etcd_state_client_t::load_pgs([this](const std::string & err) {});
+    etcd_state_client_t::load_pgs([this](const std::string & err)
+    {
+        pgs_loaded = true;
+        // The range read already contains everything up to the load revision;
+        // replay only the newer changes, like a watch would from that revision
+        auto pending = std::move(pending_changes);
+        pending_changes.clear();
+        std::map<std::string, etcd_kv_t> fresh;
+        for (auto & kv: pending)
+            if (kv.second.mod_revision >= etcd_watch_revision_pg)
+                fresh[kv.first] = kv.second;
+        if (fresh.size() && on_change_hook != NULL)
+            on_change_hook(fresh);
+    });
 }

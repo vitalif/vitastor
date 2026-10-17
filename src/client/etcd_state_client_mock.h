@@ -62,6 +62,10 @@ struct etcd_state_client_mock_t: public etcd_state_client_t
     // The client doesn't own the store; the test does
     etcd_mock_t *store = NULL;
     bool paused = false;
+    // A real client starts receiving watch events only after its load finished;
+    // until then changes are stashed here and flushed on load completion
+    bool pgs_loaded = false;
+    std::map<std::string, etcd_kv_t> pending_changes;
     std::vector<etcd_mock_request_t> queue;
     std::string username;
     etcd_state_client_mock_t(etcd_mock_t & store);
