@@ -1406,6 +1406,124 @@ static void test_recheck_under_commit()
     free(buf);
 }
 
+// Zero-sized version bumps carry no data, so the startup recheck skips them - but they must not
+// consume the budget it has for the object's buffered writes. Otherwise the oldest small write
+// falls out of the check: when a volatile disk cache loses its data while the heap entry reaches
+// the platter, the entry survives recovery and the object returns the previous tenant's bytes
+// from the journal location
+static void test_recheck_under_bumps()
+{
+    printf("\n-- test_recheck_under_bumps\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    // No block checksums: only the single data checksum every small write entry carries
+    // can catch the lost journal data
+    test.config["data_csum_type"] = "none";
+    test.config["csum_block_size"] = "0";
+    // A volatile write cache is what makes the data of an acknowledged write disappear
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+
+    object_id oid = { .inode = 1, .stripe = 0 };
+    uint8_t *buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, 128*1024);
+
+    blockstore_op_t op;
+    op.oid = oid;
+    op.buf = buf;
+
+    auto sync = [&]()
+    {
+        blockstore_op_t s;
+        s.opcode = BS_OP_SYNC;
+        test.exec_op(&s);
+        assert(s.retval == 0);
+    };
+    auto stabilize = [&](uint64_t version)
+    {
+        blockstore_op_t s;
+        s.opcode = BS_OP_STABLE;
+        s.len = 1;
+        s.buf = (uint8_t*)malloc_or_die(sizeof(obj_ver_id));
+        *((obj_ver_id*)s.buf) = (obj_ver_id){ .oid = oid, .version = version };
+        test.exec_op(&s);
+        assert(s.retval == 0);
+        free(s.buf);
+    };
+
+    printf("writing v1 0+128K, syncing and stabilizing it\n");
+    memset(buf, 0xaa, 128*1024);
+    op.opcode = BS_OP_WRITE;
+    op.version = 1;
+    op.offset = 0;
+    op.len = 128*1024;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    sync();
+    stabilize(1);
+
+    // Swallow the data of the next write: the disk acknowledges it from its volatile cache
+    // and then loses it, while the metadata entry does reach the platter
+    uint64_t buf_start = test.bs->dsk.journal_offset;
+    uint64_t buf_end = buf_start + test.bs->dsk.journal_len;
+    bool swallowed = false;
+    test.sqe_handler = [&](io_uring_sqe *sqe)
+    {
+        if (sqe->opcode == IORING_OP_WRITEV && sqe->fd == MOCK_DATA_FD &&
+            sqe->off >= buf_start && sqe->off < buf_end)
+        {
+            auto *data = (ring_data_t*)sqe->user_data;
+            data->res = data->iov.iov_len;
+            test.ringloop->mark_completed(data);
+            swallowed = true;
+            return true;
+        }
+        return false;
+    };
+
+    printf("writing v2 8192+4096, losing its data in the disk cache\n");
+    memset(buf, 0xcc, 4096);
+    op.version = 2;
+    op.offset = 8192;
+    op.len = 4096;
+    test.exec_op(&op);
+    assert(op.retval == (int)op.len);
+    assert(swallowed);
+    test.sqe_handler = nullptr;
+
+    printf("writing zero-sized v3 and v4 on top of v2\n");
+    op.version = 3;
+    op.offset = 8192;
+    op.len = 0;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    op.version = 4;
+    test.exec_op(&op);
+    assert(op.retval == 0);
+    sync();
+
+    printf("restarting the blockstore\n");
+    test.destroy_bs();
+    test.ringloop->reset();
+    test.init();
+
+    printf("v2 must be rolled back along with the bumps above it, leaving v1\n");
+    blockstore_op_t rd;
+    rd.opcode = BS_OP_READ;
+    rd.oid = oid;
+    rd.version = UINT64_MAX;
+    rd.offset = 0;
+    rd.len = 128*1024;
+    rd.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rd.len);
+    test.exec_op(&rd);
+    assert(rd.retval == (int)rd.len);
+    assert(rd.version == 1);
+    assert(memcheck(rd.buf, 0xaa, 128*1024));
+    free(rd.buf);
+    free(buf);
+}
+
 // Compaction merges newer writes into the base data block in place, so after a crash the base
 // entry's checksums no longer match the block. The startup recheck may only skip the parts which
 // newer entries overwrite when one checksum block covers exactly one write granule. With a larger
@@ -2029,6 +2147,7 @@ int main(int narg, char *args[])
     test_compact_big_intent_survives_crash(16384);
     test_compact_big_intent_survives_crash(0);
     test_recheck_under_commit();
+    test_recheck_under_bumps();
     test_compact_over_rolled_back_big_write();
     test_zero_write_over_rollback_to_zero();
     test_compact_intent_write_in_partial_csum_block();

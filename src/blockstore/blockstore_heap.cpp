@@ -1187,12 +1187,16 @@ bool blockstore_heap_t::recheck_small_writes(std::function<void(bool is_data, ui
         {
             // Check this object synchronously
             heap_entry_t *bad_wr = NULL, *oldest_wr = NULL;
+            int checked = 0;
             auto wr = skip_commits(obj);
-            for (int i = 0; i < recheck_count; i++, wr = skip_commits(prev(wr)))
+            for (; wr && wr->type() == BS_HEAP_SMALL_WRITE && checked < recheck_count; wr = skip_commits(prev(wr)))
             {
+                if (!wr->small().len)
+                    continue;
                 fprintf(stderr, "Notice: rechecking %jx:%jx l%ju - %u bytes at %ju in buffer area\n",
                     wr->inode, wr->stripe, wr->lsn, wr->small().len, wr->small().location);
                 oldest_wr = wr;
+                checked++;
                 if (!calc_checksums(wr, buffer_area + wr->small().location, false))
                     bad_wr = wr;
             }
