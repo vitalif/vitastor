@@ -184,7 +184,8 @@ enospc:
         data->callback = [this, op](ring_data_t *data) { handle_write_event(data, op); };
         assert(loc+op->offset+op->len <= dsk.block_count*dsk.data_block_size);
         io_uring_prep_writev(sqe, dsk.data_fd, &data->iov, 1, dsk.data_offset + loc + op->offset);
-        if (!dsk.disable_data_fsync)
+        // redirect_intent writes skip the data fsync (resume_2), so they must not take a slot
+        if (!dsk.disable_data_fsync && PRIV(op)->write_type == BS_HEAP_BIG_WRITE)
         {
             // use PRIV->lsn for fsync_data_id
             PRIV(op)->lsn = ++data_fsync_next;

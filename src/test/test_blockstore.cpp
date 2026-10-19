@@ -2122,6 +2122,52 @@ static void test_no_intent_over_unwritten_compaction()
     free(op2.buf);
 }
 
+// A redirect_intent write must not leave its data fsync slot behind,
+// or every later big_write waits for that slot forever
+static void test_big_write_after_redirect_intent()
+{
+    printf("\n-- test_big_write_after_redirect_intent\n");
+
+    bs_test_t test;
+    test.default_cfg();
+    test.config["disable_data_fsync"] = "0";
+    test.config["immediate_commit"] = "none";
+    test.init();
+
+    // Stable write to a new object: redirect_intent
+    blockstore_op_t op;
+    op.opcode = BS_OP_WRITE_STABLE;
+    op.oid = { .inode = 1, .stripe = 0 };
+    op.version = 1;
+    op.offset = 0;
+    op.len = 16384;
+    op.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op.len);
+    memset(op.buf, 0xaa, op.len);
+    test.exec_op(&op);
+    assert(op.retval == op.len);
+    assert(!test.bs->data_fsyncs.size());
+
+    // Unstable write to a new object: big_write
+    bool done = false;
+    blockstore_op_t op2;
+    op2.opcode = BS_OP_WRITE;
+    op2.oid = { .inode = 2, .stripe = 0 };
+    op2.version = 1;
+    op2.offset = 0;
+    op2.len = 16384;
+    op2.buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, op2.len);
+    memset(op2.buf, 0xbb, op2.len);
+    op2.callback = [&](blockstore_op_t *op) { done = true; };
+    test.bs->enqueue_op(&op2);
+    for (int iters = 0; !done && iters < 1000; iters++)
+        test.ringloop->loop();
+    assert(done);
+    assert(op2.retval == op2.len);
+
+    free(op.buf);
+    free(op2.buf);
+}
+
 int main(int narg, char *args[])
 {
     test_simple();
@@ -2152,5 +2198,6 @@ int main(int narg, char *args[])
     test_zero_write_over_rollback_to_zero();
     test_compact_intent_write_in_partial_csum_block();
     test_no_intent_over_unwritten_compaction();
+    test_big_write_after_redirect_intent();
     return 0;
 }
