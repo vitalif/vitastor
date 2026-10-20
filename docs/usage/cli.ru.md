@@ -444,7 +444,7 @@ OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP 
 | `--block_size 128k`            | ...только OSD с данным размером блока                                      |
 | `--bitmap_granularity 4k`      | ...только OSD с данным размером логического сектора                        |
 | `--immediate_commit none`      | ...только OSD с этим или большим immediate_commit (none < small < all)     |
-| `--level_placement <rules>`    | Задать правила дополнительных доменов отказа (пример: "dc=112233")         |
+| `--level_placement <rules>`    | Задать правила дополнительных доменов отказа (пример: "dc=112233", "" — удалить) |
 | `--raw_placement <rules>`      | Задать низкоуровневые правила генерации PG ([детали](../config/pool.ru.md#raw_placement)) |
 | `--local_reads primary`        | Политика локальных чтений для реплик: primary, nearest или random          |
 | `--primary_affinity_tags tags` | Предпочитать OSD со всеми данными тегами для роли первичных                |

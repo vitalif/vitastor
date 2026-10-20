@@ -208,7 +208,7 @@ static const char* help_text =
     "    --block_size 128k             Put pool only on OSDs with this data block size\n"
     "    --bitmap_granularity 4k       Put pool only on OSDs with this logical sector size\n"
     "    --immediate_commit all        Put pool only on OSDs with this or larger immediate_commit (none < small < all)\n"
-    "    --level_placement <rules>     Use additional failure domain rules (example: \"dc=112233\")\n"
+    "    --level_placement <rules>     Use additional failure domain rules (example: \"dc=112233\", \"\" to remove)\n"
     "    --raw_placement <rules>       Specify raw PG generation rules (see documentation for details)\n"
     "    --local_reads primary         Local read policy for replicated pools: primary, nearest or random\n"
     "    --primary_affinity_tags tags  Prefer to put primary copies on OSDs with all specified tags\n"

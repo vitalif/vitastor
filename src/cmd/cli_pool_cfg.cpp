@@ -103,24 +103,22 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
             // level=rule, level=rule, ...
             if (!value.is_object())
             {
+                if (!value.is_null() && !value.is_string())
+                {
+                    return key+" must be a string";
+                }
                 json11::Json::object obj;
                 for (auto & item: explode(",", value.string_value(), true))
                 {
                     auto pair = explode("=", item, true);
-                    if (pair.size() >= 2)
+                    if (pair.size() != 2)
                     {
-                        obj[pair[0]] = pair[1];
+                        return "--level_placement must be <level>=<rule>[,<level>=<rule>...], but it is "+value.string_value();
                     }
+                    obj[pair[0]] = pair[1];
                 }
-                if (obj.size())
-                {
-                    value = obj;
-                }
-                else
-                {
-                    new_cfg.erase(kv_it++);
-                    continue;
-                }
+                // empty value = remove the rules; null keeps the old ones from being merged back
+                value = obj.size() ? json11::Json(obj) : json11::Json();
             }
         }
         else if (key == "osd_tags" || key == "primary_affinity_tags")
@@ -168,6 +166,10 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
     if (new_cfg.find("local_reads") != new_cfg.end() && new_cfg["local_reads"].string_value() == "primary")
     {
         new_cfg.erase("local_reads");
+    }
+    if (new_cfg.find("level_placement") != new_cfg.end() && new_cfg["level_placement"].is_null())
+    {
+        new_cfg.erase("level_placement");
     }
 
     // Prevent autovivification of object keys. Now we don't modify the config, we just check it

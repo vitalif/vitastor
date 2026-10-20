@@ -36,4 +36,23 @@ $ETCDCTL get --prefix /vitastor/pg/config --print-value-only | \
         (. | map_values((. - 1) / 2 | floor) | unique | length) == 6 and
         (. | map_values((. - 1) / 4 | floor) | unique | length) == 3) ] | length) == 32'
 
+# A malformed --level_placement is refused, an empty one removes the rules
+r=0
+$VITASTOR_CLI modify-pool testpool --level_placement rack || r=$?
+if [[ $r != 22 ]]; then
+    format_error "modify-pool --level_placement rack should fail with EINVAL (22), but exited with $r"
+fi
+$ETCDCTL get --print-value-only /vitastor/config/pools | jq -e '.["1"].level_placement == {"rack":"112233"}' || \
+    format_error "level_placement should stay rack=112233 after a refused change"
+$VITASTOR_CLI modify-pool testpool --level_placement ''
+$ETCDCTL get --print-value-only /vitastor/config/pools | jq -e '.["1"] | has("level_placement") | not' || \
+    format_error "modify-pool --level_placement '' should remove level_placement"
+sleep 2
+if grep -q 'configuration is invalid' ./testdata/mon.log; then
+    format_error "Monitor refused the pool configuration without level_placement"
+fi
+$ETCDCTL get --prefix /vitastor/pg/config --print-value-only | \
+    jq -s -e '([ .[0].items["1"] | .[].osd_set | map_values(. | tonumber) | select(
+        (. | map_values((. - 1) / 2 | floor) | unique | length) == 6) ] | length) == 32'
+
 format_green OK
