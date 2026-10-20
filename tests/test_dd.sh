@@ -77,4 +77,12 @@ $VITASTOR_CLI dd iimg=testimg of=./testdata/testfile1 iodepth=4 bs=1M count=8 of
 cmp ./testdata/over ./testdata/testfile1 || format_error "dd conv=trunc oflag=append changed the output file"
 rm ./testdata/testfile1
 
+# pipe in without count - copy to the end of input
+$VITASTOR_CLI dd iimg=testimg iodepth=4 | $VITASTOR_CLI dd of=./testdata/testfile1 iodepth=4
+diff ./testdata/testfile ./testdata/testfile1
+rm ./testdata/testfile1
+$VITASTOR_CLI dd iimg=testimg iodepth=4 | $VITASTOR_CLI dd of=./testdata/testfile1 iodepth=4 bs=1M seek=4
+(head -c 4M /dev/zero; cat ./testdata/testfile) | cmp - ./testdata/testfile1 || format_error "dd from a pipe with seek= did not copy the whole input"
+rm ./testdata/testfile1
+
 format_green OK

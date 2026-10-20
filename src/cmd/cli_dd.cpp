@@ -168,7 +168,7 @@ struct dd_out_info_t
         return NULL;
     }
 
-    bool open_output(cli_tool_t *parent, int & state, int base_state)
+    bool open_output(cli_tool_t *parent, int & state, int base_state, uint64_t oseek)
     {
         if (state == base_state)
             goto resume_1;
@@ -287,7 +287,7 @@ resume_2:
                 result = (cli_result_t){ .err = errno, .text = "Failed to open "+ofile+": "+std::string(strerror(errno)) };
                 return true;
             }
-            if (out_trunc && ftruncate(ofd, out_size) < 0)
+            if (out_trunc && ftruncate(ofd, out_size ? out_size : oseek) < 0)
             {
                 result = (cli_result_t){ .err = errno, .text = "Failed to truncate "+ofile+": "+std::string(strerror(errno)) };
                 return true;
@@ -872,13 +872,13 @@ struct cli_dd_t
             state = 100;
             return;
         }
-        if (!oinfo.out_size)
+        if (!oinfo.out_size && (iinfo.in_seekable || bytelimit))
         {
             oinfo.out_size = oseek + (iinfo.in_seekable && (!bytelimit || iinfo.in_size-iseek < bytelimit) ? iinfo.in_size-iseek : bytelimit);
         }
 resume_1:
 resume_2:
-        if (!oinfo.open_output(parent, state, 1))
+        if (!oinfo.open_output(parent, state, 1, oseek))
         {
             return;
         }
@@ -909,7 +909,7 @@ resume_2:
         out_iodepth = oinfo.out_seekable ? iodepth : 1;
         write_zero = write_zero || !oinfo.out_seekable;
         read_offset = 0;
-        read_end = iinfo.in_seekable ? iinfo.in_size-iseek : 0;
+        read_end = iinfo.in_seekable ? iinfo.in_size-iseek : UINT64_MAX;
         if (oinfo.out_size && (!read_end || read_end > oinfo.out_size-oseek))
             read_end = oinfo.out_size-oseek;
         if (bytelimit && (!read_end || read_end > bytelimit))
