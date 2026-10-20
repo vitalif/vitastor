@@ -273,6 +273,8 @@ resume_1:
         load_pg_stats();
         if (parent->waiting > 0)
             return;
+        if (state == 100)
+            return;
         format_pgs();
         state = 100;
     }
