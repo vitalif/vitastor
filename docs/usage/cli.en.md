@@ -410,8 +410,8 @@ Create a pool. Required parameters:
 
 | <!-- -->                 | <!-- -->                                                                                |
 |--------------------------|-----------------------------------------------------------------------------------------|
-| `-s R` or `--pg_size R`  | Number of replicas for replicated pools                                                 |
-| `--ec N+K`               | Number of data (N) and parity (K) chunks for erasure-coded pools                        |
+| `-s R` or `--pg_size R`  | Number of replicas for replicated pools, from 1 to 64                                   |
+| `--ec N+K`               | Number of data (N) and parity (K) chunks for erasure-coded pools, N+K from 3 to 64      |
 | `-n N` or `--pg_count N` | PG count for the new pool (start with 10*\<OSD count\>/pg_size rounded to a power of 2) |
 
 Optional parameters:

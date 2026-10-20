@@ -235,9 +235,10 @@ std::string validate_pool_config(json11::Json::object & new_cfg, json11::Json ol
     {
         return "PG size can't be smaller than 3 for EC/XOR pools";
     }
-    if (pg_size > 256)
+    // same limit as in etcd_state_client.cpp and mon/pool_config.js
+    if (pg_size > 64)
     {
-        return "PG size can't be greater than 256";
+        return "PG size can't be greater than 64";
     }
 
     // PG rules
