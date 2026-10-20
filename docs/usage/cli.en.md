@@ -470,6 +470,8 @@ These, however, can still be modified with -f|--force.
 
 See [create-pool](#create-pool) for parameter descriptions.
 
+Renaming with --name fails if the new name is already taken by a different pool.
+
 Examples:
 
 `vitastor-cli modify-pool pool_A --name pool_B`

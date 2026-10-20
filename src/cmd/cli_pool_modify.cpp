@@ -116,7 +116,21 @@ resume_1:
                 state = 100;
                 return;
             }
-
+            if (new_cfg["name"] != old_cfg["name"])
+            {
+                for (auto & pce: kv.value.object_items())
+                {
+                    if (pce.second["name"] == new_cfg["name"])
+                    {
+                        result = (cli_result_t){
+                            .err = EEXIST,
+                            .text = "Pool with name \""+new_cfg["name"].string_value()+"\" already exists (ID "+pce.first+")",
+                        };
+                        state = 100;
+                        return;
+                    }
+                }
+            }
             if (new_cfg.find("used_for_app") != new_cfg.end() && !force)
             {
                 // Check that pool doesn't have images

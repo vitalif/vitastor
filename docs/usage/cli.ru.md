@@ -487,6 +487,8 @@ OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP 
 
 Описания параметров смотрите в [create-pool](#create-pool).
 
+Переименование с --name запрещается, если новое название уже занято другим пулом.
+
 Примеры:
 
 `vitastor-cli modify-pool pool_A --name pool_B`

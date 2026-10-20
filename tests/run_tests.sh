@@ -18,6 +18,8 @@ SCHEME=ec ./test_change_pg_count.sh
 
 ./test_create_nomaxid.sh
 
+./test_modify_pool_name.sh
+
 ./test_etcd_fail.sh
 ANTIETCD=1 ./test_etcd_fail.sh
 

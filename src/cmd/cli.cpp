@@ -235,6 +235,7 @@ static const char* help_text =
     "    [--immediate_commit <all|small|none>] [--pg_stripe_size <size>]\n"
     "  These, however, can still be modified with -f|--force.\n"
     "  See create-pool for parameter descriptions.\n"
+    "  Renaming with --name fails if another pool already has the new name.\n"
     "  Examples:\n"
     "    vitastor-cli modify-pool pool_A --name pool_B\n"
     "    vitastor-cli modify-pool 2 --pg_size 4 -n 128\n"
