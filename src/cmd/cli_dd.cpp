@@ -281,7 +281,7 @@ resume_2:
         }
         if (ofile != "")
         {
-            ofd = open(ofile.c_str(), (out_direct ? O_DIRECT : 0) | (out_append ? O_APPEND : O_RDWR) | (out_create ? O_CREAT : 0), 0666);
+            ofd = open(ofile.c_str(), (out_direct ? O_DIRECT : 0) | (out_append ? O_WRONLY|O_APPEND : O_RDWR) | (out_create ? O_CREAT : 0), 0666);
             if (ofd < 0)
             {
                 result = (cli_result_t){ .err = errno, .text = "Failed to open "+ofile+": "+std::string(strerror(errno)) };
@@ -306,6 +306,16 @@ resume_2:
         {
             out_seekable = true;
             lseek(ofd, 0, SEEK_SET);
+        }
+        struct stat st;
+        if (fstat(ofd, &st) < 0)
+        {
+            result = (cli_result_t){ .err = errno, .text = "Failed to stat "+(ofile != "" ? ofile : "stdout")+": "+std::string(strerror(errno)) };
+            return true;
+        }
+        if (!S_ISREG(st.st_mode) && !S_ISBLK(st.st_mode))
+        {
+            end_fsync = false;
         }
         return true;
     }
@@ -827,6 +837,12 @@ struct cli_dd_t
             state = 100;
             return;
         }
+        if (oinfo.ofile != "" && oinfo.out_append && oinfo.out_trunc)
+        {
+            result = (cli_result_t){ .err = EINVAL, .text = "conv=trunc and oflag=append can't be used together" };
+            state = 100;
+            return;
+        }
         if ((iinfo.iimg != "" ? "i"+iinfo.iimg : "f"+iinfo.ifile) == (oinfo.oimg != "" ? "i"+oinfo.oimg : "f"+oinfo.ofile))
         {
             result = (cli_result_t){ .err = EINVAL, .text = "Input and output image/file can't be equal" };
@@ -892,7 +908,6 @@ resume_2:
         in_iodepth = iinfo.in_seekable ? iodepth : 1;
         out_iodepth = oinfo.out_seekable ? iodepth : 1;
         write_zero = write_zero || !oinfo.out_seekable;
-        oinfo.end_fsync = oinfo.end_fsync && oinfo.out_seekable;
         read_offset = 0;
         read_end = iinfo.in_seekable ? iinfo.in_size-iseek : 0;
         if (oinfo.out_size && (!read_end || read_end > oinfo.out_size-oseek))

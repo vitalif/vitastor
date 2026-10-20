@@ -64,4 +64,17 @@ for count in 128 4; do
     rm ./testdata/testfile1
 done
 
+# oflag=append appends to the output file
+cp ./testdata/over ./testdata/testfile1
+$VITASTOR_CLI dd iimg=testimg of=./testdata/testfile1 iodepth=4 bs=1M count=8 oflag=append
+(cat ./testdata/over; head -c 8M ./testdata/testfile) | cmp - ./testdata/testfile1 || format_error "dd oflag=append did not append to the output file"
+rm ./testdata/testfile1
+# conv=trunc contradicts oflag=append: fail without touching the output file
+cp ./testdata/over ./testdata/testfile1
+rc=0
+$VITASTOR_CLI dd iimg=testimg of=./testdata/testfile1 iodepth=4 bs=1M count=8 oflag=append conv=trunc || rc=$?
+[[ $rc = 22 ]] || format_error "dd conv=trunc oflag=append returned $rc instead of EINVAL"
+cmp ./testdata/over ./testdata/testfile1 || format_error "dd conv=trunc oflag=append changed the output file"
+rm ./testdata/testfile1
+
 format_green OK
