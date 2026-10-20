@@ -424,6 +424,7 @@ struct cli_dd_t
             auto res = read(fd, buf, blocksize < to_skip ? blocksize : to_skip);
             if (res <= 0)
             {
+                free(buf);
                 return res == 0 ? -EPIPE : -errno;
             }
             to_skip -= res;
