@@ -231,8 +231,8 @@ Options:
 * `--writers-stopped` allows optimised removal in case of a single 'slim' read-write
   child and 'fat' removed parent: the child is merged into parent and parent is renamed
   to child in that case. In other cases parent layers are always merged into children.
-* `--exact` - remove multiple images with names matching given glob patterns.
-* `--matching` - remove multiple images with given names
+* `--exact` - remove multiple images with given names.
+* `--matching` - remove multiple images with names matching given glob patterns.
 * `--down-ok` - continue deletion/merging even if some data will be left on unavailable OSDs.
 
 ## flatten
@@ -287,7 +287,7 @@ Describe unclean object locations in the cluster. Options:
 
 ## fix
 
-`vitastor-cli fix [--objects <objects>] [--bad-osds <osds>] [--part <part>] [--check no]`
+`vitastor-cli fix [--objects <objects>] --bad-osds <osds> [--part <part>] [--check no]`
 
 Fix inconsistent objects in the cluster by deleting some copies.
 
@@ -298,7 +298,7 @@ Fix inconsistent objects in the cluster by deleting some copies.
     Plain text format: 0x<inode>:0x<stripe> <any delimiter> 0x<inode>:0x<stripe> ...
     JSON format: [{"inode":"0x...","stripe":"0x..."},...]
 --bad-osds <osds>
-    Remove inconsistent copies/parts of objects from these OSDs, effectively
+    Required. Remove inconsistent copies/parts of objects from these OSDs, effectively
     marking them bad and allowing Vitastor to recover objects from other copies.
 --part <number>
     Only remove EC part <number> (from 0 to pg_size-1), required for extreme
@@ -316,14 +316,17 @@ Allocate a new OSD number and reserve it by creating empty `/osd/stats/<n>` key.
 
 ## rm-osd
 
-`vitastor-cli rm-osd [--force] [--allow-data-loss] [--dry-run] <osd_id> [osd_id...]`
+`vitastor-cli rm-osd [-f|--force] [--allow-data-loss] [--allow-up] [--dry-run] <osd_id> [osd_id...]`
 
 Remove metadata and configuration for specified OSD(s) from etcd.
 
-Refuses to remove OSDs with data without `--force` and `--allow-data-loss`.
+Refuses to remove OSDs that are up or whose removal makes PGs degraded, offline or incomplete.
 
-With `--dry-run` only checks if deletion is possible without data loss and
-redundancy degradation.
+* `-f|--force` - remove OSDs even if they are up or PGs become degraded or offline.
+* `--allow-data-loss` - remove OSDs even if PGs or objects become incomplete (DATA LOSS). Implies `--force`.
+* `--allow-up` - remove OSDs even if they are up.
+* `--dry-run` - only check if deletion is possible without data loss and
+  redundancy degradation.
 
 ## osd-tree
 
