@@ -85,4 +85,16 @@ $VITASTOR_CLI dd iimg=testimg iodepth=4 | $VITASTOR_CLI dd of=./testdata/testfil
 (head -c 4M /dev/zero; cat ./testdata/testfile) | cmp - ./testdata/testfile1 || format_error "dd from a pipe with seek= did not copy the whole input"
 rm ./testdata/testfile1
 
+# unaligned image I/O fails with EINVAL before the output image is created or resized
+for args in "if=./testdata/testfile oimg=testimg6 seek=512B" "if=./testdata/testfile oimg=testimg2 seek=512B" "iimg=testimg oimg=testimg7 skip=512B"; do
+    rc=0
+    $VITASTOR_CLI dd iodepth=4 $args || rc=$?
+    [[ $rc = 22 ]] || format_error "dd $args returned $rc instead of EINVAL"
+done
+if $VITASTOR_CLI ls --json | jq -e '.[] | select(.name == "testimg6" or .name == "testimg7")'; then
+    format_error "dd with unaligned image I/O created the output image"
+fi
+size=$($VITASTOR_CLI ls --json | jq -r '.[] | select(.name == "testimg2") | .size')
+[[ "$size" = $((128*1024*1024)) ]] || format_error "dd with unaligned seek resized testimg2 to $size"
+
 format_green OK

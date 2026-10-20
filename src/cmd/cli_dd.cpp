@@ -168,7 +168,7 @@ struct dd_out_info_t
         return NULL;
     }
 
-    bool open_output(cli_tool_t *parent, int & state, int base_state, uint64_t oseek)
+    bool open_output(cli_tool_t *parent, int & state, int base_state, uint64_t oseek, uint64_t blocksize)
     {
         if (state == base_state)
             goto resume_1;
@@ -204,6 +204,13 @@ struct dd_out_info_t
                     owatch = NULL;
                     return true;
                 }
+            }
+            if ((oseek % out_granularity) || (blocksize % out_granularity))
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "Unaligned write to Vitastor is not supported" };
+                parent->cli->st_cli->close_watch(owatch);
+                owatch = NULL;
+                return true;
             }
             if (out_size % 4096)
             {
@@ -878,7 +885,7 @@ struct cli_dd_t
         }
 resume_1:
 resume_2:
-        if (!oinfo.open_output(parent, state, 1, oseek))
+        if (!oinfo.open_output(parent, state, 1, oseek, blocksize))
         {
             return;
         }
