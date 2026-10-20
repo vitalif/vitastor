@@ -43,4 +43,10 @@ if $VITASTOR_CLI ls --json | jq -e '.[] | select(.name == "testimg5")'; then
     format_error "dd skip beyond the end of input created the output image"
 fi
 
+# status=none prints nothing, also with the default --progress 1
+$VITASTOR_CLI dd iimg=testimg of=./testdata/testfile1 iodepth=4 status=none 2>./testdata/dd.err
+[[ ! -s ./testdata/dd.err ]] || format_error "dd status=none printed: $(cat ./testdata/dd.err)"
+diff ./testdata/testfile ./testdata/testfile1
+rm ./testdata/testfile1
+
 format_green OK

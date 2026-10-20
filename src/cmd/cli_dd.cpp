@@ -995,7 +995,10 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_dd(json11::Json cfg)
     if (!dd->iodepth)
         dd->iodepth = 4;
     if (cfg["status"] == "none")
+    {
         dd->end_status = false;
+        progress = false;
+    }
     else if (cfg["status"] == "progress")
         progress = true;
     dd->oinfo.out_size = parse_size(cfg["size"].as_string());
