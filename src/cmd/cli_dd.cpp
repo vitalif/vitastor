@@ -388,6 +388,7 @@ struct cli_dd_t
     uint64_t written_size = 0;
     uint64_t written_progress = 0;
     timespec tv_begin = {}, tv_progress = {};
+    bool progress_shown = false;
     int state = 0;
     int copy_error = 0;
     int in_waiting = 0, out_waiting = 0;
@@ -715,6 +716,12 @@ struct cli_dd_t
         {
             return;
         }
+        if (end && !end_status && !parent->json_output)
+        {
+            if (progress_shown)
+                fprintf(stderr, "\r\033[K");
+            return;
+        }
         timespec tv_now;
         clock_gettime(CLOCK_REALTIME, &tv_now);
         double sec_delta = ((tv_now.tv_sec - tv_progress.tv_sec) + (double)(tv_now.tv_nsec - tv_progress.tv_nsec)/1000000000.0);
@@ -757,6 +764,7 @@ struct cli_dd_t
                 format_size((uint64_t)(delta/sec_delta), true).c_str(),
                 format_size((uint64_t)(written_size/sec_total), true).c_str()
             );
+            progress_shown = true;
         }
     }
 
@@ -999,6 +1007,8 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_dd(json11::Json cfg)
         dd->end_status = false;
         progress = false;
     }
+    else if (cfg["status"] == "noxfer")
+        dd->end_status = false;
     else if (cfg["status"] == "progress")
         progress = true;
     dd->oinfo.out_size = parse_size(cfg["size"].as_string());

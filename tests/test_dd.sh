@@ -49,4 +49,19 @@ $VITASTOR_CLI dd iimg=testimg of=./testdata/testfile1 iodepth=4 status=none 2>./
 diff ./testdata/testfile ./testdata/testfile1
 rm ./testdata/testfile1
 
+# status=noxfer drops the final statistics line
+$VITASTOR_CLI --progress 0 dd iimg=testimg of=./testdata/testfile1 iodepth=4 status=noxfer 2>./testdata/dd.err
+[[ ! -s ./testdata/dd.err ]] || format_error "dd status=noxfer printed: $(cat ./testdata/dd.err)"
+rm ./testdata/testfile1
+# with --progress 1 the progress line, if it was shown at all, is cleared at the end
+clear_line=$'\r\033[K'
+for count in 128 4; do
+    $VITASTOR_CLI dd iimg=testimg of=./testdata/testfile1 iodepth=4 bs=1M count=$count status=noxfer 2>./testdata/dd.err
+    if [[ $(wc -l < ./testdata/dd.err) != 0 || ( -s ./testdata/dd.err && "$(cat ./testdata/dd.err)" != *copied*"$clear_line" ) ]]; then
+        format_error "dd status=noxfer count=$count printed: $(cat -v ./testdata/dd.err)"
+    fi
+    head -c ${count}M ./testdata/testfile | cmp - ./testdata/testfile1
+    rm ./testdata/testfile1
+done
+
 format_green OK
