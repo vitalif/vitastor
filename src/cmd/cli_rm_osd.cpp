@@ -170,7 +170,8 @@ struct rm_osd_t
             }
             if (still_up.size() && !allow_up)
                 error += (still_up.size() == 1 ? "OSD " : "OSDs ") + implode(", ", still_up) +
-                    (still_up.size() == 1 ? "is" : "are") + " still up. Use `vitastor-disk purge` to delete them.\n";
+                    (still_up.size() == 1 ? " is" : " are") + " still up. Use `vitastor-disk purge` to delete " +
+                    (still_up.size() == 1 ? "it" : "them") + ".\n";
             if (is_dataloss && !force_dataloss && !dry_run)
                 error += "OSDs not deleted. Please move data to other OSDs or bypass this check with --allow-data-loss if you know what you are doing.\n";
             else if (is_warning && !force_warning && !dry_run)
