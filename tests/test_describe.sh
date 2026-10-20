@@ -1,6 +1,6 @@
 #!/bin/bash -ex
 
-# Test vitastor-cli describe on degraded objects and with down OSDs
+# Test vitastor-cli describe and fix on degraded objects and with down OSDs
 
 PG_COUNT=4
 PG_SIZE=3
@@ -44,15 +44,18 @@ if [[ "$range" != "$all" ]]; then
     format_error "describe --min-inode $INODE --max-inode $INODE lists objects $range instead of $all"
 fi
 
-# describe must not wait for an OSD which is down.
+# describe and fix must not wait for an OSD which is down.
 # Stop the monitor so that PGs keep the down OSD as their primary,
 # and stop a primary OSD which has the latest data, so other PGs stay degraded.
 VICTIM=$($VITASTOR_CLI ls-pgs --json | jq -r '[ .[].cur_primary | select(. == 1 or . == 2) ] | first')
 VICTIM_PG=$($VITASTOR_CLI ls-pgs --json | jq -r '[ .[] | select(.cur_primary == '$VICTIM') | .pg_num ] | first')
+OTHER_PG=$($VITASTOR_CLI ls-pgs --json | jq -r '[ .[] | select(.cur_primary != '$VICTIM') | .pg_num ] | first')
 OTHER_PG_COUNT=$($VITASTOR_CLI ls-pgs --json | jq '[ .[] | select(.cur_primary != '$VICTIM') ] | length')
 if [[ "$VICTIM" = null || "$OTHER_PG_COUNT" = 0 ]]; then
     format_error "Expected PGs with primary OSD 1 or 2 and PGs with other primary OSDs"
 fi
+VICTIM_OBJ=$($VITASTOR_CLI describe --pool 1 --pg $VICTIM_PG --json | jq -r '.[0] | .inode+":"+.stripe')
+OTHER_OBJ=$($VITASTOR_CLI describe --pool 1 --pg $OTHER_PG --json | jq -r '.[0] | .inode+":"+.stripe')
 
 kill -9 $MON_PID
 eval kill -9 \$OSD${VICTIM}_PID
@@ -77,5 +80,19 @@ for args in "" "--osds 1,2,3" "--pool 1 --pg $VICTIM_PG"; do
         [[ $count -gt 0 ]] || format_error "describe $args should still list objects from the other OSDs"
     fi
 done
+
+if timeout 30 $VITASTOR_CLI fix --bad-osds $VICTIM --objects $OTHER_OBJ 2> ./testdata/fix.err; then
+    format_error "fix should refuse to work with bad OSD $VICTIM down"
+fi
+grep -q "Bad OSD(s) $VICTIM are down" ./testdata/fix.err || format_error "fix printed: $(cat ./testdata/fix.err)"
+
+# An object which is skipped is not fixed: EIO
+rc=0
+timeout 30 $VITASTOR_CLI fix --bad-osds 3 --objects $VICTIM_OBJ 2> ./testdata/fix.err || rc=$?
+[[ $rc == 5 ]] || format_error "fix exited with $rc instead of EIO on an object from PG 1/$VICTIM_PG with primary OSD $VICTIM down"
+grep -q "is from PG 1/$VICTIM_PG whose primary OSD $VICTIM is down" ./testdata/fix.err || \
+    format_error "fix should skip the object from PG 1/$VICTIM_PG: $(cat ./testdata/fix.err)"
+grep -q "Some objects were not fixed" ./testdata/fix.err || \
+    format_error "fix should say that it skipped objects: $(cat ./testdata/fix.err)"
 
 format_green OK

@@ -21,6 +21,7 @@ struct cli_fix_t
     json11::Json options;
     cli_result_t result;
     json11::Json::array fix_result;
+    bool incomplete = false;
 
     bool is_done()
     {
@@ -123,6 +124,20 @@ struct cli_fix_t
             state = 100;
             return;
         }
+        {
+            std::string down_osds;
+            for (auto osd_num: bad_osds)
+            {
+                if (!is_osd_up(parent, osd_num))
+                    down_osds += (down_osds == "" ? "" : ", ")+std::to_string(osd_num);
+            }
+            if (down_osds != "")
+            {
+                result = (cli_result_t){ .err = EAGAIN, .text = "Bad OSD(s) "+down_osds+" are down, can't remove object copies from them" };
+                state = 100;
+                return;
+            }
+        }
         remove_duplicates(objects);
         parent->cli->init_msgr();
     resume_1:
@@ -138,6 +153,7 @@ struct cli_fix_t
             if (pool_cfg_it == parent->cli->st_cli->pool_config.end())
             {
                 fprintf(stderr, "Object %jx:%jx is from unknown pool\n", obj.inode, obj.stripe);
+                incomplete = true;
                 continue;
             }
             auto & pool_cfg = pool_cfg_it->second;
@@ -150,9 +166,20 @@ struct cli_fix_t
                     stderr, "Object %jx:%jx is from PG %u/%u which is not currently active\n",
                     obj.inode, obj.stripe, pool_cfg_it->first, pg_num
                 );
+                incomplete = true;
                 continue;
             }
             osd_num_t primary_osd = pg_it->second.cur_primary;
+            if (!is_osd_up(parent, primary_osd))
+            {
+                // Requests to an OSD which is down are never answered
+                fprintf(
+                    stderr, "Object %jx:%jx is from PG %u/%u whose primary OSD %ju is down\n",
+                    obj.inode, obj.stripe, pool_cfg_it->first, pg_num, primary_osd
+                );
+                incomplete = true;
+                continue;
+            }
             // Describe -> Remove some copies -> Scrub again
             osd_op_t *op = new osd_op_t;
             op->req = (osd_any_op_t){
@@ -172,6 +199,7 @@ struct cli_fix_t
                 if (op->reply.hdr.retval < 0 || op->reply.describe.result_bytes != op->reply.hdr.retval * sizeof(osd_reply_describe_item_t))
                 {
                     fprintf(stderr, "Failed to describe objects on OSD %ju (retval=%jd)\n", primary_osd, op->reply.hdr.retval);
+                    incomplete = true;
                     parent->waiting--;
                     loop();
                 }
@@ -208,6 +236,7 @@ struct cli_fix_t
                                 (*rm_count)--;
                                 if (rm_op->reply.hdr.retval < 0)
                                 {
+                                    incomplete = true;
                                     fprintf(
                                         stderr, "Failed to remove object %jx:%jx from OSD %ju (retval=%jd)\n",
                                         rm_op->req.sec_del.oid.inode, rm_op->req.sec_del.oid.stripe,
@@ -252,6 +281,7 @@ struct cli_fix_t
                                     {
                                         if (scrub_op->reply.hdr.retval < 0 && scrub_op->reply.hdr.retval != -ENOENT)
                                         {
+                                            incomplete = true;
                                             fprintf(
                                                 stderr, "Failed to scrub %jx:%jx on OSD %ju (retval=%jd)\n",
                                                 obj.inode, obj.stripe, primary_osd, scrub_op->reply.hdr.retval
@@ -288,6 +318,11 @@ struct cli_fix_t
         if (parent->json_output)
         {
             result.data = fix_result;
+        }
+        if (incomplete)
+        {
+            result.err = EIO;
+            result.text = "Some objects were not fixed, see the messages above";
         }
         state = 100;
     }
