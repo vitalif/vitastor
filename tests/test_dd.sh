@@ -97,4 +97,12 @@ fi
 size=$($VITASTOR_CLI ls --json | jq -r '.[] | select(.name == "testimg2") | .size')
 [[ "$size" = $((128*1024*1024)) ]] || format_error "dd with unaligned seek resized testimg2 to $size"
 
+# a character device is read like a pipe, up to count= or size=
+$VITASTOR_CLI dd if=/dev/zero oimg=testimg8 size=32M
+size=$($VITASTOR_CLI ls --json | jq -r '.[] | select(.name == "testimg8") | .size')
+[[ "$size" = $((32*1024*1024)) ]] || format_error "dd if=/dev/zero size=32M created testimg8 with size $size"
+$VITASTOR_CLI dd if=/dev/zero of=./testdata/testfile1 bs=1M count=4 conv=nosparse
+head -c 4M /dev/zero | cmp - ./testdata/testfile1 || format_error "dd if=/dev/zero count=4 did not write 4 MiB of zeros"
+rm ./testdata/testfile1
+
 format_green OK

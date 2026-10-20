@@ -111,7 +111,8 @@ struct dd_in_info_t
             }
         }
         in_seekable = false;
-        if (lseek(ifd, 1, SEEK_SET) == (off_t)1)
+        // a seekable character device has no size (st_size 0), read it like a pipe
+        if (!S_ISCHR(st.st_mode) && lseek(ifd, 1, SEEK_SET) == (off_t)1)
         {
             in_seekable = true;
             lseek(ifd, 0, SEEK_SET);
