@@ -37,7 +37,6 @@ struct dd_in_info_t
     // in
     std::string iimg, ifile;
     bool in_direct = false;
-    bool detect_size = true;
 
     // out
     cli_result_t result;
@@ -68,10 +67,7 @@ struct dd_in_info_t
                 return;
             }
             in_granularity = pool_it->second.bitmap_granularity;
-            if (detect_size)
-            {
-                in_size = iwatch->cfg.size;
-            }
+            in_size = iwatch->cfg.size;
             in_seekable = true;
             return;
         }
@@ -92,29 +88,26 @@ struct dd_in_info_t
         {
             ifd = 0;
         }
-        if (detect_size)
+        struct stat st;
+        if (fstat(ifd, &st) < 0)
         {
-            struct stat st;
-            if (fstat(ifd, &st) < 0)
+            result = (cli_result_t){ .err = errno, .text = "Failed to stat "+ifile+": "+std::string(strerror(errno)) };
+            close(ifd);
+            ifd = -1;
+            return;
+        }
+        if (S_ISREG(st.st_mode))
+        {
+            in_size = st.st_size;
+        }
+        else if (S_ISBLK(st.st_mode))
+        {
+            if (ioctl(ifd, BLKGETSIZE64, &in_size) < 0)
             {
-                result = (cli_result_t){ .err = errno, .text = "Failed to stat "+ifile+": "+std::string(strerror(errno)) };
+                result = (cli_result_t){ .err = errno, .text = "Failed to get "+ifile+" size: "+std::string(strerror(errno)) };
                 close(ifd);
                 ifd = -1;
                 return;
-            }
-            if (S_ISREG(st.st_mode))
-            {
-                in_size = st.st_size;
-            }
-            else if (S_ISBLK(st.st_mode))
-            {
-                if (ioctl(ifd, BLKGETSIZE64, &in_size) < 0)
-                {
-                    result = (cli_result_t){ .err = errno, .text = "Failed to get "+ifile+" size: "+std::string(strerror(errno)) };
-                    close(ifd);
-                    ifd = -1;
-                    return;
-                }
             }
         }
         in_seekable = false;
@@ -848,6 +841,13 @@ struct cli_dd_t
             state = 100;
             return;
         }
+        if (iinfo.in_seekable && iseek >= iinfo.in_size)
+        {
+            iinfo.close_input(parent);
+            result = (cli_result_t){ .err = EINVAL, .text = "Input seek position is beyond end of input" };
+            state = 100;
+            return;
+        }
         if (!oinfo.out_size)
         {
             oinfo.out_size = oseek + (iinfo.in_seekable && (!bytelimit || iinfo.in_size-iseek < bytelimit) ? iinfo.in_size-iseek : bytelimit);
@@ -871,11 +871,6 @@ resume_2:
             goto close_end;
         }
         // Copy data
-        if (iinfo.in_seekable && iseek >= iinfo.in_size)
-        {
-            result = (cli_result_t){ .err = EINVAL, .text = "Input seek position is beyond end of input" };
-            goto close_end;
-        }
         if (!iinfo.iwatch && !iinfo.in_seekable && iseek)
         {
             // Read and ignore some data from input
@@ -1003,7 +998,6 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_dd(json11::Json cfg)
         dd->end_status = false;
     else if (cfg["status"] == "progress")
         progress = true;
-    dd->iinfo.detect_size = cfg["size"].is_null();
     dd->oinfo.out_size = parse_size(cfg["size"].as_string());
     dd->conv = explode_json(",", cfg["conv"]);
     dd->iflag = explode_json(",", cfg["iflag"]);
