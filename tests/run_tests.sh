@@ -71,6 +71,7 @@ OLD=1 ./test_move_reappear.sh
 ./test_modify_image_resize.sh
 
 ./test_rm_degraded.sh
+./test_describe.sh
 
 ./test_snapshot_chain.sh
 SCHEME=ec ./test_snapshot_chain.sh

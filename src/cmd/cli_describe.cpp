@@ -83,19 +83,18 @@ struct cli_describe_t
         }
         only_pg = cfg["pg"].uint64_value();
         min_inode = cfg["inode"].uint64_value();
+        min_offset = stoull_full(cfg["min_offset"].string_value(), 0);
+        max_offset = stoull_full(cfg["max_offset"].string_value(), 0);
         if (min_inode)
         {
             if (!INODE_POOL(min_inode))
                 min_inode |= (uint64_t)only_pool << (64-POOL_ID_BITS);
             max_inode = min_inode;
-            min_offset = max_offset = 0;
         }
         else
         {
             min_inode = stoull_full(cfg["min_inode"].string_value(), 0); // to support 0x...
             max_inode = stoull_full(cfg["max_inode"].string_value(), 0);
-            min_offset = stoull_full(cfg["min_offset"].string_value(), 0);
-            max_offset = stoull_full(cfg["max_offset"].string_value(), 0);
             if (!min_inode && !max_inode && only_pool)
             {
                 min_inode = (uint64_t)only_pool << (64-POOL_ID_BITS);
@@ -103,6 +102,9 @@ struct cli_describe_t
                     (((uint64_t)1 << (64-POOL_ID_BITS)) - 1);
             }
         }
+        // The OSD ends the listing at (max_inode, max_offset) inclusive
+        if (max_inode && cfg["max_offset"].is_null())
+            max_offset = UINT64_MAX;
         only_osds = parse_uint64_list(cfg["osds"]);
         object_state = stoull_full(cfg["object_state"].string_value(), 0);
         if (!object_state && cfg["object_state"].is_string())
