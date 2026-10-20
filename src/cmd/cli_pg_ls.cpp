@@ -251,7 +251,7 @@ resume_1:
             { "title", "MISPLACED" },
         });
         cols.push_back(json11::Json::object{
-            { "key", "fmt_misplaced" },
+            { "key", "fmt_degraded" },
             { "title", "DEGRADED" },
         });
         cols.push_back(json11::Json::object{
