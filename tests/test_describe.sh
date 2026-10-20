@@ -1,6 +1,6 @@
 #!/bin/bash -ex
 
-# Test vitastor-cli describe on degraded objects
+# Test vitastor-cli describe on degraded objects and with down OSDs
 
 PG_COUNT=4
 PG_SIZE=3
@@ -43,5 +43,39 @@ range=$($VITASTOR_CLI describe --min-inode $INODE --max-inode $INODE --json | jq
 if [[ "$range" != "$all" ]]; then
     format_error "describe --min-inode $INODE --max-inode $INODE lists objects $range instead of $all"
 fi
+
+# describe must not wait for an OSD which is down.
+# Stop the monitor so that PGs keep the down OSD as their primary,
+# and stop a primary OSD which has the latest data, so other PGs stay degraded.
+VICTIM=$($VITASTOR_CLI ls-pgs --json | jq -r '[ .[].cur_primary | select(. == 1 or . == 2) ] | first')
+VICTIM_PG=$($VITASTOR_CLI ls-pgs --json | jq -r '[ .[] | select(.cur_primary == '$VICTIM') | .pg_num ] | first')
+OTHER_PG_COUNT=$($VITASTOR_CLI ls-pgs --json | jq '[ .[] | select(.cur_primary != '$VICTIM') ] | length')
+if [[ "$VICTIM" = null || "$OTHER_PG_COUNT" = 0 ]]; then
+    format_error "Expected PGs with primary OSD 1 or 2 and PGs with other primary OSDs"
+fi
+
+kill -9 $MON_PID
+eval kill -9 \$OSD${VICTIM}_PID
+$ETCDCTL del /vitastor/osd/state/$VICTIM
+wait_condition 60 "$ETCDCTL get --prefix /vitastor/pg/state/ --print-value-only | jq -s -e '[ .[] | select(.primary != $VICTIM and (.state | index(\"degraded\"))) ] | length == $OTHER_PG_COUNT'" "PG peering without OSD $VICTIM"
+# Keep PG 1/$VICTIM_PG active with the down primary, as it is until the OSD's etcd lease expires
+$ETCDCTL put /vitastor/pg/state/1/$VICTIM_PG '{"peers":[1,2,3],"primary":'$VICTIM',"state":["active"]}'
+
+# A listing with skipped OSDs or PGs is incomplete: EIO, but still valid JSON on stdout
+for args in "" "--osds 1,2,3" "--pool 1 --pg $VICTIM_PG"; do
+    rc=0
+    timeout 30 $VITASTOR_CLI describe $args --json > ./testdata/describe.json 2> ./testdata/describe.err || rc=$?
+    [[ $rc == 5 ]] || format_error "describe $args exited with $rc instead of EIO with OSD $VICTIM down"
+    grep -q "OSD $VICTIM is down, skipping \(it\|PG 1/$VICTIM_PG\)" ./testdata/describe.err || \
+        format_error "describe $args should warn about OSD $VICTIM: $(cat ./testdata/describe.err)"
+    grep -q "The listing is incomplete" ./testdata/describe.err || \
+        format_error "describe $args should say that the listing is incomplete: $(cat ./testdata/describe.err)"
+    count=$(jq length ./testdata/describe.json) || format_error "describe $args printed invalid JSON"
+    if [[ "$args" == --pool* ]]; then
+        [[ $count == 0 ]] || format_error "describe $args should list nothing"
+    else
+        [[ $count -gt 0 ]] || format_error "describe $args should still list objects from the other OSDs"
+    fi
+done
 
 format_green OK

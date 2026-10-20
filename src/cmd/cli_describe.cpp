@@ -33,6 +33,13 @@ std::vector<uint64_t> parse_uint64_list(json11::Json val)
     return ret;
 }
 
+bool is_osd_up(cli_tool_t *parent, osd_num_t osd_num)
+{
+    auto & peer_states = parent->cli->st_cli->peer_states;
+    auto peer_it = peer_states.find(osd_num);
+    return peer_it != peer_states.end() && !peer_it->second.is_null();
+}
+
 struct cli_describe_t
 {
     uint64_t object_state = 0;
@@ -41,6 +48,8 @@ struct cli_describe_t
     std::vector<osd_num_t> only_osds;
     uint64_t min_inode = 0, max_inode = 0;
     uint64_t min_offset = 0, max_offset = 0;
+    std::map<osd_num_t, std::string> skipped_pgs;
+    bool incomplete = false;
 
     cli_tool_t *parent = NULL;
     int state = 0;
@@ -160,15 +169,49 @@ struct cli_describe_t
                 if (pp.first >= min_pool && (!max_pool || pp.first <= max_pool))
                 {
                     for (auto & pgp: pp.second.pg_config)
-                        only_osds.push_back(pgp.second.cur_primary);
+                    {
+                        if (only_pool && only_pg && (pp.first != only_pool || pgp.first != only_pg))
+                            continue;
+                        if (is_osd_up(parent, pgp.second.cur_primary))
+                            only_osds.push_back(pgp.second.cur_primary);
+                        else
+                        {
+                            auto & pgs = skipped_pgs[pgp.second.cur_primary];
+                            pgs += (pgs == "" ? "" : ", ")+std::to_string(pp.first)+"/"+std::to_string(pgp.first);
+                        }
+                    }
                 }
             }
+        }
+        else
+        {
+            for (auto osd_num: only_osds)
+            {
+                if (!is_osd_up(parent, osd_num))
+                    skipped_pgs[osd_num] = "";
+            }
+            only_osds.erase(std::remove_if(only_osds.begin(), only_osds.end(), [this](osd_num_t osd_num)
+            {
+                return !is_osd_up(parent, osd_num);
+            }), only_osds.end());
+        }
+        // Requests to an OSD which is down are never answered
+        for (auto & sk: skipped_pgs)
+        {
+            if (!sk.first)
+                fprintf(stderr, "No primary OSD for PG %s, skipping\n", sk.second.c_str());
+            else if (sk.second != "")
+                fprintf(stderr, "OSD %ju is down, skipping PG %s\n", sk.first, sk.second.c_str());
+            else
+                fprintf(stderr, "OSD %ju is down, skipping it\n", sk.first);
+            incomplete = true;
         }
         remove_duplicates(only_osds);
         parent->cli->init_msgr();
         if (parent->json_output && parent->is_command_line)
         {
             printf("[\n");
+            parent->json_printed = true;
         }
         for (int i = 0; i < only_osds.size(); i++)
         {
@@ -192,6 +235,7 @@ struct cli_describe_t
             {
                 if (op->reply.hdr.retval < 0)
                 {
+                    incomplete = true;
                     fprintf(
                         stderr, "Failed to describe objects on OSD %ju (retval=%jd)\n",
                         osd_num, op->reply.hdr.retval
@@ -199,6 +243,7 @@ struct cli_describe_t
                 }
                 else if (op->reply.describe.result_bytes != op->reply.hdr.retval * sizeof(osd_reply_describe_item_t))
                 {
+                    incomplete = true;
                     fprintf(
                         stderr, "Invalid response size from OSD %ju (expected %ju bytes, got %ju bytes)\n",
                         osd_num, op->reply.hdr.retval * sizeof(osd_reply_describe_item_t), op->reply.describe.result_bytes
@@ -264,6 +309,11 @@ struct cli_describe_t
         else
         {
             result.data = describe_items;
+        }
+        if (incomplete)
+        {
+            result.err = EIO;
+            result.text = "The listing is incomplete, see the messages above";
         }
         state = 100;
         describe_items.clear();

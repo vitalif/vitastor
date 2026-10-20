@@ -694,7 +694,7 @@ static int run(cli_tool_t *p, json11::Json::object cfg)
     {
         printf("%s\n", result.data.dump().c_str());
     }
-    else if (p->json_output && result.err)
+    else if (p->json_output && result.err && !p->json_printed)
     {
         printf("%s\n", json11::Json(json11::Json::object {
             { "error_code", result.err },
