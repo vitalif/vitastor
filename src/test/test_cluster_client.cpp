@@ -1122,6 +1122,37 @@ void test_pg_config_disappears()
     printf("[ok] test_pg_config_disappears\n");
 }
 
+void test_sync_released_during_continue_ops()
+{
+    json11::Json config;
+    timerfd_manager_t *tfd = new timerfd_manager_t([](int fd, bool wr, std::function<void(int, int)> callback){});
+    etcd_mock_t etcd_store;
+    etcd_state_client_mock_t *mock = new etcd_state_client_mock_t(etcd_store);
+    mock->pause();
+    cluster_client_t *cli = new cluster_client_t(NULL, tfd, config, std::unique_ptr<etcd_state_client_t>(mock));
+
+    configure_single_pg_pool(mock);
+    mock->resume();
+    // The OSD isn't connected: the write waits, and the SYNC waits for the write
+    int *r1 = test_write(cli, 0, 4096, 0x55);
+    int *r2 = test_sync(cli);
+
+    // The write fails in continue_ops(), and the SYNC it releases completes and is freed at once:
+    // continue_ops() must not go on from the write to the SYNC
+    can_complete(r1);
+    can_complete(r2);
+    mock->set("/vitastor/pg/config", json11::Json::object {
+        { "items", json11::Json::object { } }
+    });
+    assert(*r1 == -EINVAL);
+    check_completed(r2);
+    delete r1;
+
+    delete cli;
+    delete tfd;
+    printf("[ok] test_sync_released_during_continue_ops\n");
+}
+
 void test_snapshot_over_nonexistent_pool()
 {
     json11::Json config;
@@ -1326,6 +1357,7 @@ int main(int narg, char *args[])
     test_sync_fail_dirty_state_loss();
     cluster_client_test_t::test_vault();
     test_pg_config_disappears();
+    test_sync_released_during_continue_ops();
     test_snapshot_over_nonexistent_pool();
     return 0;
 }
