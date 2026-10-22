@@ -236,7 +236,16 @@ void osd_t::init_blockstore(std::function<void()> on_init)
     if (!json_is_true(this->config["disable_blockstore"]))
     {
         auto bs_cfg = json_to_string_map(this->config);
-        this->bs = bs_factory(bs_cfg);
+        try
+        {
+            this->bs = bs_factory(bs_cfg);
+        }
+        catch (std::exception & e)
+        {
+            fprintf(stderr, "[OSD %ju] %s\n", this->osd_num, e.what());
+            force_stop(1);
+            return;
+        }
         // Pre-configure pool PG shards
         for (auto & pool_item: st_cli->pool_config)
         {

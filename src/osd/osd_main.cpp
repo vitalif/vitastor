@@ -67,13 +67,21 @@ int main(int narg, char *args[])
     ring_loop_t *ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     epoll_manager_t *epmgr = new epoll_manager_t(ringloop);
     auto st_cli = new etcd_state_client_http_t(epmgr->tfd);
-    osd = new osd_t(
-        config, ringloop, epmgr->tfd, std::unique_ptr<etcd_state_client_t>(st_cli),
-        [ringloop, tfd = epmgr->tfd](blockstore_config_t & cfg)
-        {
-            return blockstore_i::create(cfg, ringloop, tfd);
-        }
-    );
+    try
+    {
+        osd = new osd_t(
+            config, ringloop, epmgr->tfd, std::unique_ptr<etcd_state_client_t>(st_cli),
+            [ringloop, tfd = epmgr->tfd](blockstore_config_t & cfg)
+            {
+                return blockstore_i::create(cfg, ringloop, tfd);
+            }
+        );
+    }
+    catch (std::exception & e)
+    {
+        fprintf(stderr, "%s\n", e.what());
+        return 1;
+    }
     osd->start();
     while (1)
     {
