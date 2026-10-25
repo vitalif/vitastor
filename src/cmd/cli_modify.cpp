@@ -287,7 +287,20 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_modify(json11::Json cfg)
     changer->parent = this;
     changer->image_name = cfg["image"].string_value();
     changer->new_name = cfg["rename"].string_value();
-    changer->new_size = parse_size(cfg["resize"].as_string());
+    if (!cfg["resize"].is_null())
+    {
+        bool ok = false;
+        changer->new_size = parse_size(cfg["resize"].as_string(), &ok);
+        if (!ok)
+        {
+            delete changer;
+            return [size = cfg["resize"].as_string()](cli_result_t & result)
+            {
+                result = (cli_result_t){ .err = EINVAL, .text = "Invalid syntax for size: "+size };
+                return true;
+            };
+        }
+    }
     changer->force_size = cfg["force_size"].bool_value();
     changer->inc_size = cfg["inc_size"].bool_value();
     changer->force = cfg["force"].bool_value();
