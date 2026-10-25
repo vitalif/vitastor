@@ -221,6 +221,24 @@ jobs:
           echo ""
         done
 
+  test_modify_pool:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_modify_pool.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
   test_etcd_fail:
     runs-on: ubuntu-latest
     needs: build
@@ -779,6 +797,24 @@ jobs:
           echo ""
         done
 
+  test_modify_image_resize:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_modify_image_resize.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
   test_rm_degraded:
     runs-on: ubuntu-latest
     needs: build
@@ -788,6 +824,24 @@ jobs:
       id: test
       timeout-minutes: 3
       run: /root/vitastor/tests/test_rm_degraded.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_describe:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_describe.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
       run: |
@@ -1184,6 +1238,24 @@ jobs:
       id: test
       timeout-minutes: 3
       run: /root/vitastor/tests/test_dd.sh
+    - name: Print logs
+      if: always() && steps.test.outcome == 'failure'
+      run: |
+        for i in /root/vitastor/testdata/*.log /root/vitastor/testdata/*.txt; do
+          echo "-------- $i --------"
+          cat $i
+          echo ""
+        done
+
+  test_cli_help:
+    runs-on: ubuntu-latest
+    needs: build
+    container: ${{env.TEST_IMAGE}}:${{github.sha}}
+    steps:
+    - name: Run test
+      id: test
+      timeout-minutes: 3
+      run: /root/vitastor/tests/test_cli_help.sh
     - name: Print logs
       if: always() && steps.test.outcome == 'failure'
       run: |

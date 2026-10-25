@@ -50,8 +50,6 @@ OLD=1 SCHEME=ec IMMEDIATE_COMMIT=1 ./test_interrupted_rebalance.sh
 
 ./test_failure_domain.sh
 
-./test_pool_pg_size_limit.sh
-
 ./test_level_placement.sh
 
 ./test_snapshot.sh
