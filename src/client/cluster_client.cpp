@@ -245,7 +245,7 @@ void cluster_client_t::inc_wait(uint64_t opcode, uint64_t flags, cluster_op_t *n
         {
             next->prev_wait += inc;
             assert(next->prev_wait >= 0);
-            if (!next->prev_wait)
+            if (!next->prev_wait && !continuing_ops)
             {
                 // Kind of std::vector with local "small vector optimisation"
                 if (bh_op_count >= bh_op_max)
