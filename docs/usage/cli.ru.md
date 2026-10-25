@@ -378,7 +378,7 @@ host     stump
 
 ## ls-osd
 
-`vitastor-cli osds|ls-osd|osd-ls [-l|--long]`
+`vitastor-cli osds|ls-osds|ls-osd|osd-ls [-l|--long]`
 
 Показать список OSD, со статистикой ввода-вывода, если установлено -l.
 
@@ -408,7 +408,7 @@ OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP 
 
 ## pg-list
 
-`vitastor-cli pg-list|pg-ls|list-pg|ls-pg|ls-pgs [OPTIONS] [state1+state2] [^state3] [...]`
+`vitastor-cli pg-list|pg-ls|list-pg|ls-pg|ls-pgs|pgs [OPTIONS] [state1+state2] [^state3] [...]`
 
 Вывести список PG с состояними, удовлетворяющими любому из переданных фильтров (^ или !
 в начале фильтра означает отрицание). Опции:
@@ -534,7 +534,7 @@ OSD  PARENT            UP    SIZE  USED%    TAGS          WEIGHT  BLOCK  BITMAP 
 
 ## modify-user
 
-`vitastor-cli modify-user --groups <group1,group2,...> <username>`
+`vitastor-cli modify-user|user-modify --groups <group1,group2,...> <username>`
 
 Создать или изменить пользователя с указанным именем (совпадающим с CN TLS-сертификата).
 

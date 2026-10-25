@@ -101,6 +101,8 @@ OLD=1 SCHEME=ec IMMEDIATE_COMMIT=1 ./test_rebalance_verify.sh
 
 ./test_dd.sh
 
+./test_cli_help.sh
+
 ./test_root_node.sh
 
 ./test_switch_primary.sh

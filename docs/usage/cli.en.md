@@ -358,7 +358,7 @@ host     stump
 
 ## ls-osd
 
-`vitastor-cli osds|ls-osd|osd-ls [-l|--long]`
+`vitastor-cli osds|ls-osds|ls-osd|osd-ls [-l|--long]`
 
 Show current OSDs as list, optionally with I/O statistics if -l is specified.
 
@@ -513,7 +513,7 @@ the Vitastor authorization model.
 
 ## modify-user
 
-`vitastor-cli modify-user --groups <group1,group2,...> <username>`
+`vitastor-cli modify-user|user-modify --groups <group1,group2,...> <username>`
 
 Create or update a user with the given name (matching TLS certificate CN).
 
