@@ -329,8 +329,27 @@ std::function<bool(cli_result_t &)> cli_tool_t::start_rm_data(json11::Json cfg)
     }
     remover->down_ok = cfg["down_ok"].bool_value();
     remover->pool_id = INODE_POOL(remover->inode);
-    remover->min_offset = cfg["min_offset"].uint64_value();
-    remover->max_offset = cfg["max_offset"].uint64_value();
+    bool min_max_ok = true;
+    if (!cfg["min_offset"].is_null())
+    {
+        remover->min_offset = cfg["min_offset"].uint64_value();
+        if (!remover->min_offset && cfg["min_offset"].as_string() != "0")
+            min_max_ok = false;
+    }
+    if (!cfg["max_offset"].is_null())
+    {
+        remover->max_offset = cfg["max_offset"].uint64_value();
+        if (!remover->max_offset && cfg["max_offset"].as_string() != "0")
+            min_max_ok = false;
+    }
+    if (!min_max_ok)
+    {
+        return [](cli_result_t & result)
+        {
+            result = (cli_result_t){ .err = EINVAL, .text = "Invalid min_offset or max_offset" };
+            return true;
+        };
+    }
     return [remover](cli_result_t & result)
     {
         remover->loop();
