@@ -558,13 +558,11 @@ void osd_t::scrub_check_results(osd_op_t *cur_op)
         }
         else
         {
-            int total = 0;
             for (int i = 0; i < op_data->stripe_count; i++)
             {
                 if (!op_data->stripes[i].not_exists)
                 {
                     // use "missing" flag to distinguish actual read errors and inconsistent chunks
-                    total++;
                     op_data->stripes[i].missing = true;
                 }
             }

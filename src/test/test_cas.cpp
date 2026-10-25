@@ -371,7 +371,7 @@ int main(int narg, char *args[])
     auto ringloop = new ring_loop_t(RINGLOOP_DEFAULT_SIZE);
     auto epmgr = new epoll_manager_t(ringloop);
     auto cli = cluster_client_t::create(ringloop, epmgr->tfd, cfg);
-    test_data_t data = { .cli = cli, .ringloop = ringloop, inode = inode };
+    test_data_t data = { .cli = cli, .ringloop = ringloop, .inode = inode };
     // Wait for init
     cli->on_ready([&]() { data.done = true; });
     data.wait();

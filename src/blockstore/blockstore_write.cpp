@@ -355,7 +355,7 @@ resume_11:
             BS_SUBMIT_GET_SQE(sqe, data);
             io_uring_prep_fsync(sqe, dsk.data_fd, IORING_FSYNC_DATASYNC);
             data->iov = { 0 };
-            data->callback = [this, op, fs = data_fsync_cur](ring_data_t *data)
+            data->callback = [this, fs = data_fsync_cur](ring_data_t *data)
             {
                 live = true;
                 if (data->res != 0)

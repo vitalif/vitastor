@@ -71,8 +71,8 @@ struct msgr_rdma_connection_t;
 struct msgr_rdma_context_t;
 #endif
 
-struct op_aes_xts_encrypt_t;
-struct op_aes_xts_decrypt_t;
+class op_aes_xts_encrypt_t;
+class op_aes_xts_decrypt_t;
 void destroy_aes_xts_encrypt(op_aes_xts_encrypt_t *encrypt_ctx);
 void destroy_aes_xts_decrypt(op_aes_xts_decrypt_t *decrypt_ctx);
 
@@ -216,7 +216,7 @@ protected:
     friend class copy_op_writer_t;
     friend class gcm_op_writer_t;
     friend class get_op_writer_t;
-    friend class osd_client_t;
+    friend struct osd_client_t;
 
     int keepalive_timer_id = -1;
 

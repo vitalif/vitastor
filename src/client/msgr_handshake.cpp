@@ -284,7 +284,6 @@ bool msgr_handshake_t::on_error(const std::string & prefix)
 
 bool msgr_handshake_t::init(bool server_mode)
 {
-    this->ctx = ctx;
     std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> kctx(EVP_PKEY_CTX_new(ctx->params, NULL), EVP_PKEY_CTX_free);
     if (!kctx)
         return on_error("EVP_PKEY_CTX_new with EC params: ");

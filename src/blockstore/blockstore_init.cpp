@@ -273,7 +273,7 @@ resume_6:
             rc->buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, rc->len);
         data = ((ring_data_t*)sqe->user_data);
         data->iov = (iovec){ rc->buf, rc->len };
-        data->callback = [this, rc](ring_data_t *data)
+        data->callback = [rc](ring_data_t *data)
         {
             if (data->res < 0)
             {

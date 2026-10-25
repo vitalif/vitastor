@@ -572,7 +572,7 @@ void blockstore_heap_t::finish_load()
     if (postponed_items.size())
     {
         // Sort "postponed" items and load in batches
-        std::sort(postponed_items.begin(), postponed_items.end(), [this](const heap_list_item_t* a, const heap_list_item_t* b)
+        std::sort(postponed_items.begin(), postponed_items.end(), [](const heap_list_item_t* a, const heap_list_item_t* b)
         {
             return a->entry.inode < b->entry.inode || a->entry.inode == b->entry.inode &&
                 (a->entry.stripe < b->entry.stripe || a->entry.stripe == b->entry.stripe &&

@@ -83,10 +83,8 @@ int blockstore_impl_t::continue_sync(blockstore_op_t *op)
         if (dsk.csum_block_size)
         {
             // More complex check because all journal entries have different lengths
-            int left = PRIV(op)->sync_big_writes.size();
             for (auto & sbw: PRIV(op)->sync_big_writes)
             {
-                left--;
                 auto & dirty_entry = dirty_db.at(sbw);
                 uint64_t dyn_size = dsk.dirty_dyn_size(dirty_entry.offset, dirty_entry.len);
                 if (!space_check.check_available(op, 1, sizeof(journal_entry_big_write) + dyn_size, 0))
