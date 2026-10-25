@@ -129,6 +129,7 @@ OLD=1 ./test_corrupt_all.sh
 
 ./test_reweight_half.sh
 ./test_snapshot_pool2.sh
+./test_ls_tree.sh
 ./test_snapshot_read_bitmap.sh
 
 TEST_NAME=csum_32k_dmj OSD_ARGS="--data_csum_type crc32c --csum_block_size 32k --inmemory_metadata false --inmemory_journal false" OFFSET_ARGS=$OSD_ARGS ./test_heal.sh

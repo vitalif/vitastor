@@ -250,11 +250,17 @@ resume_1:
 
     json11::Json::array to_tree(const json11::Json::array & array)
     {
+        std::set<uint64_t> listed;
+        for (const auto & item: array)
+        {
+            listed.insert(item["inode_id"].uint64_value());
+        }
         std::map<uint64_t, json11::Json::array> children;
         for (const auto & item: array)
         {
             uint64_t parent_id = item["parent_inode_id"].uint64_value();
-            children[parent_id].push_back(item);
+            // Layers with a filtered out parent are shown as roots
+            children[listed.find(parent_id) != listed.end() ? parent_id : 0].push_back(item);
         }
         json11::Json::array tree;
         std::function<void(uint64_t, const std::string &)> add_children = [&](uint64_t parent_id, const std::string & prefix)
