@@ -412,6 +412,8 @@ resume_1:
         load_osd_tree();
         if (parent->waiting > 0)
             return;
+        if (state == 100)
+            return;
         format_tree();
         state = 100;
     }
