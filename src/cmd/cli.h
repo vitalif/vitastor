@@ -38,7 +38,6 @@ public:
     bool json_output = false;
     int log_level = 0;
     bool is_command_line = false;
-    bool json_printed = false;
     bool color = false;
 
     std::shared_ptr<user_info_t> user; // for http mode

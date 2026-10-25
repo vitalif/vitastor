@@ -33,13 +33,6 @@ std::vector<uint64_t> parse_uint64_list(json11::Json val)
     return ret;
 }
 
-bool is_osd_up(cli_tool_t *parent, osd_num_t osd_num)
-{
-    auto & peer_states = parent->cli->st_cli->peer_states;
-    auto peer_it = peer_states.find(osd_num);
-    return peer_it != peer_states.end() && !peer_it->second.is_null();
-}
-
 struct cli_describe_t
 {
     uint64_t object_state = 0;
@@ -62,6 +55,13 @@ struct cli_describe_t
     bool is_done()
     {
         return state == 100;
+    }
+
+    bool is_osd_up(osd_num_t osd_num)
+    {
+        auto & peer_states = parent->cli->st_cli->peer_states;
+        auto peer_it = peer_states.find(osd_num);
+        return peer_it != peer_states.end() && !peer_it->second.is_null();
     }
 
     void parse_options(json11::Json cfg)
@@ -172,7 +172,7 @@ struct cli_describe_t
                     {
                         if (only_pool && only_pg && (pp.first != only_pool || pgp.first != only_pg))
                             continue;
-                        if (is_osd_up(parent, pgp.second.cur_primary))
+                        if (is_osd_up(pgp.second.cur_primary))
                             only_osds.push_back(pgp.second.cur_primary);
                         else
                         {
@@ -185,15 +185,15 @@ struct cli_describe_t
         }
         else
         {
+            std::vector<osd_num_t> filtered_osds;
             for (auto osd_num: only_osds)
             {
-                if (!is_osd_up(parent, osd_num))
+                if (is_osd_up(osd_num))
+                    filtered_osds.push_back(osd_num);
+                else
                     skipped_pgs[osd_num] = "";
             }
-            only_osds.erase(std::remove_if(only_osds.begin(), only_osds.end(), [this](osd_num_t osd_num)
-            {
-                return !is_osd_up(parent, osd_num);
-            }), only_osds.end());
+            only_osds = filtered_osds;
         }
         // Requests to an OSD which is down are never answered
         for (auto & sk: skipped_pgs)
@@ -211,7 +211,6 @@ struct cli_describe_t
         if (parent->json_output && parent->is_command_line)
         {
             printf("[\n");
-            parent->json_printed = true;
         }
         for (int i = 0; i < only_osds.size(); i++)
         {
@@ -313,6 +312,8 @@ struct cli_describe_t
         if (incomplete)
         {
             result.err = EIO;
+            if (parent->json_output && parent->is_command_line)
+                parent->json_output = false;
             result.text = "The listing is incomplete, see the messages above";
         }
         state = 100;

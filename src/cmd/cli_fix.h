@@ -7,7 +7,6 @@
 #include <algorithm>
 
 std::vector<uint64_t> parse_uint64_list(json11::Json val);
-bool is_osd_up(cli_tool_t *parent, osd_num_t osd_num);
 
 template<class T> void remove_duplicates(std::vector<T> & ret)
 {

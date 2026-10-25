@@ -28,6 +28,13 @@ struct cli_fix_t
         return state == 100;
     }
 
+    bool is_osd_up(osd_num_t osd_num)
+    {
+        auto & peer_states = parent->cli->st_cli->peer_states;
+        auto peer_it = peer_states.find(osd_num);
+        return peer_it != peer_states.end() && !peer_it->second.is_null();
+    }
+
     void parse_objects_str(std::string str)
     {
         str = trim(str);
@@ -128,7 +135,7 @@ struct cli_fix_t
             std::string down_osds;
             for (auto osd_num: bad_osds)
             {
-                if (!is_osd_up(parent, osd_num))
+                if (!is_osd_up(osd_num))
                     down_osds += (down_osds == "" ? "" : ", ")+std::to_string(osd_num);
             }
             if (down_osds != "")
@@ -170,7 +177,7 @@ struct cli_fix_t
                 continue;
             }
             osd_num_t primary_osd = pg_it->second.cur_primary;
-            if (!is_osd_up(parent, primary_osd))
+            if (!is_osd_up(primary_osd))
             {
                 // Requests to an OSD which is down are never answered
                 fprintf(
