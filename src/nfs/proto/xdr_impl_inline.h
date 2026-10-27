@@ -159,7 +159,8 @@ inline int xdr_bytes(XDR *xdrs, xdr_string_t *data, uint32_t maxlen, bool rdma_c
             unsigned old = xdrs->cur_out.size();
             xdrs->cur_out.resize(old + 4+data->size);
             *(uint32_t*)(xdrs->cur_out.data() + old) = htobe32(data->size);
-            memcpy(xdrs->cur_out.data()+old+4, data->data, data->size);
+            if (data->size)
+                memcpy(xdrs->cur_out.data()+old+4, data->data, data->size);
         }
         else
         {
