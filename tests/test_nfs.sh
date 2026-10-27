@@ -17,12 +17,27 @@ trap "sudo umount -f $MNT"' || true; kill -9 $(jobs -p)' EXIT
 
 chown 1000:1000 ./testdata/nfs
 
+# RENAME of a directory over an empty directory should succeed (the emptiness check used to take
+# the first key after the prefix, which belongs to another directory, for an entry)
+mkdir $MNT/dir1 $MNT/dir2 $MNT/dir3
+touch $MNT/dir2/x
+touch $MNT/dir3/y
+if ! mv -T $MNT/dir3 $MNT/dir1; then
+    format_error "RENAME of a directory over an empty directory failed"
+fi
+if [ ! -f $MNT/dir1/y ]; then
+    format_error "RENAME of a directory over an empty directory lost its contents"
+fi
+rm -rf $MNT/dir1 $MNT/dir2
+format_green "rename dir over an empty dir ok"
+
 # check readability by root
 touch ./testdata/nfs/f1
 chown 1000:1000 ./testdata/nfs/f1
 chmod 600 ./testdata/nfs/f1
 sudo cat ./testdata/nfs/f1
 rm ./testdata/nfs/f1
+format_green "root readibility of non-root file ok"
 
 # write small file
 ls -l ./testdata/nfs
