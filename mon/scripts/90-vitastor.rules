@@ -1,5 +1,7 @@
+# A separate rule: when IMPORT fails, udev drops every other key of its rule, OWNER included
 SUBSYSTEM=="block", ENV{ID_PART_ENTRY_TYPE}=="e7009fac-a5a1-4d72-af72-53de13059903", \
-    OWNER="vitastor", GROUP="vitastor", \
+    OWNER="vitastor", GROUP="vitastor"
+SUBSYSTEM=="block", ENV{ID_PART_ENTRY_TYPE}=="e7009fac-a5a1-4d72-af72-53de13059903", \
     IMPORT{program}="/usr/bin/vitastor-disk udev $devnode", \
     SYMLINK+="vitastor/$env{VITASTOR_ALIAS}"
 
