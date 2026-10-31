@@ -98,7 +98,29 @@ void etcd_state_client_http_t::etcd_call(const std::string & api, json11::Json p
 void etcd_state_client_http_t::etcd_call_selected(const std::string & api, json11::Json payload, int timeout,
     int retries, int interval, std::function<void(std::string, json11::Json)> callback)
 {
+    retries--;
     const auto & url = selected_etcd_url;
+    if (url.addr.empty())
+    {
+        // Resolving failed
+        if (retries > 0)
+        {
+            if (log_level > 0)
+            {
+                fprintf(stderr, "Warning: etcd request failed, retrying %d more times\n", retries);
+            }
+            timers.insert(tfd->set_timer(interval < 500 ? 500 : interval, false, [this, api, payload, timeout, retries, interval, callback](int timer_id)
+            {
+                timers.erase(timer_id);
+                etcd_call(api, payload, timeout, retries, interval, callback);
+            }));
+        }
+        else
+        {
+            callback("None of etcd addresses could be resolved", json11::Json());
+        }
+        return;
+    }
     std::string req = payload.dump();
     req = "POST "+url.path+api+" HTTP/1.1\r\n"
         "Host: "+url.hostname+"\r\n"
@@ -107,7 +129,6 @@ void etcd_state_client_http_t::etcd_call_selected(const std::string & api, json1
         "Connection: keep-alive\r\n"
         "Keep-Alive: timeout="+std::to_string(etcd_keepalive_timeout)+"\r\n"
         "\r\n"+req;
-    retries--;
     auto cb = [this, api, payload, timeout, retries, interval, callback,
         cur_addr = url.addr](http_message_t *response)
     {
@@ -233,8 +254,13 @@ void etcd_state_client_http_t::pick_next_etcd_on_resolve()
 {
     if (!etcd_urls_to_try.size())
     {
-        fprintf(stderr, "None of etcd_address could be resolved\n");
-        exit(1);
+        selected_etcd_url = {};
+        auto cbs = std::move(on_resolve_queue);
+        for (auto cb: cbs)
+        {
+            cb();
+        }
+        return;
     }
     if (!rand_initialized)
     {
@@ -271,6 +297,16 @@ void etcd_state_client_http_t::start_etcd_watcher_selected()
 {
     const auto & url = selected_etcd_url;
     etcd_watches_initialised = 0;
+    if (url.addr.empty())
+    {
+        // Resolving failed, retry in <etcd_slow_timeout>
+        timers.insert(tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
+        {
+            timers.erase(timer_id);
+            start_etcd_watcher();
+        }));
+        return;
+    }
     ws_alive = 1;
     if (this->log_level > 1)
     {
