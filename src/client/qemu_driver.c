@@ -824,6 +824,10 @@ static void vitastor_close(BlockDriverState *bs)
         g_free(client->etcd_host);
     if (client->etcd_prefix)
         g_free(client->etcd_prefix);
+    if (client->file_mirror_path)
+        g_free(client->file_mirror_path);
+    if (client->rdma_device)
+        g_free(client->rdma_device);
     if (client->image)
         g_free(client->image);
     free(client->last_bitmap);
