@@ -56,7 +56,7 @@ public:
     json11::Json parse_tags(std::string tags);
 
     json11::Json::object format_image(const inode_config_t & cfg);
-    void change_parent(inode_t cur, inode_t new_parent, cli_result_t *result);
+    void change_parent(inode_t cur, inode_t old_parent, inode_t new_parent, cli_result_t *result);
     inode_config_t* get_inode_cfg(const std::string & name);
 
     bool check_image_perm(const inode_config_t & cfg, bool write);

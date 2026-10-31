@@ -83,6 +83,8 @@ SCHEME=ec ./test_snapshot_down.sh
 OLD=1 ./test_snapshot_down.sh
 OLD=1 SCHEME=ec ./test_snapshot_down.sh
 
+./test_snapshot_rm_parallel.sh
+
 ./test_kv_stress.sh
 IMMEDIATE_COMMIT=1 ./test_kv_stress.sh
 

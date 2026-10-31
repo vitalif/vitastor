@@ -59,19 +59,23 @@ struct snap_remover_t
 
     std::map<inode_t,int> sources;
     std::map<inode_t,uint64_t> inode_used;
-    std::vector<inode_t> merge_children;
+    std::map<inode_t,uint64_t> merge_children; // inode => mod_revision
     std::vector<inode_t> chain_list;
     std::map<inode_t,int> inverse_candidates;
     inode_t inverse_parent = 0, inverse_child = 0;
     inode_t new_parent = 0;
     int state = 0;
     int current_child = 0;
+    std::map<inode_t,uint64_t>::iterator child_it;
     std::function<bool(cli_result_t &)> cb;
 
     std::vector<std::string> rebased_images, deleted_images;
     std::vector<uint64_t> deleted_ids;
     std::string inverse_child_name, inverse_parent_name;
     inode_config_t inverse_child_new_cfg, inverse_parent_new_cfg;
+    inode_config_t merge_child_cfg;
+    uint64_t merge_parent_rev = 0;
+    uint64_t mark_del_rev = 0;
     cli_result_t result;
 
     bool is_done()
@@ -101,6 +105,8 @@ struct snap_remover_t
             goto resume_9;
         else if (state == 10)
             goto resume_10;
+        else if (state == 11)
+            goto resume_11;
         else if (state == 100)
             goto resume_100;
         assert(!state);
@@ -114,10 +120,23 @@ struct snap_remover_t
         {
             to_name = from_name;
         }
-        // Get children to merge
-        get_merge_children();
+        // Find all images to delete
+        get_rm_ranks();
         if (state == 100)
             return;
+        // Mark images as deleted to prevent rebasing newer images on them
+        mark_deleted();
+        state = 8;
+resume_8:
+        if (parent->waiting > 0)
+            return;
+        // Wait until we get all changes up to mark_del_rev from the watcher
+        state = 11;
+resume_11:
+        if (parent->cli->st_cli->etcd_watch_revision_config < mark_del_rev)
+            return;
+        // Get children to merge - from this point, images shouldn't be rebased to deleted layers
+        get_merge_children();
         // Try to select an inode for the "inverse" optimized scenario
         // Read statistics from etcd to do it
         read_stats();
@@ -129,16 +148,37 @@ resume_1:
             return;
         choose_inverse_candidate();
         // Merge children one by one, except our "inverse" child
-        for (current_child = 0; current_child < merge_children.size(); current_child++)
+        for (child_it = merge_children.begin(); child_it != merge_children.end(); child_it++)
         {
-            if (merge_children[current_child] == inverse_child)
+            if (child_it->first == inverse_child)
                 continue;
-            rebased_images.push_back(parent->cli->st_cli->inode_config.at(merge_children[current_child]).name);
-            start_merge_child(merge_children[current_child], merge_children[current_child]);
+            if (!recheck_cfg(child_it->first, child_it->second, &merge_child_cfg, true))
+                return;
+            if (!merge_child_cfg.num || !merge_child_cfg.parent_id)
+                continue;
+            merge_parent_rev = parent->cli->st_cli->inode_config.at(merge_child_cfg.parent_id).mod_revision;
+            rebased_images.push_back(merge_child_cfg.name);
+            start_merge_child(child_it->first, child_it->first);
 resume_2:
             while (!wait_result(2))
                 return;
-            parent->change_parent(merge_children[current_child], new_parent, &result);
+            if (!recheck_cfg(child_it->first, child_it->second, NULL, false))
+                return;
+            if (!recheck_cfg(merge_child_cfg.parent_id, merge_parent_rev, NULL, false))
+                return;
+            if (new_parent)
+            {
+                auto np_it = parent->cli->st_cli->inode_config.find(new_parent);
+                if (np_it == parent->cli->st_cli->inode_config.end() || np_it->second.deleted)
+                {
+                    // New parent is marked as deleted => failure
+                    result = (cli_result_t){ .err = ENOENT, .text = "Layer "+parent->cli->st_cli->inode_config
+                        .at(new_parent).name+" is deleted and doesn't accept new children" };
+                    state = 100;
+                    return;
+                }
+            }
+            parent->change_parent(child_it->first, merge_child_cfg.parent_id, new_parent, &result);
             state = 3;
 resume_3:
             if (parent->waiting > 0)
@@ -193,11 +233,6 @@ resume_7:
                     deleted_images.push_back(parent_it->second.name);
                 deleted_ids.push_back(chain_list[current_child]);
             }
-            // Mark child as deleted
-            start_mark_deleted(chain_list[current_child]);
-resume_8:
-            while (!wait_result(8))
-                return;
             start_delete_source(chain_list[current_child]);
 resume_9:
             while (!wait_result(9))
@@ -219,6 +254,33 @@ resume_10:
 resume_100:
         // Done
         return;
+    }
+
+    bool recheck_cfg(inode_t ino, uint64_t mod_rev, inode_config_t *copy, bool allow_enoent)
+    {
+        auto cfg_it = parent->cli->st_cli->inode_config.find(ino);
+        if (cfg_it == parent->cli->st_cli->inode_config.end())
+        {
+            if (!allow_enoent)
+            {
+                result = (cli_result_t){ .err = ENOENT, .text = "Inode "+std::to_string(INODE_NO_POOL(ino))+
+                    " from pool "+std::to_string(INODE_POOL(ino))+" disappeared during deletion" };
+                state = 100;
+                return false;
+            }
+            if (copy)
+                *copy = {};
+            return true;
+        }
+        if (cfg_it->second.mod_revision != mod_rev)
+        {
+            result = (cli_result_t){ .err = EAGAIN, .text = "Layer "+cfg_it->second.name+" modified during deletion" };
+            state = 100;
+            return false;
+        }
+        if (copy)
+            *copy = cfg_it->second;
+        return true;
     }
 
     bool wait_result(int base_state)
@@ -253,9 +315,8 @@ resume_100:
         return obj;
     }
 
-    void get_merge_children()
+    void get_rm_ranks()
     {
-        // Get all children of from..to
         inode_config_t *from_cfg = parent->get_inode_cfg(from_name);
         if (!from_cfg)
         {
@@ -307,6 +368,11 @@ resume_100:
         {
             sources[item] = i--;
         }
+    }
+
+    void get_merge_children()
+    {
+        // Get all children of from..to
         for (auto & ic: parent->cli->st_cli->inode_config)
         {
             if (!ic.second.parent_id)
@@ -322,7 +388,7 @@ resume_100:
                     state = 100;
                     return;
                 }
-                merge_children.push_back(ic.second.num);
+                merge_children[ic.second.num] = ic.second.mod_revision;
                 if (ic.second.readonly || writers_stopped)
                 {
                     inverse_candidates[ic.second.num] = it->second;
@@ -683,24 +749,55 @@ resume_100:
         });
     }
 
-    void start_mark_deleted(inode_t inode)
+    void mark_deleted()
     {
-        auto ino_it = parent->cli->st_cli->inode_config.find(inode);
-        if (ino_it == parent->cli->st_cli->inode_config.end())
+        json11::Json::array cmp, ok;
+        for (current_child = 0; current_child < chain_list.size(); current_child++)
         {
-            char buf[1024];
-            snprintf(buf, 1024, "Inode 0x%jx disappeared", inode);
-            result = (cli_result_t){ .err = EIO, .text = std::string(buf) };
-            state = 100;
-            return;
+            inode_t ino = chain_list[current_child];
+            auto & inode_cfg = parent->cli->st_cli->inode_config.at(ino);
+            std::string inode_cfg_key = base64_encode(
+                parent->cli->st_cli->etcd_prefix+
+                "/config/inode/"+std::to_string(INODE_POOL(ino))+
+                "/"+std::to_string(INODE_NO_POOL(ino))
+            );
+            inode_cfg.deleted = true;
+            cmp.push_back(json11::Json::object {
+                { "target", "MOD" },
+                { "key", inode_cfg_key },
+                { "result", "LESS" },
+                { "mod_revision", inode_cfg.mod_revision+1 },
+            });
+            ok.push_back(json11::Json::object {
+                { "request_put", json11::Json::object {
+                    { "key", inode_cfg_key },
+                    { "value", base64_encode(json11::Json(parent->cli->st_cli->serialize_inode_cfg(&inode_cfg)).dump()) },
+                } },
+            });
         }
-        if (ino_it->second.deleted)
+        parent->waiting++;
+        parent->cli->st_cli->etcd_txn_slow(json11::Json::object {
+            { "compare", cmp },
+            { "success", ok },
+        }, [this](std::string err, json11::Json res)
         {
-            return;
-        }
-        cb = parent->start_modify(json11::Json::object {
-            { "image", ino_it->second.name },
-            { "deleted", true },
+            parent->waiting--;
+            if (err != "")
+            {
+                result = (cli_result_t){ .err = EIO, .text = "Error marking layers as deleted: "+err };
+                state = 100;
+                return;
+            }
+            if (!res["succeeded"].bool_value())
+            {
+                result = (cli_result_t){ .err = EAGAIN, .text = "Some layers between "+from_name+" and "+to_name+" were modified during deletion" };
+                state = 100;
+                return;
+            }
+            mark_del_rev = res["header"]["revision"].uint64_value();
+            if (parent->progress)
+                printf("Layers between %s and %s marked as deleted\n", from_name.c_str(), to_name.c_str());
+            parent->ringloop->wakeup();
         });
     }
 

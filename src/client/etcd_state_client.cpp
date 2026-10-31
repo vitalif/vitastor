@@ -346,7 +346,7 @@ void etcd_state_client_t::load_pgs(std::function<void(const std::string &)> cb)
             return;
         }
         reset_pg_exists();
-        etcd_watch_revision_config = etcd_watch_revision_osd = etcd_watch_revision_pg = data["header"]["revision"].uint64_value()+1;
+        etcd_watch_revision_config = etcd_watch_revision_osd = etcd_watch_revision_pg = data["header"]["revision"].uint64_value();
         if (this->log_level > 3)
         {
             fprintf(stderr, "Loaded revision %ju of PG configuration\n", etcd_watch_revision_pg-1);

@@ -54,6 +54,10 @@ json11::Json::object cli_tool_t::format_image(const inode_config_t & cfg)
         {
             img["parent_name"] = parent_it->second.name;
         }
+        else
+        {
+            img["parent_name"] = "Pool:"+std::to_string(INODE_POOL(cfg.parent_id))+",ID:"+std::to_string(INODE_NO_POOL(cfg.parent_id));
+        }
         img["parent_inode_id"] = cfg.parent_id;
         img["parent_inode_num"] = INODE_NO_POOL(cfg.parent_id);
         img["parent_pool_id"] = (uint64_t)INODE_POOL(cfg.parent_id);
@@ -61,7 +65,7 @@ json11::Json::object cli_tool_t::format_image(const inode_config_t & cfg)
     return img;
 }
 
-void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *result)
+void cli_tool_t::change_parent(inode_t cur, inode_t old_parent, inode_t new_parent, cli_result_t *result)
 {
     auto cur_cfg_it = cli->st_cli->inode_config.find(cur);
     if (cur_cfg_it == cli->st_cli->inode_config.end())
@@ -79,15 +83,29 @@ void cli_tool_t::change_parent(inode_t cur, inode_t new_parent, cli_result_t *re
     new_cfg.parent_id = new_parent;
     json11::Json::object cur_cfg_json = cli->st_cli->serialize_inode_cfg(&new_cfg);
     waiting++;
+    json11::Json::array cmp = json11::Json::array {
+        json11::Json::object {
+            { "target", "MOD" },
+            { "key", cur_cfg_key },
+            { "result", "LESS" },
+            { "mod_revision", new_cfg.mod_revision+1 },
+        },
+    };
+    if (old_parent)
+    {
+        std::string parent_cfg_key = base64_encode(cli->st_cli->etcd_prefix+
+            "/config/inode/"+std::to_string(INODE_POOL(old_parent))+
+            "/"+std::to_string(INODE_NO_POOL(old_parent)));
+        auto & parent_cfg = cli->st_cli->inode_config.at(old_parent);
+        cmp.push_back(json11::Json::object {
+            { "target", "MOD" },
+            { "key", parent_cfg_key },
+            { "result", "LESS" },
+            { "mod_revision", parent_cfg.mod_revision+1 },
+        });
+    }
     cli->st_cli->etcd_txn_slow(json11::Json::object {
-        { "compare", json11::Json::array {
-            json11::Json::object {
-                { "target", "MOD" },
-                { "key", cur_cfg_key },
-                { "result", "LESS" },
-                { "mod_revision", new_cfg.mod_revision+1 },
-            },
-        } },
+        { "compare", cmp },
         { "success", json11::Json::array {
             json11::Json::object {
                 { "request_put", json11::Json::object {

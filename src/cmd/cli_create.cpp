@@ -40,6 +40,7 @@ struct image_creator_t
     inode_t new_parent_id = 0;
     inode_t new_id = 0, old_id = 0;
     uint64_t max_id_mod_rev = 0, idx_mod_rev = 0;
+    uint64_t new_parent_mod_rev = 0;
     inode_config_t cur_cfg;
     inode_config_t new_cfg;
 
@@ -154,6 +155,7 @@ struct image_creator_t
             if (ic.second.name == new_parent)
             {
                 new_parent_id = ic.second.num;
+                new_parent_mod_rev = ic.second.mod_revision;
                 if (!new_pool_id)
                 {
                     new_pool_id = INODE_POOL(ic.second.num);
@@ -161,6 +163,13 @@ struct image_creator_t
                 if (!size)
                 {
                     size = ic.second.size;
+                }
+                if (ic.second.deleted && !force)
+                {
+                    result = (cli_result_t){ .err = ENOENT, .text = "Layer "+ic.second.name+
+                        " is deleted and doesn't accept new children" };
+                    state = 100;
+                    return;
                 }
             }
         }
@@ -226,12 +235,24 @@ resume_3:
                 state = 100;
                 return;
             }
-            if (!parent->etcd_result["succeeded"].bool_value() &&
-                parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items().size() > 0)
+            if (!parent->etcd_result["succeeded"].bool_value())
             {
-                result = (cli_result_t){ .err = EEXIST, .text = "Image "+image_name+" already exists" };
-                state = 100;
-                return;
+                if (parent->etcd_result["responses"][0]["response_range"]["kvs"].array_items().size() > 0)
+                {
+                    result = (cli_result_t){ .err = EEXIST, .text = "Image "+image_name+" already exists" };
+                    state = 100;
+                    return;
+                }
+                if (new_parent_id)
+                {
+                    auto kv = parent->cli->st_cli->parse_etcd_kv(parent->etcd_result["responses"][1]["response_range"]["kvs"][0]);
+                    if (kv.value.is_null() || kv.mod_revision > new_parent_mod_rev)
+                    {
+                        result = (cli_result_t){ .err = EAGAIN, .text = "Parent image "+kv.value["name"].string_value()+" modified during creation" };
+                        state = 100;
+                        return;
+                    }
+                }
             }
         } while (!parent->etcd_result["succeeded"].bool_value());
         // Save into inode_config for library users to be able to take it from there immediately
@@ -478,6 +499,13 @@ resume_3:
                 size = cur_cfg.size;
             }
         }
+        if (cur_cfg.deleted && !force)
+        {
+            result = (cli_result_t){ .err = ENOENT, .text = "Layer "+cur_cfg.name+
+                " is deleted and doesn't accept new children" };
+            state = 100;
+            return;
+        }
     }
 
     void attempt_create()
@@ -613,7 +641,24 @@ resume_3:
                     }).dump()) },
                 } },
             });
-        };
+        }
+        else if (new_parent_id)
+        {
+            auto new_parent_key = base64_encode(
+                parent->cli->st_cli->etcd_prefix+"/config/inode/"+
+                std::to_string(INODE_POOL(new_parent_id))+"/"+std::to_string(INODE_NO_POOL(new_parent_id))
+            );
+            checks.push_back(json11::Json::object {
+                { "target", "MOD" },
+                { "mod_revision", new_parent_mod_rev },
+                { "key", new_parent_key },
+            });
+            failure.push_back(json11::Json::object {
+                { "request_range", json11::Json::object {
+                    { "key", new_parent_key },
+                } },
+            });
+        }
         parent->etcd_txn(json11::Json::object {
             { "compare", checks },
             { "success", success },

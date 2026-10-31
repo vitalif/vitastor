@@ -21,6 +21,7 @@ struct snap_flattener_t
 
     std::string top_parent_name;
     inode_t target_id = 0;
+    inode_config_t old_cfg, old_parent_cfg;
     int state = 0;
     std::function<bool(cli_result_t &)> merger_cb;
     cli_result_t result;
@@ -41,6 +42,7 @@ struct snap_flattener_t
             state = 100;
             return;
         }
+        old_cfg = *target_cfg;
         target_id = target_cfg->num;
         std::vector<inode_t> chain_list;
         inode_config_t *cur = target_cfg;
@@ -62,6 +64,10 @@ struct snap_flattener_t
                 };
                 state = 100;
                 return;
+            }
+            if (cur->num == target_cfg->num)
+            {
+                old_parent_cfg = it->second;
             }
             cur = &it->second;
             chain_list.push_back(cur->num);
@@ -121,7 +127,24 @@ resume_1:
             return;
         }
         // Change parent
-        parent->change_parent(target_id, 0, &result);
+        {
+            inode_config_t *target_cfg = parent->get_inode_cfg(target_name);
+            if (!target_cfg || target_cfg->mod_revision != old_cfg.mod_revision)
+            {
+                result = (cli_result_t){ .err = EAGAIN, .text = "Layer "+target_name+" modified during deletion" };
+                state = 100;
+                return;
+            }
+            auto parent_cfg_it = parent->cli->st_cli->inode_config.find(target_cfg->parent_id);
+            if (parent_cfg_it == parent->cli->st_cli->inode_config.end() ||
+                parent_cfg_it->second.mod_revision != old_parent_cfg.mod_revision)
+            {
+                result = (cli_result_t){ .err = EAGAIN, .text = "Layer "+old_parent_cfg.name+" modified during deletion" };
+                state = 100;
+                return;
+            }
+        }
+        parent->change_parent(target_id, old_cfg.parent_id, 0, &result);
         // Wait for it to complete
         state = 2;
 resume_2:
