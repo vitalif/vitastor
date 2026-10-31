@@ -22,6 +22,7 @@ protected:
     http_context_t *http_ctx = NULL;
     size_t local_to_try = 0;
     std::vector<http_url_t> etcd_urls_to_try;
+    std::set<int> timers;
     http_url_t selected_etcd_url;
     size_t resolve_count = 0;
     std::vector<std::function<void()>> on_resolve_queue;

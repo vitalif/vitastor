@@ -31,6 +31,11 @@ etcd_state_client_http_t::~etcd_state_client_http_t()
         tfd->clear_timer(load_pgs_timer_id);
         load_pgs_timer_id = -1;
     }
+    for (int timer_id: timers)
+    {
+        tfd->clear_timer(timer_id);
+    }
+    timers.clear();
     if (http_ctx)
     {
         http_context_destroy(http_ctx);
@@ -124,11 +129,11 @@ void etcd_state_client_http_t::etcd_call_selected(const std::string & api, json1
                 }
                 if (interval > 0)
                 {
-                    // FIXME: Prevent destruction of etcd_state_client if timers or requests are active
-                    tfd->set_timer(interval, false, [this, api, payload, timeout, retries, interval, callback](int)
+                    timers.insert(tfd->set_timer(interval, false, [this, api, payload, timeout, retries, interval, callback](int timer_id)
                     {
+                        timers.erase(timer_id);
                         etcd_call(api, payload, timeout, retries, interval, callback);
-                    });
+                    }));
                 }
                 else
                     etcd_call(api, payload, timeout, retries, interval, callback);
@@ -400,10 +405,11 @@ void etcd_state_client_http_t::start_etcd_watcher_selected()
             if (etcd_watches_initialised == 0)
             {
                 // Connection not established, retry in <etcd_quick_timeout>
-                tfd->set_timer(etcd_quick_timeout, false, [this](int)
+                timers.insert(tfd->set_timer(etcd_quick_timeout, false, [this](int timer_id)
                 {
+                    timers.erase(timer_id);
                     start_etcd_watcher();
-                });
+                }));
             }
             else if (etcd_watches_initialised > 0)
             {
@@ -495,10 +501,11 @@ void etcd_state_client_http_t::load_global_config()
             fprintf(stderr, "Error reading configuration from etcd: %s\n", err.c_str());
             if (infinite_start)
             {
-                tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
+                timers.insert(tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
                 {
+                    timers.erase(timer_id);
                     load_global_config();
-                });
+                }));
             }
             else
             {
@@ -533,10 +540,11 @@ void etcd_state_client_http_t::load_pgs()
         {
             // Retry indefinitely
             fprintf(stderr, "Error loading PGs from etcd: %s\n", err.c_str());
-            tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
+            timers.insert(tfd->set_timer(etcd_slow_timeout, false, [this](int timer_id)
             {
+                timers.erase(timer_id);
                 load_pgs();
-            });
+            }));
         }
         else
         {
