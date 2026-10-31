@@ -12,12 +12,12 @@
 #define TRY_SEND_CONNECTING 1
 #define TRY_SEND_OK 2
 
-cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json config, std::unique_ptr<etcd_state_client_t> st_cli_ptr)
+cluster_client_t::cluster_client_t(ring_loop_t *ringloop, timerfd_manager_t *tfd, json11::Json passed_config, std::unique_ptr<etcd_state_client_t> st_cli_ptr)
 {
     wb = new writeback_cache_t();
 
-    cli_config = config.object_items();
-    file_config = osd_messenger_t::read_config(config);
+    cli_config = passed_config.object_items();
+    file_config = osd_messenger_t::read_config(passed_config);
     config = osd_messenger_t::merge_configs(cli_config, file_config, etcd_global_config, {});
 
     this->ringloop = ringloop;
