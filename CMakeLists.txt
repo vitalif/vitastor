@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8...3.30)
 
 project(vitastor)
 
-set(VITASTOR_VERSION "3.2.2")
+set(VITASTOR_VERSION "3.2.3")
 
 include(CTest)
 

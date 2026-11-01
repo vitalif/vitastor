@@ -24,7 +24,7 @@ set(ENABLE_COVERAGE false CACHE BOOL "Enable code coverage")
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_definitions(-DVITASTOR_VERSION="3.2.2")
+add_definitions(-DVITASTOR_VERSION="3.2.3")
 add_definitions(-D_GNU_SOURCE -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64 -Wall -Wno-c99-designator -Wno-vla-cxx-extension -Wno-sign-compare -Wno-comment -Wno-parentheses -Wno-pointer-arith -fdiagnostics-color=always -fno-omit-frame-pointer -fvisibility=hidden -I ${CMAKE_SOURCE_DIR}/src)
 add_link_options(-fno-omit-frame-pointer)
 if (${WITH_ASAN})
