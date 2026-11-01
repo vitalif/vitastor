@@ -75,6 +75,9 @@ Read more details in the documentation. You can start from here: [Quick Start](d
   - [NFS](docs/usage/nfs.en.md) clustered file system and pseudo-FS proxy
   - [Security](docs/usage/security.en.md)
   - [Administration](docs/usage/admin.en.md)
+- Tests
+  - [Blockstore chaos test](docs/tests/blockstore-chaos.en.md)
+  - [PG chaos test](docs/tests/pg-chaos.en.md)
 - Performance
   - [Understanding storage performance](docs/performance/understanding.en.md)
   - [Theoretical performance](docs/performance/theoretical.en.md)

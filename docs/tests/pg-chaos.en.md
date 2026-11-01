@@ -18,7 +18,7 @@ the same `--seed`.
 What it mainly verifies is the PG machinery (the subop fan-out,
 peering/LIST/rollback/stabilize, repeer daemons, stop_pg, INCOMPLETE, recovery) and
 partly the primary OSD's storage; checking the storage is not the test's main goal -
-test_blockstore_chaos covers it.
+it is covered by the [blockstore chaos test](blockstore-chaos.en.md).
 
 ## Configurations (10)
 

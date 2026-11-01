@@ -15,7 +15,7 @@ EC 2+2 (members 2..4, spare 5, объект = один parity-stripe). Сид о
 
 Проверяется в первую очередь PG-машинерия (subop-веер, peering/LIST/rollback/stabilize, repeer-демоны,
 stop_pg, INCOMPLETE, recovery) и частично хранилище первичного OSD; однако, проверка хранилища —
-не главная цель теста, его покрывает test_blockstore_chaos.
+не главная цель теста, его покрывает [хаос-тест blockstore](blockstore-chaos.ru.md).
 
 ## Конфигурации (10)
 
