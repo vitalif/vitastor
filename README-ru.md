@@ -75,6 +75,9 @@ Vitastor поддерживает QEMU-драйвер, протоколы UBLK, 
   - [NFS](docs/usage/nfs.ru.md) кластерная файловая система и псевдо-ФС прокси
   - [Безопасность](docs/usage/security.ru.md)
   - [Администрирование](docs/usage/admin.ru.md)
+- Тесты
+  - [Хаос тест хранилища](docs/tests/blockstore-chaos.ru.md)
+  - [Хаос тест PG](docs/tests/pg-chaos.ru.md)
 - Производительность
   - [Понимание сути производительности](docs/performance/understanding.ru.md)
   - [Теоретический максимум](docs/performance/theoretical.ru.md)
