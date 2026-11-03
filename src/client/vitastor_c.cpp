@@ -251,6 +251,14 @@ int vitastor_c_is_failed(vitastor_c *client, char **errstr)
     return 0;
 }
 
+void vitastor_c_on_fatal_error(vitastor_c *client, VitastorErrorHandler cb, void *opaque)
+{
+    client->cli->set_on_fatal_error_hook([=](int retval, const std::string & error)
+    {
+        cb(opaque, retval, error.c_str());
+    });
+}
+
 void vitastor_c_on_ready(vitastor_c *client, VitastorIOHandler cb, void *opaque)
 {
     client->cli->on_ready([=]()

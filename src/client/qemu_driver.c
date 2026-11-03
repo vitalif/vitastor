@@ -622,6 +622,11 @@ end_free:
     close(fd);
 }
 
+static void vitastor_err_exit(void *opaque, int retval, const char *errstr)
+{
+    exit(1);
+}
+
 static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, Error **errp)
 {
     VitastorRPC task;
@@ -659,7 +664,9 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
     strarray_push_kv(&opt, "rdma_gid_index", qdict_get_try_str(options, "rdma-gid-index"));
     strarray_push_kv(&opt, "rdma_mtu", qdict_get_try_str(options, "rdma-mtu"));
     strarray_push_kv(&opt, "client_writeback_allowed", (flags & BDRV_O_NOCACHE) ? "0" : "1");
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 6
     strarray_push_kv(&opt, "client_exit_on_error", "0");
+#endif
     strarray_push_kv(&opt, "__version_check_buffer", version_buffer);
     client->proxy = vitastor_c_create_uring_json(opt.items, opt.len);
     client->auto_loop = 0;
@@ -716,6 +723,7 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
 #endif
         BDRV_POLL_WHILE(bs, !task.complete);
     }
+#if defined VITASTOR_C_API_VERSION && VITASTOR_C_API_VERSION >= 6
     if ((ret = vitastor_c_is_failed(client->proxy, &errstr)))
     {
         error_setg(errp, errstr);
@@ -723,6 +731,8 @@ static int vitastor_file_open(BlockDriverState *bs, QDict *options, int flags, E
         vitastor_close(bs);
         return -ret;
     }
+    vitastor_c_on_fatal_error(client->proxy, vitastor_err_exit, NULL);
+#endif
     client->image = image;
     if (client->image)
     {

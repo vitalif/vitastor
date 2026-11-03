@@ -7,7 +7,7 @@
 #define VITASTOR_QEMU_PROXY_H
 
 // C API wrapper version
-#define VITASTOR_C_API_VERSION 5
+#define VITASTOR_C_API_VERSION 6
 
 #ifndef POOL_ID_BITS
 #define POOL_ID_BITS 16
@@ -33,6 +33,7 @@ typedef struct vitastor_c vitastor_c;
 
 typedef void VitastorReadHandler(void *opaque, long retval, uint64_t version);
 typedef void VitastorIOHandler(void *opaque, long retval);
+typedef void VitastorErrorHandler(void *opaque, int retval, const char *errstr);
 typedef void VitastorReadBitmapHandler(void *opaque, long retval, uint8_t *bitmap);
 
 // QEMU
@@ -54,6 +55,7 @@ void* vitastor_c_get_internal_client(vitastor_c *client);
 void vitastor_c_destroy(vitastor_c *client);
 int vitastor_c_is_ready(vitastor_c *client);
 int vitastor_c_is_failed(vitastor_c *client, char **errstr);
+void vitastor_c_on_fatal_error(vitastor_c *client, VitastorErrorHandler cb, void *opaque);
 void vitastor_c_on_ready(vitastor_c *client, VitastorIOHandler cb, void *opaque);
 int vitastor_c_uring_register_eventfd(vitastor_c *client);
 void vitastor_c_uring_wait_ready(vitastor_c *client);
