@@ -271,18 +271,17 @@ func mapVduse(stateDir string, volName string, ctxVars map[string]string, readon
     return "", "", err
 }
 
-func unmapVduse(stateDir, devicePath string)
+// vduseIdFromDevice returns the vdpa/VDUSE device ID behind a /dev/vdX block device
+func vduseIdFromDevice(devicePath string) (string, error)
 {
     if (len(devicePath) < 6 || devicePath[0:6] != "/dev/v")
     {
-        klog.Errorf("%s does not start with /dev/v", devicePath)
-        return
+        return "", fmt.Errorf("%s does not start with /dev/v", devicePath)
     }
     vduseDev, err := os.Readlink("/sys/block/"+devicePath[5:])
     if (err != nil)
     {
-        klog.Errorf("%s is not a symbolic link to VDUSE device (../devices/virtual/vduse/xxx): %v", devicePath, err)
-        return
+        return "", fmt.Errorf("%s is not a symbolic link to VDUSE device (../devices/virtual/vduse/xxx): %v", devicePath, err)
     }
     vdpaId := ""
     p := strings.Index(vduseDev, "/vduse/")
@@ -297,7 +296,17 @@ func unmapVduse(stateDir, devicePath string)
     }
     if (vdpaId == "")
     {
-        klog.Errorf("%s is not a symbolic link to VDUSE device (../devices/virtual/vduse/xxx), but is %v", devicePath, vduseDev)
+        return "", fmt.Errorf("%s is not a symbolic link to VDUSE device (../devices/virtual/vduse/xxx), but is %v", devicePath, vduseDev)
+    }
+    return vdpaId, nil
+}
+
+func unmapVduse(stateDir, devicePath string)
+{
+    vdpaId, err := vduseIdFromDevice(devicePath)
+    if (err != nil)
+    {
+        klog.Errorf("%v", err)
         return
     }
     unmapVduseById(stateDir, vdpaId)
