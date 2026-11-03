@@ -14,6 +14,7 @@ import (
     "strconv"
     "strings"
     "syscall"
+    "time"
 
     "k8s.io/klog"
     "k8s.io/utils/mount"
@@ -207,6 +208,54 @@ func startStorageDaemon(vdpaId, volName, pidFile, configPath string, readonly bo
     return err
 }
 
+// vduseBlockDev returns the block device bound to a VDPA device (/dev/vdX), or "" if virtio-blk
+// hasn't probed it (yet, or ever: a device whose backend died before negotiation has no disk).
+func vduseBlockDev(vdpaId string) string
+{
+    matches, err := filepath.Glob("/sys/bus/vdpa/devices/"+vdpaId+"/virtio*/block/*")
+    if (err != nil || len(matches) == 0)
+    {
+        return ""
+    }
+    return "/dev/"+filepath.Base(matches[0])
+}
+
+// waitVduseBlockDev polls for the block device: virtio-blk probes the device asynchronously after
+// `vdpa dev add`, so checking once right away raced and failed (observed 2026-11-04).
+func waitVduseBlockDev(vdpaId string, timeout time.Duration) string
+{
+    deadline := time.Now().Add(timeout)
+    for
+    {
+        if dev := vduseBlockDev(vdpaId); dev != ""
+        {
+            if _, err := os.Stat(dev); err == nil
+            {
+                return dev
+            }
+        }
+        if (time.Now().After(deadline))
+        {
+            return ""
+        }
+        time.Sleep(100 * time.Millisecond)
+    }
+}
+
+// vduseDevExists: the VDPA device is registered on the bus.
+func vduseDevExists(vdpaId string) bool
+{
+    _, err := os.Stat("/sys/bus/vdpa/devices/"+vdpaId)
+    return err == nil
+}
+
+// daemonAlive: the storage daemon from the pid file is running.
+func daemonAlive(pidFile string) bool
+{
+    proc, err := findByPidFile(pidFile)
+    return err == nil && proc.Signal(syscall.Signal(0)) == nil
+}
+
 func mapVduse(stateDir string, volName string, ctxVars map[string]string, readonly bool) (string, string, error)
 {
     // Generate state file
@@ -228,36 +277,37 @@ func mapVduse(stateDir string, volName string, ctxVars map[string]string, readon
         _, _, err = system("/sbin/vdpa", "-j", "dev", "add", "name", vdpaId, "mgmtdev", "vduse")
         if (err == nil)
         {
-            // Find block device name
-            var matches []string
-            matches, err = filepath.Glob("/sys/bus/vdpa/devices/"+vdpaId+"/virtio*/block/*")
-            if (err == nil && len(matches) == 0)
+            // Wait for the block device: virtio-blk probes asynchronously
+            blockdev := waitVduseBlockDev(vdpaId, 10*time.Second)
+            if (blockdev == "")
             {
-                err = errors.New("/sys/bus/vdpa/devices/"+vdpaId+"/virtio*/block/* is not found")
+                err = errors.New("/sys/bus/vdpa/devices/"+vdpaId+"/virtio*/block/* is not found after 10s")
             }
-            if (err == nil)
+            else
             {
-                blockdev := "/dev/"+filepath.Base(matches[0])
-                _, err = os.Stat(blockdev)
+                // Generate state file
+                stateJSON, _ := json.Marshal(&DeviceState{
+                    ConfigPath: ctxVars["configPath"],
+                    VdpaId:     vdpaId,
+
+                    Image:      volName,
+                    Blockdev:   blockdev,
+                    Readonly:   readonly,
+                    PidFile:    pidFile,
+                })
+                err = os.WriteFile(stateFile, stateJSON, 0600)
                 if (err == nil)
                 {
-                    // Generate state file
-                    stateJSON, _ := json.Marshal(&DeviceState{
-                        ConfigPath: ctxVars["configPath"],
-                        VdpaId:     vdpaId,
-
-                        Image:      volName,
-                        Blockdev:   blockdev,
-                        Readonly:   readonly,
-                        PidFile:    pidFile,
-                    })
-                    err = os.WriteFile(stateFile, stateJSON, 0600)
-                    if (err == nil)
-                    {
-                        klog.Infof("Attached volume %s via VDUSE as %s (VDPA ID %s)", volName, blockdev, vdpaId)
-                        return blockdev, vdpaId, nil
-                    }
+                    klog.Infof("Attached volume %s via VDUSE as %s (VDPA ID %s)", volName, blockdev, vdpaId)
+                    return blockdev, vdpaId, nil
                 }
+            }
+            // Remove the device from the bus while the daemon is still alive: deleting a VDPA device
+            // whose backend is gone hangs in the kernel (blk_mq_freeze_queue_wait) and takes the
+            // netlink lock with it, so the daemon must be stopped only after `vdpa dev del`.
+            if _, _, delErr := system("/sbin/vdpa", "-j", "dev", "del", vdpaId); delErr != nil
+            {
+                klog.Errorf("Failed to remove VDPA device %s after a failed attach: %v", vdpaId, delErr)
             }
         }
         killErr := killByPidFile(pidFile)
@@ -271,18 +321,17 @@ func mapVduse(stateDir string, volName string, ctxVars map[string]string, readon
     return "", "", err
 }
 
-func unmapVduse(stateDir, devicePath string)
+// vduseIdFromDevice returns the vdpa/VDUSE device ID behind a /dev/vdX block device
+func vduseIdFromDevice(devicePath string) (string, error)
 {
     if (len(devicePath) < 6 || devicePath[0:6] != "/dev/v")
     {
-        klog.Errorf("%s does not start with /dev/v", devicePath)
-        return
+        return "", fmt.Errorf("%s does not start with /dev/v", devicePath)
     }
     vduseDev, err := os.Readlink("/sys/block/"+devicePath[5:])
     if (err != nil)
     {
-        klog.Errorf("%s is not a symbolic link to VDUSE device (../devices/virtual/vduse/xxx): %v", devicePath, err)
-        return
+        return "", fmt.Errorf("%s is not a symbolic link to VDUSE device (../devices/virtual/vduse/xxx): %v", devicePath, err)
     }
     vdpaId := ""
     p := strings.Index(vduseDev, "/vduse/")
@@ -297,7 +346,17 @@ func unmapVduse(stateDir, devicePath string)
     }
     if (vdpaId == "")
     {
-        klog.Errorf("%s is not a symbolic link to VDUSE device (../devices/virtual/vduse/xxx), but is %v", devicePath, vduseDev)
+        return "", fmt.Errorf("%s is not a symbolic link to VDUSE device (../devices/virtual/vduse/xxx), but is %v", devicePath, vduseDev)
+    }
+    return vdpaId, nil
+}
+
+func unmapVduse(stateDir, devicePath string)
+{
+    vdpaId, err := vduseIdFromDevice(devicePath)
+    if (err != nil)
+    {
+        klog.Errorf("%v", err)
         return
     }
     unmapVduseById(stateDir, vdpaId)
@@ -305,18 +364,25 @@ func unmapVduse(stateDir, devicePath string)
 
 func unmapVduseById(stateDir, vdpaId string)
 {
-    _, err := os.Stat("/sys/bus/vdpa/devices/"+vdpaId)
-    if (err != nil)
+    var err error
+    stateFile := stateDir + vdpaId + ".json"
+    pidFile := stateDir + vdpaId + ".pid"
+    if (!vduseDevExists(vdpaId))
     {
-        klog.Errorf("failed to stat /sys/bus/vdpa/devices/"+vdpaId+": %v", err)
+        klog.Errorf("VDPA device %s is not on the bus, cleaning up its state", vdpaId)
+    }
+    else if (vduseBlockDev(vdpaId) != "" && !daemonAlive(pidFile))
+    {
+        // A disk is bound but nobody serves it: `vdpa dev del` would wait forever for in-flight
+        // requests (observed 2026-11-04: D-state vdpa holding the genetlink lock, node needed a
+        // reset). Leave the device alone, drop our state so nothing retries, and shout.
+        klog.Errorf("VDPA device %s has a bound block device but its storage daemon is dead: not deleting it (would hang the kernel); drain it with a daemon on the same VDUSE name or reboot the node", vdpaId)
     }
     else
     {
         _, _, _ = system("/sbin/vdpa", "-j", "dev", "del", vdpaId)
     }
-    stateFile := stateDir + vdpaId + ".json"
     os.Remove(stateFile)
-    pidFile := stateDir + vdpaId + ".pid"
     _, err = os.Stat(pidFile)
     if (os.IsNotExist(err))
     {
