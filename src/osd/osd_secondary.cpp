@@ -114,7 +114,13 @@ bool osd_t::sec_check_pg_lock(osd_num_t primary_osd, const object_id &oid, uint3
 
 void osd_t::exec_secondary_real(osd_op_t *cur_op)
 {
-    osd_client_t *cl = msgr.clients.at(cur_op->client_id);
+    auto cl_it = msgr.clients.find(cur_op->client_id);
+    if (cl_it == msgr.clients.end())
+    {
+        // The client is already disconnected - may happen in a timer from exec_secondary()
+        return;
+    }
+    osd_client_t *cl = cl_it->second;
     if (use_perms && !cl->hs_result.peer_is_osd)
     {
         // Non-OSDs are not allowed to execute "secondary" operations except LIST
