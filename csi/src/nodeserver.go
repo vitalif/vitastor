@@ -159,10 +159,6 @@ func (ns *NodeServer) restoreVduseDaemons()
     {
         klog.Errorf("failed to list %s: %v", pattern, err)
     }
-    if (len(stateFiles) == 0)
-    {
-        return
-    }
     devList := make(map[string]interface{})
     // example output: {"dev":{"test1":{"type":"block","mgmtdev":"vduse","vendor_id":0,"max_vqs":16,"max_vq_size":128}}}
     devListJSON, _, err := system("/sbin/vdpa", "-j", "dev", "list")
@@ -181,6 +177,7 @@ func (ns *NodeServer) restoreVduseDaemons()
     {
         ns.checkVduseState(stateFile, devs)
     }
+    ns.cleanOrphanVduseDevices(devs)
 }
 
 func (ns *NodeServer) checkVduseState(stateFile string, devs map[string]interface{})
@@ -238,6 +235,42 @@ func (ns *NodeServer) checkVduseState(stateFile string, devs map[string]interfac
         if (err != nil)
         {
             klog.Warningf("failed to restart storage daemon for volume %v: %v", state.Image, err)
+            // The image is gone (deleted while the daemon was down): retrying every check forever
+            // only spams the log. Drop the state; the device itself is handled by unmapVduseById
+            // (deleted if no disk is bound, otherwise left alone — deleting it would hang).
+            if (strings.Contains(err.Error(), "does not exist"))
+            {
+                klog.Errorf("image %v of VDPA device %v no longer exists: giving up on it", state.Image, vdpaId)
+                unmapVduseById(ns.stateDir, vdpaId)
+            }
+        }
+    }
+}
+
+// cleanOrphanVduseDevices removes vitastor-vduse-* VDPA devices that have no state file and no
+// bound block device: leftovers of attach attempts that failed before virtio-blk probed them
+// (the daemon was killed first). Devices with a bound disk are only reported.
+func (ns *NodeServer) cleanOrphanVduseDevices(devs map[string]interface{})
+{
+    for vdpaId := range devs
+    {
+        if (!strings.HasPrefix(vdpaId, "vitastor-vduse-"))
+        {
+            continue
+        }
+        if _, err := os.Stat(ns.stateDir + vdpaId + ".json"); err == nil
+        {
+            continue
+        }
+        if (vduseBlockDev(vdpaId) != "")
+        {
+            klog.Errorf("VDPA device %s has a bound block device but no state file: not touching it (deleting a device without a live daemon hangs the kernel)", vdpaId)
+            continue
+        }
+        klog.Warningf("removing orphan VDPA device %s (no state file, no block device)", vdpaId)
+        if _, _, err := system("/sbin/vdpa", "-j", "dev", "del", vdpaId); err != nil
+        {
+            klog.Errorf("failed to remove orphan VDPA device %s: %v", vdpaId, err)
         }
     }
 }
@@ -423,6 +456,39 @@ func (ns *NodeServer) checkNfsState(stateFile string)
     }
 }
 
+// stagedVolumeName returns the name of the Vitastor image whose device is mounted at mountPath.
+// Only VDUSE devices are identified (via the state file written by mapVduse); for other mount
+// methods an empty name is returned, meaning "unknown".
+func (ns *NodeServer) stagedVolumeName(mountPath string) (string, error)
+{
+    devicePath, err := GetDeviceNameFromMount(mountPath)
+    if (err != nil)
+    {
+        return "", err
+    }
+    if (ns.method != MOUNT_VDUSE)
+    {
+        return "", nil
+    }
+    vdpaId, err := vduseIdFromDevice(devicePath)
+    if (err != nil)
+    {
+        return "", err
+    }
+    stateJSON, err := os.ReadFile(ns.stateDir + vdpaId + ".json")
+    if (err != nil)
+    {
+        return "", err
+    }
+    var state DeviceState
+    err = json.Unmarshal(stateJSON, &state)
+    if (err != nil)
+    {
+        return "", err
+    }
+    return state.Image, nil
+}
+
 // NodeStageVolume mounts the volume to a staging path on the node.
 func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error)
 {
@@ -458,8 +524,21 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
     {
         if (!notmnt)
         {
-            klog.Errorf("target path %s is already mounted", targetPath)
-            return nil, fmt.Errorf("target path %s is already mounted", targetPath)
+            // NodeStageVolume must be idempotent (CSI spec): kubelet re-stages the volumes of running
+            // pods after its own restart and retries forever on error. Succeed if our volume is already here.
+            staged, err := ns.stagedVolumeName(targetPath)
+            if (err != nil)
+            {
+                klog.Errorf("target path %s is already mounted, but the volume behind it is unknown: %v", targetPath, err)
+                return nil, fmt.Errorf("target path %s is already mounted, but the volume behind it is unknown: %w", targetPath, err)
+            }
+            if (staged != "" && staged != volName)
+            {
+                klog.Errorf("target path %s is already mounted with another volume %s", targetPath, staged)
+                return nil, fmt.Errorf("target path %s is already mounted with another volume %s", targetPath, staged)
+            }
+            klog.Infof("target path %s is already mounted with volume %s, nothing to do", targetPath, volName)
+            return &csi.NodeStageVolumeResponse{}, nil
         }
         var finfo os.FileInfo
         finfo, err = os.Stat(targetPath)
@@ -949,8 +1028,9 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
     }
     else if (!notmnt)
     {
-        klog.Errorf("target path %s is already mounted", targetPath)
-        return nil, fmt.Errorf("target path %s is already mounted", targetPath)
+        // Idempotent (CSI spec): the pod's target path is already bind-mounted, e.g. kubelet re-publishes after a restart
+        klog.Infof("target path %s is already mounted, nothing to do", targetPath)
+        return &csi.NodePublishVolumeResponse{}, nil
     }
 
     if (ctxVars["vitastorfs"] != "")
