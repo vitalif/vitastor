@@ -739,7 +739,7 @@ protected:
             fprintf(stderr, "Device /dev/ublkb%u is not supported because it has %d queues\n", dev_num, ublk_dev.nr_hw_queues);
             exit(1);
         }
-        if (ublk_dev.ublksrv_pid != 0)
+        if (ublk_dev.ublksrv_pid > 0)
         {
             res = kill(ublk_dev.ublksrv_pid, 0);
             if (res == 0)
