@@ -167,6 +167,29 @@ class AntiEtcdAdapter
 
     async become_master()
     {
+        if (!this.antietcd.cluster && this.antietcd.cfg.etcd_proxy)
+        {
+            // etcd_proxy mode: there is no Antietcd cluster and no raft leader to follow,
+            // but several monitors share the same etcd, so the master is elected through
+            // etcd in the same way as in etcd_adapter.js
+            const state = { ...this.mon.get_mon_state(), id: ''+this.mon.etcd_lease_id };
+            console.log('Waiting to become master');
+            // eslint-disable-next-line no-constant-condition
+            while (1)
+            {
+                const res = await this.etcd_call('/kv/txn', {
+                    compare: [ { target: 'CREATE', create_revision: 0, key: b64(this.mon.config.etcd_prefix+'/mon/master') } ],
+                    success: [ { requestPut: { key: b64(this.mon.config.etcd_prefix+'/mon/master'), value: b64(JSON.stringify(state)), lease: ''+this.mon.etcd_lease_id } } ],
+                }, this.mon.config.etcd_start_timeout, 0);
+                if (res.succeeded)
+                {
+                    break;
+                }
+                await new Promise(ok => setTimeout(ok, this.mon.config.etcd_start_timeout));
+            }
+            console.log('Became master');
+            return;
+        }
         if (!this.antietcd.cluster)
         {
             console.log('Running in non-clustered mode');
