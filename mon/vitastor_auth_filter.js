@@ -33,6 +33,7 @@ const static_perms = {
         prefixes: {
             '/config/': false, '/osd/': false, '/mon/': true, '/pg/history/': true,
             '/pg/stats/': true, '/pgstats/': true, '/inode/stats/': true, '/pool/stats/': true,
+            '/pg/state/': false,
         },
     },
     admin: {
