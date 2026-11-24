@@ -87,6 +87,9 @@ protected:
     cluster_client_t *cli = NULL;
     inode_watch_t *watch = NULL;
     bool size_changed = false;
+    // Discard / write zeroes: the unit the OSD deletes and a buffer of zeros
+    uint64_t delete_block = 0;
+    uint8_t *zero_buf = NULL;
 
     std::string logfile = "/dev/null";
     std::string pidfile;
@@ -327,6 +330,9 @@ help:
         }
         uint32_t buf_size = max_io_size ? max_io_size : (1024*1024 < pg_data_size ? pg_data_size : 1024*1024);
         uint32_t bitmap_granularity = pool_cfg.bitmap_granularity;
+        delete_block = pg_data_size;
+        zero_buf = (uint8_t*)memalign_or_die(MEM_ALIGNMENT, buf_size);
+        memset(zero_buf, 0, buf_size);
 
         load_module();
 
@@ -655,7 +661,7 @@ protected:
         }
         ublk_params params = {
             .len = sizeof(ublk_params),
-            .types = UBLK_PARAM_TYPE_BASIC,
+            .types = UBLK_PARAM_TYPE_BASIC | ((attrs & UBLK_ATTR_READ_ONLY) || !delete_block ? 0 : UBLK_PARAM_TYPE_DISCARD),
             .basic = {
                 .attrs = attrs, // UBLK_ATTR_READ_ONLY | UBLK_ATTR_ROTATIONAL | UBLK_ATTR_VOLATILE_CACHE | UBLK_ATTR_FUA
                 .logical_bs_shift = phys_shift,
@@ -669,10 +675,10 @@ protected:
             },
             .discard = {
                 .discard_alignment = 0,
-                .discard_granularity = 0,
-                .max_discard_sectors = 0,
-                .max_write_zeroes_sectors = 0,
-                .max_discard_segments = 0,
+                .discard_granularity = (uint32_t)delete_block,
+                .max_discard_sectors = (uint32_t)(1024*1024*1024 / 512),
+                .max_write_zeroes_sectors = max_io_buf_bytes / 512,
+                .max_discard_segments = 1,
             },
         };
         res = sync_unpriv_cmd(false, new_opcodes ? UBLK_U_CMD_SET_PARAMS : UBLK_CMD_SET_PARAMS, &params, sizeof(params));
@@ -868,7 +874,7 @@ protected:
         }
         else if (opcode == UBLK_IO_OP_WRITE_ZEROES || opcode == UBLK_IO_OP_DISCARD)
         {
-            submit_request(new_opcodes ? UBLK_U_IO_COMMIT_AND_FETCH_REQ : UBLK_IO_COMMIT_AND_FETCH_REQ, i, -EINVAL);
+            exec_zeroes(i, iod, opcode == UBLK_IO_OP_DISCARD);
         }
         else if (opcode == UBLK_IO_OP_READ || opcode == UBLK_IO_OP_WRITE)
         {
@@ -889,6 +895,89 @@ protected:
         {
             submit_request(new_opcodes ? UBLK_U_IO_COMMIT_AND_FETCH_REQ : UBLK_IO_COMMIT_AND_FETCH_REQ, i, -EINVAL);
         }
+    }
+
+    struct zeroes_req_t
+    {
+        int pending = 1;
+        int retval = 0;
+    };
+
+    // Whole objects are deleted only in images without a parent: in a clone a deleted
+    // object would show the parent's data. The rest is zeroed, discard is just a hint.
+    void exec_zeroes(int i, ublksrv_io_desc *iod, bool discard)
+    {
+        const uint64_t start = iod->start_sector * 512, end = start + (uint64_t)iod->nr_sectors * 512;
+        const uint64_t inode_num = inode ? inode : watch->cfg.num;
+        const bool can_delete = !inode && watch && !watch->cfg.parent_id && delete_block &&
+            !(iod->op_flags & UBLK_IO_F_NOUNMAP);
+        uint64_t del_start = end, del_end = end;
+        if (can_delete)
+        {
+            del_start = (start + delete_block - 1) / delete_block * delete_block;
+            del_end = end / delete_block * delete_block;
+            if (del_start >= del_end)
+                del_start = del_end = end;
+        }
+        auto *st = new zeroes_req_t;
+        auto done = [this, i, st](int res)
+        {
+            if (res < 0 && !st->retval)
+                st->retval = res;
+            if (--st->pending == 0)
+            {
+                submit_request(new_opcodes ? UBLK_U_IO_COMMIT_AND_FETCH_REQ : UBLK_IO_COMMIT_AND_FETCH_REQ, i, st->retval);
+                delete st;
+            }
+        };
+        if (del_start < del_end)
+        {
+            st->pending++;
+            cluster_op_t *op = new cluster_op_t;
+            op->opcode = OSD_OP_DELETE;
+            op->inode = inode_num;
+            op->offset = del_start;
+            op->len = del_end - del_start;
+            op->callback = [done](cluster_op_t *op)
+            {
+                int res = op->retval < 0 ? op->retval : 0;
+                delete op;
+                done(res);
+            };
+            cli->execute(op);
+        }
+        if (!discard)
+        {
+            // Head and tail around the deleted objects (or the whole range)
+            const uint64_t ranges[2][2] = { { start, del_start }, { del_end, end } };
+            for (int r = 0; r < 2; r++)
+            {
+                const uint64_t len = ranges[r][1] - ranges[r][0];
+                if (!len)
+                    continue;
+                if (len > ublk_dev.max_io_buf_bytes)
+                {
+                    // Cannot happen: limited by max_write_zeroes_sectors
+                    done(-EINVAL);
+                    return;
+                }
+                st->pending++;
+                cluster_op_t *op = new cluster_op_t;
+                op->opcode = OSD_OP_WRITE;
+                op->inode = inode_num;
+                op->offset = ranges[r][0];
+                op->len = len;
+                op->iov.push_back(zero_buf, len);
+                op->callback = [done](cluster_op_t *op)
+                {
+                    int res = op->retval < 0 ? op->retval : 0;
+                    delete op;
+                    done(res);
+                };
+                cli->execute(op);
+            }
+        }
+        done(0);
     }
 
     int get_dev_info(int dev_num, bool unpriv)
